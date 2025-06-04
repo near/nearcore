@@ -44,7 +44,7 @@ fn build_chain() {
 
     for i in 1..5 {
         clock.advance(Duration::milliseconds(1));
-        let prev_hash = *chain.head_header().unwrap().hash();
+        let prev_hash = chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = TestBlockBuilder::new(clock.clock(), &prev, signer.clone()).build();
         chain.process_block_test(&None, block).unwrap();
@@ -90,7 +90,7 @@ fn build_chain_with_orphans() {
         100,
         Some(0),
         &*signer,
-        *last_block.header().next_bp_hash(),
+        last_block.header().next_bp_hash(),
         CryptoHash::default(),
         clock,
         None,
@@ -178,18 +178,18 @@ fn blocks_at_height() {
 
     let e_7 = TestBlockBuilder::new(Clock::real(), &b_1, signer).height(7).build();
 
-    let b_1_hash = *b_1.hash();
-    let b_2_hash = *b_2.hash();
+    let b_1_hash = b_1.hash();
+    let b_2_hash = b_2.hash();
 
-    let c_1_hash = *c_1.hash();
-    let c_3_hash = *c_3.hash();
-    let c_4_hash = *c_4.hash();
+    let c_1_hash = c_1.hash();
+    let c_3_hash = c_3.hash();
+    let c_4_hash = c_4.hash();
 
-    let d_3_hash = *d_3.hash();
-    let d_5_hash = *d_5.hash();
-    let d_6_hash = *d_6.hash();
+    let d_3_hash = d_3.hash();
+    let d_5_hash = d_5.hash();
+    let d_6_hash = d_6.hash();
 
-    let e_7_hash = *e_7.hash();
+    let e_7_hash = e_7.hash();
 
     assert_ne!(c_3_hash, d_3_hash);
 
@@ -197,38 +197,38 @@ fn blocks_at_height() {
     chain.process_block_test(&None, b_2).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 2);
 
-    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
-    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), b_2_hash);
 
     chain.process_block_test(&None, c_1).unwrap();
     chain.process_block_test(&None, c_3).unwrap();
     chain.process_block_test(&None, c_4).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 4);
 
-    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &c_1_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), c_1_hash);
     assert!(chain.get_block_header_by_height(2).is_err());
-    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &c_3_hash);
-    assert_eq!(chain.get_block_header_by_height(4).unwrap().hash(), &c_4_hash);
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), c_3_hash);
+    assert_eq!(chain.get_block_header_by_height(4).unwrap().hash(), c_4_hash);
 
     chain.process_block_test(&None, d_3).unwrap();
     chain.process_block_test(&None, d_5).unwrap();
     chain.process_block_test(&None, d_6).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 6);
 
-    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
-    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
-    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &d_3_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), b_2_hash);
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), d_3_hash);
     assert!(chain.get_block_header_by_height(4).is_err());
-    assert_eq!(chain.get_block_header_by_height(5).unwrap().hash(), &d_5_hash);
-    assert_eq!(chain.get_block_header_by_height(6).unwrap().hash(), &d_6_hash);
+    assert_eq!(chain.get_block_header_by_height(5).unwrap().hash(), d_5_hash);
+    assert_eq!(chain.get_block_header_by_height(6).unwrap().hash(), d_6_hash);
 
     chain.process_block_test(&None, e_7).unwrap();
 
-    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), b_1_hash);
     for h in 2..=5 {
         assert!(chain.get_block_header_by_height(h).is_err());
     }
-    assert_eq!(chain.get_block_header_by_height(7).unwrap().hash(), &e_7_hash);
+    assert_eq!(chain.get_block_header_by_height(7).unwrap().hash(), e_7_hash);
 }
 
 #[test]
@@ -240,10 +240,10 @@ fn next_blocks() {
     let b2 = TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).height(2).build();
     let b3 = TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).height(3).build();
     let b4 = TestBlockBuilder::new(Clock::real(), &b3, signer).height(4).build();
-    let b1_hash = *b1.hash();
-    let b2_hash = *b2.hash();
-    let b3_hash = *b3.hash();
-    let b4_hash = *b4.hash();
+    let b1_hash = b1.hash();
+    let b2_hash = b2.hash();
+    let b3_hash = b3.hash();
+    let b4_hash = b4.hash();
     assert!(chain.process_block_test(&None, b1).is_ok());
     assert!(chain.process_block_test(&None, b2).is_ok());
     assert_eq!(chain.mut_chain_store().get_next_block_hash(&b1_hash).unwrap(), b2_hash);

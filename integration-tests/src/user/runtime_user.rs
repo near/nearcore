@@ -151,7 +151,7 @@ impl RuntimeUser {
             update.commit().unwrap();
             client.state_root = apply_result.state_root;
             for receipt in &apply_result.outgoing_receipts {
-                self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
+                self.receipts.borrow_mut().insert(receipt.receipt_id(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;
             txs = vec![];
@@ -291,7 +291,7 @@ impl User for RuntimeUser {
         self.trie_viewer
             .view_account_contract_code(&state_update, account_id)
             .map(|contract_code| {
-                let hash = *contract_code.hash();
+                let hash = contract_code.hash();
                 ContractCodeView { hash, code: contract_code.into_code() }
             })
             .map_err(|err| err.to_string())

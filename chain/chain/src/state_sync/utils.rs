@@ -33,7 +33,7 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
     header: &BlockHeader,
 ) -> Result<bool, Error> {
     let Some(mut num_new_chunks) =
-        get_state_sync_new_chunks(&chain_store.store(), header.prev_hash())?
+        get_state_sync_new_chunks(&chain_store.store(), &header.prev_hash())?
     else {
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
@@ -134,11 +134,11 @@ fn on_new_header<T: ChainStoreAccess>(
     let epoch_id = header.epoch_id();
     let last_final_hash = header.last_final_block();
 
-    let Some(mut sync) = maybe_get_block_header(chain_store, last_final_hash)? else {
+    let Some(mut sync) = maybe_get_block_header(chain_store, &last_final_hash)? else {
         return Ok(());
     };
     loop {
-        let Some(sync_prev) = maybe_get_block_header(chain_store, sync.prev_hash())? else {
+        let Some(sync_prev) = maybe_get_block_header(chain_store, &sync.prev_hash())? else {
             return Ok(());
         };
         if sync_prev.epoch_id() != epoch_id
@@ -146,16 +146,16 @@ fn on_new_header<T: ChainStoreAccess>(
         {
             return Ok(());
         }
-        if has_enough_new_chunks(&chain_store.store(), sync_prev.hash())? != Some(true) {
+        if has_enough_new_chunks(&chain_store.store(), &sync_prev.hash())? != Some(true) {
             return Ok(());
         }
 
-        let Some(sync_prev_prev) = maybe_get_block_header(chain_store, sync_prev.prev_hash())?
+        let Some(sync_prev_prev) = maybe_get_block_header(chain_store, &sync_prev.prev_hash())?
         else {
             return Ok(());
         };
         let Some(prev_prev_done) =
-            has_enough_new_chunks(&chain_store.store(), sync_prev_prev.hash())?
+            has_enough_new_chunks(&chain_store.store(), &sync_prev_prev.hash())?
         else {
             return Ok(());
         };
@@ -163,7 +163,7 @@ fn on_new_header<T: ChainStoreAccess>(
         if !prev_prev_done {
             // `sync_prev_prev` doesn't have enough new chunks, and `sync_prev` does, meaning `sync` is the first final
             // valid sync block
-            store_update.set_ser(DBCol::StateSyncHashes, epoch_id.as_ref(), sync.hash())?;
+            store_update.set_ser(DBCol::StateSyncHashes, epoch_id.as_ref(), &sync.hash())?;
             store_update.delete_all(DBCol::StateSyncNewChunks);
             return Ok(());
         }
@@ -183,7 +183,7 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
         return Ok(());
     }
 
-    let prev_header = match chain_store.get_block_header(header.prev_hash()) {
+    let prev_header = match chain_store.get_block_header(&header.prev_hash()) {
         Ok(h) => h,
         // During epoch sync, we save headers whose prev headers might not exist, so we just do nothing in this case.
         // This means that we might not be able to state sync for this epoch, but for now this is not a problem.
@@ -224,7 +224,7 @@ pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> R
     // and the conditions below can't be checked.
     if let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(&tip.epoch_id)? {
         let sync_header = chain_store.get_block_header(&sync_hash)?;
-        return Ok(sync_header.prev_hash() == &tip.last_block_hash);
+        return Ok(sync_header.prev_hash() == tip.last_block_hash);
     }
     let store = chain_store.store_ref();
     let Some(new_chunks) = get_state_sync_new_chunks(store, &tip.last_block_hash)? else {
@@ -248,7 +248,7 @@ impl Chain {
     /// in which case this returns None. If syncing to the state of the previous epoch (the old way),
     /// it's the hash of the first block in that epoch.
     pub fn get_sync_hash(&self, block_hash: &CryptoHash) -> Result<Option<CryptoHash>, Error> {
-        if block_hash == self.genesis().hash() {
+        if *block_hash == self.genesis().hash() {
             // We shouldn't be trying to sync state from before the genesis block
             return Ok(None);
         }
@@ -272,7 +272,7 @@ impl Chain {
             ?sync_hash,
             ?genesis_hash,
             "find_sync_hash");
-        assert_ne!(&sync_hash, genesis_hash);
+        assert_ne!(sync_hash, genesis_hash);
         Ok(Some(sync_hash))
     }
 
@@ -297,7 +297,7 @@ impl Chain {
         };
 
         let mut extra_block_hashes = vec![];
-        let mut next_hash = *sync_prev_block.header().prev_hash();
+        let mut next_hash = sync_prev_block.header().prev_hash();
         loop {
             let next_header = self.get_block_header(&next_hash);
             let Ok(next_header) = next_header else {
@@ -310,7 +310,7 @@ impl Chain {
             }
             extra_block_hashes.push(next_hash);
 
-            next_hash = *next_header.prev_hash();
+            next_hash = next_header.prev_hash();
         }
         extra_block_hashes
     }

@@ -536,7 +536,7 @@ impl TestEnvBuilder {
                     };
                     let tries = runtime.get_tries();
                     let make_snapshot_callback = Arc::new(move |_min_chunk_prev_height, _epoch_height, shard_uids: Vec<(ShardIndex, ShardUId)>, block: Block| {
-                        let prev_block_hash = *block.header().prev_hash();
+                        let prev_block_hash = block.header().prev_hash();
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
                         tries.delete_state_snapshot();
                         tries.create_state_snapshot(prev_block_hash, &shard_uids, &block).unwrap();

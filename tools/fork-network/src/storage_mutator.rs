@@ -324,7 +324,7 @@ impl StorageMutator {
             shard_idx,
             TrieKey::PostponedReceipt {
                 receiver_id: receipt.receiver_id().clone(),
-                receipt_id: *receipt.receipt_id(),
+                receipt_id: receipt.receipt_id(),
             },
             borsh::to_vec(&receipt)?,
         )

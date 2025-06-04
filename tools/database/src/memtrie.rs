@@ -235,7 +235,7 @@ impl<'a, 'b> MemtrieSizeCalculator<'a, 'b> {
     /// Get RAM usage of a shard trie
     /// Does a BFS of the whole memtrie
     fn get_shard_trie_size(&self, shard_uid: ShardUId) -> anyhow::Result<u64> {
-        let chunk_extra = self.chain_store.get_chunk_extra(self.block.hash(), &shard_uid)?;
+        let chunk_extra = self.chain_store.get_chunk_extra(&self.block.hash(), &shard_uid)?;
         let state_root = chunk_extra.state_root();
         println!("Shard {shard_uid}: state root: {state_root}");
 

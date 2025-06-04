@@ -11,8 +11,8 @@ use rand_chacha::ChaCha20Rng;
 /// processing them in the target shard.
 pub fn get_receipts_shuffle_salt<'a>(
     epoch_manager: &dyn EpochManagerAdapter,
-    block: &'a Block,
-) -> Result<&'a CryptoHash, EpochError> {
+    block: &Block,
+) -> Result<CryptoHash, EpochError> {
     let protocol_version = epoch_manager.get_epoch_protocol_version(&block.header().epoch_id())?;
     if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
         Ok(block.header().prev_hash())

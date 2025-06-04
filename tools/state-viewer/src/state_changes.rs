@@ -89,13 +89,13 @@ fn dump_state_changes(
         let block_hash = block_header.hash();
         let epoch_id = block_header.epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
-        let key = KeyForStateChanges::for_block(block_header.hash());
+        let key = KeyForStateChanges::for_block(&block_header.hash());
         let mut state_changes_per_shard: Vec<_> =
             epoch_manager.shard_ids(epoch_id).unwrap().into_iter().map(|_| vec![]).collect();
 
         for row in key.find_rows_iter(&store) {
             let (key, value) = row.unwrap();
-            let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, block_hash, epoch_id, epoch_manager.as_ref()).unwrap();
+            let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, &block_hash, epoch_id, epoch_manager.as_ref()).unwrap();
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             state_changes_per_shard[shard_index].push(value);
         }
@@ -115,7 +115,7 @@ fn dump_state_changes(
             // Skip serializing state changes for a block if no state changes were found for this block.
             None
         } else {
-            Some(StateChangesForBlock { block_hash: *block_hash, state_changes })
+            Some(StateChangesForBlock { block_hash, state_changes })
         }
     }).collect();
 
@@ -175,14 +175,15 @@ fn apply_state_changes(
                 continue;
             }
 
-            if let Ok(block) = chain_store.get_block(block_hash) {
+            if let Ok(block) = chain_store.get_block(&block_hash) {
                 let known_state_root = block.chunks()[shard_index].prev_state_root();
                 assert_eq!(known_state_root, state_root);
                 tracing::debug!(target: "state-changes", block_height, ?state_root, "Known StateRoot matches");
             }
 
             tracing::info!(target: "state-changes", block_height, ?block_hash, ?shard_uid, ?state_root, num_changes = state_changes.len(), "Applying state changes");
-            let trie = runtime.get_trie_for_shard(shard_id, block_hash, state_root, false).unwrap();
+            let trie =
+                runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false).unwrap();
 
             let trie_update = trie
                 .update(
@@ -208,7 +209,7 @@ fn apply_state_changes(
                 block_height,
             );
             let mut store_update = chain_store.store_update();
-            store_update.save_trie_changes(*block_hash, wrapped_trie_changes);
+            store_update.save_trie_changes(block_hash, wrapped_trie_changes);
             store_update.commit().unwrap();
         }
     }

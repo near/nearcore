@@ -509,7 +509,7 @@ impl<'a> Contract for RuntimeContractExt<'a> {
             // There are old eth implicit accounts without magic bytes in the code hash.
             // Result can be None and it's a valid option. See https://github.com/near/nearcore/pull/11606
             if let Some(wallet_contract) = wallet_contract(self.code_hash) {
-                return *wallet_contract.hash();
+                return wallet_contract.hash();
             }
         }
 

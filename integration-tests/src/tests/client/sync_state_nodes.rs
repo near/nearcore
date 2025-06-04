@@ -527,7 +527,7 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                     "test1".parse().unwrap(),
                     &signer,
                     1,
-                    *genesis_block.hash(),
+                    genesis_block.hash(),
                 );
                 assert_eq!(
                     env.rpc_handlers[0].process_tx(tx, false, false),
@@ -539,10 +539,10 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
 
             tracing::info!(target: "test", "state sync - get parts");
             let sync_hash =
-                env.clients[0].chain.get_sync_hash(blocks.last().unwrap().hash()).unwrap().unwrap();
+                env.clients[0].chain.get_sync_hash(&blocks.last().unwrap().hash()).unwrap().unwrap();
             let sync_block_idx = blocks
                 .iter()
-                .position(|b| *b.hash() == sync_hash)
+                .position(|b| b.hash() == sync_hash)
                 .expect("block with hash matching sync hash not found");
             let sync_block = &blocks[sync_block_idx];
             if sync_block_idx == 0 {
@@ -646,7 +646,7 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                         env.clients[1]
                             .chain
                             .get_chunk_extra(
-                                blocks[height as usize].hash(),
+                                &blocks[height as usize].hash(),
                                 &ShardUId::single_shard()
                             )
                             .is_err()
@@ -654,13 +654,13 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                 } else {
                     let chunk_extra = env.clients[1]
                         .chain
-                        .get_chunk_extra(blocks[height as usize].hash(), &ShardUId::single_shard())
+                        .get_chunk_extra(&blocks[height as usize].hash(), &ShardUId::single_shard())
                         .unwrap();
                     let expected_height = height;
                     let expected_chunk_extra = env.clients[0]
                         .chain
                         .get_chunk_extra(
-                            blocks[expected_height as usize].hash(),
+                            &blocks[expected_height as usize].hash(),
                             &ShardUId::single_shard(),
                         )
                         .unwrap();

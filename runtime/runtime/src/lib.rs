@@ -413,9 +413,9 @@ impl Runtime {
         let outcome = ExecutionOutcomeWithId {
             id: validated_tx.get_hash(),
             outcome: ExecutionOutcome {
-                status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
+                status: ExecutionStatus::SuccessReceiptId(receipt.receipt_id()),
                 logs: vec![],
-                receipt_ids: vec![*receipt.receipt_id()],
+                receipt_ids: vec![receipt.receipt_id()],
                 gas_burnt,
                 // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
                 compute_usage: Some(compute_usage),
@@ -687,7 +687,7 @@ impl Runtime {
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let action_hash = create_action_hash_from_receipt_id(
                 apply_state.current_protocol_version,
-                receipt.receipt_id(),
+                &receipt.receipt_id(),
                 &apply_state.block_hash,
                 apply_state.block_height,
                 action_index,
@@ -899,7 +899,8 @@ impl Runtime {
             .into_iter()
             .enumerate()
             .filter_map(|(receipt_index, mut new_receipt)| {
-                let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), receipt_index);
+                let receipt_id =
+                    apply_state.create_receipt_id(&receipt.receipt_id(), receipt_index);
                 new_receipt.set_receipt_id(receipt_id);
                 let is_action = matches!(
                     new_receipt.receipt(),
@@ -924,7 +925,7 @@ impl Runtime {
 
         let status = match result.result {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => ExecutionStatus::SuccessReceiptId(
-                apply_state.create_receipt_id(receipt.receipt_id(), receipt_index as usize),
+                apply_state.create_receipt_id(&receipt.receipt_id(), receipt_index as usize),
             ),
             Ok(ReturnData::Value(data)) => ExecutionStatus::SuccessValue(data),
             Ok(ReturnData::None) => ExecutionStatus::SuccessValue(vec![]),
@@ -934,7 +935,7 @@ impl Runtime {
         Self::print_log(&result.logs);
 
         Ok(ExecutionOutcomeWithId {
-            id: *receipt.receipt_id(),
+            id: receipt.receipt_id(),
             outcome: ExecutionOutcome {
                 status,
                 logs: result.logs,
@@ -1275,7 +1276,7 @@ impl Runtime {
                                 receiver_id: account_id.clone(),
                                 data_id: *data_id,
                             },
-                            receipt.receipt_id(),
+                            &receipt.receipt_id(),
                         )
                     }
                 }
@@ -1301,7 +1302,7 @@ impl Runtime {
                         state_update,
                         TrieKey::PendingDataCount {
                             receiver_id: account_id.clone(),
-                            receipt_id: *receipt.receipt_id(),
+                            receipt_id: receipt.receipt_id(),
                         },
                         &pending_data_count,
                     );
@@ -1615,7 +1616,7 @@ impl Runtime {
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     state_update.set_code(account_id, &code);
-                    assert_eq!(*code.hash(), acc.contract().local_code().unwrap_or_default());
+                    assert_eq!(code.hash(), acc.contract().local_code().unwrap_or_default());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(state_update, account_id, public_key, &access_key);

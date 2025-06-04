@@ -102,7 +102,7 @@ impl EpochSync {
         let target_epoch_last_block_header =
             chain_store.get_block_header(&target_epoch_last_block_hash)?;
         let target_epoch_second_last_block_header =
-            chain_store.get_block_header(target_epoch_last_block_header.prev_hash())?;
+            chain_store.get_block_header(&target_epoch_last_block_header.prev_hash())?;
 
         let mut guard = cache.lock();
         if let Some((epoch_id, proof)) = &*guard {
@@ -165,7 +165,7 @@ impl EpochSync {
         Ok(loop {
             let block_info = epoch_store.get_block_info(&target_epoch_last_block_hash)?;
             let target_epoch_first_block_header =
-                chain_store.get_block_header(block_info.epoch_first_block())?;
+                chain_store.get_block_header(&block_info.epoch_first_block())?;
             // Check that we have enough headers to check for transaction_validity_period.
             // We check this against the current epoch's start height, because when we state
             // sync, we will sync against the current epoch, and starting from the point we
@@ -173,7 +173,7 @@ impl EpochSync {
             if target_epoch_first_block_header.height() + transaction_validity_period
                 > current_epoch_start_height
             {
-                target_epoch_last_block_hash = *target_epoch_first_block_header.prev_hash();
+                target_epoch_last_block_hash = target_epoch_first_block_header.prev_hash();
             } else {
                 break target_epoch_last_block_hash;
             }
@@ -190,7 +190,7 @@ impl EpochSync {
         let epoch_store = store.epoch_store();
 
         let last_final_block_header_in_current_epoch = chain_store.get_block_header(
-            next_block_header_after_last_final_block_of_current_epoch.prev_hash(),
+            &next_block_header_after_last_final_block_of_current_epoch.prev_hash(),
         )?;
         let current_epoch = *last_final_block_header_in_current_epoch.epoch_id();
         let current_epoch_info = epoch_store.get_epoch_info(&current_epoch)?;
@@ -243,25 +243,25 @@ impl EpochSync {
         let prev_epoch_info = epoch_store.get_epoch_info(&prev_epoch)?;
         let last_block_of_prev_epoch = chain_store.get_block_header(&next_epoch.0)?;
         let last_block_info_of_prev_epoch =
-            epoch_store.get_block_info(last_block_of_prev_epoch.hash())?;
+            epoch_store.get_block_info(&last_block_of_prev_epoch.hash())?;
         let second_last_block_of_prev_epoch =
-            chain_store.get_block_header(last_block_of_prev_epoch.prev_hash())?;
+            chain_store.get_block_header(&last_block_of_prev_epoch.prev_hash())?;
         let second_last_block_info_of_prev_epoch =
-            epoch_store.get_block_info(last_block_of_prev_epoch.prev_hash())?;
+            epoch_store.get_block_info(&last_block_of_prev_epoch.prev_hash())?;
         let first_block_info_of_prev_epoch =
-            epoch_store.get_block_info(last_block_info_of_prev_epoch.epoch_first_block())?;
+            epoch_store.get_block_info(&last_block_info_of_prev_epoch.epoch_first_block())?;
         let block_info_for_final_block_of_current_epoch =
-            epoch_store.get_block_info(last_final_block_header_in_current_epoch.hash())?;
+            epoch_store.get_block_info(&last_final_block_header_in_current_epoch.hash())?;
         let first_block_of_current_epoch = chain_store
-            .get_block_header(block_info_for_final_block_of_current_epoch.epoch_first_block())?;
+            .get_block_header(&block_info_for_final_block_of_current_epoch.epoch_first_block())?;
 
         let merkle_proof_for_first_block_of_current_epoch = store
             .compute_past_block_proof_in_merkle_tree_of_later_block(
-                first_block_of_current_epoch.hash(),
-                last_final_block_header_in_current_epoch.hash(),
+                &first_block_of_current_epoch.hash(),
+                &last_final_block_header_in_current_epoch.hash(),
             )?;
         let partial_merkle_tree_for_first_block_of_current_epoch =
-            chain_store.get_block_merkle_tree(first_block_of_current_epoch.hash())?;
+            chain_store.get_block_merkle_tree(&first_block_of_current_epoch.hash())?;
 
         let all_epochs_including_old_proof = existing_epoch_sync_proof
             .map(|proof| proof.all_epochs)
@@ -361,9 +361,9 @@ impl EpochSync {
                     let next_next_epoch_id = epoch_ids[index + 2];
                     let last_block_header = chain_store.get_block_header(&next_next_epoch_id.0)?;
                     let second_last_block_header =
-                        chain_store.get_block_header(last_block_header.prev_hash())?;
+                        chain_store.get_block_header(&last_block_header.prev_hash())?;
                     let third_last_block_header =
-                        chain_store.get_block_header(second_last_block_header.prev_hash())?;
+                        chain_store.get_block_header(&second_last_block_header.prev_hash())?;
                     (third_last_block_header, second_last_block_header.approvals().to_vec())
                 } else {
                     (
@@ -626,23 +626,23 @@ impl EpochSync {
         // At least the third last block of last past epoch is final.
         // It means that store contains header of last final block of the first block of current epoch.
         let last_header_last_finalized_height =
-            store.chain_store().get_block_header(last_header.last_final_block())?.height();
+            store.chain_store().get_block_header(&last_header.last_final_block())?.height();
         let mut first_block_info_in_epoch =
             BlockInfo::from_header(&last_header, last_header_last_finalized_height);
         // We need to populate fields below manually, as they are set to defaults by `BlockInfo::from_header`.
-        *first_block_info_in_epoch.epoch_first_block_mut() = *last_header.hash();
+        *first_block_info_in_epoch.epoch_first_block_mut() = last_header.hash();
         *first_block_info_in_epoch.epoch_id_mut() = *last_header.epoch_id();
 
         store_update.epoch_store_update().set_block_info(&first_block_info_in_epoch);
         store_update.chain_store_update().set_block_ordinal(
             proof.current_epoch.partial_merkle_tree_for_first_block.size(),
-            last_header.hash(),
+            &last_header.hash(),
         );
         store_update
             .chain_store_update()
-            .set_block_height(last_header.hash(), last_header.height());
+            .set_block_height(&last_header.hash(), last_header.height());
         store_update.chain_store_update().set_block_merkle_tree(
-            last_header.hash(),
+            &last_header.hash(),
             &proof.current_epoch.partial_merkle_tree_for_first_block,
         );
 
@@ -667,7 +667,7 @@ impl EpochSync {
         }
 
         // Verify block producer handoff to the second epoch after genesis.
-        let second_next_epoch_id_after_genesis = EpochId(*self.genesis.hash());
+        let second_next_epoch_id_after_genesis = EpochId(self.genesis.hash());
         let second_next_epoch_info_after_genesis =
             epoch_manager.get_epoch_info(&second_next_epoch_id_after_genesis)?;
         if all_epochs[0].block_producers
@@ -697,7 +697,7 @@ impl EpochSync {
             if !Self::verify_block_producer_handoff(
                 &epoch.block_producers,
                 epoch.use_versioned_bp_hash_format,
-                prev_epoch.last_final_block_header.next_bp_hash(),
+                &prev_epoch.last_final_block_header.next_bp_hash(),
             )? {
                 return Err(Error::InvalidEpochSyncProof(format!(
                     "invalid block producer handoff to epoch index {}",
@@ -723,9 +723,9 @@ impl EpochSync {
         // Verify first_block_header_in_epoch
         let first_block_header = &current_epoch.first_block_header_in_epoch;
         if !near_primitives::merkle::verify_hash(
-            *current_epoch_final_block_header.block_merkle_root(),
+            current_epoch_final_block_header.block_merkle_root(),
             &current_epoch.merkle_proof_for_first_block,
-            *first_block_header.hash(),
+            first_block_header.hash(),
         ) {
             return Err(Error::InvalidEpochSyncProof(
                 "invalid merkle_proof_for_first_block".to_string(),
@@ -747,7 +747,7 @@ impl EpochSync {
 
         if !current_epoch.partial_merkle_tree_for_first_block.is_well_formed()
             || current_epoch.partial_merkle_tree_for_first_block.root()
-                != *first_block_header.block_merkle_root()
+                != first_block_header.block_merkle_root()
         {
             return Err(Error::InvalidEpochSyncProof(
                 "invalid path in partial_merkle_tree_for_first_block".to_string(),
@@ -813,7 +813,7 @@ impl EpochSync {
     /// epoch's block producers.
     fn verify_final_block_endorsement(epoch: &EpochSyncProofEpochData) -> Result<(), Error> {
         Self::verify_block_endorsements(
-            *(&epoch.last_final_block_header).hash(),
+            (&epoch.last_final_block_header).hash(),
             (&epoch.last_final_block_header).height(),
             &epoch.block_producers,
             &epoch.this_epoch_endorsements_for_last_final_block,

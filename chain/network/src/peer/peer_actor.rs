@@ -1003,7 +1003,7 @@ impl PeerActor {
         let was_requested = match &msg {
             PeerMessage::Block(block) => {
                 self.network_state.txns_since_last_block.store(0, Ordering::Release);
-                let hash = *block.hash();
+                let hash = block.hash();
                 let height = block.header().height();
                 conn.last_block.rcu(|last_block| {
                     if last_block.is_none() || last_block.unwrap().height <= height {

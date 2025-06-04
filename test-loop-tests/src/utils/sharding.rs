@@ -144,7 +144,7 @@ pub fn get_tracked_shards_from_prev_block(
 
 pub fn get_tracked_shards(client: &Client, block_hash: &CryptoHash) -> Vec<ShardUId> {
     let block_header = client.chain.get_block_header(block_hash).unwrap();
-    get_tracked_shards_from_prev_block(client, block_header.prev_hash())
+    get_tracked_shards_from_prev_block(client, &block_header.prev_hash())
 }
 
 pub fn get_shards_will_care_about(client: &Client, block_hash: &CryptoHash) -> Vec<ShardUId> {

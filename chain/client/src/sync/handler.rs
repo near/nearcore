@@ -320,8 +320,8 @@ impl SyncHandler {
     ) -> Result<Vec<(CryptoHash, PeerId)>, near_chain::Error> {
         let now = self.clock.now_utc();
 
-        let sync_hash = *block_header.hash();
-        let prev_hash = *block_header.prev_hash();
+        let sync_hash = block_header.hash();
+        let prev_hash = block_header.prev_hash();
 
         let mut needed_block_hashes = vec![prev_hash, sync_hash];
         let mut extra_block_hashes = chain.get_extra_sync_block_hashes(&prev_hash);

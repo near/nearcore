@@ -217,7 +217,7 @@ fn get_gas_usage_in_block(
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
 ) -> GasUsageStats {
-    let block_info = epoch_manager.get_block_info(block.hash()).unwrap();
+    let block_info = epoch_manager.get_block_info(&block.hash()).unwrap();
     let epoch_id = block_info.epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
 
@@ -233,10 +233,10 @@ fn get_gas_usage_in_block(
         // The outcome of each transaction and receipt executed in this chunk is saved in the database as an ExecutionOutcome.
         // Go through all ExecutionOutcomes from this chunk and record the gas usage.
         let outcome_ids =
-            chain_store.get_outcomes_by_block_hash_and_shard_id(block.hash(), shard_id).unwrap();
+            chain_store.get_outcomes_by_block_hash_and_shard_id(&block.hash(), shard_id).unwrap();
         for outcome_id in outcome_ids {
             let outcome = chain_store
-                .get_outcome_by_id_and_block_hash(&outcome_id, block.hash())
+                .get_outcome_by_id_and_block_hash(&outcome_id, &block.hash())
                 .unwrap()
                 .unwrap()
                 .outcome;
@@ -334,9 +334,9 @@ fn analyze_gas_usage(
     for block in blocks_iter {
         blocks_count += 1;
         if first_analyzed_block.is_none() {
-            first_analyzed_block = Some((block.header().height(), *block.hash()));
+            first_analyzed_block = Some((block.header().height(), block.hash()));
         }
-        last_analyzed_block = Some((block.header().height(), *block.hash()));
+        last_analyzed_block = Some((block.header().height(), block.hash()));
 
         let gas_usage_in_block = get_gas_usage_in_block(&block, chain_store, epoch_manager);
         gas_usage_stats.merge(gas_usage_in_block);

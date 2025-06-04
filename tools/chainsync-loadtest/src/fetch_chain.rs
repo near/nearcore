@@ -40,7 +40,7 @@ pub async fn run(
             let mut headers = network.fetch_block_headers(last_hash).await?;
             headers.sort_by_key(|h| h.height());
             let last_header = headers.last().context("no headers")?;
-            last_hash = *last_header.hash();
+            last_hash = last_header.hash();
             last_height = last_header.height() as i64;
             info!(
                 "SYNC last_height = {}, {} headers left",
@@ -52,7 +52,7 @@ pub async fn run(
                 if blocks_count == block_limit {
                     return anyhow::Ok(());
                 }
-                let h = *h.hash();
+                let h = h.hash();
                 s.spawn(async move {
                     let block = network.fetch_block(h).await?;
                     for ch in block.chunks().iter_deprecated() {

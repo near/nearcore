@@ -126,7 +126,7 @@ impl MockedExternal {
     }
 
     pub fn with_code(code: ContractCode) -> Self {
-        Self::with_code_and_hash(*code.hash(), code)
+        Self::with_code_and_hash(code.hash(), code)
     }
 
     pub fn with_code_and_hash(code_hash: CryptoHash, code: ContractCode) -> Self {

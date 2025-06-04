@@ -310,11 +310,11 @@ impl ApplyChunkBlockContext {
         Self {
             block_type: BlockType::Normal,
             height: header.height(),
-            block_hash: *header.hash(),
-            prev_block_hash: *header.prev_hash(),
+            block_hash: header.hash(),
+            prev_block_hash: header.prev_hash(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
-            random_seed: *header.random_value(),
+            random_seed: header.random_value(),
             congestion_info,
             bandwidth_requests,
         }
@@ -363,7 +363,7 @@ impl From<&Block> for PrepareTransactionsBlockContext {
         Self {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
-            block_hash: *header.hash(),
+            block_hash: header.hash(),
             congestion_info: block.block_congestion_info(),
         }
     }
@@ -581,7 +581,7 @@ mod tests {
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
         let approvals =
-            vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
+            vec![Some(Box::new(Approval::new(b1.hash(), 1, 2, &other_signer).signature))];
         let b2 =
             TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).approvals(approvals).build();
         b2.header().verify_block_producer(&signer.public_key());

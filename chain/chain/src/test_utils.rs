@@ -109,7 +109,7 @@ pub fn process_block_sync(
     provenance: Provenance,
     block_processing_artifacts: &mut BlockProcessingArtifact,
 ) -> Result<Vec<AcceptedBlock>, Error> {
-    let block_hash = *block.hash();
+    let block_hash = block.hash();
     chain.start_process_block_async(me, block, provenance, block_processing_artifacts, None)?;
     wait_for_block_in_processing(chain, &block_hash).unwrap();
     let (accepted_blocks, errors) =
@@ -205,20 +205,20 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     for header in headers {
         if header.is_genesis() {
             // Genesis block.
-            debug!("{: >3} {}", header.height(), format_hash(*header.hash()));
+            debug!("{: >3} {}", header.height(), format_hash(header.hash()));
         } else {
-            let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
-            let maybe_block = chain_store.get_block(header.hash()).ok();
-            let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
+            let parent_header = chain_store.get_block_header(&header.prev_hash()).unwrap().clone();
+            let maybe_block = chain_store.get_block(&header.hash()).ok();
+            let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&header.prev_hash()).unwrap();
             let block_producer =
                 epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
             debug!(
                 "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
                 header.height(),
-                format_hash(*header.hash()),
+                format_hash(header.hash()),
                 block_producer,
                 parent_header.height(),
-                format_hash(*parent_header.hash()),
+                format_hash(parent_header.hash()),
                 if let Some(block) = &maybe_block {
                     format!("chunks: {}", block.chunks().len())
                 } else {

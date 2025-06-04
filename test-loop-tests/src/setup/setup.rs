@@ -246,7 +246,7 @@ pub fn setup_client(
         client_adapter.as_multi_sender(),
         GenesisId {
             chain_id: client_config.chain_id.clone(),
-            hash: *client_actor.client.chain.genesis().hash(),
+            hash: client_actor.client.chain.genesis().hash(),
         },
         Arc::new(test_loop.future_spawner(identifier)),
     );

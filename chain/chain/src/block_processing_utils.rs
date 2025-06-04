@@ -105,9 +105,9 @@ impl BlocksInProcessing {
         block: Block,
         preprocess_info: BlockPreprocessInfo,
     ) -> Result<(), AddError> {
-        self.add_dry_run(&BlockToApply::Normal(*block.hash()))?;
+        self.add_dry_run(&BlockToApply::Normal(block.hash()))?;
 
-        self.preprocessed_blocks.insert(*block.hash(), (block, preprocess_info));
+        self.preprocessed_blocks.insert(block.hash(), (block, preprocess_info));
         Ok(())
     }
 
@@ -178,7 +178,7 @@ impl BlocksInProcessing {
     pub(crate) fn has_blocks_to_catch_up(&self, prev_hash: &CryptoHash) -> bool {
         self.preprocessed_blocks
             .iter()
-            .any(|(_, (block, _))| block.header().prev_hash() == prev_hash)
+            .any(|(_, (block, _))| block.header().prev_hash() == *prev_hash)
     }
 
     /// This function waits until apply_chunks_done is marked as true for all blocks in the pool

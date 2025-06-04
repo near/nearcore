@@ -60,7 +60,7 @@ impl OptimisticBlock {
         sandbox_delta_time: Option<near_time::Duration>,
     ) -> Self {
         use crate::utils::get_block_metadata;
-        let prev_block_hash = *prev_block_header.hash();
+        let prev_block_hash = prev_block_header.hash();
         let (time, vrf_value, vrf_proof, random_value) =
             get_block_metadata(prev_block_header, signer, now, sandbox_delta_time);
 
@@ -139,20 +139,20 @@ impl OptimisticBlock {
         self.inner.block_height
     }
 
-    pub fn hash(&self) -> &CryptoHash {
-        &self.hash
+    pub fn hash(&self) -> CryptoHash {
+        self.hash
     }
 
-    pub fn prev_block_hash(&self) -> &CryptoHash {
-        &self.inner.prev_block_hash
+    pub fn prev_block_hash(&self) -> CryptoHash {
+        self.inner.prev_block_hash
     }
 
     pub fn block_timestamp(&self) -> u64 {
         self.inner.block_timestamp
     }
 
-    pub fn random_value(&self) -> &CryptoHash {
-        &self.inner.random_value
+    pub fn random_value(&self) -> CryptoHash {
+        self.inner.random_value
     }
 
     #[cfg(feature = "rand")]

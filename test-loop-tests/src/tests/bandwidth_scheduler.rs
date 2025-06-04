@@ -250,7 +250,7 @@ fn analyze_workload_blocks(
     let mut block = chain.get_block(&tip.last_block_hash).unwrap();
     let mut prev_block = chain.get_block(&block.header().prev_hash()).unwrap();
 
-    let epoch_id = epoch_manager.get_epoch_id(block.hash()).unwrap();
+    let epoch_id = epoch_manager.get_epoch_id(&block.hash()).unwrap();
     let num_shards = epoch_manager.get_shard_layout(&epoch_id).unwrap().num_shards();
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let runtime_config = client.runtime_adapter.get_runtime_config(protocol_version);
@@ -278,7 +278,7 @@ fn analyze_workload_blocks(
             let shard_index = cur_shard_layout.get_shard_index(shard_id).unwrap();
             let shard_uid = ShardUId::new(cur_shard_layout.version(), shard_id);
             let prev_shard_index = epoch_manager
-                .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), shard_id)
+                .get_prev_shard_id_from_prev_hash(&block.header().prev_hash(), shard_id)
                 .unwrap()
                 .2;
             let prev_height_included =
@@ -305,7 +305,7 @@ fn analyze_workload_blocks(
                 epoch_manager,
                 shard_id,
                 &cur_shard_layout,
-                *block.hash(),
+                block.hash(),
                 prev_height_included,
                 ReceiptFilter::TargetShard,
             )
@@ -434,7 +434,7 @@ fn analyze_workload_blocks(
         }
 
         block = prev_block;
-        prev_block = chain.get_block(block.header().prev_hash()).unwrap();
+        prev_block = chain.get_block(&block.header().prev_hash()).unwrap();
     }
 
     bandwidth_stats

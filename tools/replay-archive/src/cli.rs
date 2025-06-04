@@ -225,7 +225,7 @@ impl ReplayController {
         let prev_block_hash = block.header().prev_hash();
         let prev_block = self
             .chain_store
-            .get_block(prev_block_hash)
+            .get_block(&prev_block_hash)
             .context("Failed to get previous block to determine gas price")?;
 
         let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
@@ -281,7 +281,7 @@ impl ReplayController {
         let prev_block_header = prev_block.header();
         let prev_block_hash = prev_block_header.hash();
 
-        let prev_chunk_extra = self.chain_store.get_chunk_extra(prev_block_hash, &shard_uid)?;
+        let prev_chunk_extra = self.chain_store.get_chunk_extra(&prev_block_hash, &shard_uid)?;
 
         let height = block_header.height();
         let is_new_chunk: bool = chunk_header.is_new_chunk(height);
@@ -290,7 +290,7 @@ impl ReplayController {
             is_new_chunk,
             &chunk,
             chunk_header,
-            prev_block_hash,
+            &prev_block_hash,
             prev_chunk_header,
             prev_chunk_extra.as_ref(),
         )?;
@@ -365,13 +365,13 @@ impl ReplayController {
         prev_chunk_height_included: BlockHeight,
     ) -> Result<Vec<Receipt>> {
         let shard_layout =
-            self.epoch_manager.get_shard_layout_from_prev_block(block_header.prev_hash())?;
+            self.epoch_manager.get_shard_layout_from_prev_block(&block_header.prev_hash())?;
         let receipt_response = get_incoming_receipts_for_shard(
             &self.chain_store,
             self.epoch_manager.as_ref(),
             shard_id,
             &shard_layout,
-            *block_header.hash(),
+            block_header.hash(),
             prev_chunk_height_included,
             ReceiptFilter::TargetShard,
         )?;
@@ -422,10 +422,10 @@ impl ReplayController {
 
     fn update_epoch_manager(&self, block: &Block) -> Result<()> {
         let last_finalized_height =
-            self.chain_store.get_block_height(block.header().last_final_block())?;
+            self.chain_store.get_block_height(&block.header().last_final_block())?;
         let store_update = self.epoch_manager.add_validator_proposals(
             BlockInfo::from_header(block.header(), last_finalized_height),
-            *block.header().random_value(),
+            block.header().random_value(),
         )?;
         let _ = store_update.commit()?;
         Ok(())
@@ -459,7 +459,7 @@ impl ReplayController {
         }
 
         let mut store_update = self.chain_store.store_update();
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), block)?;
+        let receipts_shuffle_salt = &get_receipts_shuffle_salt(self.epoch_manager.as_ref(), block)?;
         for (shard_id, mut receipts) in receipt_proofs_by_shard_id {
             shuffle_receipt_proofs(&mut receipts, receipts_shuffle_salt);
             store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(receipts));

@@ -49,7 +49,7 @@ pub fn get_block_header_on_chain_by_height(
     let mut header = chain_store.get_block_header(sync_hash)?;
     let mut hash = *sync_hash;
     while header.height() > height {
-        hash = *header.prev_hash();
+        hash = header.prev_hash();
         header = chain_store.get_block_header(&hash)?;
     }
     let header_height = header.height();
@@ -79,7 +79,7 @@ pub fn check_transaction_validity_period(
     if let Ok(base_block_hash_by_height) = chain_store.get_block_hash_by_height(base_height) {
         if &base_block_hash_by_height == base_block_hash {
             if let Ok(prev_hash) = chain_store.get_block_hash_by_height(prev_height) {
-                if &prev_hash == prev_block_header.hash() {
+                if prev_hash == prev_block_header.hash() {
                     if prev_height <= base_height + transaction_validity_period {
                         return Ok(());
                     } else {
@@ -94,7 +94,7 @@ pub fn check_transaction_validity_period(
     // whether the base block is the same as the one with that height on the canonical fork.
     // Otherwise we walk back the chain to check whether base block is on the same chain.
     let last_final_height = chain_store
-        .get_block_height(prev_block_header.last_final_block())
+        .get_block_height(&prev_block_header.last_final_block())
         .map_err(|_| InvalidTxError::InvalidChain)?;
 
     if prev_height > base_height + transaction_validity_period {
@@ -113,10 +113,13 @@ pub fn check_transaction_validity_period(
             Err(InvalidTxError::InvalidChain)
         }
     } else {
-        let header =
-            get_block_header_on_chain_by_height(chain_store, prev_block_header.hash(), base_height)
-                .map_err(|_| InvalidTxError::InvalidChain)?;
-        if header.hash() == base_block_hash { Ok(()) } else { Err(InvalidTxError::InvalidChain) }
+        let header = get_block_header_on_chain_by_height(
+            chain_store,
+            &prev_block_header.hash(),
+            base_height,
+        )
+        .map_err(|_| InvalidTxError::InvalidChain)?;
+        if header.hash() == *base_block_hash { Ok(()) } else { Err(InvalidTxError::InvalidChain) }
     }
 }
 
@@ -156,7 +159,7 @@ pub fn get_incoming_receipts_for_shard(
         }
 
         let prev_hash = header.prev_hash();
-        let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
+        let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_hash)?;
 
         if prev_shard_layout != current_shard_layout {
             let parent_shard_id = current_shard_layout.get_parent_shard_id(current_shard_id)?;
@@ -208,7 +211,7 @@ pub fn get_incoming_receipts_for_shard(
         };
 
         ret.push(ReceiptProofResponse(current_block_hash, filtered_receipt_proofs));
-        current_block_hash = *prev_hash;
+        current_block_hash = prev_hash;
     }
 
     Ok(ret)

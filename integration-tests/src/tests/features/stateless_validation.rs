@@ -187,7 +187,7 @@ fn run_chunk_validation_test(
             } else {
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap()
             };
-            assert_eq!(blocks_processed, vec![*block.hash()]);
+            assert_eq!(blocks_processed, vec![block.hash()]);
         }
 
         env.process_partial_encoded_chunks();
@@ -227,7 +227,7 @@ fn run_chunk_validation_test(
     let client = &env.clients[0];
 
     let genesis = client.chain.genesis();
-    let genesis_epoch_id = client.epoch_manager.get_epoch_id(genesis.hash()).unwrap();
+    let genesis_epoch_id = client.epoch_manager.get_epoch_id(&genesis.hash()).unwrap();
     assert_eq!(
         genesis_protocol_version,
         client.epoch_manager.get_epoch_protocol_version(&genesis_epoch_id).unwrap()
@@ -388,7 +388,7 @@ fn test_eth_implicit_accounts() {
         alice_eth_account.clone(),
         &signer.clone().into(),
         alice_init_balance,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
 
     let bob_init_balance = 0;
@@ -398,7 +398,7 @@ fn test_eth_implicit_accounts() {
         bob_eth_account.clone(),
         &signer.clone().into(),
         bob_init_balance,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
 
     assert_eq!(
@@ -522,7 +522,7 @@ fn produce_block(env: &mut TestEnv) {
         );
         let blocks_processed =
             env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
-        assert_eq!(blocks_processed, vec![*block.hash()]);
+        assert_eq!(blocks_processed, vec![block.hash()]);
     }
 
     env.process_partial_encoded_chunks();

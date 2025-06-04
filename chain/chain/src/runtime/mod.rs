@@ -341,17 +341,17 @@ impl NightshadeRuntime {
     fn get_gc_stop_height_impl(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let epoch_manager = self.epoch_manager.read();
         // an epoch must have a first block.
-        let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
+        let epoch_first_block = epoch_manager.get_block_info(block_hash)?.epoch_first_block();
         let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
         // maintain pointers to avoid cloning.
-        let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+        let mut last_block_in_prev_epoch = epoch_first_block_info.prev_hash();
         let mut epoch_start_height = epoch_first_block_info.height();
         for _ in 0..self.gc_num_epochs_to_keep - 1 {
             let epoch_first_block =
-                *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
+                epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
             let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
             epoch_start_height = epoch_first_block_info.height();
-            last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+            last_block_in_prev_epoch = epoch_first_block_info.prev_hash();
         }
 
         // An archival node with split storage should perform garbage collection
@@ -366,7 +366,7 @@ impl NightshadeRuntime {
             if let Some(cold_head) = cold_head {
                 let cold_head_hash = cold_head.last_block_hash;
                 let cold_epoch_first_block =
-                    *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
+                    epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
                 let cold_epoch_first_block_info =
                     epoch_manager.get_block_info(&cold_epoch_first_block)?;
                 return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
@@ -449,7 +449,7 @@ impl NightshadeRuntime {
                     *block_hash,
                 )
             })?;
-        let hash = *contract_code.hash();
+        let hash = contract_code.hash();
         let contract_code_view = ContractCodeView { hash, code: contract_code.into_code() };
         Ok(QueryResponse {
             kind: QueryResponseKind::ViewCode(contract_code_view),
@@ -889,7 +889,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let contract_code = self
                     .view_contract_code(&shard_uid,  *state_root, account_id)
                     .map_err(|err| crate::near_chain_primitives::error::QueryError::from_view_contract_code_error(err, block_height, *block_hash))?;
-                let hash = *contract_code.hash();
+                let hash = contract_code.hash();
                 let contract_code_view = ContractCodeView { hash, code: contract_code.into_code() };
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewCode(contract_code_view),

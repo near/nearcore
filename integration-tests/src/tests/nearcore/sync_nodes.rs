@@ -49,7 +49,7 @@ fn ultra_slow_test_sync_state_stake_change() {
                 view_client: view_client1, rpc_handler: tx_processor1, ..
             } = start_with_config(dir1.path(), near1.clone()).expect("start_with_config");
 
-            let genesis_hash = *genesis_block(&genesis).hash();
+            let genesis_hash = genesis_block(&genesis).hash();
             let signer = Arc::new(InMemorySigner::test_signer(&"test1".parse().unwrap()));
             let unstake_transaction = SignedTransaction::stake(
                 1,

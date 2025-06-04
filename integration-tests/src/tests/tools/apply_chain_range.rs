@@ -75,7 +75,7 @@ fn safe_produce_blocks(
 fn test_apply_chain_range() {
     let epoch_length = 4;
     let (store, genesis, mut env) = setup(epoch_length);
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::stake(
         1,
@@ -118,7 +118,7 @@ fn test_apply_chain_range() {
 fn test_apply_chain_range_no_chunks() {
     let epoch_length = 4;
     let (store, genesis, mut env) = setup(epoch_length);
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::stake(
         1,

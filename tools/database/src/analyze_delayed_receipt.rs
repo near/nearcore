@@ -90,9 +90,9 @@ impl AnalyzeDelayedReceiptCommand {
         for block in blocks_iter {
             blocks_count += 1;
             if first_analyzed_block.is_none() {
-                first_analyzed_block = Some((block.header().height(), *block.hash()));
+                first_analyzed_block = Some((block.header().height(), block.hash()));
             }
-            last_analyzed_block = Some((block.header().height(), *block.hash()));
+            last_analyzed_block = Some((block.header().height(), block.hash()));
             let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
             for chunk_header in block.chunks().iter_deprecated() {

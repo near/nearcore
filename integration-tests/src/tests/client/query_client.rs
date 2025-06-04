@@ -73,7 +73,7 @@ fn query_status_not_crash() {
             let (block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             let header: BlockHeader = block.header.clone().into();
-            block_merkle_tree.insert(*header.hash());
+            block_merkle_tree.insert(header.hash());
             let mut next_block = Block::produce(
                 PROTOCOL_VERSION,
                 &header,

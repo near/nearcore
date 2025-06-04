@@ -363,8 +363,8 @@ impl Ord for IgnoredVecU8 {
 }
 
 impl TrieRefcountAddition {
-    pub fn hash(&self) -> &CryptoHash {
-        &self.trie_node_or_value_hash
+    pub fn hash(&self) -> CryptoHash {
+        self.trie_node_or_value_hash
     }
 
     pub fn payload(&self) -> &[u8] {

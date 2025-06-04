@@ -35,7 +35,7 @@ fn create_tx(latest_block: &Block, origin: &AccountId, receiver: &AccountId) -> 
         receiver.clone(),
         &signer.into(),
         10,
-        *latest_block.hash(),
+        latest_block.hash(),
     )
 }
 

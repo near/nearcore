@@ -169,10 +169,10 @@ fn test_global_contract_rpc_calls(deploy_mode: GlobalContractDeployMode) {
     assert_eq!(view_call_result.logs, vec!["hello".to_owned()]);
 
     let view_code_result = env.view_code(&target_account);
-    assert_eq!(view_code_result.hash, *env.contract.hash());
+    assert_eq!(view_code_result.hash, env.contract.hash());
 
     let view_global_code_result = env.view_global_contract_code(identifier);
-    assert_eq!(view_global_code_result.hash, *env.contract.hash());
+    assert_eq!(view_global_code_result.hash, env.contract.hash());
 
     env.shutdown();
 }
@@ -443,7 +443,7 @@ impl GlobalContractsTestEnv {
     ) -> GlobalContractIdentifier {
         match deploy_mode {
             GlobalContractDeployMode::CodeHash => {
-                GlobalContractIdentifier::CodeHash(*self.contract.hash())
+                GlobalContractIdentifier::CodeHash(self.contract.hash())
             }
             GlobalContractDeployMode::AccountId => {
                 GlobalContractIdentifier::AccountId(self.deploy_account.clone())

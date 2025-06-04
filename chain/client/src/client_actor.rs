@@ -533,11 +533,14 @@ impl Handler<BlockResponse> for ClientActorInner {
                 &signer,
             );
         } else {
-            match self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
+            match self
+                .client
+                .epoch_manager
+                .get_epoch_id_from_prev_block(&block.header().prev_hash())
             {
                 Ok(epoch_id) => {
                     if let Some(hashes) = blocks_at_height.unwrap().get(&epoch_id) {
-                        if !hashes.contains(block.header().hash()) {
+                        if !hashes.contains(&block.header().hash()) {
                             warn!(target: "client", "Rejecting un-requested block {}, height {}", block.header().hash(), block.header().height());
                         }
                     }
@@ -778,7 +781,7 @@ impl Handler<Status> for ClientActorInner {
             node_public_key,
             node_key,
             uptime_sec,
-            genesis_hash: *self.client.chain.genesis().hash(),
+            genesis_hash: self.client.chain.genesis().hash(),
             detailed_debug_status,
         })
     }
@@ -1444,7 +1447,7 @@ impl ClientActorInner {
             .map_or(0, |block| block.header().height());
 
         let epoch_height =
-            self.client.epoch_manager.get_epoch_height_from_prev_block(block.hash()).unwrap_or(0);
+            self.client.epoch_manager.get_epoch_height_from_prev_block(&block.hash()).unwrap_or(0);
         let epoch_start_height = self
             .client
             .epoch_manager
@@ -1481,7 +1484,7 @@ impl ClientActorInner {
             debug!(target: "client", height=block.header().height(), "process_accepted_block");
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
-            self.check_send_announce_account(*block.header().last_final_block(), signer);
+            self.check_send_announce_account(block.header().last_final_block(), signer);
         }
     }
 
@@ -1748,7 +1751,7 @@ impl ClientActorInner {
         };
 
         let block: MaybeValidated<Block> = (*block).clone().into();
-        let block_hash = *block.hash();
+        let block_hash = block.hash();
 
         // Notice that the blocks are saved differently:
         // * save_orphan() for the sync hash block
@@ -1771,7 +1774,7 @@ impl ClientActorInner {
             return true;
         }
 
-        if &block_hash == header.prev_hash() {
+        if block_hash == header.prev_hash() {
             // The last block of the previous epoch.
             if let Err(err) = self.client.chain.validate_block(&block) {
                 byzantine_assert!(false);

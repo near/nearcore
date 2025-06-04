@@ -172,7 +172,7 @@ impl TestLoopPeerManagerActor {
                 .map(|(peer_info, header)| HighestHeightPeerInfo {
                     archival: false,
                     genesis_id: self.genesis_id.clone(),
-                    highest_block_hash: *header.hash(),
+                    highest_block_hash: header.hash(),
                     highest_block_height: header.height(),
                     tracked_shards: vec![],
                     peer_info: peer_info.clone(),

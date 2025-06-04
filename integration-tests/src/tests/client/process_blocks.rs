@@ -269,7 +269,7 @@ fn produce_block_with_approvals() {
                 .unwrap();
                 let signer = create_test_signer(s.as_str());
                 let approval = Approval::new(
-                    *block.hash(),
+                    block.hash(),
                     block.header().height(),
                     10, // the height at which "test1" is producing
                     &signer,
@@ -562,7 +562,7 @@ fn test_process_invalid_tx() {
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "test".parse().unwrap(),
-            block_hash: *env.clients[0].chain.genesis().hash(),
+            block_hash: env.clients[0].chain.genesis().hash(),
             actions: vec![],
         }),
     );
@@ -889,7 +889,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     for i in 0..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
         println!("height = {}", i);
         if i < epoch_length {
-            let block_hash = *blocks[i as usize].hash();
+            let block_hash = blocks[i as usize].hash();
             assert_matches!(
                 env.clients[0].chain.get_block(&block_hash).unwrap_err(),
                 Error::DBNotFoundErr(missing_block_hash) if missing_block_hash == format!("BLOCK: {}", block_hash)
@@ -907,7 +907,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                     .is_empty()
             );
         } else {
-            assert!(env.clients[0].chain.get_block(blocks[i as usize].hash()).is_ok());
+            assert!(env.clients[0].chain.get_block(&blocks[i as usize].hash()).is_ok());
             assert!(env.clients[0].chain.get_block_by_height(i).is_ok());
             assert!(
                 !env.clients[0]
@@ -970,7 +970,7 @@ fn test_archival_save_trie_changes() {
         let epoch_id = header.epoch_id();
         let shard_layout = client.epoch_manager.get_shard_layout(epoch_id).unwrap();
 
-        assert!(chain.get_block(block.hash()).is_ok());
+        assert!(chain.get_block(&block.hash()).is_ok());
         assert!(chain.get_block_by_height(i).is_ok());
         assert!(
             !chain
@@ -1035,7 +1035,7 @@ fn test_archival_gc_common(
         let shard_layout = env.clients[0].epoch_manager.get_shard_layout(epoch_id).unwrap();
         let tracked_shards = shard_layout.shard_uids().collect();
         let is_resharding_boundary =
-            env.clients[0].epoch_manager.is_resharding_boundary(header.prev_hash()).unwrap();
+            env.clients[0].epoch_manager.is_resharding_boundary(&header.prev_hash()).unwrap();
 
         blocks.push(block);
 
@@ -1073,10 +1073,10 @@ fn test_archival_gc_common(
         let block = &blocks[i as usize];
 
         if i < max_gc_height {
-            assert!(chain.get_block(block.hash()).is_err());
+            assert!(chain.get_block(&block.hash()).is_err());
             assert!(chain.get_block_by_height(i).is_err());
         } else {
-            assert!(chain.get_block(block.hash()).is_ok());
+            assert!(chain.get_block(&block.hash()).is_ok());
             assert!(chain.get_block_by_height(i).is_ok());
             assert!(
                 !chain
@@ -1180,7 +1180,7 @@ fn test_gc_execution_outcome() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = SignedTransaction::send_money(
         1,
@@ -1218,11 +1218,11 @@ fn ultra_slow_test_gc_after_state_sync() {
     }
     let sync_height = epoch_length * 4 + 1;
     let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap();
-    let sync_hash = *sync_block.hash();
-    let prev_block_hash = *sync_block.header().prev_hash();
+    let sync_hash = sync_block.hash();
+    let prev_block_hash = sync_block.header().prev_hash();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
-        let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
+        let block_hash = env.clients[0].chain.get_block_by_height(i).unwrap().hash();
         assert!(env.clients[1].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
@@ -1256,8 +1256,8 @@ fn ultra_slow_test_process_block_after_state_sync() {
     let mut next_height = 1;
     let sync_hash = loop {
         let block = env.clients[0].produce_block(next_height).unwrap().unwrap();
-        let block_hash = *block.hash();
-        let prev_hash = *block.header().prev_hash();
+        let block_hash = block.hash();
+        let prev_hash = block.header().prev_hash();
         env.process_block(0, block, Provenance::PRODUCED);
         next_height += 1;
 
@@ -1297,7 +1297,7 @@ fn ultra_slow_test_process_block_after_state_sync() {
         .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_block.header().height() - 1 {
-        let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
+        let block_hash = env.clients[0].chain.get_block_by_height(i).unwrap().hash();
         assert!(env.clients[0].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
@@ -1399,7 +1399,7 @@ fn test_tx_forward_around_epoch_boundary() {
         .validator_seats(2)
         .nightshade_runtimes(&genesis)
         .build();
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::stake(
         1,
@@ -1460,7 +1460,7 @@ fn test_not_resync_old_blocks() {
     }
     for i in 2..epoch_length {
         let block = blocks[i as usize - 1].clone();
-        assert!(env.clients[0].chain.get_block(block.hash()).is_err());
+        assert!(env.clients[0].chain.get_block(&block.hash()).is_err());
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
         assert_matches!(res, Err(x) if matches!(x, Error::Orphan));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
@@ -1489,7 +1489,7 @@ fn test_reject_block_headers_during_epoch_sync() {
     let highest_height_peers = vec![HighestHeightPeerInfo {
         archival: false,
         genesis_id: GenesisId::default(),
-        highest_block_hash: *blocks.last().unwrap().hash(),
+        highest_block_hash: blocks.last().unwrap().hash(),
         highest_block_height: blocks.len() as u64,
         tracked_shards: vec![],
         peer_info: PeerInfo::random(),
@@ -1533,12 +1533,12 @@ fn test_gc_tail_update() {
     env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
     let prev_prev_sync_block = blocks[blocks.len() - 4].clone();
-    let prev_prev_sync_hash = *prev_prev_sync_block.hash();
+    let prev_prev_sync_hash = prev_prev_sync_block.hash();
     let prev_sync_block = blocks[blocks.len() - 3].clone();
-    let prev_sync_hash = *prev_sync_block.hash();
+    let prev_sync_hash = prev_sync_block.hash();
     let prev_sync_height = prev_sync_block.header().height();
     let sync_block = blocks[blocks.len() - 2].clone();
-    env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
+    env.clients[1].chain.reset_data_pre_state_sync(sync_block.hash()).unwrap();
     env.clients[1].chain.save_block(prev_prev_sync_block.into()).unwrap();
     env.clients[1].chain.save_block(prev_sync_block.into()).unwrap();
     let mut store_update = env.clients[1].chain.mut_chain_store().store_update();
@@ -1550,7 +1550,7 @@ fn test_gc_tail_update() {
         .chain
         .reset_heads_post_state_sync(
             &None,
-            *sync_block.hash(),
+            sync_block.hash(),
             &mut BlockProcessingArtifact::default(),
             None,
         )
@@ -1581,7 +1581,7 @@ fn test_gas_price_change() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
+    let genesis_hash = genesis_block.hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::send_money(
         1,
@@ -1625,7 +1625,7 @@ fn test_gas_price_overflow() {
 
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
+    let genesis_hash = genesis_block.hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     for i in 1..100 {
         let tx = SignedTransaction::send_money(
@@ -1704,7 +1704,7 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
     // verify that the mapping from block ordinal to block hash is correct
     for h in 0..head.header().height() {
         if let Ok(block) = env.clients[0].chain.get_block_by_height(h) {
-            let block_hash = *block.hash();
+            let block_hash = block.hash();
             let block_ordinal = env.clients[0]
                 .chain
                 .mut_chain_store()
@@ -1722,9 +1722,9 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
     for block in blocks {
         let proof = env.clients[0]
             .chain
-            .compute_past_block_proof_in_merkle_tree_of_later_block(block.hash(), head.hash())
+            .compute_past_block_proof_in_merkle_tree_of_later_block(&block.hash(), &head.hash())
             .unwrap();
-        assert!(verify_hash(*root, &proof, *block.hash()));
+        assert!(verify_hash(root, &proof, block.hash()));
     }
 }
 
@@ -1743,8 +1743,8 @@ fn test_block_merkle_proof_same_hash() {
     let proof = env.clients[0]
         .chain
         .compute_past_block_proof_in_merkle_tree_of_later_block(
-            genesis_block.hash(),
-            genesis_block.hash(),
+            &genesis_block.hash(),
+            &genesis_block.hash(),
         )
         .unwrap();
     assert!(proof.is_empty());
@@ -1758,7 +1758,7 @@ fn test_data_reset_before_state_sync() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
+    let genesis_hash = genesis_block.hash();
     let tx = SignedTransaction::create_account(
         1,
         "test0".parse().unwrap(),
@@ -1789,7 +1789,7 @@ fn test_data_reset_before_state_sync() {
         )
         .unwrap();
     assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
-    env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
+    env.clients[0].chain.reset_data_pre_state_sync(head_block.hash()).unwrap();
     // account should not exist after clearing state
     let response = env.clients[0].runtime_adapter.query(
         ShardUId::single_shard(),
@@ -1827,7 +1827,7 @@ fn test_sync_hash_validity() {
 
         for h in epoch_start..height {
             let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();
-            let valid = env.clients[0].chain.check_sync_hash_validity(header.hash()).unwrap();
+            let valid = env.clients[0].chain.check_sync_hash_validity(&header.hash()).unwrap();
 
             println!("height {} -> {}", header.height(), valid);
             assert_eq!(valid, header.height() == expected_sync_height);
@@ -1880,7 +1880,7 @@ fn test_validate_chunk_extra() {
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -1903,7 +1903,7 @@ fn test_validate_chunk_extra() {
             gas: 100000000000000,
             deposit: 0,
         }))],
-        *last_block.hash(),
+        last_block.hash(),
         0,
     );
     assert_eq!(
@@ -1966,7 +1966,7 @@ fn test_validate_chunk_extra() {
     // to try to produce chunks on top of block1, so we force the reorg case
     // using `capture`
 
-    env.pause_block_processing(&mut capture, block2.hash());
+    env.pause_block_processing(&mut capture, &block2.hash());
     let mut chain_store = ChainStore::new(
         env.clients[0].chain.chain_store().store(),
         true,
@@ -1981,10 +1981,10 @@ fn test_validate_chunk_extra() {
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(None, &signer);
-    let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
+    let accepted_blocks = env.clients[0].finish_block_in_processing(&block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
-    env.resume_block_processing(block2.hash());
-    let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
+    env.resume_block_processing(&block2.hash());
+    let accepted_blocks = env.clients[0].finish_block_in_processing(&block2.hash());
     env.propagate_chunk_state_witnesses_and_endorsements(false);
     assert_eq!(accepted_blocks.len(), 1);
 
@@ -1993,9 +1993,12 @@ fn test_validate_chunk_extra() {
     let client = &mut env.clients[0];
     client
         .chunk_inclusion_tracker
-        .prepare_chunk_headers_ready_for_inclusion(block1.hash(), &client.chunk_endorsement_tracker)
+        .prepare_chunk_headers_ready_for_inclusion(
+            &block1.hash(),
+            &client.chunk_endorsement_tracker,
+        )
         .unwrap();
-    let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
+    let block = client.produce_block_on(next_height + 2, block1.hash()).unwrap().unwrap();
     let epoch_id = *block.header().epoch_id();
     client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();
     env.propagate_chunk_state_witnesses_and_endorsements(false);
@@ -2010,12 +2013,12 @@ fn test_validate_chunk_extra() {
         .chunk_inclusion_tracker
         .get_chunk_header_and_endorsements(chunks.get(&shard_id).unwrap())
         .unwrap();
-    let chunk_extra = client.chain.get_chunk_extra(block1.hash(), &shard_uid).unwrap();
+    let chunk_extra = client.chain.get_chunk_extra(&block1.hash(), &shard_uid).unwrap();
     assert!(
         validate_chunk_with_chunk_extra(
             &mut chain_store,
             client.epoch_manager.as_ref(),
-            block1.hash(),
+            &block1.hash(),
             &chunk_extra,
             block1.chunks()[0].height_included(),
             &chunk_header,
@@ -2057,7 +2060,7 @@ fn slow_test_catchup_gas_price_change() {
             "test1".parse().unwrap(),
             &signer,
             1,
-            *genesis_block.hash(),
+            genesis_block.hash(),
         );
 
         assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -2075,16 +2078,16 @@ fn slow_test_catchup_gas_price_change() {
 
     assert_ne!(blocks[3].header().next_gas_price(), blocks[4].header().next_gas_price());
     assert!(
-        env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).is_err()
+        env.clients[1].chain.get_chunk_extra(&blocks[4].hash(), &ShardUId::single_shard()).is_err()
     );
 
     // Simulate state sync
 
     let sync_hash =
-        env.clients[0].chain.get_sync_hash(blocks.last().unwrap().hash()).unwrap().unwrap();
+        env.clients[0].chain.get_sync_hash(&blocks.last().unwrap().hash()).unwrap().unwrap();
     let sync_block_idx = blocks
         .iter()
-        .position(|b| *b.hash() == sync_hash)
+        .position(|b| b.hash() == sync_hash)
         .expect("block with hash matching sync hash not found");
     if sync_block_idx == 0 {
         panic!("sync block should not be the first block produced");
@@ -2162,11 +2165,11 @@ fn slow_test_catchup_gas_price_change() {
     env.clients[1].chain.set_state_finalize(shard_id, sync_hash).unwrap();
     let chunk_extra_after_sync = env.clients[1]
         .chain
-        .get_chunk_extra(sync_prev_block.hash(), &ShardUId::single_shard())
+        .get_chunk_extra(&sync_prev_block.hash(), &ShardUId::single_shard())
         .unwrap();
     let expected_chunk_extra = env.clients[0]
         .chain
-        .get_chunk_extra(sync_prev_block.hash(), &ShardUId::single_shard())
+        .get_chunk_extra(&sync_prev_block.hash(), &ShardUId::single_shard())
         .unwrap();
     // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
     assert_eq!(chunk_extra_after_sync, expected_chunk_extra);
@@ -2194,7 +2197,7 @@ fn test_block_execution_outcomes() {
             "test0".parse().unwrap(),
             &signer,
             1,
-            *genesis_block.hash(),
+            genesis_block.hash(),
         );
         tx_hashes.push(tx.get_hash());
         assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -2224,7 +2227,7 @@ fn test_block_execution_outcomes() {
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .chain_store()
-        .get_block_execution_outcomes(block.hash())
+        .get_block_execution_outcomes(&block.hash())
         .unwrap()
         .remove(&shard_id)
         .unwrap();
@@ -2246,7 +2249,7 @@ fn test_block_execution_outcomes() {
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .chain_store()
-        .get_block_execution_outcomes(next_block.hash())
+        .get_block_execution_outcomes(&next_block.hash())
         .unwrap()
         .remove(&shard_id)
         .unwrap();
@@ -2285,7 +2288,7 @@ fn test_refund_receipts_processing() {
             "random_account".parse().unwrap(),
             &signer,
             1,
-            *genesis_block.hash(),
+            genesis_block.hash(),
         );
         tx_hashes.push(tx.get_hash());
         assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -2742,7 +2745,7 @@ fn test_query_final_state() {
         "test1".parse().unwrap(),
         &signer,
         100,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
@@ -2765,7 +2768,7 @@ fn test_query_final_state() {
                     last_final_block.header().height(),
                     last_final_block.header().raw_timestamp(),
                     &final_head.prev_block_hash,
-                    last_final_block.hash(),
+                    &last_final_block.hash(),
                     last_final_block.header().epoch_id(),
                     &QueryRequest::ViewAccount { account_id },
                 )
@@ -2843,8 +2846,8 @@ fn test_fork_receipt_ids() {
     }
 
     // Ensure that in stateless validation protocol receipts in fork blocks are executed.
-    let block3 = env.clients[0].produce_block_on(last_height + 3, *block1.hash()).unwrap().unwrap();
-    let block4 = env.clients[0].produce_block_on(last_height + 4, *block2.hash()).unwrap().unwrap();
+    let block3 = env.clients[0].produce_block_on(last_height + 3, block1.hash()).unwrap().unwrap();
+    let block4 = env.clients[0].produce_block_on(last_height + 4, block2.hash()).unwrap().unwrap();
     env.clients[0].process_block_test(block3.into(), Provenance::NONE).unwrap();
     env.clients[0].process_block_test(block4.into(), Provenance::NONE).unwrap();
 
@@ -2899,8 +2902,8 @@ fn test_fork_execution_outcome() {
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
     }
 
-    let block3 = env.clients[0].produce_block_on(last_height + 3, *block1.hash()).unwrap().unwrap();
-    let block4 = env.clients[0].produce_block_on(last_height + 4, *block2.hash()).unwrap().unwrap();
+    let block3 = env.clients[0].produce_block_on(last_height + 3, block1.hash()).unwrap().unwrap();
+    let block4 = env.clients[0].produce_block_on(last_height + 4, block2.hash()).unwrap().unwrap();
     env.clients[0].process_block_test(block3.into(), Provenance::NONE).unwrap();
     env.clients[0].process_block_test(block4.into(), Provenance::NONE).unwrap();
 
@@ -2912,7 +2915,7 @@ fn test_fork_execution_outcome() {
         env.clients[0].chain.mut_chain_store().get_outcomes_by_id(&receipt_id).unwrap();
     assert_eq!(receipt_execution_outcomes.len(), 2);
     let canonical_chain_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
-    assert_eq!(canonical_chain_outcome.block_hash, *block2.hash());
+    assert_eq!(canonical_chain_outcome.block_hash, block2.hash());
 
     // Make sure that GC cleanups execution outcomes.
     let epoch_length = env.clients[0].config.epoch_length;
@@ -2941,7 +2944,7 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
         "test1".parse().unwrap(),
         &signer,
         100,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     let tx_hash = tx.get_hash();
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -3052,7 +3055,7 @@ fn test_block_ordinal() {
     // make sure that the old ordinal maps to what is on the canonical chain
     let fork_ordinal_block_hash =
         env.clients[0].chain.mut_chain_store().get_block_hash_from_ordinal(fork_ordinal).unwrap();
-    assert_eq!(fork_ordinal_block_hash, *fork1_block.hash());
+    assert_eq!(fork_ordinal_block_hash, fork1_block.hash());
 }
 
 #[test]
@@ -3064,8 +3067,10 @@ fn test_congestion_receipt_execution() {
     let height = 4;
     env.produce_block(0, height);
     let prev_block = env.clients[0].chain.get_block_by_height(height).unwrap();
-    let chunk_extra =
-        env.clients[0].chain.get_chunk_extra(prev_block.hash(), &ShardUId::single_shard()).unwrap();
+    let chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(&prev_block.hash(), &ShardUId::single_shard())
+        .unwrap();
     assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     let state_update = env.clients[0]
         .runtime_adapter
@@ -3132,7 +3137,7 @@ fn test_validator_stake_host_function() {
             gas: 100_000_000_000_000,
             deposit: 0,
         }))],
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     assert_eq!(
@@ -3167,7 +3172,7 @@ fn test_catchup_no_sharding_change() {
             env.clients[0]
                 .chain
                 .chain_store()
-                .get_blocks_to_catchup(block.header().prev_hash())
+                .get_blocks_to_catchup(&block.header().prev_hash())
                 .unwrap(),
             vec![]
         );
@@ -3192,7 +3197,7 @@ mod contract_precompilation_tests {
 
     fn state_sync_on_height(env: &TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap();
-        let sync_hash = *sync_block.hash();
+        let sync_hash = sync_block.hash();
         let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
         let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_id = shard_layout.shard_ids().next().unwrap();
@@ -3256,7 +3261,7 @@ mod contract_precompilation_tests {
         let epoch_id =
             *env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let key = get_contract_cache_key(*contract_code.hash(), &runtime_config.wasm_config);
+        let key = get_contract_cache_key(contract_code.hash(), &runtime_config.wasm_config);
         for i in 0..num_clients {
             caches[i]
                 .get(&key)
@@ -3273,7 +3278,7 @@ mod contract_precompilation_tests {
         let shard_uid = ShardUId::single_shard();
         let shard_id = shard_uid.shard_id();
         let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
+            env.clients[0].chain.get_chunk_extra(&block.header().prev_hash(), &shard_uid).unwrap();
         let state_root = *chunk_extra.state_root();
 
         let viewer = TrieViewer::default();
@@ -3281,15 +3286,15 @@ mod contract_precompilation_tests {
 
         let trie = env.clients[1]
             .runtime_adapter
-            .get_trie_for_shard(shard_id, block.header().prev_hash(), state_root, false)
+            .get_trie_for_shard(shard_id, &block.header().prev_hash(), state_root, false)
             .unwrap();
         let state_update = TrieUpdate::new(trie);
 
         let mut logs = vec![];
         let view_state = ViewApplyState {
             block_height: EPOCH_LENGTH,
-            prev_block_hash: *block.header().prev_hash(),
-            block_hash: *block.hash(),
+            prev_block_hash: block.header().prev_hash(),
+            block_hash: block.hash(),
             shard_id,
             epoch_id: *block.header().epoch_id(),
             epoch_height: 1,
@@ -3364,11 +3369,11 @@ mod contract_precompilation_tests {
             *env.clients[0].chain.get_block_by_height(sync_height).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let tiny_contract_key = get_contract_cache_key(
-            *ContractCode::new(tiny_wasm_code.clone(), None).hash(),
+            ContractCode::new(tiny_wasm_code.clone(), None).hash(),
             &runtime_config.wasm_config,
         );
         let test_contract_key = get_contract_cache_key(
-            *ContractCode::new(wasm_code.clone(), None).hash(),
+            ContractCode::new(wasm_code.clone(), None).hash(),
             &runtime_config.wasm_config,
         );
 
@@ -3421,7 +3426,7 @@ mod contract_precompilation_tests {
             "test2".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            *block.hash(),
+            block.hash(),
         );
         assert_eq!(
             env.rpc_handlers[0].process_tx(delete_account_tx, false, false),
@@ -3438,7 +3443,7 @@ mod contract_precompilation_tests {
             *env.clients[0].chain.get_block_by_height(sync_height).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let contract_key = get_contract_cache_key(
-            *ContractCode::new(wasm_code.clone(), None).hash(),
+            ContractCode::new(wasm_code.clone(), None).hash(),
             &runtime_config.wasm_config,
         );
 

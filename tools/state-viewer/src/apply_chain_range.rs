@@ -128,7 +128,7 @@ fn apply_block_from_range(
             );
         });
 
-        let prev_block = match read_chain_store.get_block(block.header().prev_hash()) {
+        let prev_block = match read_chain_store.get_block(&block.header().prev_hash()) {
             Ok(prev_block) => prev_block,
             Err(_) => {
                 if verbose_output {
@@ -159,7 +159,7 @@ fn apply_block_from_range(
             .chain_store()
             .compute_transaction_validity(prev_block.header(), &chunk);
         let shard_layout =
-            epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
+            epoch_manager.get_shard_layout_from_prev_block(&block.header().prev_hash()).unwrap();
         let receipt_proof_response = get_incoming_receipts_for_shard(
             &read_chain_store,
             epoch_manager,
@@ -214,7 +214,7 @@ fn apply_block_from_range(
     } else {
         chunk_present = false;
         let chunk_extra =
-            read_chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
+            read_chain_store.get_chunk_extra(&block.header().prev_hash(), &shard_uid).unwrap();
         prev_chunk_extra = Some(chunk_extra.clone());
 
         runtime_adapter
@@ -325,7 +325,7 @@ fn apply_block_from_range(
                     block: BlockInfo {
                         hash: block_hash,
                         height: block.header().height(),
-                        prev_hash: *block.header().prev_hash(),
+                        prev_hash: block.header().prev_hash(),
                     },
                     prev_block_with_changes: None,
                 },

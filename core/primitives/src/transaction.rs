@@ -122,10 +122,10 @@ impl Transaction {
         }
     }
 
-    pub fn block_hash(&self) -> &CryptoHash {
+    pub fn block_hash(&self) -> CryptoHash {
         match self {
-            Transaction::V0(tx) => &tx.block_hash,
-            Transaction::V1(tx) => &tx.block_hash,
+            Transaction::V0(tx) => tx.block_hash,
+            Transaction::V1(tx) => tx.block_hash,
         }
     }
 
@@ -602,8 +602,8 @@ pub struct ExecutionOutcomeWithIdAndProof {
 }
 
 impl ExecutionOutcomeWithIdAndProof {
-    pub fn id(&self) -> &CryptoHash {
-        &self.outcome_with_id.id
+    pub fn id(&self) -> CryptoHash {
+        self.outcome_with_id.id
     }
 }
 

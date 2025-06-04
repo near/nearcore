@@ -134,7 +134,7 @@ pub trait ChainStoreAccess {
         }
         for height in tail + 1..=head_header_height {
             if let Ok(block_hash) = self.get_block_hash_by_height(height) {
-                let earliest_block_hash = *self.get_block_header(&block_hash)?.prev_hash();
+                let earliest_block_hash = self.get_block_header(&block_hash)?.prev_hash();
                 debug_assert!(matches!(self.block_exists(&earliest_block_hash), Ok(true)));
                 return Ok(Some(earliest_block_hash));
             }
@@ -222,7 +222,7 @@ pub trait ChainStoreAccess {
             if *block_header.chunk_mask().get(shard_index).ok_or(Error::InvalidShardId(shard_id))? {
                 break Ok(*block_header.epoch_id());
             }
-            candidate_hash = *block_header.prev_hash();
+            candidate_hash = block_header.prev_hash();
             let shard_info =
                 epoch_manager.get_prev_shard_infos(&candidate_hash, vec![shard_id])?[0];
             shard_id = shard_info.shard_id();
@@ -376,7 +376,7 @@ impl ChainStore {
             let block_header = chain_store.get_block_header(&receipts_block_hash)?;
 
             if block_header.height() != last_included_height {
-                receipts_block_hash = *block_header.prev_hash();
+                receipts_block_hash = block_header.prev_hash();
                 continue;
             }
             let receipts_shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
@@ -477,7 +477,7 @@ impl ChainStore {
             .map(|signed_tx| {
                 self.check_transaction_validity_period(
                     prev_block_header,
-                    signed_tx.transaction.block_hash(),
+                    &signed_tx.transaction.block_hash(),
                 )
                 .is_ok()
             })
@@ -1124,7 +1124,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
         if let Some(block) = &self.chain_store_cache_update.block {
-            if block.hash() == h {
+            if block.hash() == *h {
                 return Ok(block.clone());
             }
         }
@@ -1134,7 +1134,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
         if let Some(block) = &self.chain_store_cache_update.block {
-            if block.hash() == h {
+            if block.hash() == *h {
                 return Ok(true);
             }
         }
@@ -1148,7 +1148,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
-        self.get_block_header(header.prev_hash())
+        self.get_block_header(&header.prev_hash())
     }
 
     /// Get state root hash after applying header with given hash.
@@ -1374,7 +1374,7 @@ impl<'a> ChainStoreUpdate<'a> {
         loop {
             let header = self.get_block_header(&prev_hash)?;
             let (header_height, header_hash, header_prev_hash) =
-                (header.height(), *header.hash(), *header.prev_hash());
+                (header.height(), header.hash(), header.prev_hash());
             // Clean up block indices between blocks.
             for height in (header_height + 1)..prev_height {
                 self.chain_store_cache_update.height_to_hashes.insert(height, None);
@@ -1486,7 +1486,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for receipt in arced_chunk.to_prev_outgoing_receipts() {
             self.chain_store_cache_update
                 .receipts
-                .insert(*receipt.receipt_id(), Arc::clone(receipt));
+                .insert(receipt.receipt_id(), Arc::clone(receipt));
         }
         self.chain_store_cache_update
             .chunks
@@ -1511,20 +1511,20 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
         if header.is_genesis() {
-            self.save_block_merkle_tree(*header.hash(), PartialMerkleTree::default());
+            self.save_block_merkle_tree(header.hash(), PartialMerkleTree::default());
         } else {
             let prev_hash = header.prev_hash();
-            let old_merkle_tree = self.get_block_merkle_tree(prev_hash)?;
+            let old_merkle_tree = self.get_block_merkle_tree(&prev_hash)?;
             let mut new_merkle_tree = PartialMerkleTree::clone(&old_merkle_tree);
-            new_merkle_tree.insert(*prev_hash);
-            self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
+            new_merkle_tree.insert(prev_hash);
+            self.save_block_merkle_tree(header.hash(), new_merkle_tree);
         }
         Ok(())
     }
 
     pub fn save_block_header(&mut self, header: BlockHeader) -> Result<(), Error> {
         self.update_and_save_block_merkle_tree(&header)?;
-        self.chain_store_cache_update.headers.insert(*header.hash(), header);
+        self.chain_store_cache_update.headers.insert(header.hash(), header);
         Ok(())
     }
 
@@ -1740,7 +1740,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 );
                 map.entry(*block.header().epoch_id())
                     .or_insert_with(|| HashSet::new())
-                    .insert(*block.hash());
+                    .insert(block.hash());
                 store_update.set_ser(
                     DBCol::BlockPerHeight,
                     &index_to_bytes(block.header().height()),
@@ -1767,7 +1767,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     Err(Error::DBNotFoundErr(_)) => HashSet::with_capacity(headers.len()),
                     Err(e) => return Err(e),
                 };
-                hash_set.extend(headers.iter().map(|header| *header.hash()));
+                hash_set.extend(headers.iter().map(|header| header.hash()));
                 store_update.set_ser(
                     DBCol::HeaderHashesByHeight,
                     &index_to_bytes(height),
@@ -2094,7 +2094,7 @@ mod tests {
         assert!(
             chain
                 .mut_chain_store()
-                .check_transaction_validity_period(&short_fork_head, genesis.hash(),)
+                .check_transaction_validity_period(&short_fork_head, &genesis.hash(),)
                 .is_ok()
         );
         let mut long_fork = vec![];
@@ -2105,7 +2105,7 @@ mod tests {
                 TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
-            store_update.update_height(block.header().height(), *block.hash()).unwrap();
+            store_update.update_height(block.header().height(), block.hash()).unwrap();
             long_fork.push(block);
             store_update.commit().unwrap();
         }
@@ -2114,14 +2114,14 @@ mod tests {
         assert!(
             chain
                 .mut_chain_store()
-                .check_transaction_validity_period(cur_header, valid_base_hash)
+                .check_transaction_validity_period(cur_header, &valid_base_hash)
                 .is_ok()
         );
         let invalid_base_hash = long_fork[0].hash();
         assert_eq!(
             chain
                 .mut_chain_store()
-                .check_transaction_validity_period(cur_header, invalid_base_hash),
+                .check_transaction_validity_period(cur_header, &invalid_base_hash),
             Err(InvalidTxError::Expired)
         );
     }
@@ -2140,7 +2140,7 @@ mod tests {
                 TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
-            store_update.update_height(block.header().height(), *block.hash()).unwrap();
+            store_update.update_height(block.header().height(), block.hash()).unwrap();
             blocks.push(block);
             store_update.commit().unwrap();
         }
@@ -2149,7 +2149,7 @@ mod tests {
         assert!(
             chain
                 .chain_store()
-                .check_transaction_validity_period(cur_header, valid_base_hash,)
+                .check_transaction_validity_period(cur_header, &valid_base_hash,)
                 .is_ok()
         );
         let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
@@ -2158,12 +2158,12 @@ mod tests {
 
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(new_block.header().clone()).unwrap();
-        store_update.update_height(new_block.header().height(), *new_block.hash()).unwrap();
+        store_update.update_height(new_block.header().height(), new_block.hash()).unwrap();
         store_update.commit().unwrap();
         assert_eq!(
             chain
                 .chain_store()
-                .check_transaction_validity_period(new_block.header(), valid_base_hash,),
+                .check_transaction_validity_period(new_block.header(), &valid_base_hash,),
             Err(InvalidTxError::Expired)
         );
     }
@@ -2173,7 +2173,7 @@ mod tests {
         let mut chain = get_chain(Clock::real());
         chain.set_transaction_validity_period(5);
         let genesis = chain.get_block_by_height(0).unwrap();
-        let genesis_hash = *genesis.hash();
+        let genesis_hash = genesis.hash();
         let signer = Arc::new(create_test_signer("test1"));
         let mut short_fork = vec![];
         let mut prev_block = genesis.clone();

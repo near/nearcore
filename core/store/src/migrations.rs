@@ -126,12 +126,12 @@ pub fn migrate_32_to_33(store: &Store) -> anyhow::Result<()> {
         // It appears that it was possible that the same entry in the original column contained
         // duplicate outcomes. We remove them here to avoid panicking due to issuing a
         // self-overwriting transaction.
-        outcomes.sort_by_key(|outcome| (*outcome.id(), outcome.block_hash));
-        outcomes.dedup_by_key(|outcome| (*outcome.id(), outcome.block_hash));
+        outcomes.sort_by_key(|outcome| (outcome.id(), outcome.block_hash));
+        outcomes.dedup_by_key(|outcome| (outcome.id(), outcome.block_hash));
         for outcome in outcomes {
             update.insert_ser(
                 DBCol::TransactionResultForBlock,
-                &get_outcome_id_block_hash(outcome.id(), &outcome.block_hash),
+                &get_outcome_id_block_hash(&outcome.id(), &outcome.block_hash),
                 &ExecutionOutcomeWithProof {
                     proof: outcome.proof,
                     outcome: outcome.outcome_with_id.outcome,

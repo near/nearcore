@@ -72,7 +72,7 @@ fn test_burn_mint() {
     let fee_helper = FeeHelper::new(config, genesis.config.min_gas_price);
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let initial_total_supply = env.chain_genesis.total_supply;
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     assert_eq!(
         env.rpc_handlers[0].process_tx(
             SignedTransaction::send_money(

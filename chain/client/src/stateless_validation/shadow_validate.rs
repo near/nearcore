@@ -14,7 +14,7 @@ impl Client {
         }
         let block_hash = block.hash();
         tracing::debug!(target: "client", ?block_hash, "shadow validation for block chunks");
-        let prev_block = self.chain.get_block(block.header().prev_hash())?;
+        let prev_block = self.chain.get_block(&block.header().prev_hash())?;
         let prev_block_chunks = prev_block.chunks();
         for (shard_index, chunk) in block
             .chunks()

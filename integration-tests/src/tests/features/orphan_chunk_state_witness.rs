@@ -84,7 +84,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         for i in 0..env.clients.len() {
             let blocks_processed =
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
-            assert_eq!(blocks_processed, vec![*block.hash()]);
+            assert_eq!(blocks_processed, vec![block.hash()]);
         }
 
         env.process_partial_encoded_chunks();
@@ -139,7 +139,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         let blocks_processed = env.clients[client_idx]
             .process_block_test(block1.clone().into(), Provenance::NONE)
             .unwrap();
-        assert_eq!(blocks_processed, vec![*block1.hash()]);
+        assert_eq!(blocks_processed, vec![block1.hash()]);
     }
     env.process_partial_encoded_chunks();
     for client_idx in 0..env.clients.len() {
@@ -201,7 +201,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         let blocks_processed = env.clients[client_idx]
             .process_block_test(block2.clone().into(), Provenance::NONE)
             .unwrap();
-        assert_eq!(blocks_processed, vec![*block2.hash()]);
+        assert_eq!(blocks_processed, vec![block2.hash()]);
     }
 
     env.process_partial_encoded_chunks();
@@ -246,7 +246,7 @@ fn test_orphan_witness_valid() {
         .client(&excluded_validator)
         .process_block_test(block1.clone().into(), Provenance::NONE)
         .unwrap();
-    assert_eq!(block_processed, vec![*block1.hash()]);
+    assert_eq!(block_processed, vec![block1.hash()]);
 
     // After processing `block1`, `excluded_validator` should process the orphaned witness for the chunk belonging to `block2`
     // and it should send out an endorsement for this chunk. This happens asynchronously, so we have to wait for it.

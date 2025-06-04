@@ -221,7 +221,7 @@ fn forward_distribution_next_shard(
                 global_contract_data.code().clone(),
             ),
         );
-        let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);
+        let receipt_id = apply_state.create_receipt_id(&receipt.receipt_id(), 0);
         next_receipt.set_receipt_id(receipt_id);
         receipt_sink.forward_or_buffer_receipt(
             next_receipt,

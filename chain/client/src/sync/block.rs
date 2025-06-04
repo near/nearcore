@@ -145,11 +145,11 @@ impl BlockSync {
                 _ => return Err(e),
             },
         } {
-            header = chain.get_block_header(header.prev_hash())?;
+            header = chain.get_block_header(&header.prev_hash())?;
         }
 
         // Then go forward for as long as we know the next block
-        let mut hash = *header.hash();
+        let mut hash = header.hash();
         loop {
             match chain.chain_store().get_next_block_hash(&hash) {
                 Ok(got_hash) => {

@@ -60,7 +60,7 @@ pub(crate) fn replay_headers(
                     )
                 });
             epoch_manager_replay
-                .add_validator_proposals(block_info, *header.random_value())
+                .add_validator_proposals(block_info, header.random_value())
                 .unwrap()
                 .commit()
                 .unwrap();
@@ -222,7 +222,7 @@ fn get_block_info(
     // TODO(#11900): Remove this code after ChunkEndorsementsInBlockHeader is stabilized.
     let chunk_endorsements_bitmap: Option<ChunkEndorsementsBitmap> =
         if header.chunk_endorsements().is_none() {
-            let block = chain_store.get_block(header.hash())?;
+            let block = chain_store.get_block(&header.hash())?;
             let chunks = block.chunks();
             let epoch_id = block.header().epoch_id();
             let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
@@ -234,7 +234,7 @@ fn get_block_info(
 
             let height = header.height();
             let prev_block_epoch_id =
-                epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
+                epoch_manager.get_epoch_id_from_prev_block(&header.prev_hash())?;
             for (shard_index, chunk_header) in chunks.iter_deprecated().enumerate() {
                 let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                 let endorsements = &endorsement_signatures[shard_index];
@@ -262,7 +262,7 @@ fn get_block_info(
         };
     Ok(BlockInfo::from_header_and_endorsements(
         &header,
-        chain_store.get_block_height(header.last_final_block()).unwrap(),
+        chain_store.get_block_height(&header.last_final_block()).unwrap(),
         chunk_endorsements_bitmap,
     ))
 }

@@ -149,7 +149,7 @@ impl ChainStore {
             )?;
             implicit_transitions.push(chunk_state_transition);
 
-            current_block_hash = *header.prev_hash();
+            current_block_hash = header.prev_hash();
         }
 
         let main_block = current_block_hash;
@@ -275,13 +275,13 @@ impl ChainStore {
                     break cur_block;
                 }
 
-                cur_block = self.get_block_header(cur_block.prev_hash())?;
+                cur_block = self.get_block_header(&cur_block.prev_hash())?;
             }
         };
 
         // Get the last block that contained `prev_prev_chunk` (the chunk before `prev_chunk`).
         // We are interested in all incoming receipts that weren't handled by `prev_prev_chunk`.
-        let prev_prev_chunk_block = self.get_block(prev_chunk_original_block.prev_hash())?;
+        let prev_prev_chunk_block = self.get_block(&prev_chunk_original_block.prev_hash())?;
         // Find the header of the chunk before `prev_chunk`
         let prev_prev_chunk_header = epoch_manager
             .get_prev_chunk_header(&prev_prev_chunk_block, prev_chunk_header.shard_id())?;
@@ -290,13 +290,13 @@ impl ChainStore {
         // They will be between `prev_prev_chunk.height_included` (first block containing `prev_prev_chunk`)
         // and `prev_chunk_original_block`
         let shard_layout = epoch_manager
-            .get_shard_layout_from_prev_block(prev_chunk_original_block.prev_hash())?;
+            .get_shard_layout_from_prev_block(&prev_chunk_original_block.prev_hash())?;
         let incoming_receipt_proofs = get_incoming_receipts_for_shard(
             &self,
             epoch_manager,
             prev_chunk_header.shard_id(),
             &shard_layout,
-            *prev_chunk_original_block.hash(),
+            prev_chunk_original_block.hash(),
             prev_prev_chunk_header.height_included(),
             ReceiptFilter::All,
         )?;

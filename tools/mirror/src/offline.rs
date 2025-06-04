@@ -191,7 +191,7 @@ impl crate::ChainAccess for ChainAccess {
                 .into_chain_error()?;
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
             .into_chain_error()?;
-        let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
+        let chunk_extra = self.chain.get_chunk_extra(&header.hash(), &shard_uid)?;
         match self
             .runtime
             .query(
@@ -199,8 +199,8 @@ impl crate::ChainAccess for ChainAccess {
                 chunk_extra.state_root(),
                 header.height(),
                 header.raw_timestamp(),
-                header.prev_hash(),
-                header.hash(),
+                &header.prev_hash(),
+                &header.hash(),
                 header.epoch_id(),
                 &QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
             )?

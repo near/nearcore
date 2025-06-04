@@ -332,7 +332,7 @@ pub fn start_with_config_and_synchronization(
     )?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
-        hash: *genesis_block.header().hash(),
+        hash: genesis_block.header().hash(),
     };
 
     let node_id = config.network_config.node_id();
@@ -526,7 +526,7 @@ pub fn start_with_config_and_synchronization(
             near_rosetta_rpc::start_rosetta_rpc(
                 rosetta_rpc_config,
                 config.genesis,
-                genesis_block.header().hash(),
+                &genesis_block.header().hash(),
                 client_actor.clone(),
                 view_client_addr.clone(),
                 rpc_handler.clone(),

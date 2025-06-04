@@ -104,7 +104,7 @@ fn test_not_supported_block() {
 
     let mut env = setup_env(&genesis, store);
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
 
     // Produce blocks up to `START_HEIGHT`.
     for height in 1..START_HEIGHT {

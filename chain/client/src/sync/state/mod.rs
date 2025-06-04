@@ -337,8 +337,8 @@ pub fn get_epoch_start_sync_hash(
 ) -> Result<CryptoHash, near_chain::Error> {
     let mut header = chain.get_block_header(sync_hash)?;
     let mut epoch_id = *header.epoch_id();
-    let mut hash = *header.hash();
-    let mut prev_hash = *header.prev_hash();
+    let mut hash = header.hash();
+    let mut prev_hash = header.prev_hash();
     loop {
         if prev_hash == CryptoHash::default() {
             return Ok(hash);
@@ -348,7 +348,7 @@ pub fn get_epoch_start_sync_hash(
             return Ok(hash);
         }
         epoch_id = *header.epoch_id();
-        hash = *header.hash();
-        prev_hash = *header.prev_hash();
+        hash = header.hash();
+        prev_hash = header.prev_hash();
     }
 }

@@ -392,7 +392,7 @@ impl Client {
         me: &AccountId,
         block: &Block,
     ) -> Result<(), Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        let epoch_id = self.epoch_manager.get_epoch_id(&block.hash())?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
@@ -401,7 +401,7 @@ impl Client {
             if block.header().height() == chunk_header.height_included() {
                 if self.shard_tracker.cares_about_shard_this_or_next_epoch(
                     Some(me),
-                    block.header().prev_hash(),
+                    &block.header().prev_hash(),
                     shard_id,
                     true,
                 ) {
@@ -421,7 +421,7 @@ impl Client {
         me: &AccountId,
         block: &Block,
     ) -> Result<(), Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        let epoch_id = self.epoch_manager.get_epoch_id(&block.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let shard_layout =
             self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
@@ -435,7 +435,7 @@ impl Client {
             if block.header().height() == chunk_header.height_included() {
                 if self.shard_tracker.cares_about_shard_this_or_next_epoch(
                     Some(me),
-                    block.header().prev_hash(),
+                    &block.header().prev_hash(),
                     shard_id,
                     false,
                 ) {
@@ -521,9 +521,9 @@ impl Client {
         // block is caught up. If it is not the case, we wouldn't be able to
         // apply the following block, so we also skip block production.
         let prev_hash = prev_header.hash();
-        if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
+        if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
             let prev_prev_hash = prev_header.prev_hash();
-            if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
+            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
                 debug!(target: "client", height, "Skipping block production, prev block is not caught up");
                 return Ok(false);
             }
@@ -727,7 +727,7 @@ impl Client {
         let prev = self.chain.get_block_header(&prev_hash)?;
         let prev_height = prev.height();
         let prev_epoch_id = *prev.epoch_id();
-        let prev_next_bp_hash = *prev.next_bp_hash();
+        let prev_next_bp_hash = prev.next_bp_hash();
 
         if let Err(err) = self.pre_block_production_check(&prev, height, &validator_signer) {
             debug!(target: "client", height, ?err, "Skipping block production");
@@ -860,12 +860,12 @@ impl Client {
         };
 
         let epoch_sync_data_hash = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
-            let last_block_info = self.epoch_manager.get_block_info(prev_block.hash())?;
+            let last_block_info = self.epoch_manager.get_block_info(&prev_block.hash())?;
             let prev_epoch_id = *last_block_info.epoch_id();
             let prev_epoch_first_block_info =
-                self.epoch_manager.get_block_info(last_block_info.epoch_first_block())?;
+                self.epoch_manager.get_block_info(&last_block_info.epoch_first_block())?;
             let prev_epoch_prev_last_block_info =
-                self.epoch_manager.get_block_info(last_block_info.prev_hash())?;
+                self.epoch_manager.get_block_info(&last_block_info.prev_hash())?;
             let prev_epoch_info = self.epoch_manager.get_epoch_info(&prev_epoch_id)?;
             let cur_epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
             let next_epoch_info = self.epoch_manager.get_epoch_info(&next_epoch_id)?;
@@ -928,8 +928,8 @@ impl Client {
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
-        let hash = *block.hash();
-        let prev_hash = *block.header().prev_hash();
+        let hash = block.hash();
+        let prev_hash = block.header().prev_hash();
         let _span = tracing::debug_span!(
             target: "client",
             "receive_block",
@@ -992,7 +992,7 @@ impl Client {
         if !self.should_process_block(&block, was_requested)? {
             self.chain
                 .blocks_delay_tracker
-                .mark_block_dropped(block.hash(), DroppedReason::HeightProcessed);
+                .mark_block_dropped(&block.hash(), DroppedReason::HeightProcessed);
             return Ok(());
         }
 
@@ -1006,7 +1006,7 @@ impl Client {
             return Err(near_chain::Error::InvalidSignature);
         }
 
-        let prev_hash = *block.header().prev_hash();
+        let prev_hash = block.header().prev_hash();
         let block = block.into();
         self.verify_and_rebroadcast_block(&block, was_requested, &peer_id)?;
         let provenance =
@@ -1082,7 +1082,7 @@ impl Client {
         }
 
         // If we already processed this hash, drop the block.
-        let hash = *block.hash();
+        let hash = block.hash();
         if self.chain.is_hash_processed(&hash) {
             debug!(target: "client", ?hash, block_height, "Dropping a block because we've seen this hash before");
             return Ok(false);
@@ -1091,7 +1091,7 @@ impl Client {
         // If the block is not on top of current head and we already processed
         // the height, drop the block.
         let is_on_head = block.header().prev_hash()
-            == &self.chain.head().map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash);
+            == self.chain.head().map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash);
         if !is_on_head && self.chain.is_height_processed(block_height)? {
             debug!(target: "client", ?hash, block_height, "Dropping a block because we've seen this height before and we didn't request it");
             return Ok(false);
@@ -1280,11 +1280,11 @@ impl Client {
     }
 
     fn rebroadcast_block(&mut self, block: &Block) {
-        if self.rebroadcasted_blocks.get(block.hash()).is_none() {
+        if self.rebroadcasted_blocks.get(&block.hash()).is_none() {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
             ));
-            self.rebroadcasted_blocks.put(*block.hash(), ());
+            self.rebroadcasted_blocks.put(block.hash(), ());
         }
     }
 
@@ -1362,7 +1362,7 @@ impl Client {
         if tip.last_block_hash != self.doomslug.get_tip().0 {
             // We need to update the doomslug tip
             let last_final_hash =
-                *self.chain.get_block_header(&tip.last_block_hash)?.last_final_block();
+                self.chain.get_block_header(&tip.last_block_hash)?.last_final_block();
             let last_final_height = if last_final_hash == CryptoHash::default() {
                 self.chain.genesis().height()
             } else {
@@ -1378,8 +1378,7 @@ impl Client {
     pub fn sandbox_update_tip(&mut self, height: BlockHeight) -> Result<(), Error> {
         let tip = self.chain.head()?;
 
-        let last_final_hash =
-            *self.chain.get_block_header(&tip.last_block_hash)?.last_final_block();
+        let last_final_hash = self.chain.get_block_header(&tip.last_block_hash)?.last_final_block();
         let last_final_height = if last_final_hash == CryptoHash::default() {
             self.chain.genesis().height()
         } else {
@@ -1490,10 +1489,10 @@ impl Client {
 
         if status.is_new_head() {
             let last_final_block = block.header().last_final_block();
-            let last_finalized_height = if last_final_block == &CryptoHash::default() {
+            let last_finalized_height = if last_final_block == CryptoHash::default() {
                 self.chain.genesis().height()
             } else {
-                self.chain.get_block_header(last_final_block).map_or(0, |header| header.height())
+                self.chain.get_block_header(&last_final_block).map_or(0, |header| header.height())
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
             self.chain.blocks_pending_execution.prune_blocks_below_height(last_finalized_height);
@@ -1511,8 +1510,9 @@ impl Client {
             if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
                 let new_shard_layout =
                     self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
-                let old_shard_layout =
-                    self.epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash());
+                let old_shard_layout = self
+                    .epoch_manager
+                    .get_shard_layout_from_prev_block(&block.header().prev_hash());
                 match (old_shard_layout, new_shard_layout) {
                     (Ok(old_shard_layout), Ok(new_shard_layout)) => {
                         if old_shard_layout != new_shard_layout {
@@ -1558,7 +1558,7 @@ impl Client {
         }
 
         self.shards_manager_adapter
-            .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
+            .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(block.hash()));
 
         self.process_ready_orphan_witnesses_and_clean_old(&block, signer);
     }
@@ -1605,18 +1605,18 @@ impl Client {
 
                 while remove_head.hash() != reintroduce_head.hash() {
                     while remove_head.height() > reintroduce_head.height() {
-                        to_remove.push(*remove_head.hash());
+                        to_remove.push(remove_head.hash());
                         remove_head =
-                            self.chain.get_block_header(remove_head.prev_hash()).unwrap().clone();
+                            self.chain.get_block_header(&remove_head.prev_hash()).unwrap().clone();
                     }
                     while reintroduce_head.height() > remove_head.height()
                         || reintroduce_head.height() == remove_head.height()
                             && reintroduce_head.hash() != remove_head.hash()
                     {
-                        to_reintroduce.push(*reintroduce_head.hash());
+                        to_reintroduce.push(reintroduce_head.hash());
                         reintroduce_head = self
                             .chain
-                            .get_block_header(reintroduce_head.prev_hash())
+                            .get_block_header(&reintroduce_head.prev_hash())
                             .unwrap()
                             .clone();
                     }
@@ -1684,7 +1684,7 @@ impl Client {
         };
 
         let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
+            self.epoch_manager.get_epoch_id_from_prev_block(&block.header().hash()).unwrap();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
             let next_height = block.header().height() + 1;
             let epoch_manager = self.epoch_manager.as_ref();
@@ -1703,7 +1703,7 @@ impl Client {
             let _span = debug_span!(
                 target: "client",
                 "on_block_accepted",
-                prev_block_hash = ?*block.hash(),
+                prev_block_hash = ?block.hash(),
                 ?shard_id)
             .entered();
             let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
@@ -2104,7 +2104,7 @@ impl Client {
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
         {
-            assert_eq!(&epoch_first_block, state_sync_info.epoch_first_block());
+            assert_eq!(epoch_first_block, state_sync_info.epoch_first_block());
 
             let block_header = self.chain.get_block(&epoch_first_block)?.header().clone();
             let epoch_id = block_header.epoch_id();

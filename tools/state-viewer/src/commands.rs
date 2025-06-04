@@ -85,9 +85,9 @@ pub(crate) fn apply_block(
     }
     let apply_result = if block.chunks()[shard_index].height_included() == height {
         let chunk = chain_store.get_chunk(&block.chunks()[shard_index].chunk_hash()).unwrap();
-        let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
+        let prev_block = chain_store.get_block(&block.header().prev_hash()).unwrap();
         let shard_layout =
-            epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
+            epoch_manager.get_shard_layout_from_prev_block(&block.header().prev_hash()).unwrap();
         let receipt_proof_response = get_incoming_receipts_for_shard(
             &chain_store,
             epoch_manager,
@@ -126,8 +126,8 @@ pub(crate) fn apply_block(
             .unwrap()
     } else {
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
-        let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
+            chain_store.get_chunk_extra(&block.header().prev_hash(), &shard_uid).unwrap();
+        let prev_block = chain_store.get_block(&block.header().prev_hash()).unwrap();
 
         runtime
             .apply_chunk(
@@ -361,7 +361,7 @@ pub(crate) fn dump_account_storage(
     for (shard_index, state_root) in state_roots.iter().enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie =
-            runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
+            runtime.get_trie_for_shard(shard_id, &header.prev_hash(), *state_root, false).unwrap();
         let key = TrieKey::ContractData {
             account_id: account_id.parse().unwrap(),
             key: storage_key.as_bytes().to_vec(),
@@ -398,7 +398,7 @@ pub(crate) fn dump_code(
     store: Store,
 ) {
     let (epoch_manager, runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
-    let epoch_id = &epoch_manager.get_epoch_id(header.hash()).unwrap();
+    let epoch_id = &epoch_manager.get_epoch_id(&header.hash()).unwrap();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
 
     for (shard_index, state_root) in state_roots.iter().enumerate() {
@@ -595,15 +595,15 @@ pub(crate) fn print_chain(
                 println!(
                     "{: >3} {}",
                     header.height(),
-                    format_hash(*header.hash(), show_full_hashes)
+                    format_hash(header.hash(), show_full_hashes)
                 );
             } else {
                 let parent_header =
-                    chain_store.get_block_header(header.prev_hash()).unwrap().clone();
-                if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())
+                    chain_store.get_block_header(&header.prev_hash()).unwrap().clone();
+                if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(&header.prev_hash())
                 {
                     cur_epoch_id = Some(epoch_id);
-                    match epoch_manager.is_next_block_epoch_start(header.prev_hash()) {
+                    match epoch_manager.is_next_block_epoch_start(&header.prev_hash()) {
                         Ok(true) => {
                             println!("{:?}", account_id_to_blocks);
                             account_id_to_blocks = HashMap::new();
@@ -675,10 +675,10 @@ pub(crate) fn print_chain(
                         "{: >3} {} {} | {: >10} | parent: {: >3} {} | {} {}",
                         header.height(),
                         header.raw_timestamp(),
-                        format_hash(*header.hash(), show_full_hashes),
+                        format_hash(header.hash(), show_full_hashes),
                         block_producer,
                         parent_header.height(),
-                        format_hash(*parent_header.hash(), show_full_hashes),
+                        format_hash(parent_header.hash(), show_full_hashes),
                         chunk_mask_to_str(header.chunk_mask()),
                         chunk_debug_str.join("|")
                     );
@@ -711,7 +711,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     for (shard_index, state_root) in state_roots.iter().enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie =
-            runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
+            runtime.get_trie_for_shard(shard_id, &header.prev_hash(), *state_root, false).unwrap();
         for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(&key, value) {
@@ -757,7 +757,7 @@ pub(crate) fn view_chain(
         if chunk_header.height_included() == block.header().height() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-            let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone();
+            let chunk_extra = chain_store.get_chunk_extra(&block.hash(), &shard_uid).ok().clone();
             let chunk = chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone();
             chunk_extras.push((shard_id, chunk_extra));
             chunks.push((shard_id, chunk));
@@ -835,7 +835,7 @@ pub(crate) fn view_genesis(
             let genesis_hash_in_storage =
                 chain_store.get_block_hash_by_height(chain_genesis.height).unwrap();
             let genesis_hash_in_config = genesis_block.hash();
-            if &genesis_hash_in_storage == genesis_hash_in_config {
+            if genesis_hash_in_storage == genesis_hash_in_config {
                 println!("Genesis in storage and config match.");
             } else {
                 println!(
@@ -906,7 +906,7 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
                 );
             }
         }
-        cur_block = match chain_store.get_block(cur_block.header().prev_hash()) {
+        cur_block = match chain_store.get_block(&cur_block.header().prev_hash()) {
             Ok(b) => b.clone(),
             Err(_) => {
                 panic!("last block is {:?}", cur_block);
@@ -1279,7 +1279,7 @@ pub(crate) fn print_state_stats(
     let (epoch_manager, runtime, _, block_header) =
         load_trie(store.clone(), home_dir, &near_config);
 
-    let block_hash = *block_header.hash();
+    let block_hash = block_header.hash();
     let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
 
     let flat_storage_manager = runtime.get_flat_storage_manager();

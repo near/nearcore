@@ -121,7 +121,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let state_reads = test_get_store_reads(DBCol::State);
 
-    let mut last_hash = *env.clients[0].chain.genesis().hash();
+    let mut last_hash = env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
         let signer = InMemorySigner::test_signer(&test0());
         if height == 1 {
@@ -156,11 +156,11 @@ fn test_storage_after_commit_of_cold_update() {
 
         let client = &env.clients[0];
         let client_store = client.runtime_adapter.store();
-        let epoch_id = client.epoch_manager.get_epoch_id(block.hash()).unwrap();
+        let epoch_id = client.epoch_manager.get_epoch_id(&block.hash()).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_uids = shard_layout.shard_uids().collect();
         let is_resharding_boundary =
-            client.epoch_manager.is_resharding_boundary(block.header().prev_hash()).unwrap();
+            client.epoch_manager.is_resharding_boundary(&block.header().prev_hash()).unwrap();
         update_cold_db(
             cold_db,
             &client_store,
@@ -172,7 +172,7 @@ fn test_storage_after_commit_of_cold_update() {
         )
         .unwrap();
 
-        last_hash = *block.hash();
+        last_hash = block.hash();
     }
 
     // assert that we don't read State from db, but from TrieChanges
@@ -277,7 +277,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
-    let mut last_hash = *env.clients[0].chain.genesis().hash();
+    let mut last_hash = env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
         let signer = InMemorySigner::test_signer(&test0());
         // It is still painful to filter out transactions in last two blocks.
@@ -314,7 +314,7 @@ fn test_cold_db_copy_with_height_skips() {
             continue;
         };
         let block_hash = block_hash.unwrap();
-        assert!(&block_hash == block.hash());
+        assert!(block_hash == block.hash());
         let epoch_id = client.epoch_manager.get_epoch_id(&block_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_uids = shard_layout.shard_uids().collect();
@@ -381,7 +381,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
-    let mut last_hash = *env.clients[0].chain.genesis().hash();
+    let mut last_hash = env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
         let signer = InMemorySigner::test_signer(&test0());
         for i in 0..5 {
@@ -394,7 +394,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        last_hash = *block.hash();
+        last_hash = block.hash();
     }
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
@@ -472,7 +472,7 @@ fn test_cold_loop_on_gc_boundary() {
 
     let height_delta = env.clients[0].config.gc.gc_num_epochs_to_keep * epoch_length * 2;
 
-    let mut last_hash = *env.clients[0].chain.genesis().hash();
+    let mut last_hash = env.clients[0].chain.genesis().hash();
 
     for height in 1..height_delta {
         let signer = InMemorySigner::test_signer(&test0());
@@ -486,7 +486,7 @@ fn test_cold_loop_on_gc_boundary() {
 
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        last_hash = *block.hash();
+        last_hash = block.hash();
     }
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
@@ -508,7 +508,7 @@ fn test_cold_loop_on_gc_boundary() {
 
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        last_hash = *block.hash();
+        last_hash = block.hash();
     }
 
     let start_cold_head =

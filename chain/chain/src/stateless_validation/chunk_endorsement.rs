@@ -44,7 +44,7 @@ pub fn validate_chunk_endorsements_in_block(
         }
     }
 
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())?;
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&block.header().prev_hash())?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     for (chunk_header, signatures) in
         block.chunks().iter_deprecated().zip(block.chunk_endorsements())
@@ -166,7 +166,7 @@ pub fn validate_chunk_endorsements_in_header(
             header.height()
         )));
     };
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&header.prev_hash())?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     let shard_ids = epoch_manager.get_shard_layout(&epoch_id)?.shard_ids().collect_vec();
     if chunk_endorsements.num_shards() != shard_ids.len() {

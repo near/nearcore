@@ -51,10 +51,11 @@ impl ReshardingManager {
 
         let prev_hash = block.header().prev_hash();
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
-        let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
+        let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(&prev_hash)?;
         let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
 
-        let is_next_block_epoch_start = self.epoch_manager.is_next_block_epoch_start(block_hash)?;
+        let is_next_block_epoch_start =
+            self.epoch_manager.is_next_block_epoch_start(&block_hash)?;
         if !is_next_block_epoch_start {
             return Ok(());
         }
@@ -71,9 +72,9 @@ impl ReshardingManager {
         }
 
         let block_info = BlockInfo {
-            hash: *block.hash(),
+            hash: block.hash(),
             height: block.header().height(),
-            prev_hash: *block.header().prev_hash(),
+            prev_hash: block.header().prev_hash(),
         };
         let resharding_event_type =
             ReshardingEventType::from_shard_layout(&next_shard_layout, block_info)?;
@@ -160,7 +161,7 @@ impl ReshardingManager {
         .entered();
 
         let parent_chunk_extra =
-            self.store.chain_store().get_chunk_extra(block_hash, parent_shard_uid)?;
+            self.store.chain_store().get_chunk_extra(&block_hash, parent_shard_uid)?;
         let mut store_update = self.store.trie_store().store_update();
 
         // TODO(resharding): leave only tracked shards.
@@ -217,9 +218,9 @@ impl ReshardingManager {
             *child_chunk_extra.state_root_mut() = trie_changes.new_root;
             *child_chunk_extra.congestion_info_mut() = child_congestion_info;
 
-            chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
+            chain_store_update.save_chunk_extra(&block_hash, &new_shard_uid, child_chunk_extra);
             chain_store_update.save_state_transition_data(
-                *block_hash,
+                block_hash,
                 new_shard_uid.shard_id(),
                 parent_trie.recorded_storage(),
                 CryptoHash::default(),

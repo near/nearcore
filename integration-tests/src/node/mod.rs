@@ -181,7 +181,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
                 if account_id == &seed {
                     found_account_record = true;
                     account.set_contract(AccountContract::Local(
-                        *ContractCode::new(code.to_vec(), None).hash(),
+                        ContractCode::new(code.to_vec(), None).hash(),
                     ));
                 }
             }

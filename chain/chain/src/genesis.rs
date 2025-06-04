@@ -129,7 +129,7 @@ impl Chain {
                 // genesis height is considered final
                 genesis.header().height(),
             ),
-            *genesis.header().random_value(),
+            genesis.header().random_value(),
         )?);
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone());
@@ -150,7 +150,7 @@ impl Chain {
             flat_storage_manager.set_flat_storage_for_genesis(
                 &mut tmp_store_update.flat_store_update(),
                 shard_uid,
-                genesis.hash(),
+                &genesis.hash(),
                 genesis.header().height(),
             )
         }
@@ -240,7 +240,7 @@ impl Chain {
             };
 
             store_update.save_chunk_extra(
-                genesis.hash(),
+                &genesis.hash(),
                 &shard_id_to_uid(epoch_manager, chunk_header.shard_id(), &EpochId::default())?,
                 chunk_extra,
             );

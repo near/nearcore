@@ -102,7 +102,7 @@ impl BootstrapCmd {
             }
         };
 
-        let &prev_hash = block_header.prev_hash();
+        let prev_hash = block_header.prev_hash();
         for (shard_id, state_root) in shard_id_state_root_list {
             Self::run_impl(
                 epoch_manager.as_ref(),
@@ -160,7 +160,7 @@ impl PrepareBenchmarkCmd {
             load_trie(store, home_dir, near_config);
 
         let prev_hash = block_header.prev_hash();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
         for (shard_index, &state_root) in state_roots.iter().enumerate() {

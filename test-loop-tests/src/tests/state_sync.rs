@@ -472,7 +472,7 @@ fn run_test_with_added_node(state: TestState) {
                 // Make sure the node catches up through state sync, not block sync.
                 // It will skip straight from genesis to the sync prev block.
                 let sync_header = client.chain.get_block_header(&sync_hash).unwrap();
-                assert!(new_tip.last_block_hash == *sync_header.prev_hash());
+                assert!(new_tip.last_block_hash == sync_header.prev_hash());
                 true
             } else {
                 false

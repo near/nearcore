@@ -16,7 +16,7 @@ use tempfile::tempdir;
 
 /// Compute genesis hash from genesis.
 pub fn genesis_hash(genesis: &Genesis) -> CryptoHash {
-    *genesis_header(genesis).hash()
+    genesis_header(genesis).hash()
 }
 
 /// Utility to generate genesis header from config for testing purposes.

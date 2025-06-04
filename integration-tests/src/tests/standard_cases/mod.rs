@@ -1476,7 +1476,7 @@ fn check_trie_nodes_count(
     let node_user = node.user();
     let mut node_touches: Vec<_> = vec![];
     let receipt_hashes: Vec<CryptoHash> =
-        receipts.iter().map(|receipt| *receipt.receipt_id()).collect();
+        receipts.iter().map(|receipt| receipt.receipt_id()).collect();
 
     for i in 0..2 {
         node_user.add_receipts(receipts.clone(), use_flat_storage).unwrap();

@@ -447,10 +447,10 @@ impl Receipt {
         }
     }
 
-    pub fn receipt_id(&self) -> &CryptoHash {
+    pub fn receipt_id(&self) -> CryptoHash {
         match self {
-            Receipt::V0(receipt) => &receipt.receipt_id,
-            Receipt::V1(receipt) => &receipt.receipt_id,
+            Receipt::V0(receipt) => receipt.receipt_id,
+            Receipt::V1(receipt) => receipt.receipt_id,
         }
     }
 
@@ -470,7 +470,7 @@ impl Receipt {
 
     /// It's not a content hash, but receipt_id is unique.
     pub fn get_hash(&self) -> CryptoHash {
-        *self.receipt_id()
+        self.receipt_id()
     }
 
     pub fn receiver_shard_id(&self, shard_layout: &ShardLayout) -> Result<ShardId, EpochError> {

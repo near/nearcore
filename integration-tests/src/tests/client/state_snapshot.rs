@@ -232,7 +232,7 @@ fn slow_test_make_state_snapshot() {
 
     let signer: Signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
+    let genesis_hash = genesis_block.hash();
 
     let mut blocks = vec![];
 
@@ -258,7 +258,7 @@ fn slow_test_make_state_snapshot() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         assert_eq!(
             format!("{:?}", Ok::<(), anyhow::Error>(())),
-            format!("{:?}", verify_make_snapshot(&state_snapshot_test_env, *block.hash(), &block))
+            format!("{:?}", verify_make_snapshot(&state_snapshot_test_env, block.hash(), &block))
         );
     }
 

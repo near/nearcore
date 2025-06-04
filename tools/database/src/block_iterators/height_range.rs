@@ -75,7 +75,7 @@ impl Iterator for BlockHeightRangeIterator {
         if current_block.header().height() >= self.from_block_height {
             // Set the previous block as "current" one, as long as the current one isn't the genesis block
             if current_block.header().height() != self.chain_store.get_genesis_height() {
-                self.current_block_hash = Some(*current_block.header().prev_hash());
+                self.current_block_hash = Some(current_block.header().prev_hash());
             }
 
             return Some(current_block);

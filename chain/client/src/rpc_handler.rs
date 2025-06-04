@@ -166,7 +166,7 @@ impl RpcHandler {
         if let Err(e) = check_transaction_validity_period(
             &self.chain_store,
             &cur_block_header,
-            signed_tx.transaction.block_hash(),
+            &signed_tx.transaction.block_hash(),
             self.config.transaction_validity_period,
         ) {
             tracing::debug!(target: "client", ?signed_tx, "Invalid tx: expired or from a different fork");

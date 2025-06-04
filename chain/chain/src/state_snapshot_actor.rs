@@ -56,7 +56,7 @@ pub struct CreateSnapshotRequest {
 impl std::fmt::Debug for CreateSnapshotRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CreateSnapshotRequest")
-            .field("block_hash", self.block.hash())
+            .field("block_hash", &self.block.hash())
             .field("prev_block_hash", &self.prev_block_hash)
             .field("min_chunk_prev_height", &self.min_chunk_prev_height)
             .field("epoch_height", &self.epoch_height)
@@ -224,7 +224,7 @@ pub fn get_make_snapshot_callback(
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
     Arc::new(move |min_chunk_prev_height, epoch_height, shard_indexes_and_uids, block| {
-        let prev_block_hash = *block.header().prev_hash();
+        let prev_block_hash = block.header().prev_hash();
         tracing::info!(
             target: "state_snapshot",
             ?prev_block_hash,

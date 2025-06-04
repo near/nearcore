@@ -207,7 +207,7 @@ impl GenesisStateApplier {
                         {
                             state_update.set_code(account_id.clone(), &code);
                             assert_eq!(
-                                *code.hash(),
+                                code.hash(),
                                 acc.contract().local_code().unwrap_or_default()
                             );
                         } else {
@@ -291,7 +291,7 @@ impl GenesisStateApplier {
                                         receiver_id: account_id.clone(),
                                         data_id: *data_id,
                                     },
-                                    receipt.receipt_id(),
+                                    &receipt.receipt_id(),
                                 )
                             }
                         });
@@ -304,7 +304,7 @@ impl GenesisStateApplier {
                                 state_update,
                                 TrieKey::PendingDataCount {
                                     receiver_id: account_id.clone(),
-                                    receipt_id: *receipt.receipt_id(),
+                                    receipt_id: receipt.receipt_id(),
                                 },
                                 &pending_data_count,
                             );

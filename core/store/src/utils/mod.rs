@@ -102,7 +102,7 @@ pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
     assert!(matches!(receipt.receipt(), ReceiptEnum::Action(_)));
     let key = TrieKey::PostponedReceipt {
         receiver_id: receipt.receiver_id().clone(),
-        receipt_id: *receipt.receipt_id(),
+        receipt_id: receipt.receipt_id(),
     };
     set(state_update, key, receipt);
 }

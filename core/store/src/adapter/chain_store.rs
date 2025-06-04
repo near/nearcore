@@ -151,7 +151,7 @@ impl ChainStoreAdapter {
 
     /// Get previous header.
     pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
-        self.get_block_header(header.prev_hash())
+        self.get_block_header(&header.prev_hash())
     }
 
     /// Returns hash of the block on the main chain for given height.
@@ -481,7 +481,7 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         let height = header.height();
         let mut hash_set =
             self.store_update.store.chain_store().get_all_header_hashes_by_height(height).unwrap();
-        hash_set.insert(*header.hash());
+        hash_set.insert(header.hash());
         self.set_block_header_hashes_by_height(height, &hash_set);
     }
 }

@@ -109,10 +109,10 @@ impl StateSyncInfo {
     }
 
     /// Block hash that identifies this state sync struct on disk
-    pub fn epoch_first_block(&self) -> &CryptoHash {
+    pub fn epoch_first_block(&self) -> CryptoHash {
         match self {
-            Self::V0(info) => &info.sync_hash,
-            Self::V1(info) => &info.epoch_first_block,
+            Self::V0(info) => info.sync_hash,
+            Self::V1(info) => info.epoch_first_block,
         }
     }
 

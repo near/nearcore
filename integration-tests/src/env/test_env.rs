@@ -589,8 +589,8 @@ impl TestEnv {
                         &last_chunk_header.prev_state_root(),
                         last_block.header().height(),
                         last_block.header().raw_timestamp(),
-                        last_block.header().prev_hash(),
-                        last_block.header().hash(),
+                        &last_block.header().prev_hash(),
+                        &last_block.header().hash(),
                         last_block.header().epoch_id(),
                         &QueryRequest::ViewAccount { account_id },
                     )
@@ -639,8 +639,8 @@ impl TestEnv {
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
-                last_block.header().prev_hash(),
-                last_block.header().hash(),
+                &last_block.header().prev_hash(),
+                &last_block.header().hash(),
                 last_block.header().epoch_id(),
                 &QueryRequest::ViewState {
                     account_id,
@@ -865,7 +865,7 @@ impl TestEnv {
             }
         };
         let prev_hash = block.header().prev_hash();
-        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
         let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         let latest_protocol_version = block.header().latest_protocol_version();
 

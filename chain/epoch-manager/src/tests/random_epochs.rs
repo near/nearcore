@@ -190,7 +190,7 @@ fn verify_proposals(epoch_manager: &EpochManager, block_infos: &[Arc<BlockInfo>]
         let prev_block_info = &block_infos[i - 1];
         let block_info = &block_infos[i];
         assert!(block_info.last_finalized_height() >= prev_block_info.last_finalized_height());
-        if epoch_manager.is_next_block_epoch_start(block_infos[i].prev_hash()).unwrap() {
+        if epoch_manager.is_next_block_epoch_start(&block_infos[i].prev_hash()).unwrap() {
             assert_ne!(prev_block_info.epoch_first_block(), block_info.epoch_first_block());
             if prev_block_info.height() == 0 {
                 // special case: epochs 0 and 1
@@ -203,7 +203,7 @@ fn verify_proposals(epoch_manager: &EpochManager, block_infos: &[Arc<BlockInfo>]
                 assert_ne!(prev_block_info.epoch_id(), block_info.epoch_id(), "epoch id changes");
             }
             let aggregator =
-                epoch_manager.get_epoch_info_aggregator_upto_last(block_info.prev_hash()).unwrap();
+                epoch_manager.get_epoch_info_aggregator_upto_last(&block_info.prev_hash()).unwrap();
             assert_eq!(aggregator.all_proposals, proposals, "Proposals do not match");
             proposals = BTreeMap::from_iter(
                 block_info.proposals_iter().map(|p| (p.account_id().clone(), p)),
@@ -222,7 +222,7 @@ fn verify_block_stats(
 ) {
     for i in 1..block_infos.len() {
         let prev_epoch_end =
-            *epoch_manager.get_block_info(block_infos[i].epoch_first_block()).unwrap().prev_hash();
+            epoch_manager.get_block_info(&block_infos[i].epoch_first_block()).unwrap().prev_hash();
         let prev_epoch_end_height = epoch_manager.get_block_info(&prev_epoch_end).unwrap().height();
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;

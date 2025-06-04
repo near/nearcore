@@ -100,7 +100,7 @@ fn test_block_sync() {
             blocks[i * max_block_requests..(i + 1) * max_block_requests].to_vec();
         check_hashes_from_network_adapter(
             &network_adapter,
-            expected_blocks.iter().map(|b| *b.hash()).collect(),
+            expected_blocks.iter().map(|b| b.hash()).collect(),
         );
 
         for block in expected_blocks {
@@ -113,7 +113,7 @@ fn test_block_sync() {
     block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
     check_hashes_from_network_adapter(
         &network_adapter,
-        (3 * max_block_requests..4 * max_block_requests).map(|h| *blocks[h].hash()).collect(),
+        (3 * max_block_requests..4 * max_block_requests).map(|h| blocks[h].hash()).collect(),
     );
     // assumes that we only get block[4*max_block_requests-1]
     let _ = env.clients[1].process_block_test(
@@ -125,12 +125,12 @@ fn test_block_sync() {
     block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
     check_hashes_from_network_adapter(
         &network_adapter,
-        (3 * max_block_requests..4 * max_block_requests - 1).map(|h| *blocks[h].hash()).collect(),
+        (3 * max_block_requests..4 * max_block_requests - 1).map(|h| blocks[h].hash()).collect(),
     );
 
     // Receive all blocks. Should not request more. As an extra
     // complication, pause the processing of one block.
-    env.pause_block_processing(&mut capture, blocks[4 * max_block_requests - 1].hash());
+    env.pause_block_processing(&mut capture, &blocks[4 * max_block_requests - 1].hash());
     for i in 3 * max_block_requests..5 * max_block_requests {
         let _ = env.clients[1]
             .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
@@ -142,7 +142,7 @@ fn test_block_sync() {
 
     // Now finish paused processing and sanity check that we
     // still are fully synced.
-    env.resume_block_processing(blocks[4 * max_block_requests - 1].hash());
+    env.resume_block_processing(&blocks[4 * max_block_requests - 1].hash());
     wait_for_all_blocks_in_processing(&mut env.clients[1].chain);
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
@@ -185,6 +185,6 @@ fn test_block_sync_archival() {
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     assert_eq!(
         requested_block_hashes,
-        blocks.iter().take(max_block_requests).map(|b| *b.hash()).collect::<HashSet<_>>()
+        blocks.iter().take(max_block_requests).map(|b| b.hash()).collect::<HashSet<_>>()
     );
 }

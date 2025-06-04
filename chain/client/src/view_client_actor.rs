@@ -222,7 +222,7 @@ impl ViewClientActorInner {
     ) -> Result<CryptoHash, near_chain::Error> {
         match finality {
             Finality::None => Ok(self.chain.head()?.last_block_hash),
-            Finality::DoomSlug => Ok(*self.chain.head_header()?.last_ds_final_block()),
+            Finality::DoomSlug => Ok(self.chain.head_header()?.last_ds_final_block()),
             Finality::Final => Ok(self.chain.final_head()?.last_block_hash),
         }
     }
@@ -305,7 +305,7 @@ impl ViewClientActorInner {
         let shard_ids = self.epoch_manager.shard_ids(&epoch_id)?;
         let cur_block_info = self.epoch_manager.get_block_info(&head.last_block_hash)?;
         let next_epoch_start_height =
-            self.epoch_manager.get_epoch_start_height(cur_block_info.hash())?
+            self.epoch_manager.get_epoch_start_height(&cur_block_info.hash())?
                 + self.epoch_manager.get_epoch_config(&epoch_id)?.epoch_length;
 
         let mut windows: MaintenanceWindowsView = Vec::new();
@@ -370,14 +370,14 @@ impl ViewClientActorInner {
 
         let tip = self.chain.head();
         let chunk_extra =
-            self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
+            self.chain.get_chunk_extra(&header.hash(), &shard_uid).map_err(|err| match err {
                 near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => match tip {
                     Ok(tip) => {
                         let gc_stop_height = self.runtime.get_gc_stop_height(&tip.last_block_hash);
                         if !self.config.archive && header.height() < gc_stop_height {
                             QueryError::GarbageCollectedBlock {
                                 block_height: header.height(),
-                                block_hash: *header.hash(),
+                                block_hash: header.hash(),
                             }
                         } else {
                             QueryError::UnavailableShard { requested_shard_id: shard_id }
@@ -397,8 +397,8 @@ impl ViewClientActorInner {
             state_root,
             header.height(),
             header.raw_timestamp(),
-            header.prev_hash(),
-            header.hash(),
+            &header.prev_hash(),
+            &header.hash(),
             header.epoch_id(),
             &msg.request,
         ) {
@@ -875,7 +875,7 @@ impl Handler<GetValidatorInfo> for ViewClientActorInner {
                     BlockId::Height(h) => self.chain.get_block_header_by_height(h)?,
                 };
                 let next_block_hash =
-                    self.chain.chain_store().get_next_block_hash(block_header.hash())?;
+                    self.chain.chain_store().get_next_block_hash(&block_header.hash())?;
                 let next_block_header = self.chain.get_block_header(&next_block_hash)?;
                 if block_header.epoch_id() != next_block_header.epoch_id()
                     && block_header.next_epoch_id() == next_block_header.epoch_id()

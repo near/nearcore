@@ -685,12 +685,12 @@ impl StateDumper {
         let head = self.chain.head().context("Failed getting chain head")?;
         let header = self.get_block_header(&head.last_block_hash)?;
         let final_hash = header.last_final_block();
-        if final_hash == &CryptoHash::default() {
+        if final_hash == CryptoHash::default() {
             return Ok(None);
         }
         let Some(sync_hash) = self
             .chain
-            .get_sync_hash(final_hash)
+            .get_sync_hash(&final_hash)
             .with_context(|| format!("Failed getting sync hash for {}", &final_hash))?
         else {
             return Ok(None);
@@ -743,8 +743,8 @@ impl StateDumper {
             .epoch_manager
             .get_epoch_info(sync_header.epoch_id())
             .with_context(|| format!("Failed getting epoch info {:?}", sync_header.epoch_id()))?;
-        let sync_prev_header = self.get_block_header(sync_header.prev_hash())?;
-        let sync_prev_prev_hash = *sync_prev_header.prev_hash();
+        let sync_prev_header = self.get_block_header(&sync_header.prev_hash())?;
+        let sync_prev_prev_hash = sync_prev_header.prev_hash();
         let shard_ids = self
             .epoch_manager
             .shard_ids(sync_header.epoch_id())
@@ -757,7 +757,7 @@ impl StateDumper {
         for shard_id in shard_ids {
             if !self.shard_tracker.cares_about_shard(
                 account_id,
-                sync_header.prev_hash(),
+                &sync_header.prev_hash(),
                 shard_id,
                 true,
             ) {
@@ -771,7 +771,7 @@ impl StateDumper {
                 .with_label_values(&[&shard_id.to_string()])
                 .set(epoch_info.epoch_height().try_into().unwrap_or(i64::MAX));
 
-            let (shard_dump, sender) = self.get_shard_dump(shard_id, sync_header.hash())?;
+            let (shard_dump, sender) = self.get_shard_dump(shard_id, &sync_header.hash())?;
             dump_state.insert(shard_id, shard_dump);
             senders.insert(shard_id, sender);
         }
@@ -907,7 +907,7 @@ impl StateDumper {
 
                     dump.set_missing_parts(&self.external, &self.chain_id).await;
                     self.start_upload_parts(senders, &dump);
-                    self.new_dump(dump, *sync_header.hash())?;
+                    self.new_dump(dump, sync_header.hash())?;
                 }
                 NewDump::NoTrackedShards => {
                     self.current_dump = CurrentDump::Done(*sync_header.epoch_id());
@@ -991,7 +991,7 @@ impl StateDumper {
             NewDump::Dump(mut dump, sender) => {
                 self.header_uploader(&dump).upload_headers(&mut dump).await;
                 self.start_upload_parts(sender, &dump);
-                self.new_dump(dump, *sync_header.hash())?;
+                self.new_dump(dump, sync_header.hash())?;
             }
             NewDump::NoTrackedShards => {
                 self.current_dump = CurrentDump::Done(*sync_header.epoch_id());

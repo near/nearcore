@@ -116,7 +116,7 @@ fn slow_test_repro_1183() {
                                     to.clone(),
                                     &InMemorySigner::test_signer(&from),
                                     1,
-                                    *block.header().prev_hash(),
+                                    block.header().prev_hash(),
                                 ),
                                 is_forwarded: false,
                                 check_only: false,
@@ -228,7 +228,7 @@ fn slow_test_sync_from_archival_node() {
                             }
                         }
                         if block.header().height() <= 10 {
-                            blocks.write().insert(*block.hash(), block.clone());
+                            blocks.write().insert(block.hash(), block.clone());
                         }
                         None
                     }

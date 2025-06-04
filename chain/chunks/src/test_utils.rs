@@ -260,7 +260,7 @@ pub fn tip(epoch_manager: &dyn EpochManagerAdapter, last_block_hash: CryptoHash)
     Tip {
         height: block_info.height(),
         last_block_hash,
-        prev_block_hash: *block_info.prev_hash(),
+        prev_block_hash: block_info.prev_hash(),
         epoch_id,
         next_epoch_id,
     }

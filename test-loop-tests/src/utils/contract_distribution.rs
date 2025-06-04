@@ -42,7 +42,7 @@ pub(crate) fn assert_all_chunk_endorsements_received(
     for height in start_height..=end_height {
         let header = chain_store.get_block_header_by_height(height).unwrap();
 
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&header.prev_hash()).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_ids =
             epoch_manager.get_shard_layout(&epoch_id).unwrap().shard_ids().collect_vec();

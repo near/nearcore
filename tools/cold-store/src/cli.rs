@@ -230,7 +230,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     let shard_uids = shard_layout.shard_uids().collect();
     let block_info = epoch_manager.get_block_info(&next_height_block_hash).unwrap();
     let is_resharding_boundary =
-        epoch_manager.is_resharding_boundary(block_info.prev_hash()).unwrap();
+        epoch_manager.is_resharding_boundary(&block_info.prev_hash()).unwrap();
     update_cold_db(
         &*store.cold_db().unwrap(),
         &store.get_hot_store(),
@@ -436,7 +436,7 @@ impl PrepareHotCmd {
             rpc_store.get_ser::<BlockInfo>(DBCol::BlockInfo, cold_head_hash.as_ref())?;
         let cold_head_block_info = cold_head_block_info
             .ok_or_else(|| anyhow::anyhow!("Cold head block info is not in rpc db"))?;
-        let cold_epoch_first_block = *cold_head_block_info.epoch_first_block();
+        let cold_epoch_first_block = cold_head_block_info.epoch_first_block();
         let cold_epoch_first_block_info =
             rpc_store.get_ser::<BlockInfo>(DBCol::BlockInfo, cold_epoch_first_block.as_ref())?;
 

@@ -25,7 +25,7 @@ fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransact
         "test1".parse().unwrap(),
         &signer,
         10,
-        *last_block.hash(),
+        last_block.hash(),
     );
     vec![tx]
 }

@@ -648,7 +648,7 @@ impl ForkNetworkCommand {
             flat_storage_manager.set_flat_storage_for_genesis(
                 &mut store_update.flat_store_update(),
                 shard_uid,
-                genesis_block.hash(),
+                &genesis_block.hash(),
                 genesis_block.header().height(),
             );
         }
@@ -985,7 +985,7 @@ impl ForkNetworkCommand {
                         storage_mutator.remove_postponed_receipt(
                             shard_uid,
                             receipt.receiver_id().clone(),
-                            *receipt.receipt_id(),
+                            receipt.receipt_id(),
                         )?;
                         near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
 

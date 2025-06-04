@@ -1312,7 +1312,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 let outcome = self
                     .source_chain_access
                     .get_outcome(TransactionOrReceiptId::Receipt {
-                        receipt_id: *receipt.receipt_id(),
+                        receipt_id: receipt.receipt_id(),
                         receiver_id: receipt.receiver_id().clone(),
                     })
                     .await
@@ -1405,7 +1405,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     tx_block_queue,
                     target_view_client,
                     txs,
-                    receipt.receipt_id(),
+                    &receipt.receipt_id(),
                     receipt.receiver_id(),
                     ref_hash,
                     provenance,

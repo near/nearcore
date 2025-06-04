@@ -62,7 +62,7 @@ fn test_invalid_approvals() {
     // Approval with invalid signature. Should be dropped
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "random");
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let approval = Approval::new(genesis_hash, 0, 1, &signer);
     env.clients[0].collect_block_approval(
         &approval,

@@ -270,7 +270,7 @@ impl EpochManager {
         // we move the aggregator forward in the previous epoch we do not have previous epoch's
         // blocks to compute the aggregator data. See issue for details. Consider a cleaner way.
         self.epoch_info_aggregator =
-            EpochInfoAggregator::new(*prev_epoch_id, *prev_epoch_prev_last_block_info.prev_hash());
+            EpochInfoAggregator::new(*prev_epoch_id, prev_epoch_prev_last_block_info.prev_hash());
         store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &self.epoch_info_aggregator)?;
 
         self.save_block_info(store_update, Arc::new(prev_epoch_first_block_info))?;
@@ -567,7 +567,7 @@ impl EpochManager {
         }
 
         let prev_epoch_last_block_hash =
-            *self.get_block_info(last_block_info.epoch_first_block())?.prev_hash();
+            self.get_block_info(&last_block_info.epoch_first_block())?.prev_hash();
         let prev_validator_kickout = next_epoch_info.validator_kickout();
 
         let config = self.config.for_protocol_version(epoch_info.protocol_version());
@@ -622,7 +622,7 @@ impl EpochManager {
 
         let (validator_reward, minted_amount) = {
             let last_epoch_last_block_hash =
-                *self.get_block_info(block_info.epoch_first_block())?.prev_hash();
+                self.get_block_info(&block_info.epoch_first_block())?.prev_hash();
             let last_block_in_last_epoch = self.get_block_info(&last_epoch_last_block_hash)?;
             assert!(block_info.timestamp_nanosec() > last_block_in_last_epoch.timestamp_nanosec());
             let epoch_duration =
@@ -717,7 +717,7 @@ impl EpochManager {
         mut block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<StoreUpdate, EpochError> {
-        let current_hash = *block_info.hash();
+        let current_hash = block_info.hash();
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
         if !self.has_block_info(&current_hash)? {
@@ -733,7 +733,7 @@ impl EpochManager {
                     genesis_epoch_info,
                 )?;
             } else {
-                let prev_block_info = self.get_block_info(block_info.prev_hash())?;
+                let prev_block_info = self.get_block_info(&block_info.prev_hash())?;
 
                 let mut is_epoch_start = false;
                 if prev_block_info.is_genesis() {
@@ -750,7 +750,7 @@ impl EpochManager {
                 } else {
                     // Same epoch as parent, copy epoch_id and epoch_start_height.
                     *block_info.epoch_id_mut() = *prev_block_info.epoch_id();
-                    *block_info.epoch_first_block_mut() = *prev_block_info.epoch_first_block();
+                    *block_info.epoch_first_block_mut() = prev_block_info.epoch_first_block();
                 }
 
                 if is_epoch_start {
@@ -772,7 +772,7 @@ impl EpochManager {
                     // never need to rollback any information in
                     // self.epoch_info_aggregator.
                     self.update_epoch_info_aggregator_upto_final(
-                        block_info.last_final_block_hash(),
+                        &block_info.last_final_block_hash(),
                         &mut store_update,
                     )?;
                 }
@@ -966,7 +966,7 @@ impl EpochManager {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<BlockHeight, EpochError> {
-        let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
+        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block();
         Ok(self.get_block_info(&epoch_first_block)?.height())
     }
 
@@ -1300,10 +1300,11 @@ impl EpochManager {
         if block_info.is_genesis() {
             return Ok(true);
         }
-        let protocol_version = self.get_epoch_info_from_hash(block_info.hash())?.protocol_version();
+        let protocol_version =
+            self.get_epoch_info_from_hash(&block_info.hash())?.protocol_version();
         let epoch_length = self.config.for_protocol_version(protocol_version).epoch_length;
         let estimated_next_epoch_start =
-            self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
+            self.get_block_info(&block_info.epoch_first_block())?.height() + epoch_length;
 
         if epoch_length <= 3 {
             // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
@@ -1325,20 +1326,20 @@ impl EpochManager {
         }
         let epoch_length = {
             let protocol_version =
-                self.get_epoch_info_from_hash(block_info.hash())?.protocol_version();
+                self.get_epoch_info_from_hash(&block_info.hash())?.protocol_version();
             let config = self.config.for_protocol_version(protocol_version);
             config.epoch_length
         };
         let estimated_next_epoch_start =
-            self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
+            self.get_block_info(&block_info.epoch_first_block())?.height() + epoch_length;
         Ok(block_info.last_finalized_height() + 3 < estimated_next_epoch_start
             && block_info.height() + 3 >= estimated_next_epoch_start)
     }
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
     fn get_next_epoch_id_from_info(&self, block_info: &BlockInfo) -> Result<EpochId, EpochError> {
-        let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
-        Ok(EpochId(*first_block_info.prev_hash()))
+        let first_block_info = self.get_block_info(&block_info.epoch_first_block())?;
+        Ok(EpochId(first_block_info.prev_hash()))
     }
 
     pub fn get_epoch_config(&self, protocol_version: ProtocolVersion) -> EpochConfig {
@@ -1423,7 +1424,7 @@ impl EpochManager {
     ) -> Result<(), EpochError> {
         let block_hash = block_info.hash();
         store_update.insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)?;
-        self.blocks_info.put(*block_hash, block_info);
+        self.blocks_info.put(block_hash, block_info);
         Ok(())
     }
 
@@ -1573,7 +1574,7 @@ impl EpochManager {
                 break (aggregator, true);
             }
 
-            let prev_hash = *block_info.prev_hash();
+            let prev_hash = block_info.prev_hash();
             let (prev_height, prev_epoch) = match self.get_block_info(&prev_hash) {
                 Ok(info) => (info.height(), *info.epoch_id()),
                 Err(EpochError::MissingBlock(_)) => {

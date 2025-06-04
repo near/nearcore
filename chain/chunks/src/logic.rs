@@ -51,7 +51,7 @@ pub fn get_shards_cares_about_this_or_next_epoch(
         .filter(|&shard_id| {
             shard_tracker.cares_about_shard_this_or_next_epoch(
                 account_id,
-                block_header.prev_hash(),
+                &block_header.prev_hash(),
                 shard_id,
                 is_me,
             )

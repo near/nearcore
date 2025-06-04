@@ -256,7 +256,7 @@ impl OptimisticBlockChunksPool {
             return;
         }
 
-        let prev_block_hash = *block.prev_block_hash();
+        let prev_block_hash = block.prev_block_hash();
         self.blocks.insert(prev_block_hash, block);
         self.update_latest_ready_block(&prev_block_hash);
     }

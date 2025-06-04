@@ -155,7 +155,7 @@ fn run_state_sync_with_dumped_parts(
         "validator_signer",
     );
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
+    let genesis_hash = genesis_block.hash();
 
     let mut blocks = vec![];
     let chain = &env.clients[0].chain;
@@ -236,7 +236,7 @@ fn run_state_sync_with_dumped_parts(
 
     let header = env.clients[0].chain.get_block_header(&head.last_block_hash).unwrap();
     let final_block_hash = header.last_final_block();
-    let final_block_header = env.clients[0].chain.get_block_header(final_block_hash).unwrap();
+    let final_block_header = env.clients[0].chain.get_block_header(&final_block_hash).unwrap();
 
     tracing::info!(
         dump_node_head_height,
@@ -255,7 +255,7 @@ fn run_state_sync_with_dumped_parts(
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
     let epoch_height = epoch_info.epoch_height();
 
-    let sync_hash = env.clients[0].chain.get_sync_hash(final_block_hash).unwrap().unwrap();
+    let sync_hash = env.clients[0].chain.get_sync_hash(&final_block_hash).unwrap().unwrap();
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
     let state_sync_header = env.clients[0]
         .chain

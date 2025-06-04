@@ -158,7 +158,7 @@ fn get_postponed_receipt_count_for_shard(
     store: &Store,
 ) -> Result<i64, anyhow::Error> {
     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
-    let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid)?;
+    let chunk_extra = chain_store.get_chunk_extra(&block.hash(), &shard_uid)?;
     let state_root = chunk_extra.state_root();
     let storage = TrieDBStorage::new(store.trie_store(), shard_uid);
     let storage = Arc::new(storage);

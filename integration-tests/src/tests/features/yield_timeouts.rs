@@ -76,7 +76,7 @@ fn prepare_env_with_yield(
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     let tx_hash = tx.get_hash();
@@ -103,7 +103,7 @@ fn prepare_env_with_yield(
             gas: 300_000_000_000_000,
             deposit: 0,
         }))],
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     let yield_tx_hash = yield_transaction.get_hash();
@@ -142,7 +142,7 @@ fn invoke_yield_resume(env: &TestEnv, data_id: CryptoHash, yield_payload: Vec<u8
             gas: 300_000_000_000_000,
             deposit: 0,
         }))],
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     let tx_hash = resume_transaction.get_hash();
@@ -175,7 +175,7 @@ fn create_congestion(env: &TestEnv) {
                 gas: 100,
                 deposit: 0,
             }))],
-            *genesis_block.hash(),
+            genesis_block.hash(),
             0,
         );
         tx_hashes.push(signed_transaction.get_hash());

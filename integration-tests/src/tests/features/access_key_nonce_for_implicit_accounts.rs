@@ -61,7 +61,7 @@ fn test_transaction_hash_collision() {
         "test0".parse().unwrap(),
         &signer1,
         100,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     let delete_account_tx = SignedTransaction::delete_account(
         2,
@@ -69,7 +69,7 @@ fn test_transaction_hash_collision() {
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer1,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
 
     assert_eq!(
@@ -92,7 +92,7 @@ fn test_transaction_hash_collision() {
         NEAR_BASE,
         signer1.public_key(),
         &signer0,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(create_account_tx, false, false),
@@ -135,7 +135,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
         near_implicit_account_id.clone(),
         &signer1,
         deposit_for_account_creation,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     height = check_tx_processing(&mut env, send_money_tx, height, blocks_number);
     let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
@@ -148,7 +148,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
         near_implicit_account_id.clone(),
         "test0".parse().unwrap(),
         &near_implicit_account_signer,
-        *block.hash(),
+        block.hash(),
     );
     height = check_tx_processing(&mut env, delete_account_tx, height, blocks_number);
     let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
@@ -160,7 +160,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
         near_implicit_account_id.clone(),
         &signer1,
         deposit_for_account_creation,
-        *block.hash(),
+        block.hash(),
     );
     height = check_tx_processing(&mut env, send_money_again_tx, height, blocks_number);
     let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
@@ -172,7 +172,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
         "test0".parse().unwrap(),
         &near_implicit_account_signer,
         100,
-        *block.hash(),
+        block.hash(),
     );
     let response =
         env.rpc_handlers[0].process_tx(send_money_from_near_implicit_account_tx, false, false);
@@ -184,7 +184,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
         "test0".parse().unwrap(),
         &near_implicit_account_signer,
         100,
-        *block.hash(),
+        block.hash(),
     );
     check_tx_processing(&mut env, send_money_from_near_implicit_account_tx, height, blocks_number);
 
@@ -224,7 +224,7 @@ fn test_chunk_transaction_validity() {
         "test0".parse().unwrap(),
         &signer,
         100,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     ));
     for i in 1..200 {
         env.produce_block(0, i);
@@ -269,7 +269,7 @@ fn test_transaction_nonce_too_large() {
         "test0".parse().unwrap(),
         &signer,
         100,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     assert_matches!(
         env.rpc_handlers[0].process_tx(tx, false, false),
@@ -366,16 +366,16 @@ fn test_request_chunks_for_orphan() {
     // check that block 4-2+NUM_ORPHAN_ANCESTORS_CHECK requested partial encoded chunks already
     for i in 4..3 + NUM_ORPHAN_ANCESTORS_CHECK {
         assert!(
-            env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[i as usize].hash()),
+            env.clients[1].chain.check_orphan_partial_chunks_requested(&blocks[i as usize].hash()),
             "{}",
             i
         );
     }
     assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(
-        blocks[3 + NUM_ORPHAN_ANCESTORS_CHECK as usize].hash()
+        &blocks[3 + NUM_ORPHAN_ANCESTORS_CHECK as usize].hash()
     ));
     assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(
-        blocks[4 + NUM_ORPHAN_ANCESTORS_CHECK as usize].hash()
+        &blocks[4 + NUM_ORPHAN_ANCESTORS_CHECK as usize].hash()
     ));
     // process all the partial encoded chunk requests for block 4 - 2 + NUM_ORPHAN_ANCESTORS_CHECK
     env.process_partial_encoded_chunks_requests(1);
@@ -385,7 +385,7 @@ fn test_request_chunks_for_orphan() {
     env.process_partial_encoded_chunk_request(1, missing_chunk_request);
     env.process_shards_manager_responses_and_finish_processing_blocks(1);
     assert_eq!(
-        &env.clients[1].chain.head().unwrap().last_block_hash,
+        env.clients[1].chain.head().unwrap().last_block_hash,
         blocks[2 + NUM_ORPHAN_ANCESTORS_CHECK as usize].hash()
     );
 
@@ -394,7 +394,7 @@ fn test_request_chunks_for_orphan() {
     // block 3+NUM_ORPHAN_ANCESTORS to 8.
     for i in 4 + NUM_ORPHAN_ANCESTORS_CHECK..10 {
         assert!(
-            env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[i as usize].hash())
+            env.clients[1].chain.check_orphan_partial_chunks_requested(&blocks[i as usize].hash())
         );
         for _ in 0..4 {
             let request = env.network_adapters[1].pop().unwrap();
@@ -402,9 +402,9 @@ fn test_request_chunks_for_orphan() {
             env.process_shards_manager_responses_and_finish_processing_blocks(1);
         }
     }
-    assert_eq!(&env.clients[1].chain.head().unwrap().last_block_hash, blocks[8].hash());
+    assert_eq!(env.clients[1].chain.head().unwrap().last_block_hash, blocks[8].hash());
     // blocks[10] is at the new epoch, so we can't request partial chunks for it yet
-    assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[10].hash()));
+    assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(&blocks[10].hash()));
 
     // process missing chunks for block 9, which has 4 chunks, so there are 4 requests in total
     for _ in 0..4 {
@@ -412,11 +412,11 @@ fn test_request_chunks_for_orphan() {
         env.process_partial_encoded_chunk_request(1, request);
         env.process_shards_manager_responses_and_finish_processing_blocks(1);
     }
-    assert_eq!(&env.clients[1].chain.head().unwrap().last_block_hash, blocks[9].hash());
+    assert_eq!(env.clients[1].chain.head().unwrap().last_block_hash, blocks[9].hash());
 
     for i in 11..10 + NUM_ORPHAN_ANCESTORS_CHECK {
         assert!(
-            env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[i as usize].hash())
+            env.clients[1].chain.check_orphan_partial_chunks_requested(&blocks[i as usize].hash())
         );
     }
 
@@ -428,7 +428,7 @@ fn test_request_chunks_for_orphan() {
             env.process_partial_encoded_chunk_request(1, request);
         }
         env.process_shards_manager_responses_and_finish_processing_blocks(1);
-        assert_eq!(&env.clients[1].chain.head().unwrap().last_block_hash, blocks[i].hash());
+        assert_eq!(env.clients[1].chain.head().unwrap().last_block_hash, blocks[i].hash());
     }
 }
 
@@ -725,7 +725,7 @@ fn test_chunk_forwarding_optimization() {
                 &signer,
             );
             let mut accepted_blocks =
-                test.env.clients[i].finish_block_in_processing(block.header().hash());
+                test.env.clients[i].finish_block_in_processing(&block.header().hash());
             // Process any chunk part requests that this client sent. Note that this would also
             // process other network messages (such as production of the next chunk) which is OK.
             test.process_network_messages();
@@ -738,7 +738,7 @@ fn test_chunk_forwarding_optimization() {
                 block.header().height(),
                 i
             );
-            assert_eq!(&accepted_blocks[0], block.header().hash());
+            assert_eq!(accepted_blocks[0], block.header().hash());
             assert_eq!(test.env.clients[i].chain.head().unwrap().height, block.header().height());
         }
 

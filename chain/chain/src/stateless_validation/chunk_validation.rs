@@ -172,7 +172,7 @@ fn get_state_witness_block_range(
     loop {
         let prev_hash = position.prev_block.hash();
         let prev_prev_hash = position.prev_block.header().prev_hash();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
         let shard_uid = shard_id_to_uid(epoch_manager, position.shard_id, &epoch_id)?;
 
         if let Some(transition) = get_resharding_transition(
@@ -184,7 +184,7 @@ fn get_state_witness_block_range(
             implicit_transition_params.push(transition);
         }
         let (prev_shard_layout, prev_shard_id, prev_shard_index) =
-            epoch_manager.get_prev_shard_id_from_prev_hash(prev_hash, position.shard_id)?;
+            epoch_manager.get_prev_shard_id_from_prev_hash(&prev_hash, position.shard_id)?;
 
         let new_chunk_seen = block_has_new_chunk(&position.prev_block, prev_shard_index)?;
         let new_chunks_seen_update =
@@ -256,10 +256,11 @@ fn get_resharding_transition(
         return Ok(None);
     }
 
-    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_header.hash())?;
-    let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(prev_header.hash())?;
+    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_header.hash())?;
+    let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(&prev_header.hash())?;
     let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
-    let block_has_new_shard_layout = epoch_manager.is_next_block_epoch_start(prev_header.hash())?
+    let block_has_new_shard_layout = epoch_manager
+        .is_next_block_epoch_start(&prev_header.hash())?
         && shard_layout != prev_shard_layout;
 
     if !block_has_new_shard_layout {
@@ -267,9 +268,9 @@ fn get_resharding_transition(
     }
 
     let block_info = BlockInfo {
-        hash: *prev_header.hash(),
+        hash: prev_header.hash(),
         height: prev_header.height(),
-        prev_hash: *prev_header.prev_hash(),
+        prev_hash: prev_header.prev_hash(),
     };
     let params = match ReshardingEventType::from_shard_layout(&shard_layout, block_info)? {
         Some(ReshardingEventType::SplitShard(params)) => params,
@@ -351,7 +352,7 @@ pub fn pre_validate_chunk_state_witness(
             vec![true; state_witness.transactions().len()]
         } else {
             let prev_block_header =
-                store.get_block_header(last_chunk_block.header().prev_hash())?;
+                store.get_block_header(&last_chunk_block.header().prev_hash())?;
             let check = chain.transaction_validity_check(prev_block_header);
             state_witness.transactions().iter().map(|t| check(t)).collect::<Vec<_>>()
         }
@@ -368,7 +369,7 @@ pub fn pre_validate_chunk_state_witness(
             chain.genesis_chunk_extra(&shard_layout, last_chunk_shard_id, congestion_info)?;
         MainTransition::Genesis {
             chunk_extra,
-            block_hash: *last_chunk_block.hash(),
+            block_hash: last_chunk_block.hash(),
             shard_id: last_chunk_shard_id,
         }
     } else {
@@ -382,7 +383,7 @@ pub fn pre_validate_chunk_state_witness(
             receipts: receipts_to_apply,
             block: Chain::get_apply_chunk_block_context(
                 last_chunk_block,
-                &store.get_block_header(last_chunk_block.header().prev_hash())?,
+                &store.get_block_header(&last_chunk_block.header().prev_hash())?,
                 true,
             )?,
             storage_context: StorageContext {
@@ -458,14 +459,14 @@ fn validate_source_receipt_proofs(
         )?;
 
         // Arrange the receipts in the order in which they should be applied.
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(epoch_manager, block)?;
+        let receipts_shuffle_salt = &get_receipts_shuffle_salt(epoch_manager, block)?;
         shuffle_receipt_proofs(&mut block_receipt_proofs, receipts_shuffle_salt);
         for proof in block_receipt_proofs {
             receipts_to_apply.extend(proof.0.iter().cloned());
         }
 
         current_target_shard_id = epoch_manager
-            .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), current_target_shard_id)?
+            .get_prev_shard_id_from_prev_hash(&block.header().prev_hash(), current_target_shard_id)?
             .1;
     }
 

@@ -262,7 +262,7 @@ impl GenesisBuilder {
             self.epoch_manager
                 .add_validator_proposals(
                     BlockInfo::from_header(genesis.header(), 0),
-                    *genesis.header().random_value(),
+                    genesis.header().random_value(),
                 )
                 .unwrap(),
         );
@@ -281,7 +281,7 @@ impl GenesisBuilder {
             let congestion_info = self.get_congestion_info(&genesis, shard_id, state_root)?;
 
             store_update.save_chunk_extra(
-                genesis.hash(),
+                &genesis.hash(),
                 &shard_uid,
                 ChunkExtra::new(
                     &state_root,
@@ -314,7 +314,7 @@ impl GenesisBuilder {
         state_root: CryptoHash,
     ) -> Result<CongestionInfo> {
         let prev_hash = genesis.header().prev_hash();
-        let trie = self.runtime.get_trie_for_shard(shard_id, prev_hash, state_root, true)?;
+        let trie = self.runtime.get_trie_for_shard(shard_id, &prev_hash, state_root, true)?;
         let protocol_config = self.runtime.get_protocol_config(genesis.header().epoch_id())?;
         let runtime_config = protocol_config.runtime_config;
         let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;

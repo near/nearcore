@@ -211,7 +211,7 @@ impl Block {
         let header = BlockHeader::new(
             latest_protocol_version,
             height,
-            *prev.hash(),
+            prev.hash(),
             body.compute_hash(),
             Block::compute_state_root(body.chunks()),
             Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
@@ -228,8 +228,8 @@ impl Block {
             next_gas_price,
             new_total_supply,
             signer,
-            *last_final_block,
-            *last_ds_final_block,
+            last_final_block,
+            last_ds_final_block,
             epoch_sync_data_hash,
             approvals,
             next_bp_hash,
@@ -443,7 +443,7 @@ impl Block {
         self.chunks().block_bandwidth_requests()
     }
 
-    pub fn hash(&self) -> &CryptoHash {
+    pub fn hash(&self) -> CryptoHash {
         self.header().hash()
     }
 
@@ -672,8 +672,8 @@ impl Tip {
     pub fn from_header(header: &BlockHeader) -> Tip {
         Tip {
             height: header.height(),
-            last_block_hash: *header.hash(),
-            prev_block_hash: *header.prev_hash(),
+            last_block_hash: header.hash(),
+            prev_block_hash: header.prev_hash(),
             epoch_id: *header.epoch_id(),
             next_epoch_id: *header.next_epoch_id(),
         }

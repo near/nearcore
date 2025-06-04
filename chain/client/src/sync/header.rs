@@ -506,7 +506,7 @@ mod test {
             chain_info: near_network::types::PeerChainInfo {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
-                    hash: *chain.genesis().hash(),
+                    hash: chain.genesis().hash(),
                 },
                 tracked_shards: vec![],
                 archival: false,
@@ -537,7 +537,7 @@ mod test {
                 // chain is 6 -> 4 -> 2 -> 0.
                 hashes: [6, 2, 0]
                     .iter()
-                    .map(|i| *chain.get_block_by_height(*i).unwrap().hash())
+                    .map(|i| chain.get_block_by_height(*i).unwrap().hash())
                     .collect(),
                 peer_id: peer1.peer_info.id
             }
@@ -610,7 +610,7 @@ mod test {
             chain_info: near_network::types::PeerChainInfo {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
-                    hash: *chain.genesis().hash(),
+                    hash: chain.genesis().hash(),
                 },
                 tracked_shards: vec![],
                 archival: false,
@@ -642,7 +642,7 @@ mod test {
                 // where 3 is final.
                 hashes: [7005, 5005, 1005, 3]
                     .iter()
-                    .map(|i| *chain.get_block_by_height(*i).unwrap().hash())
+                    .map(|i| chain.get_block_by_height(*i).unwrap().hash())
                     .collect(),
                 peer_id: peer1.peer_info.id
             }
@@ -774,12 +774,12 @@ mod test {
         let (mut chain2, _, _, signer2) = setup_with_tx_validity_period(clock.clock(), 100, 10000);
         // Set up the second chain with 2000+ blocks.
         let mut block_merkle_tree = PartialMerkleTree::default();
-        block_merkle_tree.insert(*chain.genesis().hash()); // for genesis block
+        block_merkle_tree.insert(chain.genesis().hash()); // for genesis block
         for _ in 0..(4 * MAX_BLOCK_HEADERS + 10) {
             let last_block = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let this_height = last_block.header().height() + 1;
             let (epoch_id, next_epoch_id) = if last_block.header().is_genesis() {
-                (*last_block.header().next_epoch_id(), EpochId(*last_block.hash()))
+                (*last_block.header().next_epoch_id(), EpochId(last_block.hash()))
             } else {
                 (*last_block.header().epoch_id(), *last_block.header().next_epoch_id())
             };
@@ -798,7 +798,7 @@ mod test {
                     .map(|signer| {
                         Some(Box::new(
                             Approval::new(
-                                *last_block.hash(),
+                                last_block.hash(),
                                 last_block.header().height(),
                                 this_height,
                                 signer.as_ref(),
@@ -812,13 +812,13 @@ mod test {
                 100,
                 Some(0),
                 signer2.as_ref(),
-                *last_block.header().next_bp_hash(),
+                last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
                 clock.clock(),
                 None,
                 None,
             );
-            block_merkle_tree.insert(*block.hash());
+            block_merkle_tree.insert(block.hash());
             chain2.process_block_header(block.header()).unwrap(); // just to validate
             process_block_sync(
                 &mut chain2,
@@ -835,7 +835,7 @@ mod test {
             chain_info: near_network::types::PeerChainInfo {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
-                    hash: *chain.genesis().hash(),
+                    hash: chain.genesis().hash(),
                 },
                 tracked_shards: vec![],
                 archival: false,

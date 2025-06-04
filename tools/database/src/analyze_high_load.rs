@@ -164,7 +164,7 @@ impl HighLoadStatsCommand {
             let outcome_ids = store
                 .get_ser::<Vec<CryptoHash>>(
                     DBCol::OutcomeIds,
-                    &near_primitives::utils::get_block_shard_id(block.hash(), shard_id),
+                    &near_primitives::utils::get_block_shard_id(&block.hash(), shard_id),
                 )?
                 .unwrap_or_default();
 
@@ -174,7 +174,7 @@ impl HighLoadStatsCommand {
                         DBCol::TransactionResultForBlock,
                         &near_primitives::utils::get_outcome_id_block_hash(
                             &outcome_id,
-                            block.hash(),
+                            &block.hash(),
                         ),
                     )?
                     .ok_or_else(|| {

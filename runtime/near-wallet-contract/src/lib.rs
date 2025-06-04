@@ -23,7 +23,7 @@ static LOCALNET: WalletContract =
 pub fn wallet_contract(code_hash: CryptoHash) -> Option<Arc<ContractCode>> {
     fn check(code_hash: &CryptoHash, contract: &WalletContract) -> Option<Arc<ContractCode>> {
         let magic_bytes = contract.magic_bytes();
-        if code_hash == magic_bytes.hash() { Some(contract.read_contract()) } else { None }
+        if code_hash == &magic_bytes.hash() { Some(contract.read_contract()) } else { None }
     }
     if let Some(c) = check(&code_hash, &MAINNET) {
         return Some(c);
@@ -54,7 +54,7 @@ pub fn wallet_contract_magic_bytes(chain_id: &str) -> Arc<ContractCode> {
 pub fn code_hash_matches_wallet_contract(chain_id: &str, code_hash: &CryptoHash) -> bool {
     let magic_bytes = wallet_contract_magic_bytes(&chain_id);
 
-    if code_hash == magic_bytes.hash() {
+    if code_hash == &magic_bytes.hash() {
         return true;
     }
 
@@ -64,7 +64,7 @@ pub fn code_hash_matches_wallet_contract(chain_id: &str, code_hash: &CryptoHash)
     // the previous version had a bug in its implementation.
     if chain_id == chains::TESTNET {
         let alt_testnet_code = OLD_TESTNET.magic_bytes();
-        return code_hash == alt_testnet_code.hash();
+        return code_hash == &alt_testnet_code.hash();
     }
 
     false
@@ -113,11 +113,11 @@ mod tests {
             CryptoHash::from_str("9rmLr4dmrg5M6Ts6tbJyPpbCrNtbL9FCdNv24FcuWP5a").unwrap();
         for id in chain_ids {
             assert!(
-                code_hash_matches_wallet_contract(id, wallet_contract_magic_bytes(id).hash()),
+                code_hash_matches_wallet_contract(id, &wallet_contract_magic_bytes(id).hash()),
                 "Wallet contract magic bytes matches wallet contract"
             );
             assert_eq!(
-                code_hash_matches_wallet_contract(id, testnet_code_v70.hash()),
+                code_hash_matches_wallet_contract(id, &testnet_code_v70.hash()),
                 id == TESTNET,
                 "Special case only matches on testnet"
             );

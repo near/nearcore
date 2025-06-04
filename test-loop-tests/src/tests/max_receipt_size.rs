@@ -372,7 +372,7 @@ fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[NodeE
     let mut block = chain.get_block(&tip.last_block_hash).unwrap();
     let mut prev_block = chain.get_block(&block.header().prev_hash()).unwrap();
 
-    let epoch_id = epoch_manager.get_epoch_id(block.hash()).unwrap();
+    let epoch_id = epoch_manager.get_epoch_id(&block.hash()).unwrap();
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let runtime_config = client.runtime_adapter.get_runtime_config(protocol_version);
 
@@ -394,7 +394,7 @@ fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[NodeE
             };
             let shard_id = new_chunk.shard_id();
             let prev_shard_index = epoch_manager
-                .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), shard_id)
+                .get_prev_shard_id_from_prev_hash(&block.header().prev_hash(), shard_id)
                 .unwrap()
                 .2;
             let prev_height_included =
@@ -406,7 +406,7 @@ fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[NodeE
                 epoch_manager,
                 shard_id,
                 &cur_shard_layout,
-                *block.hash(),
+                block.hash(),
                 prev_height_included,
                 ReceiptFilter::TargetShard,
             )
@@ -435,6 +435,6 @@ fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[NodeE
         }
 
         block = prev_block;
-        prev_block = chain.get_block(block.header().prev_hash()).unwrap();
+        prev_block = chain.get_block(&block.header().prev_hash()).unwrap();
     }
 }

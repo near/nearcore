@@ -71,7 +71,7 @@ pub fn create_account(
         10u128.pow(24),
         signer.public_key(),
         &signer,
-        *block.hash(),
+        block.hash(),
     );
     let tx_hash = tx.get_hash();
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -96,7 +96,7 @@ pub fn deploy_test_contract_with_protocol_version(
         account_id,
         &signer,
         vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
-        *block.hash(),
+        block.hash(),
         0,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -148,7 +148,7 @@ pub fn prepare_env_with_congestion(
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })],
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -183,7 +183,7 @@ pub fn prepare_env_with_congestion(
                 gas: gas_1,
                 deposit: 0,
             }))],
-            *genesis_block.hash(),
+            genesis_block.hash(),
             0,
         );
         tx_hashes.push(signed_transaction.get_hash());

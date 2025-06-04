@@ -87,7 +87,7 @@ fn get_last_final_from_height(height: u64, head: &Tip, chain_store: &ChainStore)
             }
         };
         let last_final_block_hash =
-            *chain_store.get_block_header(&cur_block_hash).unwrap().last_final_block();
+            chain_store.get_block_header(&cur_block_hash).unwrap().last_final_block();
         let last_final_block = chain_store.get_block(&last_final_block_hash).unwrap();
         if last_final_block.header().height() >= height {
             break last_final_block;
@@ -175,7 +175,7 @@ pub fn check_apply_block_result(
     );
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, block.header().epoch_id()).unwrap();
     if block.chunks()[shard_index].height_included() == height {
-        if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(block_hash, &shard_uid) {
+        if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
             if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {
                 tracing::debug!("new chunk extra matches old chunk extra");
                 Ok(())

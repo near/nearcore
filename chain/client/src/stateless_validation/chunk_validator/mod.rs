@@ -324,7 +324,7 @@ impl Client {
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
-        if &witness.chunk_header().prev_block_hash() != prev_block.hash() {
+        if witness.chunk_header().prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(
                 "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",
                 witness.chunk_header().prev_block_hash(),

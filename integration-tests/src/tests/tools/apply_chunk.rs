@@ -75,14 +75,14 @@ fn test_apply_chunk() {
         .track_all_shards()
         .runtimes(vec![runtime.clone()])
         .build();
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
 
     for height in 1..10 {
         send_txs(&mut env, &signers, height, genesis_hash);
 
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
 
-        let hash = *block.hash();
+        let hash = block.hash();
         let chunk_hashes =
             block.chunks().iter_deprecated().map(|c| c.chunk_hash()).collect::<Vec<_>>();
         let epoch_id = *block.header().epoch_id();
@@ -165,7 +165,7 @@ fn test_apply_tx_apply_receipt() {
         .track_all_shards()
         .runtimes(vec![runtime.clone()])
         .build();
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
 
     // first check that applying txs and receipts works when the block exists
 
@@ -174,7 +174,7 @@ fn test_apply_tx_apply_receipt() {
 
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
 
-        let hash = *block.hash();
+        let hash = block.hash();
         let chunk_hashes =
             block.chunks().iter_deprecated().map(|c| c.chunk_hash()).collect::<Vec<_>>();
         let epoch_id = *block.header().epoch_id();

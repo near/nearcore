@@ -410,7 +410,7 @@ impl FlatStorageCommand {
             let state_root = block.chunks().get(shard_index).unwrap().prev_state_root();
             let prev_hash = header.prev_hash();
             let prev_header = chain_store.get_block_header(&prev_hash)?;
-            let prev_prev_hash = *prev_header.prev_hash();
+            let prev_prev_hash = prev_header.prev_hash();
             let prev_height = prev_header.height();
 
             let trie =
@@ -486,7 +486,7 @@ impl FlatStorageCommand {
                 shard_uid,
                 FlatStorageStatus::Ready(near_store::flat::FlatStorageReadyStatus {
                     flat_head: near_store::flat::BlockInfo {
-                        hash: *prev_hash,
+                        hash: prev_hash,
                         height: prev_height,
                         prev_hash: prev_prev_hash,
                     },
@@ -519,7 +519,7 @@ impl FlatStorageCommand {
             MoveFlatHeadMode::Forward { new_flat_head_height } => {
                 let header = chain_store.get_block_header_by_height(new_flat_head_height)?;
                 println!("Moving flat head for shard {shard_uid} forward to header: {header:?}");
-                flat_storage.update_flat_head(header.hash())?;
+                flat_storage.update_flat_head(&header.hash())?;
             }
             MoveFlatHeadMode::Back { blocks } => {
                 println!("Moving flat head for shard {shard_uid} back by {blocks} blocks");

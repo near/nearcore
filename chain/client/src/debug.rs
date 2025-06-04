@@ -295,7 +295,7 @@ fn get_prev_epoch_identifier(
         return None;
     }
     let prev_epoch_last_block_hash = epoch_start_block_header.prev_hash();
-    let prev_epoch_last_block_header = chain.get_block_header(prev_epoch_last_block_hash).ok()?;
+    let prev_epoch_last_block_header = chain.get_block_header(&prev_epoch_last_block_hash).ok()?;
     if prev_epoch_last_block_header.is_genesis() {
         return None;
     }
@@ -349,10 +349,10 @@ impl ClientActorInner {
             self.get_validators_for_epoch(&epoch_id)?;
 
         let sync_hash =
-            self.client.chain.get_sync_hash(epoch_start_block_header.hash()).ok().flatten();
+            self.client.chain.get_sync_hash(&epoch_start_block_header.hash()).ok().flatten();
         let hash_to_compute_shard_sizes = match &sync_hash {
             Some(sync_hash) => sync_hash,
-            None => epoch_start_block_header.hash(),
+            None => &epoch_start_block_header.hash(),
         };
 
         let shards_size_and_parts: Vec<(u64, u64)> = if let Ok(block) =
@@ -371,7 +371,7 @@ impl ClientActorInner {
 
                     let state_root_node = self.client.runtime_adapter.get_state_root_node(
                         shard_id,
-                        epoch_start_block_header.hash(),
+                        &epoch_start_block_header.hash(),
                         &chunk.prev_state_root(),
                     );
                     if let Ok(state_root_node) = state_root_node {
@@ -391,8 +391,7 @@ impl ClientActorInner {
         let state_header_exists: Vec<bool> = shard_layout
             .shard_ids()
             .map(|shard_id| {
-                let key =
-                    borsh::to_vec(&StateHeaderKey(shard_id, *epoch_start_block_header.hash()));
+                let key = borsh::to_vec(&StateHeaderKey(shard_id, epoch_start_block_header.hash()));
                 match key {
                     Ok(key) => {
                         matches!(
@@ -424,7 +423,7 @@ impl ClientActorInner {
             epoch_id: epoch_id.0,
             height: epoch_start_block_header.height(),
             first_block: Some((
-                *epoch_start_block_header.hash(),
+                epoch_start_block_header.hash(),
                 epoch_start_block_header.timestamp(),
             )),
             block_producers,
@@ -608,7 +607,7 @@ impl ClientActorInner {
                 };
                 let is_on_canonical_chain =
                     match self.client.chain.get_block_by_height(block_header.height()) {
-                        Ok(block) => block.hash() == &block_hash,
+                        Ok(block) => block.hash() == block_hash,
                         Err(_) => false,
                     };
 
@@ -682,7 +681,7 @@ impl ClientActorInner {
                     block_hash,
                     DebugBlockStatus {
                         block_hash,
-                        prev_block_hash: *block_header.prev_hash(),
+                        prev_block_hash: block_header.prev_hash(),
                         block_height: block_header.height(),
                         block_producer,
                         full_block_missing: block.is_none(),
@@ -705,7 +704,7 @@ impl ClientActorInner {
                         // the skip.
                         // TODO(robin): A better heuristic can be used to determine how far back
                         // to fetch additional blocks.
-                        block_hashes_to_force_fetch.insert(*block_header.prev_hash());
+                        block_hashes_to_force_fetch.insert(block_header.prev_hash());
                     }
                 }
             }
@@ -860,7 +859,7 @@ impl ClientActorInner {
         }
         // Get the epoch id.
         let Ok(epoch_id) =
-            self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
+            self.client.epoch_manager.get_epoch_id_from_prev_block(&block.header().prev_hash())
         else {
             return None;
         };

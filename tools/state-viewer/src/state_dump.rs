@@ -147,7 +147,7 @@ pub fn state_dump_redis(
     for (shard_index, state_root) in state_roots.iter().enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie = runtime
-            .get_trie_for_shard(shard_id, last_block_header.prev_hash(), *state_root, false)
+            .get_trie_for_shard(shard_id, &last_block_header.prev_hash(), *state_root, false)
             .unwrap();
         for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
@@ -273,7 +273,7 @@ fn iterate_over_records(
     for (shard_index, state_root) in state_roots.iter().enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie = runtime
-            .get_trie_for_shard(shard_id, last_block_header.prev_hash(), *state_root, false)
+            .get_trie_for_shard(shard_id, &last_block_header.prev_hash(), *state_root, false)
             .unwrap();
         let mut indices = DelayedReceiptsTracker::new();
         for item in trie.disk_iter().unwrap() {

@@ -198,7 +198,7 @@ impl BlocksDelayTracker {
     pub fn mark_block_received(&mut self, block: &Block) {
         let block_hash = block.header().hash();
 
-        let Entry::Vacant(entry) = self.blocks.entry(*block_hash) else {
+        let Entry::Vacant(entry) = self.blocks.entry(block_hash) else {
             return;
         };
 
@@ -233,7 +233,7 @@ impl BlocksDelayTracker {
             error: None,
             chunks,
         });
-        self.blocks_height_map.entry(height).or_insert(vec![]).push(*block_hash);
+        self.blocks_height_map.entry(height).or_insert(vec![]).push(block_hash);
 
         // Process optimistic block metrics
         let entry =

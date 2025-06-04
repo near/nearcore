@@ -520,7 +520,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 + magic_bytes.code().len() as u64
                 + fee_config.storage_usage_config.num_extra_bytes_record;
 
-            let contract_hash = *magic_bytes.hash();
+            let contract_hash = magic_bytes.hash();
             *account = Some(Account::new(
                 deposit,
                 0,
@@ -571,7 +571,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_contract(AccountContract::Local(*code.hash()));
+    account.set_contract(AccountContract::Local(code.hash()));
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying

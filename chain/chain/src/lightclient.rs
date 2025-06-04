@@ -45,12 +45,12 @@ pub fn create_light_client_block_view(
         outcome_root: *block_header.outcome_root(),
         timestamp: block_header.raw_timestamp(),
         timestamp_nanosec: block_header.raw_timestamp(),
-        next_bp_hash: *block_header.next_bp_hash(),
-        block_merkle_root: *block_header.block_merkle_root(),
+        next_bp_hash: block_header.next_bp_hash(),
+        block_merkle_root: block_header.block_merkle_root(),
     };
     let inner_rest_hash = hash(&block_header.inner_rest_bytes());
 
-    let next_block_hash = chain_store.get_next_block_hash(block_header.hash())?;
+    let next_block_hash = chain_store.get_next_block_hash(&block_header.hash())?;
     let next_block_header = chain_store.get_block_header(&next_block_hash)?;
     let next_block_inner_hash = BlockHeader::compute_inner_hash(
         &next_block_header.inner_lite_bytes(),
@@ -62,7 +62,7 @@ pub fn create_light_client_block_view(
     let approvals_after_next = after_next_block_header.approvals().to_vec();
 
     Ok(LightClientBlockView {
-        prev_block_hash: *block_header.prev_hash(),
+        prev_block_hash: block_header.prev_hash(),
         next_block_inner_hash,
         inner_lite: inner_lite_view,
         inner_rest_hash,

@@ -38,7 +38,7 @@ fn test_not_process_height_twice() {
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
     duplicate_block.mut_header().set_prev_validator_proposals(proposals);
     duplicate_block.mut_header().resign(&validator_signer);
-    let dup_block_hash = *duplicate_block.hash();
+    let dup_block_hash = duplicate_block.hash();
     let signer = env.clients[0].validator_signer.get();
     // we should have dropped the block before we even tried to process it, so the result should be ok
     env.clients[0]
@@ -312,11 +312,11 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
     let shard_uid = ShardUId { shard_id: chunk.shard_id().into(), version: 1 };
     let prev_block_hash = block.header().prev_hash();
     let client = &env.clients[0];
-    let prev_chunk_extra = client.chain.get_chunk_extra(prev_block_hash, &shard_uid).unwrap();
+    let prev_chunk_extra = client.chain.get_chunk_extra(&prev_block_hash, &shard_uid).unwrap();
     let result: Result<(), near_chain::Error> = validate_chunk_with_chunk_extra(
         &client.chain.chain_store,
         client.epoch_manager.as_ref(),
-        prev_block_hash,
+        &prev_block_hash,
         &prev_chunk_extra,
         1,
         &modified_chunk,
@@ -360,11 +360,11 @@ fn check_block_produced_from_optimistic_block(block: &Block, optimistic_block: &
     assert_eq!(block.header().height(), optimistic_block.inner.block_height, "height");
     assert_eq!(
         block.header().prev_hash(),
-        &optimistic_block.inner.prev_block_hash,
+        optimistic_block.inner.prev_block_hash,
         "previous hash"
     );
     assert_eq!(block.header().raw_timestamp(), optimistic_block.inner.block_timestamp, "timestamp");
-    assert_eq!(block.header().random_value(), &optimistic_block.inner.random_value, "random value");
+    assert_eq!(block.header().random_value(), optimistic_block.inner.random_value, "random value");
 }
 
 // Testing the production and application of optimistic blocks

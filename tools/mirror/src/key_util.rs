@@ -83,15 +83,15 @@ pub(crate) fn keys_from_source_db(
     let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, header.epoch_id())
         .context("failed mapping ShardID to ShardUID")?;
     let chunk_extra =
-        chain.get_chunk_extra(header.hash(), &shard_uid).context("failed getting chunk extra")?;
+        chain.get_chunk_extra(&header.hash(), &shard_uid).context("failed getting chunk extra")?;
     match runtime
         .query(
             shard_uid,
             chunk_extra.state_root(),
             header.height(),
             header.raw_timestamp(),
-            header.prev_hash(),
-            header.hash(),
+            &header.prev_hash(),
+            &header.hash(),
             header.epoch_id(),
             &QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
         )

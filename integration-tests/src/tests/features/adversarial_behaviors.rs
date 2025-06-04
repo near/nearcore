@@ -171,7 +171,7 @@ fn slow_test_non_adversarial_case() {
                 &signer,
             );
             let mut accepted_blocks =
-                test.env.clients[i].finish_block_in_processing(block.header().hash());
+                test.env.clients[i].finish_block_in_processing(&block.header().hash());
             // Process any chunk part requests that this client sent. Note that this would also
             // process other network messages (such as production of the next chunk) which is OK.
             test.process_all_actor_messages();
@@ -184,7 +184,7 @@ fn slow_test_non_adversarial_case() {
                 height,
                 i
             );
-            assert_eq!(&accepted_blocks[0], block.header().hash());
+            assert_eq!(accepted_blocks[0], block.header().hash());
             assert_eq!(test.env.clients[i].chain.head().unwrap().height, height);
         }
 
@@ -306,7 +306,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 &signer,
             );
             let mut accepted_blocks =
-                test.env.clients[i].finish_block_in_processing(block.header().hash());
+                test.env.clients[i].finish_block_in_processing(&block.header().hash());
             // Process any chunk part requests that this client sent. Note that this would also
             // process other network messages (such as production of the next chunk) which is OK.
             test.process_all_actor_messages();
@@ -319,7 +319,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 height,
                 i
             );
-            assert_eq!(&accepted_blocks[0], block.header().hash());
+            assert_eq!(accepted_blocks[0], block.header().hash());
             assert_eq!(test.env.clients[i].chain.head().unwrap().height, height);
         }
         test.process_all_actor_messages();

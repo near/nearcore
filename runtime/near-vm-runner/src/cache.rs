@@ -576,7 +576,7 @@ pub fn precompile_contract(
         Some(it) => it,
         None => return Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable)),
     };
-    let key = get_contract_cache_key(*code.hash(), &config);
+    let key = get_contract_cache_key(code.hash(), &config);
     // Check if we already cached with such a key.
     if cache.has(&key).map_err(CacheError::ReadError)? {
         return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
@@ -689,16 +689,16 @@ mod tests {
         };
 
         let insert_and_assert_keys_exist = || {
-            cache.put(contract1.hash(), compiled_contract1.clone()).unwrap();
-            cache.put(contract2.hash(), compiled_contract2.clone()).unwrap();
+            cache.put(&contract1.hash(), compiled_contract1.clone()).unwrap();
+            cache.put(&contract2.hash(), compiled_contract2.clone()).unwrap();
 
-            assert_eq!(cache.get(contract1.hash()).unwrap().unwrap(), compiled_contract1);
-            assert_eq!(cache.get(contract2.hash()).unwrap().unwrap(), compiled_contract2);
+            assert_eq!(cache.get(&contract1.hash()).unwrap().unwrap(), compiled_contract1);
+            assert_eq!(cache.get(&contract2.hash()).unwrap().unwrap(), compiled_contract2);
         };
 
         let assert_keys_absent = || {
-            assert_eq!(cache.has(contract1.hash()).unwrap(), false);
-            assert_eq!(cache.has(contract2.hash()).unwrap(), false);
+            assert_eq!(cache.has(&contract1.hash()).unwrap(), false);
+            assert_eq!(cache.has(&contract2.hash()).unwrap(), false);
         };
 
         // Insert the keys, and then clear the cache, and assert that keys no longer exist after clear.

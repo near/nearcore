@@ -229,13 +229,13 @@ pub fn create_chunk(
         }
     }
     let block_merkle_tree =
-        client.chain.chain_store().get_block_merkle_tree(last_block.hash()).unwrap();
+        client.chain.chain_store().get_block_merkle_tree(&last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
 
     let signer = client.validator_signer.get().unwrap();
     let endorsement =
         ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
-    block_merkle_tree.insert(*last_block.hash());
+    block_merkle_tree.insert(last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
         last_block.header(),
@@ -252,7 +252,7 @@ pub fn create_chunk(
         100,
         None,
         &*client.validator_signer.get().unwrap(),
-        *last_block.header().next_bp_hash(),
+        last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
         client.clock.clone(),
         None,

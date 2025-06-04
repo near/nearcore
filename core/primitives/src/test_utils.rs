@@ -455,7 +455,7 @@ impl BlockHeader {
 
     pub fn resign(&mut self, signer: &ValidatorSigner) {
         let hash = BlockHeader::compute_hash(
-            *self.prev_hash(),
+            self.prev_hash(),
             &self.inner_lite_bytes(),
             &self.inner_rest_bytes(),
         );
@@ -822,9 +822,9 @@ pub struct TestBlockBuilder {
 impl TestBlockBuilder {
     pub fn new(clock: near_time::Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
         let mut tree = crate::merkle::PartialMerkleTree::default();
-        tree.insert(*prev.hash());
+        tree.insert(prev.hash());
         let next_epoch_id = if prev.header().is_genesis() {
-            EpochId(*prev.hash())
+            EpochId(prev.hash())
         } else {
             *prev.header().next_epoch_id()
         };
@@ -835,7 +835,7 @@ impl TestBlockBuilder {
             height: prev.header().height() + 1,
             epoch_id: *prev.header().epoch_id(),
             next_epoch_id,
-            next_bp_hash: *prev.header().next_bp_hash(),
+            next_bp_hash: prev.header().next_bp_hash(),
             approvals: vec![],
             block_merkle_root: tree.root(),
         }
@@ -866,7 +866,7 @@ impl TestBlockBuilder {
         mut self,
         block_merkle_tree: &mut crate::merkle::PartialMerkleTree,
     ) -> Self {
-        block_merkle_tree.insert(*self.prev.hash());
+        block_merkle_tree.insert(self.prev.hash());
         self.block_merkle_root = block_merkle_tree.root();
         self
     }

@@ -168,7 +168,7 @@ pub(crate) fn block_header_hash_validity(
     block_hash: &CryptoHash,
     header: &BlockHeader,
 ) -> Result<(), StoreValidatorError> {
-    check_discrepancy!(header.hash(), block_hash, "Invalid Block Header stored");
+    check_discrepancy!(header.hash(), *block_hash, "Invalid Block Header stored");
     Ok(())
 }
 
@@ -190,7 +190,7 @@ pub(crate) fn block_hash_validity(
     block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
-    check_discrepancy!(block.hash(), block_hash, "Invalid Block stored");
+    check_discrepancy!(block.hash(), *block_hash, "Invalid Block stored");
     Ok(())
 }
 
@@ -202,7 +202,7 @@ pub(crate) fn block_height_validity(
     let height = block.header().height();
     let tail = sv.inner.tail;
     if height <= tail && height != sv.config.genesis_height {
-        sv.inner.block_heights_less_tail.push(*block.hash());
+        sv.inner.block_heights_less_tail.push(block.hash());
     }
     let head = sv.inner.head;
     if height > head {
@@ -309,7 +309,7 @@ pub(crate) fn partial_chunk_receipts_exist_in_receipts(
                 receipt
             );
             // This is verified later when we verify the Receipts column.
-            *sv.inner.receipt_refcount.entry(*receipt.receipt_id()).or_insert(0) += 1;
+            *sv.inner.receipt_refcount.entry(receipt.receipt_id()).or_insert(0) += 1;
         }
     }
     Ok(())
@@ -390,13 +390,13 @@ pub(crate) fn block_chunks_exist(
             if let Some(me) = &sv.me {
                 let cares_about_shard = sv.shard_tracker.cares_about_shard(
                     Some(me),
-                    block.header().prev_hash(),
+                    &block.header().prev_hash(),
                     chunk_header.shard_id(),
                     true,
                 );
                 let will_care_about_shard = sv.shard_tracker.will_care_about_shard(
                     Some(me),
-                    block.header().prev_hash(),
+                    &block.header().prev_hash(),
                     chunk_header.shard_id(),
                     true,
                 );
@@ -421,7 +421,7 @@ pub(crate) fn block_chunks_exist(
                                 reason: err.to_string(),
                             }
                         })?;
-                        let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
+                        let block_shard_uid = get_block_shard_uid(&block.hash(), &shard_uid);
                         unwrap_or_err_db!(
                             sv.store
                                 .get_ser::<ChunkExtra>(DBCol::ChunkExtra, block_shard_uid.as_ref()),
@@ -487,7 +487,7 @@ pub(crate) fn block_increment_refcount(
 ) -> Result<(), StoreValidatorError> {
     if block.header().height() != sv.config.genesis_height {
         let prev_hash = block.header().prev_hash();
-        sv.inner.block_refcount.entry(*prev_hash).and_modify(|x| *x += 1).or_insert(1);
+        sv.inner.block_refcount.entry(prev_hash).and_modify(|x| *x += 1).or_insert(1);
     }
     Ok(())
 }
@@ -527,7 +527,7 @@ pub(crate) fn canonical_prev_block_validity(
             hash
         );
 
-        let prev_hash = *header.prev_hash();
+        let prev_hash = header.prev_hash();
         let prev_header = unwrap_or_err_db!(
             sv.store.get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_ref()),
             "Can't get prev Block Header {:?} from DBCol::BlockHeader",
@@ -589,7 +589,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     // 3) Chunk Extra with `prev_block_hash` and `shard_uid` should match with the old root if available
     if let Ok(Some(prev_chunk_extra)) = sv.store.get_ser::<ChunkExtra>(
         DBCol::ChunkExtra,
-        &get_block_shard_uid(block.header().prev_hash(), shard_uid),
+        &get_block_shard_uid(&block.header().prev_hash(), shard_uid),
     ) {
         check_discrepancy!(
             prev_chunk_extra.state_root(),
@@ -745,12 +745,12 @@ pub(crate) fn outcome_indexed_by_block_hash(
             })?;
             if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
                 DBCol::ChunkExtra,
-                &get_block_shard_uid(block.hash(), &shard_uid),
+                &get_block_shard_uid(&block.hash(), &shard_uid),
             ) {
                 let outcome_ids = unwrap_or_err_db!(
                     sv.store.get_ser::<Vec<CryptoHash>>(
                         DBCol::OutcomeIds,
-                        &get_block_shard_id(block.hash(), chunk_header.shard_id())
+                        &get_block_shard_id(&block.hash(), chunk_header.shard_id())
                     ),
                     "Can't get Outcome ids by Block Hash"
                 );
@@ -770,7 +770,7 @@ pub(crate) fn state_sync_info_valid(
 ) -> Result<(), StoreValidatorError> {
     check_discrepancy!(
         state_sync_info.epoch_first_block(),
-        block_hash,
+        *block_hash,
         "Invalid StateSyncInfo stored"
     );
     Ok(())

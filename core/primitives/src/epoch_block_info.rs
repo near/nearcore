@@ -77,11 +77,11 @@ impl BlockInfo {
 
     pub fn from_header(header: &BlockHeader, last_finalized_height: BlockHeight) -> Self {
         BlockInfo::new(
-            *header.hash(),
+            header.hash(),
             header.height(),
             last_finalized_height,
-            *header.last_final_block(),
-            *header.prev_hash(),
+            header.last_final_block(),
+            header.prev_hash(),
             header.prev_validator_proposals().collect(),
             header.chunk_mask().to_vec(),
             header.total_supply(),
@@ -98,11 +98,11 @@ impl BlockInfo {
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
     ) -> Self {
         BlockInfo::new(
-            *header.hash(),
+            header.hash(),
             header.height(),
             last_finalized_height,
-            *header.last_final_block(),
-            *header.prev_hash(),
+            header.last_final_block(),
+            header.prev_hash(),
             header.prev_validator_proposals().collect(),
             header.chunk_mask().to_vec(),
             header.total_supply(),
@@ -122,11 +122,11 @@ impl BlockInfo {
     }
 
     #[inline]
-    pub fn hash(&self) -> &CryptoHash {
+    pub fn hash(&self) -> CryptoHash {
         match self {
-            Self::V1(info) => &info.hash,
-            Self::V2(info) => &info.hash,
-            Self::V3(info) => &info.hash,
+            Self::V1(info) => info.hash,
+            Self::V2(info) => info.hash,
+            Self::V3(info) => info.hash,
         }
     }
 
@@ -149,34 +149,34 @@ impl BlockInfo {
     }
 
     #[inline]
-    pub fn last_final_block_hash(&self) -> &CryptoHash {
+    pub fn last_final_block_hash(&self) -> CryptoHash {
         match self {
-            Self::V1(info) => &info.last_final_block_hash,
-            Self::V2(info) => &info.last_final_block_hash,
-            Self::V3(info) => &info.last_final_block_hash,
+            Self::V1(info) => info.last_final_block_hash,
+            Self::V2(info) => info.last_final_block_hash,
+            Self::V3(info) => info.last_final_block_hash,
         }
     }
 
     #[inline]
-    pub fn prev_hash(&self) -> &CryptoHash {
+    pub fn prev_hash(&self) -> CryptoHash {
         match self {
-            Self::V1(info) => &info.prev_hash,
-            Self::V2(info) => &info.prev_hash,
-            Self::V3(info) => &info.prev_hash,
+            Self::V1(info) => info.prev_hash,
+            Self::V2(info) => info.prev_hash,
+            Self::V3(info) => info.prev_hash,
         }
     }
 
     #[inline]
     pub fn is_genesis(&self) -> bool {
-        self.prev_hash() == &CryptoHash::default()
+        self.prev_hash() == CryptoHash::default()
     }
 
     #[inline]
-    pub fn epoch_first_block(&self) -> &CryptoHash {
+    pub fn epoch_first_block(&self) -> CryptoHash {
         match self {
-            Self::V1(info) => &info.epoch_first_block,
-            Self::V2(info) => &info.epoch_first_block,
-            Self::V3(info) => &info.epoch_first_block,
+            Self::V1(info) => info.epoch_first_block,
+            Self::V2(info) => info.epoch_first_block,
+            Self::V3(info) => info.epoch_first_block,
         }
     }
 

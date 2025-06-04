@@ -44,7 +44,7 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
     do_deploy_contract(&mut env, &rpc_id, &contract_id, contract.code().to_vec());
 
     if wait_cache_populate {
-        run_until_caches_contain_contract(&mut env, contract.hash());
+        run_until_caches_contain_contract(&mut env, &contract.hash());
     }
 
     if clear_cache {
@@ -112,7 +112,7 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
     do_deploy_contract(&mut env, &rpc_id, &contract_id2, contract.code().to_vec());
 
     if wait_cache_populate {
-        run_until_caches_contain_contract(&mut env, contract.hash());
+        run_until_caches_contain_contract(&mut env, &contract.hash());
     }
 
     if clear_cache {
@@ -182,7 +182,7 @@ fn test_contract_distribution_deploy_and_call_multiple_contracts() {
     for contract in &contracts {
         do_deploy_contract(&mut env, &rpc_id, &contract_id, contract.code().to_vec());
 
-        run_until_caches_contain_contract(&mut env, contract.hash());
+        run_until_caches_contain_contract(&mut env, &contract.hash());
 
         do_call_contract(
             &mut env,

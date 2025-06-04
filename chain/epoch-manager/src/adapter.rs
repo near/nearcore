@@ -130,8 +130,8 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get next epoch id given hash of the current block.
     fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
         let block_info = self.get_block_info(block_hash)?;
-        let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
-        Ok(EpochId(*first_block_info.prev_hash()))
+        let first_block_info = self.get_block_info(&block_info.epoch_first_block())?;
+        Ok(EpochId(first_block_info.prev_hash()))
     }
 
     /// Get next epoch id given hash of previous block.
@@ -239,10 +239,10 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// `get_prev_chunk_headers(epoch_manager, prev_block)` will return
     /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
     fn get_prev_chunk_headers(&self, prev_block: &Block) -> Result<Vec<ShardChunkHeader>, Error> {
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block.hash())?;
+        let epoch_id = self.get_epoch_id_from_prev_block(&prev_block.hash())?;
         let shard_ids = self.shard_ids(&epoch_id)?;
 
-        let prev_shard_infos = self.get_prev_shard_infos(prev_block.hash(), shard_ids)?;
+        let prev_shard_infos = self.get_prev_shard_infos(&prev_block.hash(), shard_ids)?;
         let prev_chunks = prev_block.chunks();
         Ok(prev_shard_infos
             .into_iter()
@@ -256,7 +256,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<ShardChunkHeader, Error> {
         let (_, prev_shard_id, prev_shard_index) =
-            self.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
+            self.get_prev_shard_id_from_prev_hash(&prev_block.hash(), shard_id)?;
         Ok(prev_block
             .chunks()
             .get(prev_shard_index)
@@ -321,7 +321,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Get epoch start from a block belonging to the epoch.
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, EpochError> {
-        let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
+        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block();
         self.get_block_info(&epoch_first_block).map(|block_info| block_info.height())
     }
 
@@ -336,8 +336,8 @@ pub trait EpochManagerAdapter: Send + Sync {
             // get previous epoch_id
             let prev_block_info = self.get_block_info(prev_block_hash)?;
             let epoch_first_block_info =
-                self.get_block_info(prev_block_info.epoch_first_block())?;
-            self.get_epoch_id(epoch_first_block_info.prev_hash())
+                self.get_block_info(&prev_block_info.epoch_first_block())?;
+            self.get_epoch_id(&epoch_first_block_info.prev_hash())
         }
     }
 
@@ -347,7 +347,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<BlockHeight, EpochError> {
         let epoch_length = self.get_epoch_config(block_info.epoch_id())?.epoch_length;
         let estimated_next_epoch_start =
-            self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
+            self.get_block_info(&block_info.epoch_first_block())?.height() + epoch_length;
         Ok(estimated_next_epoch_start)
     }
 
@@ -772,7 +772,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 
         // See if the height is in the current epoch
         let current_epoch_first_block_hash =
-            *self.get_block_info(&tip.last_block_hash)?.epoch_first_block();
+            self.get_block_info(&tip.last_block_hash)?.epoch_first_block();
         let current_epoch_first_block_info =
             self.get_block_info(&current_epoch_first_block_hash)?;
 
@@ -798,9 +798,9 @@ pub trait EpochManagerAdapter: Send + Sync {
         // Finally try the previous epoch.
         // First and last blocks of the previous epoch are already known, so the situation is clear.
         let prev_epoch_last_block_hash = current_epoch_first_block_info.prev_hash();
-        let prev_epoch_last_block_info = self.get_block_info(prev_epoch_last_block_hash)?;
+        let prev_epoch_last_block_info = self.get_block_info(&prev_epoch_last_block_hash)?;
         let prev_epoch_first_block_info =
-            self.get_block_info(prev_epoch_last_block_info.epoch_first_block())?;
+            self.get_block_info(&prev_epoch_last_block_info.epoch_first_block())?;
 
         // If the current epoch is the epoch after genesis, then the previous
         // epoch contains only the genesis block. This case has to be handled separately

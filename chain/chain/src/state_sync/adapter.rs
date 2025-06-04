@@ -88,7 +88,7 @@ impl ChainStateSyncAdapter {
         // Getting the `current` state.
         // TODO(current_epoch_state_sync): check that the sync block is what we would expect. So, either the first
         // block of an epoch, or the first block where there have been two new chunks in the epoch
-        let sync_prev_block = self.chain_store.get_block(sync_block_header.prev_hash())?;
+        let sync_prev_block = self.chain_store.get_block(&sync_block_header.prev_hash())?;
 
         let shard_layout = self.epoch_manager.get_shard_layout(sync_block_epoch_id)?;
         let prev_epoch_id = sync_prev_block.header().epoch_id();
@@ -123,7 +123,7 @@ impl ChainStateSyncAdapter {
         // Collecting the `prev` state.
         let (prev_chunk_header, prev_chunk_proof, prev_chunk_height_included) = match self
             .chain_store
-            .get_block(block_header.prev_hash())
+            .get_block(&block_header.prev_hash())
         {
             Ok(prev_block) => {
                 let prev_chunk_header = prev_block
@@ -218,7 +218,7 @@ impl ChainStateSyncAdapter {
 
         let state_root_node = self.runtime_adapter.get_state_root_node(
             shard_id,
-            sync_prev_hash,
+            &sync_prev_hash,
             &chunk_header.prev_state_root(),
         )?;
 
@@ -305,15 +305,15 @@ impl ChainStateSyncAdapter {
         if !shard_ids.contains(&shard_id) {
             return Err(shard_id_out_of_bounds(shard_id));
         }
-        let prev_block = self.chain_store.get_block(header.prev_hash())?;
+        let prev_block = self.chain_store.get_block(&header.prev_hash())?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let state_root = prev_block
             .chunks()
             .get(shard_index)
             .ok_or(Error::InvalidShardId(shard_id))?
             .prev_state_root();
-        let prev_hash = *prev_block.hash();
-        let prev_prev_hash = *prev_block.header().prev_hash();
+        let prev_hash = prev_block.hash();
+        let prev_prev_hash = prev_block.header().prev_hash();
         let state_root_node = self
             .runtime_adapter
             .get_state_root_node(shard_id, &prev_hash, &state_root)
@@ -380,7 +380,7 @@ impl ChainStateSyncAdapter {
         // 3a. Checking that chunk `chunk` is included into block at last height before sync_hash
         // 3aa. Also checking chunk.height_included
         let sync_prev_block_header =
-            self.chain_store.get_block_header(sync_block_header.prev_hash())?;
+            self.chain_store.get_block_header(&sync_block_header.prev_hash())?;
         if !verify_path(
             *sync_prev_block_header.chunk_headers_root(),
             shard_state_header.chunk_proof(),
@@ -402,7 +402,7 @@ impl ChainStateSyncAdapter {
         match (&prev_chunk_header, shard_state_header.prev_chunk_proof()) {
             (Some(prev_chunk_header), Some(prev_chunk_proof)) => {
                 let prev_block_header =
-                    self.chain_store.get_block_header(block_header.prev_hash())?;
+                    self.chain_store.get_block_header(&block_header.prev_hash())?;
                 if !verify_path(
                     *prev_block_header.chunk_headers_root(),
                     prev_chunk_proof,
@@ -447,7 +447,7 @@ impl ChainStateSyncAdapter {
                 ));
             }
             let header = self.chain_store.get_block_header(&hash_to_compare)?;
-            hash_to_compare = *header.prev_hash();
+            hash_to_compare = header.prev_hash();
 
             let block_header = self.chain_store.get_block_header(block_hash)?;
             // 4c. Checking len of receipt_proofs for current block

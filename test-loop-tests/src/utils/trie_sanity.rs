@@ -166,7 +166,7 @@ impl TrieSanityCheck {
         loop {
             let epoch_id = client
                 .epoch_manager
-                .get_prev_epoch_id_from_prev_block(block_info.prev_hash())
+                .get_prev_epoch_id_from_prev_block(&block_info.prev_hash())
                 .unwrap();
             if epoch_id == EpochId::default() {
                 break;
@@ -185,8 +185,8 @@ impl TrieSanityCheck {
             }
 
             block_info =
-                client.epoch_manager.get_block_info(block_info.epoch_first_block()).unwrap();
-            block_info = client.epoch_manager.get_block_info(block_info.prev_hash()).unwrap();
+                client.epoch_manager.get_block_info(&block_info.epoch_first_block()).unwrap();
+            block_info = client.epoch_manager.get_block_info(&block_info.prev_hash()).unwrap();
         }
     }
 }

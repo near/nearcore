@@ -116,7 +116,7 @@ fn write_block_checkpoint(store_update: &mut StoreUpdate, block_checkpoint: &Blo
         .set_ser(
             DBCol::BlockHeight,
             &index_to_bytes(block_checkpoint.header.height()),
-            block_checkpoint.header.hash(),
+            &block_checkpoint.header.hash(),
         )
         .unwrap();
 }
@@ -170,9 +170,9 @@ fn create_snapshot(create_cmd: CreateCmd) {
     let block_hash = next_epoch.id.0;
     let block = read_block_checkpoint(&store, &block_hash);
     let block_header = block.header.clone();
-    let prev_block = read_block_checkpoint(&store, block_header.prev_hash());
-    let final_block = read_block_checkpoint(&store, block_header.last_final_block());
-    let first_block = read_block_checkpoint(&store, block.info.epoch_first_block());
+    let prev_block = read_block_checkpoint(&store, &block_header.prev_hash());
+    let final_block = read_block_checkpoint(&store, &block_header.last_final_block());
+    let first_block = read_block_checkpoint(&store, &block.info.epoch_first_block());
 
     let checkpoint = SpeedyCheckpoint {
         prev_epoch,
@@ -289,7 +289,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     // TODO: confirm if this aggregator can be empty.
     // If not - we'll have to compute one and put it in the checkpoint.
     let aggregator =
-        EpochInfoAggregator::new(snapshot.prev_epoch.id, *snapshot.final_block.header.hash());
+        EpochInfoAggregator::new(snapshot.prev_epoch.id, snapshot.final_block.header.hash());
     store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &aggregator).unwrap();
     store_update.commit().unwrap();
 }

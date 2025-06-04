@@ -1424,7 +1424,7 @@ fn prepare_transactions(
         &mut |tx: &SignedTransaction| -> bool {
             chain
                 .chain_store()
-                .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
+                .check_transaction_validity_period(&block.header(), &tx.transaction.block_hash())
                 .is_ok()
         },
         default_produce_chunk_add_transactions_time_limit(),
@@ -1537,7 +1537,7 @@ fn test_precompile_contracts_updates_cache() {
         ContractCode::new(near_test_contracts::rs_contract().to_vec(), None),
         ContractCode::new(near_test_contracts::trivial_contract().to_vec(), None),
     ];
-    let code_hashes: Vec<CryptoHash> = contracts.iter().map(|c| c.hash()).cloned().collect();
+    let code_hashes: Vec<CryptoHash> = contracts.iter().map(|c| c.hash()).collect();
 
     // First check that the cache does not have the contracts.
     for code_hash in &code_hashes {

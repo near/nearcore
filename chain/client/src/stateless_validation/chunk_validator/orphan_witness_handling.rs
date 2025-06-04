@@ -81,7 +81,7 @@ impl Client {
         let ready_witnesses = self
             .chunk_validator
             .orphan_witness_pool
-            .take_state_witnesses_waiting_for_block(new_block.hash());
+            .take_state_witnesses_waiting_for_block(&new_block.hash());
         for witness in ready_witnesses {
             let header = &witness.chunk_header();
             tracing::debug!(
@@ -116,10 +116,10 @@ impl Client {
         // They won't be used, so we can remove them from the pool to save memory.
         let last_final_block = new_block.header().last_final_block();
         // Handle genesis gracefully.
-        if last_final_block == &CryptoHash::default() {
+        if last_final_block == CryptoHash::default() {
             return;
         }
-        let last_final_block = match self.chain.get_block_header(last_final_block) {
+        let last_final_block = match self.chain.get_block_header(&last_final_block) {
             Ok(block_header) => block_header,
             Err(err) => {
                 tracing::error!(

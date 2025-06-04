@@ -265,7 +265,7 @@ impl Trie {
         all_nodes.extend(
             local_state_part_nodes
                 .iter()
-                .map(|entry| (*entry.hash(), entry.payload().to_vec().into())),
+                .map(|entry| (entry.hash(), entry.payload().to_vec().into())),
         );
         let final_trie =
             Trie::new(Arc::new(TrieMemoryPartialStorage::new(all_nodes)), self.root, None);

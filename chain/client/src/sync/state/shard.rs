@@ -223,7 +223,7 @@ fn create_flat_storage_for_shard(
         store.get_ser::<BlockHeader>(DBCol::BlockHeader, flat_head_hash.as_bytes())?.ok_or_else(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", flat_head_hash)),
         )?;
-    let flat_head_prev_hash = *flat_head_header.prev_hash();
+    let flat_head_prev_hash = flat_head_header.prev_hash();
     let flat_head_height = flat_head_header.height();
 
     tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");

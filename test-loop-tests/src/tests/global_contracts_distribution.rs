@@ -118,7 +118,7 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
             &env.chunk_producer,
             user.clone(),
             2,
-            GlobalContractIdentifier::CodeHash(*code.hash()),
+            GlobalContractIdentifier::CodeHash(code.hash()),
         );
         use_txs.push(use_tx);
     }

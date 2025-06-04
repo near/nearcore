@@ -55,7 +55,7 @@ pub(crate) fn setup_mock_peer(
         let mock = MockNode::new(
             ChainStoreAdapter::new(chain.chain_store().store()),
             epoch_manager,
-            *chain.genesis().hash(),
+            chain.genesis().hash(),
             secret_key,
             listen_addr,
             chain_id,

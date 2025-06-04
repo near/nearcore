@@ -107,8 +107,8 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         );
                     }
                     handler.all_blocks.insert(block.header().height(), block.clone());
-                    handler.block_to_prev_block.insert(*block.hash(), *block.header().prev_hash());
-                    handler.block_to_height.insert(*block.hash(), block.header().height());
+                    handler.block_to_prev_block.insert(block.hash(), block.header().prev_hash());
+                    handler.block_to_height.insert(block.hash(), block.header().height());
 
                     if handler.largest_block_height / 20 < block.header().height() / 20 {
                         // Periodically verify the finality
@@ -163,7 +163,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                     handler.delayed_blocks = new_delayed_blocks;
 
                     let mut heights = vec![];
-                    let mut cur_hash = *block.hash();
+                    let mut cur_hash = block.hash();
                     while let Some(&height) = handler.block_to_height.get(&cur_hash) {
                         heights.push(height);
                         cur_hash = *handler.block_to_prev_block.get(&cur_hash).unwrap();

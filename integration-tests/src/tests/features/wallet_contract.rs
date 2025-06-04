@@ -99,7 +99,7 @@ fn test_eth_implicit_account_creation() {
         eth_implicit_account_id.clone(),
         &signer,
         0,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(transfer_tx, false, false),
@@ -117,7 +117,7 @@ fn test_eth_implicit_account_creation() {
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => {
             assert_eq!(view.amount, 0);
-            assert_eq!(view.code_hash, *magic_bytes.hash());
+            assert_eq!(view.code_hash, magic_bytes.hash());
             assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }
         _ => panic!("wrong query response"),
@@ -160,7 +160,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         eth_implicit_account_id.clone(),
         &signer1,
         deposit_for_account_creation,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     // Check for tx success status and get new block height.
     height = check_tx_processing(&mut env, send_money_tx, height, blocks_number);
@@ -175,7 +175,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         "test0".parse().unwrap(),
         &eth_implicit_account_signer,
         100,
-        *block.hash(),
+        block.hash(),
     );
     let response =
         env.rpc_handlers[0].process_tx(send_money_from_eth_implicit_account_tx, false, false);
@@ -194,7 +194,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         eth_implicit_account_id.clone(),
         "test0".parse().unwrap(),
         &eth_implicit_account_signer,
-        *block.hash(),
+        block.hash(),
     );
     let response = env.rpc_handlers[0].process_tx(delete_eth_implicit_account_tx, false, false);
     assert_eq!(response, expected_tx_error);
@@ -209,7 +209,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
             public_key,
             access_key: AccessKey::full_access(),
         }))],
-        *block.hash(),
+        block.hash(),
         0,
     );
     let response =
@@ -218,14 +218,14 @@ fn test_transaction_from_eth_implicit_account_fail() {
 
     // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
     let magic_bytes = wallet_contract_magic_bytes(&chain_id);
-    let wallet_contract_code = wallet_contract(*magic_bytes.hash()).unwrap().code().to_vec();
+    let wallet_contract_code = wallet_contract(magic_bytes.hash()).unwrap().code().to_vec();
     let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
         nonce,
         eth_implicit_account_id.clone(),
         eth_implicit_account_id,
         &eth_implicit_account_signer,
         vec![Action::DeployContract(DeployContractAction { code: wallet_contract_code })],
-        *block.hash(),
+        block.hash(),
         0,
     );
     let response =
@@ -261,7 +261,7 @@ fn test_wallet_contract_interaction() {
     let deposit_for_account_creation = NEAR_BASE;
     let actions = vec![Action::Transfer(TransferAction { deposit: deposit_for_account_creation })];
     let nonce = view_nonce(&env, relayer_signer.account_id, relayer_signer.signer.public_key()) + 1;
-    let block_hash = *genesis_block.hash();
+    let block_hash = genesis_block.hash();
     let signed_transaction = SignedTransaction::from_actions(
         nonce,
         relayer.clone(),
@@ -392,7 +392,7 @@ pub fn create_rlp_execute_tx(
         deposit: 0,
     }))];
     let nonce = view_nonce(env, near_signer.account_id, near_signer.signer.public_key()) + 1;
-    let block_hash = *env.clients[0].chain.get_head_block().unwrap().hash();
+    let block_hash = env.clients[0].chain.get_head_block().unwrap().hash();
     SignedTransaction::from_actions(
         nonce,
         near_signer.account_id.into(),

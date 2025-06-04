@@ -381,7 +381,7 @@ pub struct ContractUpdates {
 impl ContractUpdates {
     /// Returns the code-hashes of the contracts deployed.
     pub fn contract_deploy_hashes(&self) -> HashSet<CodeHash> {
-        self.contract_deploys.iter().map(|contract| (*contract.hash()).into()).collect()
+        self.contract_deploys.iter().map(|contract| (contract.hash()).into()).collect()
     }
 }
 

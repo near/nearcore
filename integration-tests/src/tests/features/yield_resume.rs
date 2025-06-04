@@ -71,7 +71,7 @@ fn prepare_env(test_env_gas_limit: Option<u64>) -> TestEnv {
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     let tx_hash = tx.get_hash();
@@ -113,7 +113,7 @@ fn yield_then_resume() {
             gas: 300_000_000_000_000,
             deposit: 0,
         }))],
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     let yield_tx_hash = yield_transaction.get_hash();
@@ -145,7 +145,7 @@ fn yield_then_resume() {
             gas: 300_000_000_000_000,
             deposit: 0,
         }))],
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     assert_eq!(

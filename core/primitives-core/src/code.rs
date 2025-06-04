@@ -24,8 +24,8 @@ impl ContractCode {
         self.code
     }
 
-    pub fn hash(&self) -> &CryptoHash {
-        &self.hash
+    pub fn hash(&self) -> CryptoHash {
+        self.hash
     }
 
     pub fn clone_for_tests(&self) -> Self {

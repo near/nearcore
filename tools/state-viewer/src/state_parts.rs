@@ -311,12 +311,12 @@ fn get_any_block_hash_of_epoch(epoch_info: &EpochInfo, chain: &Chain) -> CryptoH
             epoch_info.epoch_height()
         );
         let epoch_first_block_info =
-            chain.epoch_manager.get_block_info(cur_block_info.epoch_first_block()).unwrap();
+            chain.epoch_manager.get_block_info(&cur_block_info.epoch_first_block()).unwrap();
         let prev_epoch_last_block_info =
-            chain.epoch_manager.get_block_info(epoch_first_block_info.prev_hash()).unwrap();
+            chain.epoch_manager.get_block_info(&epoch_first_block_info.prev_hash()).unwrap();
 
         if cur_epoch_height == epoch_info.epoch_height() {
-            return *cur_block_info.hash();
+            return cur_block_info.hash();
         }
 
         cur_block_info = prev_epoch_last_block_info;
@@ -509,7 +509,7 @@ async fn dump_state_parts(
             .runtime_adapter
             .obtain_state_part(
                 shard_id,
-                sync_prev_prev_hash,
+                &sync_prev_prev_hash,
                 &state_root,
                 PartId::new(part_id, num_parts),
             )

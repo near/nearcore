@@ -625,9 +625,9 @@ impl FlatStorageResharder {
                 let next_hash = chain_store.get_next_block_hash(&flat_head.hash)?;
                 let next_header = chain_store.get_block_header(&next_hash)?;
                 flat_head = BlockInfo {
-                    hash: *next_header.hash(),
+                    hash: next_header.hash(),
                     height: next_header.height(),
-                    prev_hash: *next_header.prev_hash(),
+                    prev_hash: next_header.prev_hash(),
                 };
                 if let Some(changes) = store
                     .get_delta(shard_uid, flat_head.hash)
@@ -966,7 +966,7 @@ mod tests {
             ChainConfig::test().resharding_config,
         );
 
-        let flat_head = BlockInfo::genesis(*chain.genesis.hash(), chain.genesis.header().height());
+        let flat_head = BlockInfo::genesis(chain.genesis.hash(), chain.genesis.header().height());
         let resharding_blocks = vec![flat_head];
         let split_params = ParentSplitParameters {
             left_child_shard: ShardUId { version: 3, shard_id: 2 },

@@ -860,8 +860,8 @@ impl From<BlockHeader> for BlockHeaderView {
             prev_height: header.prev_height(),
             epoch_id: header.epoch_id().0,
             next_epoch_id: header.next_epoch_id().0,
-            hash: *header.hash(),
-            prev_hash: *header.prev_hash(),
+            hash: header.hash(),
+            prev_hash: header.prev_hash(),
             prev_state_root: *header.prev_state_root(),
             block_body_hash: header.block_body_hash(),
             chunk_receipts_root: *header.prev_chunk_outgoing_receipts_root(),
@@ -872,7 +872,7 @@ impl From<BlockHeader> for BlockHeaderView {
             outcome_root: *header.outcome_root(),
             timestamp: header.raw_timestamp(),
             timestamp_nanosec: header.raw_timestamp(),
-            random_value: *header.random_value(),
+            random_value: header.random_value(),
             validator_proposals: header.prev_validator_proposals().map(Into::into).collect(),
             chunk_mask: header.chunk_mask().to_vec(),
             block_ordinal: if header.block_ordinal() != 0 {
@@ -885,10 +885,10 @@ impl From<BlockHeader> for BlockHeaderView {
             validator_reward: 0,
             total_supply: header.total_supply(),
             challenges_result: vec![],
-            last_final_block: *header.last_final_block(),
-            last_ds_final_block: *header.last_ds_final_block(),
-            next_bp_hash: *header.next_bp_hash(),
-            block_merkle_root: *header.block_merkle_root(),
+            last_final_block: header.last_final_block(),
+            last_ds_final_block: header.last_ds_final_block(),
+            next_bp_hash: header.next_bp_hash(),
+            block_merkle_root: header.block_merkle_root(),
             epoch_sync_data_hash: header.epoch_sync_data_hash(),
             approvals: header.approvals().to_vec(),
             signature: header.signature().clone(),
@@ -2100,7 +2100,7 @@ impl From<Receipt> for ReceiptView {
         ReceiptView {
             predecessor_id: receipt.predecessor_id().clone(),
             receiver_id: receipt.receiver_id().clone(),
-            receipt_id: *receipt.receipt_id(),
+            receipt_id: receipt.receipt_id(),
             receipt: match receipt.take_receipt() {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                     ReceiptEnumView::Action {
@@ -2346,7 +2346,7 @@ pub struct LightClientBlockLiteView {
 impl From<BlockHeader> for LightClientBlockLiteView {
     fn from(header: BlockHeader) -> Self {
         Self {
-            prev_block_hash: *header.prev_hash(),
+            prev_block_hash: header.prev_hash(),
             inner_rest_hash: hash(&header.inner_rest_bytes()),
             inner_lite: header.into(),
         }

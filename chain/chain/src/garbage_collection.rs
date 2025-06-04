@@ -251,7 +251,7 @@ impl ChainStore {
             let epoch_manager = epoch_manager.clone();
             let mut chain_store_update = self.store_update();
             if let Some(block_hash) = blocks_current_height.first() {
-                let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
+                let prev_hash = chain_store_update.get_block_header(block_hash)?.prev_hash();
                 let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
                 if prev_block_refcount > 1 {
                     // Block of `prev_hash` starts a Fork, stopping
@@ -301,7 +301,7 @@ impl ChainStore {
                 .entered();
 
         let final_block_hash =
-            *self.get_block_header(&self.head()?.last_block_hash)?.last_final_block();
+            self.get_block_header(&self.head()?.last_block_hash)?.last_final_block();
         if final_block_hash == CryptoHash::default() {
             return Ok(());
         }
@@ -416,8 +416,7 @@ impl ChainStore {
                 let epoch_manager = epoch_manager.clone();
                 let mut chain_store_update = self.store_update();
                 if chain_store_update.get_block_refcount(&current_hash)? == 0 {
-                    let prev_hash =
-                        *chain_store_update.get_block_header(&current_hash)?.prev_hash();
+                    let prev_hash = chain_store_update.get_block_header(&current_hash)?.prev_hash();
 
                     // It's safe to call `clear_block_data` for prev data because it clears fork only here
                     chain_store_update.clear_block_data(
@@ -454,7 +453,7 @@ impl ChainStore {
         }
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
-        let prev_hash = *header.prev_hash();
+        let prev_hash = header.prev_hash();
         let prev_header = self.get_block_header(&prev_hash)?;
         let sync_height = header.height();
         let prev_height = prev_header.height();
@@ -480,7 +479,7 @@ impl ChainStore {
                 let mut chain_store_update = self.store_update();
                 if !tail_prev_block_cleaned {
                     let prev_block_hash =
-                        *chain_store_update.get_block_header(&block_hash)?.prev_hash();
+                        chain_store_update.get_block_header(&block_hash)?.prev_hash();
                     if chain_store_update.get_block(&prev_block_hash).is_ok() {
                         chain_store_update.clear_block_data(
                             epoch_manager.as_ref(),
@@ -667,7 +666,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         if matches!(gc_mode, GCMode::Canonical(_)) {
             // If you know why do we do this in case of canonical chain please add a comment here.
-            block_hash = *self.get_block_header(&block_hash)?.prev_hash();
+            block_hash = self.get_block_header(&block_hash)?.prev_hash();
         }
 
         let block =
@@ -732,7 +731,7 @@ impl<'a> ChainStoreUpdate<'a> {
         match gc_mode {
             GCMode::Fork(_) => {
                 // 5. Forks only clearing
-                self.dec_block_refcount(block.header().prev_hash())?;
+                self.dec_block_refcount(&block.header().prev_hash())?;
             }
             GCMode::Canonical(_) => {
                 // 6. Canonical Chain only clearing
@@ -860,7 +859,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(DBCol::StateSyncNewChunks, block_hash.as_bytes());
 
         // 3. update columns related to prev block (block refcount and NextBlockHashes)
-        self.dec_block_refcount(block.header().prev_hash())?;
+        self.dec_block_refcount(&block.header().prev_hash())?;
         self.gc_col(DBCol::NextBlockHashes, block.header().prev_hash().as_bytes());
 
         // 4. Update or delete block_hash_per_height
@@ -966,15 +965,16 @@ impl<'a> ChainStoreUpdate<'a> {
             // It is ok to use the shard id from the header because it is a new
             // chunk. An old chunk may have the shard id from the parent shard.
             let shard_id = chunk_header.shard_id();
-            let outcome_ids =
-                self.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
+            let outcome_ids = self
+                .chain_store()
+                .get_outcomes_by_block_hash_and_shard_id(&block_hash, shard_id)?;
             for outcome_id in outcome_ids {
                 self.gc_col(
                     DBCol::TransactionResultForBlock,
-                    &get_outcome_id_block_hash(&outcome_id, block_hash),
+                    &get_outcome_id_block_hash(&outcome_id, &block_hash),
                 );
             }
-            self.gc_col(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id));
+            self.gc_col(DBCol::OutcomeIds, &get_block_shard_id(&block_hash, shard_id));
         }
         self.merge(store_update);
         Ok(())
@@ -1208,7 +1208,7 @@ fn gc_state(
     // reverse iterate over the epochs starting from epoch of latest_block_hash upto gc_epoch
     let store = chain_store_update.store();
     let mut current_block_info = epoch_manager.get_block_info(&latest_block_hash)?;
-    while current_block_info.hash() != last_block_hash_in_gc_epoch {
+    while current_block_info.hash() != *last_block_hash_in_gc_epoch {
         shards_to_cleanup.retain(|shard_uid| {
             // If shard_uid exists in the TrieChanges column, it means we were tracking the shard_uid in this epoch.
             // We would like to remove shard_uid from shards_to_cleanup
@@ -1218,9 +1218,9 @@ fn gc_state(
 
         // Get the block_info for prev_epoch last_block_hash to continue the iteration
         let epoch_first_block_info =
-            epoch_manager.get_block_info(current_block_info.epoch_first_block())?;
+            epoch_manager.get_block_info(&current_block_info.epoch_first_block())?;
         let prev_epoch_last_block_hash = epoch_first_block_info.prev_hash();
-        current_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
+        current_block_info = epoch_manager.get_block_info(&prev_epoch_last_block_hash)?;
     }
 
     // Delete State of `shards_to_cleanup` and associated ShardUId mapping.

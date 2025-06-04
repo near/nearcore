@@ -100,7 +100,7 @@ fn setup_account(
         amount,
         public_key,
         &signer,
-        *block_hash,
+        block_hash,
     );
 
     env.execute_tx(create_account_tx).unwrap().assert_success();
@@ -127,7 +127,7 @@ fn setup_contract(env: &mut TestEnv, nonce: &mut u64) {
         10 * 10u128.pow(24),
         PublicKey::from_seed(KeyType::ED25519, CONTRACT_ID),
         &signer,
-        *block.hash(),
+        block.hash(),
     );
     // this adds the tx to the pool and then produces blocks until the tx result is available
     env.execute_tx(create_contract_tx).unwrap().assert_success();
@@ -135,7 +135,7 @@ fn setup_contract(env: &mut TestEnv, nonce: &mut u64) {
     // Test the function call works as expected, ending in a gas exceeded error.
     *nonce += 1;
     let block = env.clients[0].chain.get_head_block().unwrap();
-    let fn_tx = new_fn_call_100tgas(nonce, &signer, *block.hash());
+    let fn_tx = new_fn_call_100tgas(nonce, &signer, block.hash());
     let FinalExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) =
         env.execute_tx(fn_tx).unwrap().status
     else {
@@ -233,7 +233,7 @@ fn submit_n_100tgas_fns(env: &TestEnv, n: u32, nonce: &mut u64, signer: &Signer)
     let mut included = 0;
     let block = env.clients[0].chain.get_head_block().unwrap();
     for _ in 0..n {
-        let fn_tx = new_fn_call_100tgas(nonce, signer, *block.hash());
+        let fn_tx = new_fn_call_100tgas(nonce, signer, block.hash());
         // this only adds the tx to the pool, no chain progress is made
         let response = env.rpc_handlers[0].process_tx(fn_tx, false, false);
         match response {
@@ -257,7 +257,7 @@ fn submit_n_cheap_fns(
 ) {
     let block = env.clients[0].chain.get_head_block().unwrap();
     for _ in 0..n {
-        let fn_tx = new_cheap_fn_call(nonce, signer, receiver.clone(), *block.hash());
+        let fn_tx = new_cheap_fn_call(nonce, signer, receiver.clone(), block.hash());
         // this only adds the tx to the pool, no chain progress is made
         let response = env.rpc_handlers[0].process_tx(fn_tx, false, false);
         assert_eq!(response, ProcessTxResponse::ValidTx);
@@ -535,7 +535,7 @@ fn test_rpc_client_rejection() {
     let fn_tx = new_fn_call_100tgas(
         &mut nonce,
         &signer,
-        *env.clients[0].chain.head_header().unwrap().hash(),
+        env.clients[0].chain.head_header().unwrap().hash(),
     );
     let response = env.rpc_handlers[0].process_tx(fn_tx, false, false);
     assert_eq!(response, ProcessTxResponse::ValidTx);
@@ -554,7 +554,7 @@ fn test_rpc_client_rejection() {
     let fn_tx = new_fn_call_100tgas(
         &mut nonce,
         &signer,
-        *env.clients[0].chain.head_header().unwrap().hash(),
+        env.clients[0].chain.head_header().unwrap().hash(),
     );
     let response = env.rpc_handlers[0].process_tx(fn_tx, false, false);
 

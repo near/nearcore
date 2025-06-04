@@ -625,7 +625,7 @@ fn test_apply_delayed_receipts_local_tx() {
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 3
-            *receipts[0].receipt_id(),        // receipt #0
+            receipts[0].receipt_id(),         // receipt #0
         ],
         "STEP #2 failed",
     );
@@ -700,8 +700,8 @@ fn test_apply_delayed_receipts_local_tx() {
     assert_eq!(
         apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
         vec![
-            *receipts[1].receipt_id(), // receipt #1
-            *receipts[2].receipt_id(), // receipt #2
+            receipts[1].receipt_id(), // receipt #1
+            receipts[2].receipt_id(), // receipt #2
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 ValidatedTransaction::new_for_test(local_transactions[8].clone()).to_hash(),
@@ -730,9 +730,9 @@ fn test_apply_delayed_receipts_local_tx() {
     assert_eq!(
         apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
         vec![
-            *receipts[3].receipt_id(), // receipt #3
-            *receipts[4].receipt_id(), // receipt #4
-            *receipts[5].receipt_id(), // receipt #5
+            receipts[3].receipt_id(), // receipt #3
+            receipts[4].receipt_id(), // receipt #4
+            receipts[5].receipt_id(), // receipt #5
         ],
         "STEP #5 failed",
     );
@@ -1248,10 +1248,10 @@ fn test_compute_usage_limit() {
     // Only first two receipts should fit into the chunk due to the compute usage limit.
     assert_eq!(apply_result.delayed_receipts_count, 1);
     assert_matches!(&apply_result.outcomes[..], [first, second] => {
-        assert_eq!(first.id, *deploy_contract_receipt.receipt_id());
+        assert_eq!(first.id, deploy_contract_receipt.receipt_id());
         assert_matches!(first.outcome.status, ExecutionStatus::SuccessValue(_));
 
-        assert_eq!(second.id, *first_call_receipt.receipt_id());
+        assert_eq!(second.id, first_call_receipt.receipt_id());
         assert_eq!(second.outcome.compute_usage.unwrap(), sha256_cost.compute);
         assert_matches!(second.outcome.status, ExecutionStatus::SuccessValue(_));
     });
@@ -1269,7 +1269,7 @@ fn test_compute_usage_limit() {
         .unwrap();
 
     assert_matches!(&apply_result.outcomes[..], [ExecutionOutcomeWithId { id, outcome }] => {
-        assert_eq!(id, second_call_receipt.receipt_id());
+        assert_eq!(id, &second_call_receipt.receipt_id());
         assert_eq!(outcome.compute_usage.unwrap(), sha256_cost.compute);
         assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_));
     });
@@ -1312,10 +1312,10 @@ fn test_compute_usage_limit_with_failed_receipt() {
         .unwrap();
 
     assert_matches!(&apply_result.outcomes[..], [first, second] => {
-        assert_eq!(first.id, *deploy_contract_receipt.receipt_id());
+        assert_eq!(first.id, deploy_contract_receipt.receipt_id());
         assert_matches!(first.outcome.status, ExecutionStatus::SuccessValue(_));
 
-        assert_eq!(second.id, *first_call_receipt.receipt_id());
+        assert_eq!(second.id, first_call_receipt.receipt_id());
         assert_matches!(second.outcome.status, ExecutionStatus::Failure(_));
     });
 }
@@ -1484,7 +1484,7 @@ fn test_exclude_contract_code_from_witness() {
     // Since both accounts deploy the same contract, we expect only one contract deploy.
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
-        HashSet::from([CodeHash(*contract_code.hash())])
+        HashSet::from([CodeHash(contract_code.hash())])
     );
 
     let mut store_update = tries.store_update();
@@ -1528,7 +1528,7 @@ fn test_exclude_contract_code_from_witness() {
     // Since both accounts call the same contract, we expect only one contract access.
     assert_eq!(
         apply_result.contract_updates.contract_accesses,
-        HashSet::from([CodeHash(*contract_code.hash())])
+        HashSet::from([CodeHash(contract_code.hash())])
     );
     assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
 
@@ -1604,7 +1604,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
     // Since both accounts deploy the same contract, we expect only one contract deploy.
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
-        HashSet::from([CodeHash(*contract_code.hash())])
+        HashSet::from([CodeHash(contract_code.hash())])
     );
 
     let mut store_update = tries.store_update();
@@ -1644,7 +1644,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
     // Since both accounts call the same contract, we expect only one contract access.
     assert_eq!(
         apply_result.contract_updates.contract_accesses,
-        HashSet::from([CodeHash(*contract_code.hash())])
+        HashSet::from([CodeHash(contract_code.hash())])
     );
     assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
 
@@ -1741,8 +1741,8 @@ fn test_deploy_and_call_different_contracts() {
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
         HashSet::from([
-            CodeHash(*first_contract_code.hash()),
-            CodeHash(*second_contract_code.hash())
+            CodeHash(first_contract_code.hash()),
+            CodeHash(second_contract_code.hash())
         ])
     );
 
@@ -1767,8 +1767,8 @@ fn test_deploy_and_call_different_contracts() {
     assert_eq!(
         apply_result.contract_updates.contract_accesses,
         HashSet::from([
-            CodeHash(*first_contract_code.hash()),
-            CodeHash(*second_contract_code.hash())
+            CodeHash(first_contract_code.hash()),
+            CodeHash(second_contract_code.hash())
         ])
     );
     assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
@@ -1847,8 +1847,8 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
         HashSet::from([
-            CodeHash(*first_contract_code.hash()),
-            CodeHash(*second_contract_code.hash())
+            CodeHash(first_contract_code.hash()),
+            CodeHash(second_contract_code.hash())
         ])
     );
 
@@ -1873,7 +1873,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
     // Since the second call fails due to insufficient gas, only the first call is recorded.
     assert_eq!(
         apply_result.contract_updates.contract_accesses,
-        HashSet::from([CodeHash(*first_contract_code.hash())])
+        HashSet::from([CodeHash(first_contract_code.hash())])
     );
     assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
 }
@@ -1951,8 +1951,8 @@ fn test_deploy_and_call_in_apply() {
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
         HashSet::from([
-            CodeHash(*first_contract_code.hash()),
-            CodeHash(*second_contract_code.hash())
+            CodeHash(first_contract_code.hash()),
+            CodeHash(second_contract_code.hash())
         ])
     );
 }
@@ -2031,8 +2031,8 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
         HashSet::from([
-            CodeHash(*first_contract_code.hash()),
-            CodeHash(*second_contract_code.hash())
+            CodeHash(first_contract_code.hash()),
+            CodeHash(second_contract_code.hash())
         ])
     );
 }
@@ -2085,7 +2085,7 @@ fn test_deploy_existing_contract_to_different_account() {
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
-        HashSet::from([CodeHash(*contract_code.hash())])
+        HashSet::from([CodeHash(contract_code.hash())])
     );
 
     let mut store_update = tries.store_update();
@@ -2128,7 +2128,7 @@ fn test_deploy_existing_contract_to_different_account() {
     // The contract deployment is still recorded even if it was deployed to another account before.
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
-        HashSet::from([CodeHash(*contract_code.hash())])
+        HashSet::from([CodeHash(contract_code.hash())])
     );
 }
 
@@ -2175,7 +2175,7 @@ fn test_deploy_and_call_in_same_receipt() {
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
-        HashSet::from([CodeHash(*contract_code.hash()),])
+        HashSet::from([CodeHash(contract_code.hash()),])
     );
 }
 
@@ -2303,7 +2303,7 @@ fn test_contract_accesses_when_validating_chunk() {
     assert_eq!(apply_result.delayed_receipts_count, 0);
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
-        HashSet::from([CodeHash(*contract_code.hash())])
+        HashSet::from([CodeHash(contract_code.hash())])
     );
 
     let mut store_update = tries.store_update();
@@ -2329,7 +2329,7 @@ fn test_contract_accesses_when_validating_chunk() {
     assert_eq!(apply_result.delayed_receipts_count, 0);
     assert_eq!(
         apply_result.contract_updates.contract_accesses,
-        HashSet::from([CodeHash(*contract_code.hash())])
+        HashSet::from([CodeHash(contract_code.hash())])
     );
 
     // Apply chunk for validating the state witness, so the contract accesses are not recorded.
@@ -2398,7 +2398,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
-        HashSet::from([CodeHash(*contract_code1.hash())])
+        HashSet::from([CodeHash(contract_code1.hash())])
     );
 
     let mut store_update = tries.store_update();
@@ -2422,7 +2422,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
-        HashSet::from([CodeHash(*contract_code2.hash())])
+        HashSet::from([CodeHash(contract_code2.hash())])
     );
 
     let partial_storage = apply_result.proof.unwrap();
@@ -2499,7 +2499,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
-        HashSet::from([CodeHash(*contract_code.hash())])
+        HashSet::from([CodeHash(contract_code.hash())])
     );
 
     let mut store_update = tries.store_update();

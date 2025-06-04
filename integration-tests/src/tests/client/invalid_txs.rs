@@ -273,7 +273,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
         let Ok(chunk) = client.chain.mut_chain_store().get_chunk(&chunk_hash) else {
             continue;
         };
-        receipts.extend(chunk.prev_outgoing_receipts().into_iter().map(|r| *r.receipt_id()));
+        receipts.extend(chunk.prev_outgoing_receipts().into_iter().map(|r| r.receipt_id()));
     }
     assert_eq!(receipts.len(), 1, "only one receipt for the only valid transaction is expected");
 }

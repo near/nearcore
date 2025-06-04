@@ -317,7 +317,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
             );
             let blocks_processed =
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
-            assert_eq!(blocks_processed, vec![*block.hash()]);
+            assert_eq!(blocks_processed, vec![block.hash()]);
         }
         // Apply skip block if one was produced.
         if let Some(skip_block) = skip_block {
@@ -330,7 +330,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                 let blocks_processed = env.clients[i]
                     .process_block_test(skip_block.clone().into(), Provenance::NONE)
                     .unwrap();
-                assert_eq!(blocks_processed, vec![*skip_block.hash()]);
+                assert_eq!(blocks_processed, vec![skip_block.hash()]);
             }
         }
 

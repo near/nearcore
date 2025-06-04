@@ -104,7 +104,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash();
         let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
         let transaction = if is_tx_successful {
             SignedTransaction::send_money(
@@ -358,7 +358,7 @@ fn ultra_slow_test_tx_not_enough_balance_must_return_error() {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash();
         let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,
@@ -426,7 +426,7 @@ fn ultra_slow_test_check_unknown_tx_must_return_error() {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash();
         let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,
@@ -489,7 +489,7 @@ fn ultra_slow_test_tx_status_on_lightclient_must_return_does_not_track_shard() {
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
 
-        let genesis_hash = *genesis_block(&genesis).hash();
+        let genesis_hash = genesis_block(&genesis).hash();
         let signer = InMemorySigner::test_signer(&"near.1".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,

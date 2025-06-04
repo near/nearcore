@@ -49,7 +49,7 @@ fn test_latest_trie_state() {
     let chunk_extras: Vec<Arc<ChunkExtra>> = (1..=2)
         .map(|height| {
             let block = env.clients[0].chain.get_block_by_height(height).unwrap();
-            let hash = *block.hash();
+            let hash = block.hash();
             let chunk_extra = env.clients[0]
                 .chain
                 .get_chunk_extra(&hash, &ShardUId { version: 1, shard_id: 0 })

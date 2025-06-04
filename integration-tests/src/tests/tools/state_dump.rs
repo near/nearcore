@@ -98,7 +98,7 @@ fn safe_produce_blocks(
 fn test_dump_state_preserve_validators() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::stake(
         1,
@@ -147,7 +147,7 @@ fn test_dump_state_preserve_validators() {
 fn test_dump_state_respect_select_account_ids() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
 
     let signer0 = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx00 = SignedTransaction::from_actions(
@@ -230,7 +230,7 @@ fn test_dump_state_respect_select_account_ids() {
 fn test_dump_state_preserve_validators_in_memory() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::stake(
         1,
@@ -278,7 +278,7 @@ fn test_dump_state_preserve_validators_in_memory() {
 fn test_dump_state_return_locked() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::stake(
         1,
@@ -353,7 +353,7 @@ fn test_dump_state_not_track_shard() {
         .epoch_managers(vec![epoch_manager1, epoch_manager2.clone()])
         .runtimes(vec![runtime1, runtime2.clone()])
         .build();
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::send_money(
         1,
@@ -436,7 +436,7 @@ fn test_dump_state_with_delayed_receipt() {
         .epoch_managers(vec![epoch_manager])
         .runtimes(vec![nightshade_runtime])
         .build();
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::stake(
         1,
@@ -503,7 +503,7 @@ fn test_dump_state_respect_select_whitelist_validators() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
 
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let genesis_hash = env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::stake(
         1,

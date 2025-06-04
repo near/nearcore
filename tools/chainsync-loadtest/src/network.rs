@@ -244,7 +244,7 @@ impl Network {
             }),
             block_headers: Sender::from_async_fn(move |headers: BlockHeadersResponse| {
                 if let Some(h) = headers.0.iter().min_by_key(|h| h.height()) {
-                    let hash = *h.prev_hash();
+                    let hash = h.prev_hash();
                     block_headers.get(&hash).map(|p| p.set(headers.0));
                 }
                 Ok(())

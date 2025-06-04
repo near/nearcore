@@ -66,7 +66,7 @@ fn test_zero_balance_account_creation() {
         0,
         new_signer.public_key(),
         &signer0,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(create_account_tx, false, false),
@@ -89,7 +89,7 @@ fn test_zero_balance_account_creation() {
         0,
         new_signer.public_key(),
         &signer0,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     let tx_hash = create_account_tx.get_hash();
     assert_eq!(
@@ -148,7 +148,7 @@ fn test_zero_balance_account_add_key() {
         amount,
         new_signer.public_key(),
         &signer0,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(create_account_tx, false, false),
@@ -193,7 +193,7 @@ fn test_zero_balance_account_add_key() {
         new_account_id.clone(),
         &new_signer,
         actions,
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     assert_eq!(
@@ -212,7 +212,7 @@ fn test_zero_balance_account_add_key() {
         signer0_account_id,
         &new_signer,
         amount,
-        *genesis_block.hash(),
+        genesis_block.hash(),
     );
     assert_matches!(
         env.rpc_handlers[0].process_tx(send_money_tx.clone(), false, false),
@@ -227,7 +227,7 @@ fn test_zero_balance_account_add_key() {
         vec![Action::DeleteKey(Box::new(DeleteKeyAction {
             public_key: keys.last().unwrap().clone(),
         }))],
-        *genesis_block.hash(),
+        genesis_block.hash(),
         0,
     );
     assert_eq!(

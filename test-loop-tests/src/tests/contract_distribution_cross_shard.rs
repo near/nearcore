@@ -54,7 +54,7 @@ fn test_contract_distribution_cross_shard() {
     let contracts = deploy_contracts(&mut env, &rpc_id, &contract_ids, &mut nonce);
 
     for contract in contracts {
-        run_until_caches_contain_contract(&mut env, contract.hash());
+        run_until_caches_contain_contract(&mut env, &contract.hash());
     }
 
     call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids, &mut nonce);

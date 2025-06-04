@@ -94,7 +94,7 @@ fn setup_network_node(
     .unwrap();
     let genesis_id = GenesisId {
         chain_id: client_config.chain_id.clone(),
-        hash: *genesis_block.header().hash(),
+        hash: genesis_block.header().hash(),
     };
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();

@@ -339,12 +339,12 @@ fn ultra_slow_test_catchup_sanity_blocks_produced() {
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
             if let NetworkRequests::Block { block } = &request {
-                check_height(*block.hash(), block.header().height());
+                check_height(block.hash(), block.header().height());
 
                 if block.header().height() % 10 == 5 {
-                    check_height(*block.header().prev_hash(), block.header().height() - 2);
+                    check_height(block.header().prev_hash(), block.header().height() - 2);
                 } else {
-                    check_height(*block.header().prev_hash(), block.header().height() - 1);
+                    check_height(block.header().prev_hash(), block.header().height() - 1);
                 }
 
                 // Do not propagate blocks at %10=4
