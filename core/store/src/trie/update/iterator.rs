@@ -120,7 +120,7 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
             };
 
             // Check which element comes first and advance the corresponding
-            // iterator only.  If both keys are equal, check if overlay doesn’t
+            // iterator only.  If both keys are equal, check if overlay doesn't
             // delete the value.
             let trie_item = if res != Ordering::Overlay { iterators.0.next() } else { None };
             if res == Ordering::Trie {

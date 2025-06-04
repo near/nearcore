@@ -4,7 +4,7 @@
 //! sequence could be the list of locals for a webassembly function.
 //!
 //! Considering the locals example above, it might be  represented as a `u32` partial sum of the
-//! local’s index. The locals between the index of the previous element and the current element
+//! local's index. The locals between the index of the previous element and the current element
 //! have the `WpType` type. So, given
 //!
 //! (0, u32), (10, u64), (15, f64)

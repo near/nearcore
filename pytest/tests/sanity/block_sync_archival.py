@@ -5,7 +5,7 @@ The overview of this test is that it starts archival nodes which need to sync
 their state from already running archival nodes.  The test can be divided into
 two stages:
 
-1. The test first starts a validator and an observer node (let’s call it Fred).
+1. The test first starts a validator and an observer node (let's call it Fred).
    Both configured as archival nodes.  It then waits for several epochs worth of
    blocks to be generated and received by the observer node.  Once that happens,
    the test kills the validator node so that no new blocks are generated.
@@ -15,7 +15,7 @@ two stages:
    is determined by looking at Prometheus metrics).
 
 2. The test then restarts Fred so that its in-memory cache is cleared.  It
-   finally starts a new observer (let’s call it Barney) and points it at Fred as
+   finally starts a new observer (let's call it Barney) and points it at Fred as
    a boot node.  The test waits for Barney to synchronies with Fred and then
    verifies that all the blocks have been correctly fetched.
 
@@ -100,12 +100,12 @@ def get_metrics(node_name: str,
     """Fetches partial encoded chunk request count metrics from node.
 
     Args:
-        node_name: Node’s name used when logging the counters.  This is purely
+        node_name: Node's name used when logging the counters.  This is purely
             for debugging.
         node: Node to fetch metrics from.
 
     Returns:
-        A `{key: count}` dictionary where key is in ‘method/success’ format.
+        A `{key: count}` dictionary where key is in 'method/success' format.
         The values correspond to the
         near_partial_encoded_chunk_request_processing_time_count Prometheus
         metric.
@@ -162,7 +162,7 @@ def get_all_blocks(node: cluster.BaseNode) -> typing.Sequence[cluster.BlockId]:
 
 def run_test(cluster: Cluster) -> None:
     # Start the validator and the first observer.  Wait until the observer
-    # synchronies a few epoch’s worth of blocks to be generated and then kill
+    # synchronies a few epoch's worth of blocks to be generated and then kill
     # validator so no more blocks are generated.
     boot = cluster.start_node(0, boot_node=None)
     fred = cluster.start_node(1, boot_node=boot)
@@ -170,8 +170,8 @@ def run_test(cluster: Cluster) -> None:
     metrics = get_metrics('boot', boot)
     boot.kill()
 
-    # We didn’t generate enough blocks to fill boot’s in-memory cache which
-    # means all Fred’s requests should be served from it.
+    # We didn't generate enough blocks to fill boot's in-memory cache which
+    # means all Fred's requests should be served from it.
     assert_metrics(metrics, ('cache/ok',))
 
     # Restart Fred so that its cache is cleared.  Then start the second
@@ -191,7 +191,7 @@ def run_test(cluster: Cluster) -> None:
                 logger.error(f'{f} != {b}')
         assert False
 
-    # Since Fred’s in-memory cache is clear, all Barney’s requests are served from both Hot storage
+    # Since Fred's in-memory cache is clear, all Barney's requests are served from both Hot storage
     # (using PartialChunks of recent epochs) and Cold storage (using the Chunks of GC'ed epochs).
     # Thus, we expect that metrics 'partial/ok' and 'chunk/ok' be both non-zero.
     assert_metrics(get_metrics('fred', fred), ('partial/ok', 'chunk/ok'))

@@ -266,7 +266,7 @@ if __name__ == '__main__':
     # The last 5 blocks with epoch_length=10 will certainly be in the same epoch
     # as head, or in the previous epoch, and thus should be requested from the
     # block producers.  Note that in our case block producers are also archival
-    # nodes so we’re again checking nodes 2 and 3.
+    # nodes so we're again checking nodes 2 and 3.
     for height in range(new_height - 5, new_height - 1):
         for shard in (0, 1):
             found = False

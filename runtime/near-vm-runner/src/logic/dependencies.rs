@@ -37,9 +37,9 @@ impl MemSlice {
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
     /// Returns success if the memory interval is completely inside smart
-    /// contract’s memory.
+    /// contract's memory.
     ///
-    /// You often don’t need to use this method since other methods will perform
+    /// You often don't need to use this method since other methods will perform
     /// the check, however it may be necessary to prevent potential denial of
     /// service attacks.  See [`Self::read_memory`] for description.
     fn fits_memory(&self, slice: MemSlice) -> Result<(), ()>;
@@ -52,7 +52,7 @@ pub trait MemoryLike {
 
     /// Reads the content of the given memory interval.
     ///
-    /// Returns error if the memory interval isn’t completely inside the smart
+    /// Returns error if the memory interval isn't completely inside the smart
     /// contract memory.
     ///
     /// # Potential denial of service
@@ -72,7 +72,7 @@ pub trait MemoryLike {
     ///
     /// If attacker controls length argument, it may cause attempt at allocation
     /// of arbitrarily-large buffer and crash the program.  In situations like
-    /// this, it’s necessary to use [`Self::fits_memory`] method to verify that
+    /// this, it's necessary to use [`Self::fits_memory`] method to verify that
     /// the length is valid.  For example:
     ///
     /// ```
@@ -89,7 +89,7 @@ pub trait MemoryLike {
 
     /// Writes the buffer into the smart contract memory.
     ///
-    /// Returns error if the memory interval isn’t completely inside the smart
+    /// Returns error if the memory interval isn't completely inside the smart
     /// contract memory.
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()>;
 }

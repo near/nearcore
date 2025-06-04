@@ -3012,7 +3012,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "This is for defense in depth.\n We expect our runtime-independent preparation code to fully catch all invalid wasms,\n but, if it ever misses something we’ll emit this error",
+            "description": "This is for defense in depth.\n We expect our runtime-independent preparation code to fully catch all invalid wasms,\n but, if it ever misses something we'll emit this error",
             "properties": {
               "WasmerCompileError": {
                 "properties": {
@@ -9203,7 +9203,7 @@
             "type": "array"
           },
           "max_gas_burnt_view": {
-            "description": "Max burnt gas per view method.  If present, overrides value stored in\n genesis file.  The value only affects the RPCs without influencing the\n protocol thus changing it per-node doesn’t affect the blockchain.",
+            "description": "Max burnt gas per view method.  If present, overrides value stored in\n genesis file.  The value only affects the RPCs without influencing the\n protocol thus changing it per-node doesn't affect the blockchain.",
             "format": "uint64",
             "minimum": 0,
             "nullable": true,
@@ -10901,7 +10901,7 @@
             "type": "integer"
           },
           "rpc_addr": {
-            "description": "Address for RPC server.  None if node doesn’t have RPC endpoint enabled.",
+            "description": "Address for RPC server.  None if node doesn't have RPC endpoint enabled.",
             "nullable": true,
             "type": "string"
           },

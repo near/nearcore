@@ -264,7 +264,7 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> anyhow::Result<
         .filter(|pkg| {
             utils::is_publishable(pkg)
                 && matches!(pkg.parsed.license, Some(ref l) if l != EXPECTED_LICENSE)
-                // near-vm is a wasmer fork, so we don’t control the license
+                // near-vm is a wasmer fork, so we don't control the license
                 && !pkg.parsed.name.starts_with("near-vm")
         })
         .map(|pkg| Outlier {

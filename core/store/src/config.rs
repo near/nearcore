@@ -100,7 +100,7 @@ pub struct StoreConfig {
     /// The field can be one of:
     /// * an absolute path name → the snapshot will be created in specified
     ///   directory.  No sub-directories will be created so for example you
-    ///   probably don’t want `/tmp` but rather `/tmp/neard-db-snapshot`;
+    ///   probably don't want `/tmp` but rather `/tmp/neard-db-snapshot`;
     /// * an relative path name → the snapshot will be created in a directory
     ///   inside of the RocksDB database directory (see `path` field);
     /// * `true` (the default) → this is equivalent to setting the field to
@@ -153,11 +153,11 @@ pub enum MigrationSnapshot {
 /// Mode in which to open the storage.
 #[derive(Clone, Copy)]
 pub enum Mode {
-    /// Open an existing database in read-only mode.  Fail if it doesn’t exist.
+    /// Open an existing database in read-only mode.  Fail if it doesn't exist.
     ReadOnly,
-    /// Open an existing database in read-write mode.  Fail if it doesn’t exist.
+    /// Open an existing database in read-write mode.  Fail if it doesn't exist.
     ReadWriteExisting,
-    /// Open a database in read-write mode.  create if it doesn’t exist.
+    /// Open a database in read-write mode.  create if it doesn't exist.
     ReadWrite,
     /// Creates a new database in read-write mode.  Fails if it exists.
     Create,

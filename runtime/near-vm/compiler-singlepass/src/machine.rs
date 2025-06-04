@@ -330,7 +330,7 @@ impl Machine {
         }
 
         if delta_stack_offset != 0 {
-            // DO NOT use increase_rsp, as we don’t want to change stack_offset
+            // DO NOT use increase_rsp, as we don't want to change stack_offset
             assembler.emit_add(
                 Size::S64,
                 Location::Imm32(delta_stack_offset as u32),
@@ -438,7 +438,7 @@ impl Machine {
                     a.emit_mov(Size::S64, loc, local_loc);
                 }
                 // TODO: move Location::Memory args init into init_locals down below so it happens after instrumentation
-                // Registers *must* stay here because we’re using registers between setup_registers and init_locals
+                // Registers *must* stay here because we're using registers between setup_registers and init_locals
                 Location::Memory(_, _) => match local_loc {
                     Location::GPR(_) => {
                         a.emit_mov(Size::S64, loc, local_loc);

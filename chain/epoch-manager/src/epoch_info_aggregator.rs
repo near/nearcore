@@ -49,7 +49,7 @@ impl EpochInfoAggregator {
     ///
     /// For example, this method can be used in the following situation (where
     /// A through G are blocks ordered in increasing height and arrows denote
-    /// ‘is parent’ relationship and B is start of a new epoch):
+    /// 'is parent' relationship and B is start of a new epoch):
     ///
     /// ```text
     ///     ┌─ block_info
@@ -200,11 +200,11 @@ impl EpochInfoAggregator {
     ///
     /// The `other` aggregator must hold statistics from blocks which **follow**
     /// the ones this aggregator has.  Both aggregators have to be for the same
-    /// epoch (the function panics if they aren’t).
+    /// epoch (the function panics if they aren't).
     ///
     /// For example, this method can be used in the following situation (where
-    /// A through J are blocks ordered in increasing height, arrows denote ‘is
-    /// parent’ relationship and B is start of a new epoch):
+    /// A through J are blocks ordered in increasing height, arrows denote 'is
+    /// parent' relationship and B is start of a new epoch):
     ///
     /// ```text
     ///     │←─── self ────→│   │←─ other ─→│
@@ -229,11 +229,11 @@ impl EpochInfoAggregator {
     ///
     /// The `other` aggregator must hold statistics from blocks which
     /// **precede** the ones this aggregator has.  Both aggregators have to be
-    /// for the same epoch (the function panics if they aren’t).
+    /// for the same epoch (the function panics if they aren't).
     ///
     /// For example, this method can be used in the following situation (where
-    /// A through J are blocks ordered in increasing height, arrows denote ‘is
-    /// parent’ relationship and B is start of a new epoch):
+    /// A through J are blocks ordered in increasing height, arrows denote 'is
+    /// parent' relationship and B is start of a new epoch):
     ///
     /// ```text
     ///     │←─── other ───→│   │←─ self ──→│

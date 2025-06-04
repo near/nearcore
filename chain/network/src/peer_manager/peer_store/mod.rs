@@ -477,11 +477,11 @@ impl PeerStore {
             .find_peers(|p| matches!(p.status, KnownPeerStatus::Banned(_, _)).not(), max_count)
     }
 
-    /// Adds peers we’ve learned about from other peers.
+    /// Adds peers we've learned about from other peers.
     ///
-    /// Identities of the nodes hasn’t been verified in any way.  We don’t even
+    /// Identities of the nodes hasn't been verified in any way.  We don't even
     /// know if there is anything running at given addresses and even if there
-    /// are nodes there we haven’t received signatures of their peer ID.
+    /// are nodes there we haven't received signatures of their peer ID.
     ///
     /// See also [`Self::add_direct_peer`] and [`Self::add_signed_peer`].
     pub fn add_indirect_peers(&self, clock: &time::Clock, peers: impl Iterator<Item = PeerInfo>) {
@@ -504,10 +504,10 @@ impl PeerStore {
         }
     }
 
-    /// Adds a peer we’ve connected to but haven’t verified ID yet.
+    /// Adds a peer we've connected to but haven't verified ID yet.
     ///
     /// We've connected to the host (thus know that the address is correct) and
-    /// they claim they control given peer ID but we haven’t received signature
+    /// they claim they control given peer ID but we haven't received signature
     /// confirming that identity yet.
     ///
     /// See also [`Self::add_indirect_peers`] and [`Self::add_signed_peer`].

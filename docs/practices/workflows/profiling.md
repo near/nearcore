@@ -122,7 +122,7 @@ memory or to inadvertently retain too much of it.
 Unfortunately, “just” throwing a random profiler at neard does not work for many reasons. Valgrind
 for example is introducing enough slowdown to significantly alter the behavior of the run, not to
 mention that to run it successfully and without crashing it will be necessary to comment out
-`neard`’s use of `jemalloc` for yet another substantial slowdown.
+`neard`'s use of `jemalloc` for yet another substantial slowdown.
 
 So far the only tool that worked out well out of the box was
 [`bytehound`](https://github.com/koute/bytehound). Using it is quite straightforward, but needs

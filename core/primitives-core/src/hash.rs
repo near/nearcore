@@ -82,7 +82,7 @@ impl CryptoHash {
     /// visitor returns.
     fn to_base58_impl<Out>(self, visitor: impl FnOnce(&str) -> Out) -> Out {
         // base58-encoded string is at most 1.4 times longer than the binary
-        // sequence.  We’re serializing 32 bytes so ⌈32 * 1.4⌉ = 45 should be
+        // sequence.  We're serializing 32 bytes so ⌈32 * 1.4⌉ = 45 should be
         // enough.
         let mut buffer = [0u8; 45];
         let len = bs58::encode(self).into(&mut buffer[..]).unwrap();
@@ -312,9 +312,9 @@ mod tests {
     fn test_from_str_failures() {
         fn test(input: &str, want_err: &str) {
             match CryptoHash::from_str(input) {
-                Ok(got) => panic!("‘{input}’ should have failed; got ‘{got}’"),
+                Ok(got) => panic!("'{input}' should have failed; got '{got}'"),
                 Err(err) => {
-                    assert!(err.to_string().starts_with(want_err), "input: ‘{input}’; err: {err}")
+                    assert!(err.to_string().starts_with(want_err), "input: '{input}'; err: {err}")
                 }
             }
         }
@@ -338,9 +338,9 @@ mod tests {
     fn test_serde_deserialize_failures() {
         fn test(input: &str, want_err: &str) {
             match serde_json::from_str::<CryptoHash>(input) {
-                Ok(got) => panic!("‘{input}’ should have failed; got ‘{got}’"),
+                Ok(got) => panic!("'{input}' should have failed; got '{got}'"),
                 Err(err) => {
-                    assert!(err.to_string().starts_with(want_err), "input: ‘{input}’; err: {err}")
+                    assert!(err.to_string().starts_with(want_err), "input: '{input}'; err: {err}")
                 }
             }
         }

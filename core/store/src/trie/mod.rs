@@ -276,7 +276,7 @@ pub struct Trie {
 pub trait TrieAccess {
     /// Retrieves value with given key from the trie.
     ///
-    /// This doesn’t allow to read data from different chunks (be it from
+    /// This doesn't allow to read data from different chunks (be it from
     /// different shards or different blocks).  That is, the shard and state
     /// root are already known by the object rather than being passed as
     /// argument.
@@ -2173,7 +2173,7 @@ mod tests {
                 let mut iterator = trie.disk_iter().unwrap();
                 iterator.seek_prefix(&query).unwrap();
                 if let Some(Ok((key, _))) = iterator.next() {
-                    assert!(key.starts_with(&query), "‘{key:x?}’ does not start with ‘{query:x?}’");
+                    assert!(key.starts_with(&query), "'{key:x?}' does not start with '{query:x?}'");
                 }
             }
         }

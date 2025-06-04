@@ -8,14 +8,14 @@ use ::rocksdb::checkpoint::Checkpoint;
 /// Representation of a RocksDB checkpoint.
 ///
 /// Serves as kind of RAII type which logs information about the checkpoint when
-/// object is dropped if the checkpoint hasn’t been removed beforehand by
+/// object is dropped if the checkpoint hasn't been removed beforehand by
 /// [`Snapshot::remove`] method.
 ///
 /// The usage of the type is to create a checkpoint before a risky database
 /// operation and then [`Snapshot::remove`] it when the operation finishes
 /// successfully.  In that scenario, the checkpoint will be gracefully deleted
 /// from the file system.  On the other hand, if the operation fails and the
-/// checkpoint is not deleted, this type’s Drop implementation will log
+/// checkpoint is not deleted, this type's Drop implementation will log
 /// informational messages pointing where the snapshot resides and how to
 /// recover data from it.
 #[derive(Debug)]
@@ -68,8 +68,8 @@ impl Snapshot {
     /// Possibly creates a new snapshot for given database.
     ///
     /// If the snapshot is disabled via `config.migration_snapshot` option,
-    /// a ‘no snapshot’ object is returned.  It can be thought as `None` but
-    /// `remove` method can be called on it so it’s tiny bit more ergonomic.
+    /// a 'no snapshot' object is returned.  It can be thought as `None` but
+    /// `remove` method can be called on it so it's tiny bit more ergonomic.
     ///
     /// Otherwise, path to the snapshot is determined from `config` taking as
     /// `db_path` as the base directory for relative paths.  If the snapshot
@@ -119,9 +119,9 @@ impl Snapshot {
 }
 
 impl std::ops::Drop for Snapshot {
-    /// If the checkpoint hasn’t been deleted, log information about it.
+    /// If the checkpoint hasn't been deleted, log information about it.
     ///
-    /// If the checkpoint hasn’t been deleted with [`Self::remove`] method, this
+    /// If the checkpoint hasn't been deleted with [`Self::remove`] method, this
     /// will log information about where the checkpoint resides in the file
     /// system and how to recover data from it.
     fn drop(&mut self) {
@@ -144,7 +144,7 @@ fn test_snapshot_creation() {
     let (_tmpdir, opener) = crate::NodeStorage::test_opener();
     let new = || Snapshot::new(&opener.path(), &opener.config(), Temperature::Hot);
 
-    // Creating snapshot fails if database doesn’t exist.
+    // Creating snapshot fails if database doesn't exist.
     let err = format!("{:?}", new().unwrap_err());
     assert!(err.contains("create_if_missing is false"), "{err:?}");
 
@@ -162,7 +162,7 @@ fn test_snapshot_creation() {
     // This should work correctly again since the snapshot has been removed.
     core::mem::drop(new().unwrap());
 
-    // And this again should fail.  We don’t remove the snapshot in
+    // And this again should fail.  We don't remove the snapshot in
     // Snapshot::drop.
     assert_matches!(new().unwrap_err(), SnapshotError::AlreadyExists(_));
 }

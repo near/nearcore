@@ -464,7 +464,7 @@ impl StateChanges {
 pub struct StateRootNode {
     /// In Nightshade, data is the serialized TrieNodeWithSize.
     ///
-    /// Beware that hash of an empty state root (i.e. once who’s data is an
+    /// Beware that hash of an empty state root (i.e. once who's data is an
     /// empty byte string) **does not** equal hash of an empty byte string.
     /// Instead, an all-zero hash indicates an empty node.
     pub data: Arc<[u8]>,

@@ -6,16 +6,16 @@ use std::str::FromStr;
 
 /// A wrapper for bytes slice which tries to guess best way to format it.
 ///
-/// If the slice contains printable ASCII characters only, it’s represented as
+/// If the slice contains printable ASCII characters only, it's represented as
 /// a string surrounded by single quotes (as a consequence, empty value is
 /// converted to pair of single quotes).  Otherwise, it converts the value into
 /// base64.
 ///
 /// The intended usage for this type is when trying to format binary data whose
-/// structure isn’t known to the caller.  For example, when generating debugging
+/// structure isn't known to the caller.  For example, when generating debugging
 /// or tracing data at database layer where everything is just slices of bytes.
 /// At higher levels of abstractions, if the structure of the data is known,
-/// it’s usually better to format data in a way that makes sense for the given
+/// it's usually better to format data in a way that makes sense for the given
 /// type.
 ///
 /// The type can be used as with `tracing::info!` and similar calls.  For
@@ -69,7 +69,7 @@ impl<'a> Bytes<'a> {
 }
 
 /// A wrapper for bytes slice which tries to guess best way to format it
-/// truncating the value if it’s too long.
+/// truncating the value if it's too long.
 ///
 /// Behaves like [`Bytes`] but truncates the formatted string to around 128
 /// characters.  If the value is longer then that, the length of the value in
@@ -121,20 +121,20 @@ impl<'a> std::fmt::Display for AbbrBytes<Option<&'a [u8]>> {
 
 /// A wrapper for bytes slice which tries to guess best way to format it.
 ///
-/// If the slice is exactly 32-byte long, it’s assumed to be a hash and is
+/// If the slice is exactly 32-byte long, it's assumed to be a hash and is
 /// converted into base58 and printed surrounded by backticks.  Otherwise,
 /// behaves like [`Bytes`] representing the data as string if it contains ASCII
 /// printable bytes only or base64 otherwise.
 ///
 /// The motivation for such choices is that we only ever use base58 to format
-/// hashes which are 32-byte long.  It’s therefore not useful to use it for any
+/// hashes which are 32-byte long.  It's therefore not useful to use it for any
 /// other types of keys.
 ///
 /// The intended usage for this type is when trying to format binary data whose
-/// structure isn’t known to the caller.  For example, when generating debugging
+/// structure isn't known to the caller.  For example, when generating debugging
 /// or tracing data at database layer where everything is just slices of bytes.
 /// At higher levels of abstractions, if the structure of the data is known,
-/// it’s usually better to format data in a way that makes sense for the given
+/// it's usually better to format data in a way that makes sense for the given
 /// type.
 ///
 /// The type can be used as with `tracing::info!` and similar calls.  For
@@ -163,7 +163,7 @@ impl<'a> std::fmt::Debug for StorageKey<'a> {
 
 /// A wrapper for slices which formats the slice limiting the length.
 ///
-/// If the slice has no more than five elements, it’s printed in full.
+/// If the slice has no more than five elements, it's printed in full.
 /// Otherwise, only the first two and last two elements are printed to limit the
 /// length of the formatted value.
 pub struct Slice<'a, T>(pub &'a [T]);
@@ -192,7 +192,7 @@ impl<'a, T: std::fmt::Debug> std::fmt::Debug for Slice<'a, T> {
 /// Implementation of [`Bytes`] and [`StorageKey`] formatting.
 ///
 /// If the `consider_hash` argument is false, formats bytes as described in
-/// [`Bytes`].  If it’s true, formats the bytes as described in [`StorageKey`].
+/// [`Bytes`].  If it's true, formats the bytes as described in [`StorageKey`].
 fn bytes_format(
     bytes: &[u8],
     fmt: &mut std::fmt::Formatter<'_>,
@@ -201,7 +201,7 @@ fn bytes_format(
     if consider_hash && bytes.len() == 32 {
         write!(fmt, "`{}`", CryptoHash(bytes.try_into().unwrap()))
     } else if bytes.iter().all(|ch| 0x20 <= *ch && *ch <= 0x7E) {
-        // SAFETY: We’ve just checked that the value contains ASCII
+        // SAFETY: We've just checked that the value contains ASCII
         // characters only.
         let value = unsafe { std::str::from_utf8_unchecked(bytes) };
         write!(fmt, "'{value}'")
@@ -221,7 +221,7 @@ fn truncated_bytes_format(bytes: &[u8], fmt: &mut std::fmt::Formatter<'_>) -> st
     let len = bytes.len();
     if bytes.iter().take(DISPLAY_ASCII_FULL_LIMIT).all(|ch| PRINTABLE_ASCII.contains(ch)) {
         if len <= DISPLAY_ASCII_FULL_LIMIT {
-            // SAFETY: We’ve just checked that the value contains ASCII
+            // SAFETY: We've just checked that the value contains ASCII
             // characters only.
             let value = unsafe { std::str::from_utf8_unchecked(bytes) };
             write!(fmt, "'{value}'")

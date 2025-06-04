@@ -8,7 +8,7 @@
 //!
 //! Note that it is an error to try to store different values under the same
 //! key.  That is, when increasing the reference count of an existing key, the
-//! same value must be inserted.  If different values are inserted it’s not
+//! same value must be inserted.  If different values are inserted it's not
 //! defined which one will be later read from the database.
 //!
 //! The reference counts are stored together with the values by simply attaching

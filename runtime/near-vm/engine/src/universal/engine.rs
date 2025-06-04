@@ -288,7 +288,7 @@ impl UniversalEngine {
         // Make all code loaded executable.
         unsafe {
             // SAFETY: We finished relocation and linking just above. There should be no write
-            // access past this point, though I don’t think we have a good mechanism to ensure this
+            // access past this point, though I don't think we have a good mechanism to ensure this
             // statically at this point..
             code_memory.publish()?;
         }
@@ -442,7 +442,7 @@ impl UniversalEngine {
         // Make all code compiled thus far executable.
         unsafe {
             // SAFETY: We finished relocation and linking just above. There should be no write
-            // access past this point, though I don’t think we have a good mechanism to ensure this
+            // access past this point, though I don't think we have a good mechanism to ensure this
             // statically at this point..
             code_memory.publish()?;
         }

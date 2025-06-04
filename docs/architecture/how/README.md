@@ -39,7 +39,7 @@ There are several important actors in neard:
   collection, etc. Client actor is single-threaded.
 
 * `ViewClientActor` - View client actor can be thought of as a read-only interface
-  to **client**. It only accesses data stored in a node’s storage and does not mutate
+  to **client**. It only accesses data stored in a node's storage and does not mutate
   any state. It is used for two purposes:
 
   * Answering RPC requests by fetching the relevant piece of data from storage.
@@ -69,10 +69,10 @@ do today):
 2. The node receives a block and tries to process it. If the node is synced it
    presumably has the previous block and the state before the current block to
    apply. It then checks whether it has all the chunks available. If the node is
-   not a validator node, it won’t have any chunk parts and therefore won’t have
+   not a validator node, it won't have any chunk parts and therefore won't have
    the chunks available. If the node is a validator node, it may already have
    chunk parts through chunk parts forwarding from other nodes and therefore may
-   have already reconstructed some chunks. Regardless, if the node doesn’t have all
+   have already reconstructed some chunks. Regardless, if the node doesn't have all
    chunks for all shards, it will request them from peers by parts.
 3. The chunk requests are sent and the node waits for enough chunk parts to be
    received to reconstruct the chunks. For each chunk, 1/3 of all the parts
@@ -159,9 +159,9 @@ to sync. The synchronization process is done in three steps:
    set to 2s) has happened.
 
 **Note:** when a block is received and its height is no more than 500 + the
-node’s current head height, then the node would request its previous block
+node's current head height, then the node would request its previous block
 automatically. This is called orphan sync and helps to speed up the syncing
-process. If, on the other hand, the height is more than 500 + the node’s current
+process. If, on the other hand, the height is more than 500 + the node's current
 head height, the block is simply dropped.
 <!-- TODO: Either this note is incorrect or the block processing diagram is. -->
 

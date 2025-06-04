@@ -57,7 +57,7 @@ For example:
     expensive nearcore test_tps_regression test::ultra_slow_test_high_load
 
 (Currently the package name is ignored but it may change in the future
-so make sure it’s set correctly).  The path to the test function must
+so make sure it's set correctly).  The path to the test function must
 match exactly the test binary is called with `--exact` argument.
 
 ### Other arguments
@@ -67,8 +67,8 @@ test category and the test specification arguments.  Those are
 `--skip-build`, `--timeout`, `--release` and `--remote`.
 
 `--skip-build` causes build step to be skipped for the test.  This
-means that the test doesn’t have access to build artifacts (located in
-`target/debug` or `target/release`) but also doesn’t need to wait for
+means that the test doesn't have access to build artifacts (located in
+`target/debug` or `target/release`) but also doesn't need to wait for
 the build to finish and thus can start faster.
 
 `--timeout=<timeout>` specifies the time after which the test will be
@@ -87,7 +87,7 @@ used by any of the nightly tests.
 `--remote` configures pytest tests to use Near test nodes started on
 spot GCP machines rather than executing a small cluster on host where
 the test is running.  No nightly test uses this feature and to be
-honest I can’t vouch whether it even works.
+honest I can't vouch whether it even works.
 
 Lastly, at the end of the test specification line additional features
 can be given in the form of `--features <features>` arguments.
@@ -103,7 +103,7 @@ not passed to the test.
 
 To help organize tests, the file format also supports `./<path>`
 syntax for including contents of other files in the list.  The
-includes are handled recursively though at the moment there’s a limit
+includes are handled recursively though at the moment there's a limit
 of three levels before the parser starts ignoring the includes.
 
 For example, `nightly.txt` file may just look as follows:
@@ -118,13 +118,13 @@ makes the files more tidy.
 Note that any includes accessible from `nightly.txt` file must live
 within the `nightly` directory and use `.txt` file extension.  Using
 arbitrary paths and extensions will work locally but it will break
-NayDuck’s nightly runs.
+NayDuck's nightly runs.
 
 ## Scheduling a run
 
 Every 24 hours NayDuck checks if master branch has changed and if it
 has schedules a new run including all tests listed in the
-`nightly.txt` file.  It’s also possible to request a run manually in
+`nightly.txt` file.  It's also possible to request a run manually in
 which case arbitrary set of tests can be run on an arbitrary commit
 (so long as it exists in the near/nearcore repository).
 
@@ -163,7 +163,7 @@ pytests are defined as scripts in the `pytest/tests` directory.  As
 previously mentioned, even though the directory is called pytest, when
 run on NayDuck the scripts are run directly via `python`.  This means
 that they need to execute the tests when run as the main module rather
-than just defining the tests function.  To make that happen it’s best
+than just defining the tests function.  To make that happen it's best
 to define `test_<foo>` functions with test bodies and then execute all
 those functions in a code fragment guarded by `if __name__ ==
 '__main__'` condition.
@@ -171,9 +171,9 @@ those functions in a code fragment guarded by `if __name__ ==
 ### Check scripts
 
 Unless tests are included (potentially transitively) in `nightly.txt`
-file, NayDuck won’t run them.  As part of pull request checks,
+file, NayDuck won't run them.  As part of pull request checks,
 verification is performed to make sure that no test is forgotten and
-all new tests are included in the nightly list.  That’s done by
+all new tests are included in the nightly list.  That's done by
 `scripts/check_nightly.txt` and `scripts/check_pytest.txt` scripts.
 They list all the expensive and pytest tests defined in the repository
 and then check whether they are all mentioned in the nightly list.

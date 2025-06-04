@@ -196,7 +196,7 @@ pub trait Database: Sync + Send {
     ///
     /// When reading reference-counted column, the reference count will be
     /// correctly stripped.  Furthermore, elements with non-positive reference
-    /// count will be treated as non-existing (i.e. they’re going to be
+    /// count will be treated as non-existing (i.e. they're going to be
     /// skipped).  For all other columns, the value is returned directly from
     /// the database.
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a>;
@@ -228,8 +228,8 @@ pub trait Database: Sync + Send {
     /// count will not be decoded or stripped from returned value and elements
     /// with non-positive reference count will be included in the iterator.
     ///
-    /// If in doubt, use [`Self::iter`] instead.  Unless you’re doing something
-    /// low-level with the database (e.g. doing a migration), you probably don’t
+    /// If in doubt, use [`Self::iter`] instead.  Unless you're doing something
+    /// low-level with the database (e.g. doing a migration), you probably don't
     /// want this method.
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a>;
 

@@ -233,7 +233,7 @@ pub enum ContractPrepareVersion {
     V0,
     /// Old, slow and buggy version.
     ///
-    /// Better than V0, but don’t use this nevertheless.
+    /// Better than V0, but don't use this nevertheless.
     V1,
     /// finite-wasm 0.3.0 based contract preparation code.
     V2,

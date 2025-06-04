@@ -2,7 +2,7 @@
 //!
 //! The build script sets `NEARD_VERSION` and `NEARD_BUILD` to be neard version
 //! and build respectively.  Version is the official semver such as 1.24.1 if
-//! the executable is built from a release branch or `trunk` if it’s built from
+//! the executable is built from a release branch or `trunk` if it's built from
 //! master.  Build is a `git describe` of the commit the binary was built at
 //! (for official releases it should be the same as version).
 
@@ -12,11 +12,11 @@ use std::os::unix::ffi::OsStringExt;
 
 /// Returns value of given environment variable or error if missing.
 ///
-/// This also outputs necessary ‘cargo:rerun-if-env-changed’ tag to make sure
+/// This also outputs necessary 'cargo:rerun-if-env-changed' tag to make sure
 /// build script is rerun if the environment variable changes.
 fn env(key: &str) -> Result<std::ffi::OsString> {
     println!("cargo:rerun-if-env-changed={}", key);
-    std::env::var_os(key).ok_or_else(|| anyhow!("missing ‘{}’ environment variable", key))
+    std::env::var_os(key).ok_or_else(|| anyhow!("missing '{}' environment variable", key))
 }
 
 /// Calls program with given arguments and returns its standard output.  If
@@ -50,14 +50,14 @@ fn command(prog: &str, args: &[&str], cwd: Option<std::path::PathBuf>) -> Result
 /// Returns version info (build, commit) read from git repository or (unknown, unknown) if could
 /// not be determined.
 fn get_git_version() -> Result<(String, String)> {
-    // Figure out git directory.  Don’t just assume it’s ../.git because that
-    // doesn’t work with git work trees so use `git rev-parse --git-dir` instead.
+    // Figure out git directory.  Don't just assume it's ../.git because that
+    // doesn't work with git work trees so use `git rev-parse --git-dir` instead.
     let pkg_dir = std::path::PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     let git_dir = command("git", &["rev-parse", "--git-dir"], Some(pkg_dir));
     let git_dir = match git_dir {
         Ok(git_dir) => std::path::PathBuf::from(std::ffi::OsString::from_vec(git_dir)),
         Err(msg) => {
-            // We’re probably not inside of a git repository so report git
+            // We're probably not inside of a git repository so report git
             // version as unknown.
             println!("cargo:warning=unable to determine git version (not in git repository?)");
             println!("cargo:warning={}", msg);
@@ -68,14 +68,14 @@ fn get_git_version() -> Result<(String, String)> {
     // Make Cargo rerun us if currently checked out commit or the state of the
     // working tree changes.  We try to accomplish that by looking at a few
     // crucial git state files.  This probably may result in some false
-    // negatives but it’s best we’ve got.
+    // negatives but it's best we've got.
     for subpath in ["HEAD", "logs/HEAD", "index"] {
         let path = git_dir.join(subpath).canonicalize()?;
         println!("cargo:rerun-if-changed={}", path.display());
     }
 
     // * --always → if there is no matching tag, use commit hash
-    // * --dirty=-modified → append ‘-modified’ if there are local changes
+    // * --dirty=-modified → append '-modified' if there are local changes
     // * --tags → consider tags even if they are unannotated
     // * --match=[0-9]* → only consider tags starting with a digit; this
     //   prevents tags such as `crates-0.14.0` from being considered
@@ -129,7 +129,7 @@ fn try_main() -> Result<()> {
         std::borrow::Cow::Borrowed("0.0.0") => "trunk",
         std::borrow::Cow::Borrowed(version) => version,
         std::borrow::Cow::Owned(version) => {
-            anyhow::bail!("invalid ‘CARGO_PKG_VERSION’: {}", version)
+            anyhow::bail!("invalid 'CARGO_PKG_VERSION': {}", version)
         }
     };
     println!("cargo:rustc-env=NEARD_VERSION={}", version);

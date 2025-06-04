@@ -220,13 +220,13 @@ fn assert_view_state(
     assert_eq!(values, result.values);
     let got = result.proof.iter().map(|bytes| to_base64(bytes)).collect::<Vec<_>>();
     let got = got.iter().map(String::as_str).collect::<Vec<_>>();
-    // The proof isn’t deterministic because the state contains test contracts
-    // which aren’t built hermetically.  Fortunately, only the first two items
+    // The proof isn't deterministic because the state contains test contracts
+    // which aren't built hermetically.  Fortunately, only the first two items
     // in the proof are affected.  First one is the state root which is an
     // Extension("0x0", child_hash) node and the second one is child hash
     // pointing to a Branch node which splits into four: 0x0 (accounts), 0x1
-    // (contract code; that’s what’s nondeterministic), 0x2 (access keys) and
-    // 0x9 (contract data; that’s what we care about).
+    // (contract code; that's what's nondeterministic), 0x2 (access keys) and
+    // 0x9 (contract data; that's what we care about).
     assert_eq!(&want_proof[..], &got[2..]);
 
     // Verify proofs for all the expected values.

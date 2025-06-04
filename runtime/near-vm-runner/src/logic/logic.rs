@@ -211,12 +211,12 @@ macro_rules! get_memory_or_register {
 /// we could return unrelated error.  Because of that we cannot change the code
 /// to return deserialization errors immediately after reading the public key.
 ///
-/// This struct abstracts away the fact that we’re deserializing the key
+/// This struct abstracts away the fact that we're deserializing the key
 /// immediately.  Decoding errors are detected as soon as this object is created
 /// but they are communicated to the user only once they call [`Self::decode`].
 ///
 /// Why not just keep the old ways without this noise? By doing deserialization
-/// immediately we’re copying the data onto the stack without having to allocate
+/// immediately we're copying the data onto the stack without having to allocate
 /// a temporary vector.
 struct PublicKeyBuffer(Result<near_crypto::PublicKey, ()>);
 
@@ -672,7 +672,7 @@ impl<'a> VMLogic<'a> {
 
     /// Returns the current block height.
     ///
-    /// It’s only due to historical reasons, this host function is called
+    /// It's only due to historical reasons, this host function is called
     /// `block_index` rather than `block_height`.
     ///
     /// # Cost
@@ -1718,7 +1718,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
 
     /// This is the function that is exposed to WASM contracts under the name `gas`.
     ///
-    /// For now it is consuming the gas for `gas` opcodes. When we switch to finite-wasm it’ll
+    /// For now it is consuming the gas for `gas` opcodes. When we switch to finite-wasm it'll
     /// be made to be a no-op.
     ///
     /// This function might be intrinsified.

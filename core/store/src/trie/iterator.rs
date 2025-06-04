@@ -371,7 +371,7 @@ mod tests {
                 let (key, value) = item.unwrap();
                 assert!(
                     key.starts_with(seek_key),
-                    "‘{key:x?}’ does not start with ‘{seek_key:x?}’"
+                    "'{key:x?}' does not start with '{seek_key:x?}'"
                 );
                 (key, value)
             })
@@ -416,12 +416,12 @@ mod tests {
                 if include_start == false {
                     assert!(
                         key.as_slice() > seek_key,
-                        "‘{key:x?}’ is not greater than ‘{seek_key:x?}’"
+                        "'{key:x?}' is not greater than '{seek_key:x?}'"
                     );
                 } else {
                     assert!(
                         key.as_slice() >= seek_key,
-                        "‘{key:x?}’ is not greater than or equal to ‘{seek_key:x?}’"
+                        "'{key:x?}' is not greater than or equal to '{seek_key:x?}'"
                     );
                 }
                 (key, value)

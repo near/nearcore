@@ -14,7 +14,7 @@ const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
 
 /// Parses base58-encoded data from legacy path+data request format.
 fn parse_bs58_data(max_len: usize, encoded: String) -> Result<Vec<u8>, RpcParseError> {
-    // N-byte encoded base58 string decodes to at most N bytes so there’s no
+    // N-byte encoded base58 string decodes to at most N bytes so there's no
     // need to allocate full max_len output buffer if encoded length is shorter.
     let mut data = vec![0u8; max_len.min(encoded.len())];
     match bs58::decode(encoded.as_bytes()).into(data.as_mut_slice()) {

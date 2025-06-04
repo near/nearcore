@@ -54,7 +54,7 @@ const PROBLEMATIC_BLOCKS: [CryptoHash; 2] = [
 
 /// Tests whether raw hashes in [`PROBLEMATIC_BLOCKS`] match expected
 /// user-readable hashes.  Ideally we would compute the hashes at compile time
-/// but there’s no const function for base58→bytes conversion so instead we’re
+/// but there's no const function for base58→bytes conversion so instead we're
 /// hard-coding the raw base in [`PROBLEMATIC_BLOCKS`] and have this test to
 /// confirm the raw values are correct.
 #[test]

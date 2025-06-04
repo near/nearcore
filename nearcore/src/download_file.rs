@@ -37,7 +37,7 @@ pub(crate) fn run_download_file(url: &str, path: &Path) -> Result<(), FileDownlo
 /// `file` may be left in inconsistent state (i.e. may contain partial data).
 ///
 /// If the downloaded file is an XZ stream (i.e. starts with the XZ 6-byte magic
-/// number), transparently decompresses the file as it’s being downloaded.
+/// number), transparently decompresses the file as it's being downloaded.
 async fn download_file_impl(
     uri: hyper::Uri,
     path: &std::path::Path,
@@ -176,7 +176,7 @@ impl<'a> AutoXzDecoder<'a> {
     }
 
     /// If object is still in `Probing` state, read more data from the input to
-    /// determine whether it’s XZ stream or not.  Updates `state` accordingly.
+    /// determine whether it's XZ stream or not.  Updates `state` accordingly.
     /// If probing succeeded, returns number of bytes from XZ header magic that
     /// need to be processed before `chunk` is processed.  If the entire data
     /// from `chunk` has been processed and it should be discarded by the
@@ -192,7 +192,7 @@ impl<'a> AutoXzDecoder<'a> {
             } else if pos + len == XZ_HEADER_MAGIC.len() {
                 let stream = xz2::stream::Stream::new_stream_decoder(u64::max_value(), 0).unwrap();
                 // cspell:ignore uninit
-                // TODO(mina86): Once ‘new_uninit’ feature gets stabilized
+                // TODO(mina86): Once 'new_uninit' feature gets stabilized
                 // replaced buffer initialization by:
                 //     let buffer = Box::new_uninit_slice(64 << 10);
                 //     let buffer = unsafe { buffer.assume_init() };
@@ -249,7 +249,7 @@ impl<'a> AutoXzDecoder<'a> {
                 xz2::stream::Status::StreamEnd => (),
                 status => {
                     let status = format!("{:?}", status);
-                    tracing::error!(target: "near", "Got unexpected status ‘{}’ when decompressing downloaded file.", status);
+                    tracing::error!(target: "near", "Got unexpected status '{}' when decompressing downloaded file.", status);
                     return Err(FileDownloadError::XzStatusError(status));
                 }
             };
@@ -390,8 +390,8 @@ mod tests {
     #[test]
     fn test_auto_xz_decode_plain() {
         let mut data: [u8; 39] = *b"A quick brown fox jumps over a lazy dog";
-        // On first iteration we’re testing just a plain text data.  On subsequent
-        // iterations, we’re testing uncompressed data whose first few bytes match
+        // On first iteration we're testing just a plain text data.  On subsequent
+        // iterations, we're testing uncompressed data whose first few bytes match
         // the XZ header.
         for (pos, &ch) in XZ_HEADER_MAGIC.iter().enumerate() {
             for len in [0, 1, 2, 3, 4, 5, 6, 10, 20, data.len()] {
@@ -423,7 +423,7 @@ mod tests {
         }
     }
 
-    /// Tests [`AutoXzDecoder`]’s handling of corrupt XZ streams.  The data being
+    /// Tests [`AutoXzDecoder`]'s handling of corrupt XZ streams.  The data being
     /// processed starts with a proper XZ header but what follows is an invalid XZ
     /// data.  This should result in [`FileDownloadError::XzDecodeError`].
     #[test]

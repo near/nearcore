@@ -64,7 +64,7 @@ cargo build -p neard
 ```
 
 Note, that the system must provide a recent version of the library which,
-depending on which operating system you’re using, may require installing packages
+depending on which operating system you're using, may require installing packages
 from a testing branch. For example, on Debian it requires installing
 `librocksdb-dev` from the `experimental` repository:
 
@@ -99,7 +99,7 @@ export SCCACHE_CACHE_SIZE="30G"
 cargo build -p neard
 ```
 
-Refer to the [project’s README](https://github.com/mozilla/sccache) for further
+Refer to the [project's README](https://github.com/mozilla/sccache) for further
 configuration options.
 
 ## IDEs Are Bad For Environment Handling

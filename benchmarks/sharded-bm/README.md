@@ -10,11 +10,14 @@ The main objective is to make the benchmarks easy to run and reproducible.
 - `gcloud`, `terraform` for forknet benchmarks
 - `python3` and `pip`
 - On Ubuntu 22.04/24.04 LTS, install additional dependencies:
+
   ```sh
   sudo apt update
   sudo apt install -y build-essential libssl-dev pkg-config jq bc curl sysstat python3-venv
   ```
+
 - Copy SSH keys to project metadata
+
   ```sh
   gcloud compute project-info add-metadata \
     --project=nearone-mocknet \
@@ -24,17 +27,23 @@ The main objective is to make the benchmarks easy to run and reproducible.
 ### Python setup
 
 1. Create a virtual environment:
+
    ```sh
    python3 -m venv venv
    ```
+
 2. Activate the virtual environment:
+
    ```sh
    source venv/bin/activate
    ```
+
 3. Install required Python packages:
+
    ```sh
    pip install -r pytest/requirements.txt
    ```
+
 4. Always run `./bench.sh` commands from `benchmarks/sharded-bm` folder and
 within the active virtualenv.
 
@@ -140,11 +149,14 @@ support starting all types of instances (you can check in the console)
 2. in `resources.tf` modify the bucket prefix to be unique (will store the terraform state)
 
 If needed, switch active project with:
+
 ```sh
 gcloud config set project nearone-mocknet
 gcloud auth application-default set-quota-project nearone-mocknet
 ```
+
 Next, you can deploy the nodes with:
+
 ```sh
 terraform init
 terraform apply
@@ -204,16 +216,19 @@ Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/g
 To benchmark a custom `neard` binary:
 
 1. **Build neard with tx_generator**:
+
     ```sh
     cargo build --release --features=tx_generator
     ```
 
 2. **Create a Google Cloud Storage bucket** (if you don't have one already):
+
     ```sh
     gsutil mb gs://<your_bucket_name>
     ```
 
 3. **Upload the `neard` binary**:
+
     ```sh
     NEARD=neard-$(date +%Y%m%d)
     cp target/release/neard /tmp/${NEARD}
@@ -222,6 +237,7 @@ To benchmark a custom `neard` binary:
     ```
 
 4. **Use the public URL** in your `cases/.../params.json`:
+
     ```json
     {
       "forknet": {
@@ -239,14 +255,14 @@ Follow these steps to determine the maximum TPS (transactions per second) the ne
 3. **Iterative Testing:** Repeat the following steps:
     - Run `./bench.sh native-transfers`.
     - Let the network run for at least 15 minutes.
-    - In the [Blockchain utilization dashboard](https://grafana.nearone.org/goto/3bS1Lr2Ng?orgId=1), note the value for **Transactions included in chunks** (*current TPS*).
+    - In the [Blockchain utilization dashboard](https://grafana.nearone.org/goto/3bS1Lr2Ng?orgId=1), note the value for **Transactions included in chunks** (_current TPS_).
     - Check **Blocks per second** in the same dashboard. Make sure it matches expectations for your `neard` config (e.g., with 1.3s block time, you should see ≥ 0.76 block/s).
         - **If blocks per second is as expected:**  
-          - Update your *max TPS* to the observed *current TPS*.
+          - Update your _max TPS_ to the observed _current TPS_.
           - Increase `tx_generator.tps` by a small value (e.g., 100).
           - Repeat the loop to test the new TPS.
         - **If blocks per second drops below expected:**  
-          - Stop the experiment. The previous *max TPS* is the network’s maximum sustainable throughput.
+          - Stop the experiment. The previous _max TPS_ is the network's maximum sustainable throughput.
 
 **Note:** the `tx_generator.tps` parameter in `params.json` specifies the number of transactions per second to inject **per shard**.
 

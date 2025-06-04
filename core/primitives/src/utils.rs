@@ -60,7 +60,7 @@ pub struct MaybeValidated<T> {
 
 impl<T> MaybeValidated<T> {
     /// Creates new MaybeValidated object marking payload as validated.  No
-    /// verification is performed; it’s caller’s responsibility to make sure the
+    /// verification is performed; it's caller's responsibility to make sure the
     /// payload has indeed been validated.
     ///
     /// # Example
@@ -79,7 +79,7 @@ impl<T> MaybeValidated<T> {
     /// Validates payload with given `validator` function and returns result of
     /// the validation.  If payload has already been validated returns
     /// `Ok(true)`.  Note that this method changes the internal validated flag
-    /// so it’s probably incorrect to call it with different `validator`
+    /// so it's probably incorrect to call it with different `validator`
     /// functions.
     ///
     /// # Example
@@ -108,7 +108,7 @@ impl<T> MaybeValidated<T> {
         }
     }
 
-    /// Applies function to the payload (whether it’s been validated or not) and
+    /// Applies function to the payload (whether it's been validated or not) and
     /// returns new object with result of the function as payload.  Validated
     /// state is not changed.
     ///
@@ -124,7 +124,7 @@ impl<T> MaybeValidated<T> {
         MaybeValidated { validated: self.validated, payload: validator(self.payload) }
     }
 
-    /// Returns a new object storing reference to this object’s payload.  Note
+    /// Returns a new object storing reference to this object's payload.  Note
     /// that the two objects do not share the validated state so calling
     /// `validate_with` on one of them does not affect the other.
     ///
@@ -148,7 +148,7 @@ impl<T> MaybeValidated<T> {
         self.validated.get()
     }
 
-    /// Extracts the payload whether or not it’s been validated.
+    /// Extracts the payload whether or not it's been validated.
     pub fn into_inner(self) -> T {
         self.payload
     }

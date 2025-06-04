@@ -21,12 +21,12 @@ struct Inner {
     /// fail since the limit is too low to accommodate both databases and other
     /// file descriptor node is opening.
     ///
-    /// Note that there is a bit of shenanigans around types.  We’re using `u64`
+    /// Note that there is a bit of shenanigans around types.  We're using `u64`
     /// here but `u32` in [`crate::config::StoreConfig`].  The latter uses `u32`
-    /// because we don’t want to deal with `-1` having special meaning in
+    /// because we don't want to deal with `-1` having special meaning in
     /// RocksDB so we opted to for unsigned type but then needed to limit it
-    /// since RocksDB doesn’t accept full unsigned range.  Here, we’re using
-    /// `u64` because that’s what ends up being passed to set limit so we would
+    /// since RocksDB doesn't accept full unsigned range.  Here, we're using
+    /// `u64` because that's what ends up being passed to set limit so we would
     /// need to cast anyway and it allows us not to worry about summing multiple
     /// limits from StoreConfig.
     max_open_files: u64,
@@ -48,7 +48,7 @@ impl State {
     /// Registers a new RocksDB instance and checks if limits are enough for
     /// given max_open_files configuration option.
     ///
-    /// Returns an error if process’ resource limits are too low to allow
+    /// Returns an error if process' resource limits are too low to allow
     /// max_open_files open file descriptors for the new database instance.
     fn try_new_instance(&self, max_open_files: u32) -> Result<(), String> {
         let num_instances = {
@@ -98,7 +98,7 @@ pub(super) fn block_until_all_instances_are_closed() {
 
 /// RAII style object which updates the instance tracker stats.
 ///
-/// We’ve seen problems with RocksDB corruptions.  InstanceTracker lets us
+/// We've seen problems with RocksDB corruptions.  InstanceTracker lets us
 /// gracefully shutdown the process letting RocksDB to finish all operations and
 /// leaving the instances in a valid non-corrupted state.
 pub(super) struct InstanceTracker {
@@ -110,9 +110,9 @@ impl InstanceTracker {
     /// Registers a new RocksDB instance and checks if limits are enough for
     /// given max_open_files configuration option.
     ///
-    /// Returns an error if process’ resource limits are too low to allow
+    /// Returns an error if process' resource limits are too low to allow
     /// max_open_files open file descriptors for the new database instance.  On
-    /// success max_open_files descriptors are ‘reserved’ for this instance so
+    /// success max_open_files descriptors are 'reserved' for this instance so
     /// that creating more instances will take into account the sum of all the
     /// max_open_files options.
     ///
@@ -126,7 +126,7 @@ impl InstanceTracker {
 impl Drop for InstanceTracker {
     /// Deregisters a RocksDB instance and frees its reserved NOFILE limit.
     ///
-    /// Returns an error if process’ resource limits are too low to allow
+    /// Returns an error if process' resource limits are too low to allow
     /// max_open_files open file descriptors for the new database instance.
     ///
     /// The instance is unregistered once this object is dropped.
@@ -174,7 +174,7 @@ fn ensure_max_open_files_limit(mut nofile: impl NoFile, max_open_files: u64) -> 
     } else {
         Err(format!(
             "Hard limit for the number of open files (NOFILE) is too low \
-             ({hard}).  At least {required} is required.  Set ‘ulimit -Hn’ \
+             ({hard}).  At least {required} is required.  Set 'ulimit -Hn' \
              accordingly and restart the node."
         ))
     }
@@ -225,7 +225,7 @@ fn test_ensure_max_open_files_limit() {
         }
     }
 
-    // We impose limit at i64::MAX and don’t even talk to the system if
+    // We impose limit at i64::MAX and don't even talk to the system if
     // number above that is requested.
     let msg = ensure_max_open_files_limit(MockNoFile(&mut (666, 666)), u64::MAX).unwrap_err();
     assert!(msg.contains("is too high"), "{msg}");
@@ -234,7 +234,7 @@ fn test_ensure_max_open_files_limit() {
     let msg = ensure_max_open_files_limit(MockNoFile(&mut (666, 666)), 1024).unwrap_err();
     assert!(msg.starts_with("Unable to get"), "{msg}");
 
-    // Everything’s fine, soft limit should stay as it is.
+    // Everything's fine, soft limit should stay as it is.
     let mut state = (2048, 666000);
     ensure_max_open_files_limit(MockNoFile(&mut state), 1024).unwrap();
     assert_eq!((2048, 666000), state);

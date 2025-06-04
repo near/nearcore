@@ -714,7 +714,7 @@ impl NightshadeRuntime {
 /// Generates or loads a signer key from given file.
 ///
 /// If the file already exists, loads the file (panicking if the file is
-/// invalid), checks that account id in the file matches `account_id` if it’s
+/// invalid), checks that account id in the file matches `account_id` if it's
 /// given and returns the key.  `test_seed` is ignored in this case.
 ///
 /// If the file does not exist and `account_id` is not `None`, generates a new
@@ -734,7 +734,7 @@ fn generate_or_load_key(
         if let Some(account_id) = account_id {
             if account_id != signer.get_account_id() {
                 return Err(anyhow!(
-                    "‘{}’ contains key for {} but expecting key for {}",
+                    "'{}' contains key for {} but expecting key for {}",
                     path.display(),
                     signer.get_account_id(),
                     account_id
@@ -752,7 +752,7 @@ fn generate_or_load_key(
         info!(target: "near", "Using key {} for {}", signer.public_key(), signer.get_account_id());
         signer
             .write_to_file(&path)
-            .with_context(|| anyhow!("Failed saving key to ‘{}’", path.display()))?;
+            .with_context(|| anyhow!("Failed saving key to '{}'", path.display()))?;
         Ok(Some(signer))
     } else {
         Ok(None)
@@ -1219,7 +1219,7 @@ fn create_localnet_config(
 /// * `num_non_validators_archival` - Number of non-validator nodes to create and configure as an archival node (storing full chain history)
 /// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
 /// * `num_non_validators` - Number of additional non-validator nodes to create
-/// * `prefix` - Prefix for the directory name for each node with (e.g. ‘node’ results in ‘node0’, ‘node1’, ...)
+/// * `prefix` - Prefix for the directory name for each node with (e.g. 'node' results in 'node0', 'node1', ...)
 /// * `tracked_shards_config` - Tracked shards config for all nodes, except for archival and RPC nodes which track all shards
 pub fn create_localnet_configs(
     num_shards: NumShards,
@@ -1258,7 +1258,7 @@ pub fn create_localnet_configs(
 /// * `num_non_validators_archival` - Number of non-validator nodes to create and configure as an archival node (storing full chain history)
 /// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
 /// * `num_non_validators` - Number of additional non-validator nodes to create
-/// * `prefix` - Prefix for the directory name for each node with (e.g. ‘node’ results in ‘node0’, ‘node1’, ...)
+/// * `prefix` - Prefix for the directory name for each node with (e.g. 'node' results in 'node0', 'node1', ...)
 /// * `tracked_shards_config` - Tracked shards config for all nodes, except for archival and RPC nodes which track all shards
 pub fn init_localnet_configs(
     dir: &Path,
@@ -1919,7 +1919,7 @@ mod tests {
         assert!(generate_or_load_key(home_dir, "key", None, None).unwrap().is_none());
         assert!(!home_dir.join("key").exists());
 
-        // account_id == Some, file doesn’t exist → create new key
+        // account_id == Some, file doesn't exist → create new key
         let key = test_ok("key", "fred", "");
 
         // file exists → load key, compare account if given

@@ -226,7 +226,7 @@ def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
     """Parses timeout interval and converts it into number of seconds.
 
     Args:
-        timeout: An integer with an optional ‘h’, ‘m’ or ‘s’ suffix which
+        timeout: An integer with an optional 'h', 'm' or 's' suffix which
             multiply the integer by 3600, 60 and 1 respectively.
     Returns:
         Interval in seconds.
@@ -258,9 +258,9 @@ def run_locally(args, tests):
             index += 1
 
         del fields[1:index]
-        message = f'Running ‘{"".join(fields)}’'
+        message = f'Running {"".join(fields)}'
         if ignored:
-            message = f'{message} (ignoring flags ‘{" ".join(ignored)}`)'
+            message = f'{message} (ignoring flags {" ".join(ignored)})'
         if not args.dry_run:
             print(message)
 
@@ -284,7 +284,7 @@ def run_locally(args, tests):
             cmd = fields
             cwd = REPO_DIR / "pytest"
         else:
-            print(f"Unrecognized test category ‘{fields[0]}’", file=sys.stderr)
+            print(f"Unrecognized test category '{fields[0]}'", file=sys.stderr)
             continue
         if args.dry_run:
             print("( cd {} && {} )".format(

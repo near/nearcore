@@ -1136,10 +1136,10 @@ impl Client {
             }
             Err(_) => {
                 // We are ignoring all other errors and proceeding with the
-                // block.  If it is an orphan (i.e. we haven’t processed its
+                // block.  If it is an orphan (i.e. we haven't processed its
                 // previous block) than we will get MissingBlock errors.  In
-                // those cases we shouldn’t reject the block instead passing
-                // it along.  Eventually, it’ll get saved as an orphan.
+                // those cases we shouldn't reject the block instead passing
+                // it along.  Eventually, it'll get saved as an orphan.
                 Ok(())
             }
         }

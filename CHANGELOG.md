@@ -3,9 +3,11 @@
 ## [unreleased]
 
 ### Protocol Changes
+
 **No Changes**
 
 ### Non-protocol Changes
+
 **No Changes**
 
 ## [2.7.0]
@@ -19,6 +21,7 @@
 * Enable saturating float-to-int conversions in runtime. ([#13414](https://github.com/near/nearcore/pull/13414))
 
 ### Non-protocol Changes
+
 * Add RPC query for viewing global contract code. ([#13547](https://github.com/near/nearcore/pull/13547))
 * Add promise batch host functions for global contracts. ([#13565](https://github.com/near/nearcore/pull/13565))
 
@@ -31,19 +34,22 @@
 * Changed receipt id computation to enable chunk execution based on Optimistic Block. More specifically, primitive [`create_hash_upgradable`](https://github.com/near/nearcore/blob/700735b/core/primitives/src/utils.rs#L292-L309) is changed to use `block_height` instead of `extra_hash`.
 
 ### Non-protocol Changes
+
 **No Changes**
 
 ## [2.5.0]
 
 ### Protocol Changes
+
 * Add cross-shard bandwidth scheduler which manages transferring receipts between shards,
   enabling higher throughput of cross-shard receipts and better horizontal scalability.
-  NEP-584 (https://github.com/near/NEPs/pull/584)
+  NEP-584 (<https://github.com/near/NEPs/pull/584>)
 * Resharding V3 - a new implementation for resharding and two new shard layouts
   for the production networks.
-  NEP-568 (https://github.com/near/NEPs/pull/568)
+  NEP-568 (<https://github.com/near/NEPs/pull/568>)
 
 ### Non-protocol Changes
+
 * Parallelize transaction validation (including signature checks) before `verify_and_charge_transaction`,
   significantly improving throughput for transaction processing on the nodes. [#12654](https://github.com/near/nearcore/pull/12654)
 * Current Epoch State Sync - Moves the sync point from the previous epoch to the
@@ -58,6 +64,7 @@
 * Exclude contract code out of state witness and distribute it separately. [#11099](https://github.com/near/nearcore/issues/11099)
 
 ### Non-protocol Changes
+
 * **Epoch Sync V4**: A capability to bootstrap a node from another active node. [#73](https://github.com/near/near-one-project-tracking/issues/73)
 * **Decentralized state sync**: Before, nodes that needed to download state
 (either because they're several epochs behind the chain or because they're going to start producing chunks for a shard they don't currently track)
@@ -69,9 +76,11 @@ since they're hard links to database files that get cleaned up on every epoch. [
 ## 2.3.0
 
 ### Protocol Changes
-* Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators. 
+
+* Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators.
 
 ### Non-protocol Changes
+
 * Added [documentation](./docs/misc/archival_data_recovery.md) and a [reference](./scripts/recover_missing_archival_data.sh) script to recover the data lost in archival nodes at the beginning of 2024.
 * **Archival nodes only:** Stop saving partial chunks to `PartialChunks` column in the Cold DB. Instead, archival nodes will reconstruct partial chunks from the `Chunks` column.
 * Enabled state snapshots on every epoch to allow the nodes to take part in decentralized state sync in future releases.
@@ -81,10 +90,12 @@ since they're hard links to database files that get cleaned up on every epoch. [
 This release patches a bug found in the 2.2.0 release
 
 # Non-protocol changes
+
 There was a bug in the integration between ethereum implicit accounts and the compiled contract cache which sometimes caused the nodes to get stuck. This would most often happen during state sync, but could also happen by itself. Please update your nodes to avoid getting stuck.
 
 A node that hits this bug will print an error about an `InvalidStateRoot` in the logs and then it'll be unable to sync.
 It's possible to recover a stalled node by clearing the compiled contract cache and rolling back one block:
+
 1. Stop the neard process
 2. Download the new version of neard
 3. Clear the compiled contract cache: rm -rf ~/.near/data/contracts
@@ -96,17 +107,20 @@ After that the node should be able to recover and sync with the rest of the netw
 ## 2.2.0
 
 ### Protocol Changes
+
 * The minimum validator stake has been set to a lower value. The small-stake validators that were kicked out during the shift to stateless validation will be able to rejoin the network.
 * Better algorithm for validator kickouts
 * (Testnet only) update the eth-implicit accounts contract on testnet to match the one on mainnet.
 
 ### Non-protocol Changes
+
 * Fix spammy messages about calculating gas for PromiseYield receipts.
 * Don't crash when the CPU doesn't have SHA-NI instructions. It's still a hardware requirement, there is no guarantee that nodes without this instruction will be able to keep up with the network, but `neard` will now be able to run (slowly) on CPUs without this instruction.
 
 ## 2.1.0
 
 ### Protocol Changes
+
 * Eth-Implicit Accounts [NEP-0518](https://github.com/near/NEPs/pull/518)
 * Host Functions for BLS12-381 Curve Operations [NEP-0488](https://github.com/near/NEPs/pull/488)
 
@@ -119,10 +133,12 @@ After that the node should be able to recover and sync with the rest of the netw
 ## 2.0.0
 
 ### Protocol Changes
+
 * Congestion Control [NEP-0539](https://github.com/near/NEPs/pull/539)
 * Stateless Validation [NEP-0509](https://github.com/near/NEPs/pull/509)
 
 ### Non-protocol Changes
+
 **No Changes**
 
 ## 1.40.0
@@ -137,7 +153,7 @@ After that the node should be able to recover and sync with the rest of the netw
 
 ### Protocol Changes
 
-* Use more precise gas costs for function calls [#10943](https://github.com/near/nearcore/pull/10943) that should lead to more efficient chunk utilization. 
+* Use more precise gas costs for function calls [#10943](https://github.com/near/nearcore/pull/10943) that should lead to more efficient chunk utilization.
 
 ### Non-protocol Changes
 
@@ -156,7 +172,6 @@ After that the node should be able to recover and sync with the rest of the netw
 * Resharding v2 - new implementation for resharding and a new shard layout for production networks. [#10303](https://github.com/near/nearcore/pull/10303), [NEP-0508](https://github.com/near/NEPs/pull/508)
 * Restrict the creation of non-implicit top-level account that are longer than 32 bytes. Only the registrar account can create them. [#9589](https://github.com/near/nearcore/pull/9589)
 * Adjust the number of block producers and chunk producers on testnet to facilitate testing of chunk-only producers [#9563](https://github.com/near/nearcore/pull/9563)
-
 
 ### Non-protocol Changes
 
@@ -215,6 +230,7 @@ After that the node should be able to recover and sync with the rest of the netw
 ### Protocol Changes
 
 ### Non-protocol Changes
+
 * State-viewer tool to dump and apply state changes from/to a range of blocks. [#8628](https://github.com/near/nearcore/pull/8628)
 * Experimental option to dump state of every epoch to external storage. [#8661](https://github.com/near/nearcore/pull/8661)
 * Add prometheus metrics for tracked shards, block height within epoch, if is block/chunk producer. [#8728](https://github.com/near/nearcore/pull/8728)
@@ -226,16 +242,19 @@ After that the node should be able to recover and sync with the rest of the netw
 ## 1.32.2
 
 ### Fixes
+
 * Fix: rosetta zero balance accounts [#8833](https://github.com/near/nearcore/pull/8833)
 
 ## 1.32.1
 
 ### Fixes
+
 * Fix vulnerabilities in block outcome root validation and total supply validation [#8790](https://github.com/near/nearcore/pull/8790)
 
 ## 1.32.0
 
 ### Protocol Changes
+
 * Stabilize `ed25519_verify` feature: introducing a host function to verify
 ed25519 signatures efficiently.
 [#8098](https://github.com/near/nearcore/pull/8098)
@@ -253,6 +272,7 @@ to pay for the storage of their accounts.
 [Stabilization #8601](https://github.com/near/nearcore/pull/8601)
 
 ### Non-protocol Changes
+
 * Config validation can be done by following command:
   `./target/debug/neard --home {path_to_config_files} validate-config`.
   This will show error if there are file issues or semantic issues in `config.json`, `genesis.json`, `records.json`, `node_key.json` and `validator_key.json`.
@@ -346,12 +366,12 @@ to pay for the storage of their accounts.
   `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
   [#7548](https://github.com/near/nearcore/pull/7548)
 * Few changes to `view_state` JSON RPC query:
-  - The request has now an optional `include_proof` argument.  When set to
-    `true`, response’s `proof` will be populated.
-  - The `proof` within each value in `values` list of a `view_state` response is
+  * The request has now an optional `include_proof` argument.  When set to
+    `true`, response's `proof` will be populated.
+  * The `proof` within each value in `values` list of a `view_state` response is
     now deprecated and will be removed in the future.  Client code should ignore
     the field.
-  - The `proof` field directly within `view_state` response is currently always
+  * The `proof` field directly within `view_state` response is currently always
     sent even if proof has not been requested.  In the future the field will be
     skipped in those cases.  Clients should accept responses with this field
     missing (unless they set `include_proof`).
@@ -407,7 +427,7 @@ to pay for the storage of their accounts.
   RocksDB configurable via `config.json` file (at `store.path` path)
   rather than being hard-coded to `data` directory in neard home
   directory [#6938](https://github.com/near/nearcore/pull/6938)
-* Removed `testnet` alias for `localnet` command; it’s been deprecated
+* Removed `testnet` alias for `localnet` command; it's been deprecated
   since 1.24 [#7033](https://github.com/near/nearcore/pull/7033)
 * Removed undocumented `unsafe_reset_all` and `unsafe_reset_data`
   commands; they were deprecated since 1.25
@@ -416,7 +436,6 @@ to pay for the storage of their accounts.
   name [#7030](https://github.com/near/nearcore/issues/7030)
 * Latency of network messages is now measured
   [#7050](https://github.com/near/nearcore/issues/7050)
-
 
 ## 1.27.0 [2022-06-22]
 
@@ -428,9 +447,9 @@ to pay for the storage of their accounts.
 
 * Added `near_peer_message_received_by_type_bytes` [#6661](https://github.com/near/nearcore/pull/6661) and `near_dropped_message_by_type_and_reason_count` [#6678](https://github.com/near/nearcore/pull/6678) metrics.
 * Removed `near_<msg-type>_{total,bytes}` [#6661](https://github.com/near/nearcore/pull/6661), `near_<msg-type>_dropped`, `near_drop_message_unknown_account` and `near_dropped_messages_count` [#6678](https://github.com/near/nearcore/pull/6678) metrics.
-* Added `near_action_called_count` metric [#6679]((https://github.com/near/nearcore/pull/6679)
-* Removed `near_action_<action-type>_total` metrics [#6679]((https://github.com/near/nearcore/pull/6679)
-* Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
+* Added `near_action_called_count` metric [#6679]((<https://github.com/near/nearcore/pull/6679>)
+* Removed `near_action_<action-type>_total` metrics [#6679]((<https://github.com/near/nearcore/pull/6679>)
+* Added `near_build_info` metric which exports neard's build information [#6680](https://github.com/near/nearcore/pull/6680)
 * Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
 * Use correct cost in gas profile for adding function call key [#6749](https://github.com/near/nearcore/pull/6749)
 
@@ -459,22 +478,26 @@ to pay for the storage of their accounts.
 ## 1.25.0 [2022-03-16]
 
 ### Protocol Changes
+
 * `max_gas_burnt` has been increased to 300.
 
 ### Non-protocol Changes
+
 * More Prometheus metrics related to epoch, sync state, node version, chunk fullness and missing chunks have been added.
 * Progress bar is now displayed when downloading `config.json` and `genesis.json`.
 * Status line printed in logs by `neard` is now more descriptive.
-- `view_state` is now a command of `neard`; `state-viewer` is no longer a separate binary.
-- `RUST_LOG` environment variable is now correctly respected.
-- `NetworkConfig::verify` will now fail if configuration is invalid rather than printing error and continuing.
-- Fixed a minor bug which resulted in DB Not Found errors when requesting chunks.
-- Updated to wasmer-near 2.2.0 which fixes a potential crash and improves cost estimator working.
-- `neard init` will no longer override node or validator private keys.
-- Rosetta RPC now populates `related_transactions` field.
-- Rosetta RPC support is now compiled in by default. The feature still needs to be explicitly turned on and is experimental.
-- Rosetta RPC /network/status end point correctly works on non-archival nodes.
-- `unsafe_reset_all` and `unsafe_reset_data` commands are now deprecated. Use `rm` explicitly instead.
+
+* `view_state` is now a command of `neard`; `state-viewer` is no longer a separate binary.
+
+* `RUST_LOG` environment variable is now correctly respected.
+* `NetworkConfig::verify` will now fail if configuration is invalid rather than printing error and continuing.
+* Fixed a minor bug which resulted in DB Not Found errors when requesting chunks.
+* Updated to wasmer-near 2.2.0 which fixes a potential crash and improves cost estimator working.
+* `neard init` will no longer override node or validator private keys.
+* Rosetta RPC now populates `related_transactions` field.
+* Rosetta RPC support is now compiled in by default. The feature still needs to be explicitly turned on and is experimental.
+* Rosetta RPC /network/status end point correctly works on non-archival nodes.
+* `unsafe_reset_all` and `unsafe_reset_data` commands are now deprecated. Use `rm` explicitly instead.
 
 ## 1.24.0 [2022-02-14]
 
@@ -485,7 +508,7 @@ to pay for the storage of their accounts.
 
 ### Non-protocol Changes
 
-* Fix a bug in chunk requesting where validator might request chunks even if parent block hasn’t been processed yet.
+* Fix a bug in chunk requesting where validator might request chunks even if parent block hasn't been processed yet.
 * Fix memory leak in near-network.
 * Change block sync to request 5 blocks at a time
 * Change NUM_ORPHAN_ANCESTORS_CHECK to 3
@@ -506,6 +529,7 @@ to pay for the storage of their accounts.
 ## 1.22.0 [2021-11-15]
 
 ### Protocol Changes
+
 * Upgrade from Wasmer 0 to Wasmer 2, bringing better performance and reliability. [#4934](https://github.com/near/nearcore/pull/4934)
 * Lower regular_op_cost (execution of a single WASM instruction) from 3_856_371 to 2_207_874. [#4979](https://github.com/near/nearcore/pull/4979)
 * Lower data receipt cost and base cost of `ecrecover` host function.

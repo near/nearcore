@@ -160,7 +160,7 @@ impl Test {
         let check_heights = move |prev_hash: &CryptoHash, hash: &CryptoHash, height| {
             let mut map = heights.write();
             // Note that height of the previous block is not guaranteed to be height
-            // - 1.  All we know is that it’s less than height of the current block.
+            // - 1.  All we know is that it's less than height of the current block.
             if let Some(prev_height) = map.get(prev_hash) {
                 assert!(*prev_height < height);
             }

@@ -509,7 +509,7 @@ impl ShardsManagerActor {
             }
 
             // Note: If request_from_archival is true, we potentially call
-            // get_part_owner unnecessarily.  It’s probably not worth optimizing
+            // get_part_owner unnecessarily.  It's probably not worth optimizing
             // though unless you can think of a concise way to do it.
             let part_owner = self.epoch_manager.get_part_owner(&epoch_id, part_ord)?;
             let we_own_part = Some(&part_owner) == me;
@@ -1089,7 +1089,7 @@ impl ShardsManagerActor {
 
         // Construct EncodedShardChunk.  If we earlier determined that we will
         // need parity parts, instruct the constructor to calculate them as
-        // well.  Otherwise we won’t bother.
+        // well.  Otherwise we won't bother.
         let (parts, encoded_length) = reed_solomon_encode(
             &self.rs,
             &TransactionReceipt(chunk.to_transactions().to_vec(), outgoing_receipts.to_vec()),
@@ -1097,7 +1097,7 @@ impl ShardsManagerActor {
 
         if header.encoded_length() != encoded_length as u64 {
             warn!(target: "chunks",
-                   "Not sending {:?}, expected encoded length doesn’t match calculated: {} != {}",
+                   "Not sending {:?}, expected encoded length doesn't match calculated: {} != {}",
                    chunk.chunk_hash(), header.encoded_length(), encoded_length);
             return;
         }
@@ -1106,13 +1106,13 @@ impl ShardsManagerActor {
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
         if header.encoded_merkle_root() != encoded_merkle_root {
             warn!(target: "chunks",
-                   "Not sending {:?}, expected encoded Merkle root doesn’t match calculated: {} != {}",
+                   "Not sending {:?}, expected encoded Merkle root doesn't match calculated: {} != {}",
                    chunk.chunk_hash(), header.encoded_merkle_root(), encoded_merkle_root);
             return;
         }
         if merkle_paths.len() != content.parts.len() {
             warn!(target: "chunks",
-                   "Not sending {:?}, expected number of Merkle paths doesn’t match calculated: {} != {}",
+                   "Not sending {:?}, expected number of Merkle paths doesn't match calculated: {} != {}",
                    chunk.chunk_hash(), merkle_paths.len(), content.parts.len());
             return;
         }

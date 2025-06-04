@@ -23,13 +23,13 @@ pub enum StoreOpenerError {
     #[error("Database already exists")]
     DbAlreadyExists,
 
-    /// Hot database exists but cold doesn’t or the other way around.
+    /// Hot database exists but cold doesn't or the other way around.
     #[error("Hot and cold databases must either both exist or not")]
     HotColdExistenceMismatch,
 
     /// Hot and cold databases have different versions.
     #[error(
-        "Hot database version ({hot_version}) doesn’t match \
+        "Hot database version ({hot_version}) doesn't match \
          cold databases version ({cold_version})"
     )]
     HotColdVersionMismatch { hot_version: DbVersion, cold_version: DbVersion },
@@ -37,8 +37,8 @@ pub enum StoreOpenerError {
     /// Database has incorrect kind.
     ///
     /// Specifically, this happens if node is running with a single database and
-    /// its kind is not RPC or Archive; or it’s running with two databases and
-    /// their types aren’t Hot and Cold respectively.
+    /// its kind is not RPC or Archive; or it's running with two databases and
+    /// their types aren't Hot and Cold respectively.
     #[error(
         "{which} database kind should be {want} but got {got:?}. Did you forget to set archive on your store opener?"
     )]
@@ -63,7 +63,7 @@ pub enum StoreOpenerError {
         error: std::io::Error,
     },
 
-    /// The database was opened for reading but it’s version wasn’t what we
+    /// The database was opened for reading but it's version wasn't what we
     /// expect.
     ///
     /// This is an error because if the database is opened for reading we cannot
@@ -74,7 +74,7 @@ pub enum StoreOpenerError {
     )]
     DbVersionMismatchOnRead { got: DbVersion, want: DbVersion },
 
-    /// The database version isn’t what was expected and no migrator was
+    /// The database version isn't what was expected and no migrator was
     /// configured.
     #[error(
         "Database version {got} incompatible with expected {want}; \
@@ -155,7 +155,7 @@ fn is_valid_kind_archive(kind: DbKind, archive: bool) -> bool {
     }
 }
 
-/// Builder for opening node’s storage.
+/// Builder for opening node's storage.
 ///
 /// Typical usage:
 ///
@@ -193,7 +193,7 @@ struct DBOpener<'a> {
     /// Temperature of the database.
     ///
     /// This affects whether refcount merge operator is configured on reference
-    /// counted column.  It’s important that the value is correct.  RPC and
+    /// counted column.  It's important that the value is correct.  RPC and
     /// Archive databases are considered hot.
     temp: Temperature,
 }
@@ -302,7 +302,7 @@ impl<'a> StoreOpener<'a> {
     /// Opens the RocksDB database(s) for hot and cold (if configured) storages.
     ///
     /// When opening in read-only mode, verifies that the database version is
-    /// what the node expects and fails if it isn’t.  If database doesn’t exist,
+    /// what the node expects and fails if it isn't.  If database doesn't exist,
     /// creates a new one unless mode is [`Mode::ReadWriteExisting`].  On the
     /// other hand, if mode is [`Mode::Create`], fails if the database already
     /// exists.
@@ -430,7 +430,7 @@ impl<'a> StoreOpener<'a> {
             return Err(StoreOpenerError::DbVersionTooNew { got: version, want: DB_VERSION });
         }
 
-        // If we’re opening for reading, we cannot perform migrations thus we
+        // If we're opening for reading, we cannot perform migrations thus we
         // must fail if the database has old version (even if we support
         // migration from that version).
         if mode.read_only() {
@@ -511,21 +511,21 @@ impl<'a> DBOpener<'a> {
         Self { path, config, temp }
     }
 
-    /// Returns version and kind of the database or `None` if it doesn’t exist.
+    /// Returns version and kind of the database or `None` if it doesn't exist.
     ///
-    /// If the database exists but doesn’t have version set, returns an error.
+    /// If the database exists but doesn't have version set, returns an error.
     /// Similarly if the version key is set but to value which cannot be parsed.
     ///
     /// For database versions older than the point at which database kind was
-    /// introduced, the kind is returned as `None`.  Otherwise, it’s also
-    /// fetched and if it’s not there error is returned.
+    /// introduced, the kind is returned as `None`.  Otherwise, it's also
+    /// fetched and if it's not there error is returned.
     fn get_metadata(&self) -> std::io::Result<Option<DbMetadata>> {
         RocksDB::get_metadata(&self.path, self.config)
     }
 
     /// Opens the database in given mode checking expected version and kind.
     ///
-    /// Fails if the database doesn’t have version given in `want_version`
+    /// Fails if the database doesn't have version given in `want_version`
     /// argument.  Note that the verification is meant as sanity checks.
     /// Verification failure either indicates an internal logic error (since
     /// caller is expected to know the version) or some strange file system
@@ -533,9 +533,9 @@ impl<'a> DBOpener<'a> {
     ///
     /// The proper usage of this method is to first get the metadata of the
     /// database and then open it knowing expected version and kind.  Getting
-    /// the metadata is a safe operation which doesn’t modify the database.
+    /// the metadata is a safe operation which doesn't modify the database.
     /// This convoluted (one might argue) process is therefore designed to avoid
-    /// modifying the database if we’re opening something with a too old or too
+    /// modifying the database if we're opening something with a too old or too
     /// new version.
     ///
     /// Use [`Self::create`] to create a new database.
@@ -585,11 +585,11 @@ pub trait StoreMigrator {
     /// Performs database migration from given version to the next one.
     ///
     /// The function only does single migration from `version` to `version + 1`.
-    /// It doesn’t update database’s metadata (i.e. what version is stored in
+    /// It doesn't update database's metadata (i.e. what version is stored in
     /// the database) which is responsibility of the caller.
     ///
     /// **Panics** if `version` is not supported (the caller is supposed to
-    /// check support via [`Self::check_support`] method) or if it’s greater or
+    /// check support via [`Self::check_support`] method) or if it's greater or
     /// equal to [`DB_VERSION`].
     fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()>;
 }

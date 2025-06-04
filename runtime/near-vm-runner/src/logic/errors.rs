@@ -106,13 +106,13 @@ pub enum CompilationError {
     PrepareError(PrepareError),
     /// This is for defense in depth.
     /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
-    /// but, if it ever misses something we’ll emit this error
+    /// but, if it ever misses something we'll emit this error
     WasmerCompileError {
         msg: String,
     },
     /// This is for defense in depth.
     /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
-    /// but, if it ever misses something we’ll emit this error
+    /// but, if it ever misses something we'll emit this error
     WasmtimeCompileError {
         msg: String,
     },

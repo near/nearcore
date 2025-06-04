@@ -1,6 +1,6 @@
 # Proofs
 
-“Don’t trust, but verify” - let’s talk about proofs
+“Don't trust, but verify” - let's talk about proofs
 
 ## Was your transaction included?
 
@@ -11,17 +11,17 @@ enough?
 The other option would be to ask many nodes - hoping that at least one of them
 would be telling the truth. But what if that is not enough?
 
-The final solution would be to run your own node - this way you’d check all the
+The final solution would be to run your own node - this way you'd check all the
 transactions yourself, and then you could be sure - but this can become a quite
 expensive endeavor - especially when many shards are involved.
 
-But there is actually a better solution - that doesn’t require you to trust the
+But there is actually a better solution - that doesn't require you to trust the
 single (or many) RPC nodes, and to verify, by yourself, that your transaction was
 actually executed.
 
-## Let’s talk about proofs (merkelization)
+## Let's talk about proofs (merkelization)
 
-Imagine you have 4 values that you’d like to store, in such a way, that you can
+Imagine you have 4 values that you'd like to store, in such a way, that you can
 easily prove that a given value is present.
 
 ![image](https://user-images.githubusercontent.com/1711539/198579560-923f1f97-a8df-486d-b68e-8796c6aaa300.png)
@@ -53,7 +53,7 @@ assert_eq!(root, hash(hash(n0, hash(v[1])), n6))
 ```
 
 We use the technique above (called merkelization) in a couple of places in our
-protocol, but for today’s article, I’d like to focus on receipts & outcome
+protocol, but for today's article, I'd like to focus on receipts & outcome
 roots.
 
 ## Merkelization, receipts and outcomes
@@ -103,7 +103,7 @@ voila, we can confirm that it was really included.
 But how do we get the siblings on the path to the root? This is actually
 something that RPC nodes do return in their responses.
 
-If you ever looked closely at NEAR’s tx-status response, you can notice a
+If you ever looked closely at NEAR's tx-status response, you can notice a
 "proof" section there. For every receipt, you'd see something like this:
 
 ```
@@ -130,10 +130,10 @@ proof: [
 And the values in there are exactly the siblings (plus info on which side of the
 tree the sibling is), on the path to the root.
 
-**Note:** proof section doesn’t contain the root itself and also doesn’t include
+**Note:** proof section doesn't contain the root itself and also doesn't include
 the hash of the receipt.
 
-## [Advanced section]: Let’s look at a concrete example
+## [Advanced section]: Let's look at a concrete example
 
 Imagine that we have the following receipt:
 
@@ -168,16 +168,16 @@ Imagine that we have the following receipt:
 ```
 
 Remember that the outcomes of the execution will be added to the NEXT block, so
-let’s find the next block hash, and the proper chunk.
+let's find the next block hash, and the proper chunk.
 
-(in this example, I’ve used the `view-state chain` from neard)
+(in this example, I've used the `view-state chain` from neard)
 
 ```
 417 7FtuLHR3VSNhVTDJ8HmrzTffFWoWPAxBusipYa2UfrND |      node0 | parent: 416 C9WnNCbNvkQvnS7jdpaSGrqGvgM7Wwk5nQvkNC9aZFBH | .... 0: E6pfD84bvHmEWgEAaA8USCn2X3XUJAbFfKLmYez8TgZ8 107 Tgas |1: Ch1zr9TECSjDVaCjupNogLcNfnt6fidtevvKGCx8c9aC 104 Tgas |2: 87CmpU6y7soLJGTVHNo4XDHyUdy5aj9Qqy4V7muF5LyF   0 Tgas |3: CtaPWEvtbV4pWem9Kr7Ex3gFMtPcKL4sxDdXD4Pc7wah   0 Tgas
 418 J9WQV9iRJHG1shNwGaZYLEGwCEdTtCEEDUTHjboTLLmf |      node0 | parent: 417 7FtuLHR3VSNhVTDJ8HmrzTffFWoWPAxBusipYa2UfrND | .... 0: 7APjALaoxc8ymqwHiozB5BS6mb3LjTgv4ofRkKx2hMZZ   0 Tgas |1: BoVf3mzDLLSvfvsZ2apPSAKjmqNEHz4MtPkmz9ajSUT6   0 Tgas |2: Auz4FzUCVgnM7RsQ2noXsHW8wuPPrFxZToyLaYq6froT   0 Tgas |3: 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck   1 Tgas
 ```
 
-I know that the receipt should belong to Shard 3 <!-- TODO: how? :) --> so let’s fetch
+I know that the receipt should belong to Shard 3 <!-- TODO: how? :) --> so let's fetch
 the chunk header:
 
 ```console
@@ -211,7 +211,7 @@ ShardChunkHeaderV3 {
 }
 ```
 
-So the `outcome_root` is `2sZ81kLj2cw5UHTjdTeMxmaWn2zFeyr5pFunxn6aGTNB` - let’s
+So the `outcome_root` is `2sZ81kLj2cw5UHTjdTeMxmaWn2zFeyr5pFunxn6aGTNB` - let's
 verify it then.
 
 Our first step is to compute the hash of the receipt, which is equal to

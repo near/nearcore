@@ -726,16 +726,16 @@ impl schemars::JsonSchema for Signature {
 
 /// Helper struct which provides Display implementation for bytes slice
 /// encoding them using base58.
-// TODO(mina86): Get rid of it once bs58 has this feature.  There’s currently PR
+// TODO(mina86): Get rid of it once bs58 has this feature.  There's currently PR
 // for that: https://github.com/Nullus157/bs58-rs/pull/97
 struct Bs58<'a>(&'a [u8]);
 
 impl<'a> core::fmt::Display for Bs58<'a> {
     fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         debug_assert!(self.0.len() <= 65);
-        // The largest buffer we’re ever encoding is 65-byte long.  Base58
+        // The largest buffer we're ever encoding is 65-byte long.  Base58
         // increases size of the value by less than 40%.  96-byte buffer is
-        // therefore enough to fit the largest value we’re ever encoding.
+        // therefore enough to fit the largest value we're ever encoding.
         let mut buf = [0u8; 96];
         let len = bs58::encode(self.0).into(&mut buf[..]).unwrap();
         let output = &buf[..len];

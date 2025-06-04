@@ -5,7 +5,7 @@
 While Sync and Catchup sounds similar - they are actually describing two
 completely different things.
 
-**Sync** - is used when your node falls ‘behind’ other nodes in the network (for
+**Sync** - is used when your node falls 'behind' other nodes in the network (for
 example because it was down for some time or it took longer to process some
 blocks etc).
 
@@ -24,11 +24,11 @@ the shards, so the catchup will be increasingly important.
 ## Sync
 
 If your node is behind the head - it will start the sync process (this code is
-running periodically in the client_actor and if you’re behind for more than
+running periodically in the client_actor and if you're behind for more than
 `sync_height_threshold` (currently 50) blocks - it will enable the sync.
 
-The Sync behavior differs depending on whether you’re an archival node (which
-means you care about the state of each block) or ‘normal’ node - where you care
+The Sync behavior differs depending on whether you're an archival node (which
+means you care about the state of each block) or 'normal' node - where you care
 mostly about the Tip of the network.
 
 ### Step 1: Header Sync [archival node & normal node*] (“downloading headers”)
@@ -56,19 +56,19 @@ Implementation is complete with [2.4 release](https://github.com/near/nearcore/r
 
 ![image](https://user-images.githubusercontent.com/1711539/195892336-cc117c08-d3ad-43f7-9304-3233b25e8bb1.png)
 
-Notice that in the image above - it is enough to only get the ‘last’ header from
-each epoch. For the ‘current’ epoch, we still need to get all the headers.
+Notice that in the image above - it is enough to only get the 'last' header from
+each epoch. For the 'current' epoch, we still need to get all the headers.
 
 ### Step 2: State sync [normal node]
 
-After header sync - if you notice that you’re too far behind, i.e. the chain
+After header sync - if you notice that you're too far behind, i.e. the chain
 head is at least two epochs ahead of your local head - the node will try to do
-the ‘state sync’.
+the 'state sync'.
 
 The idea of the state sync is - rather than trying to process all the blocks -
-try to ‘jump’ ahead by downloading the freshest state instead - and continue
+try to 'jump' ahead by downloading the freshest state instead - and continue
 processing blocks from that place in the chain. As a side effect, it is going to
-create a ‘gap’ in the chunks/state on this node (which is fine - as the data
+create a 'gap' in the chunks/state on this node (which is fine - as the data
 will be garbage collected after 5 epochs anyway). State sync will ONLY sync to
 the beginning of the epoch - it cannot sync to any random block.
 
@@ -89,7 +89,7 @@ hoping to catch up with the chain.
 Block sync will request up to 5  (`MAX_BLOCK_REQUESTS`) blocks at a time - sending
 explicit Network BlockRequests for each one.
 
-After the response (Block) is received - the code will execute the ‘standard’ path
+After the response (Block) is received - the code will execute the 'standard' path
 that tries to add this block to the chain (see section below).
 
 ![image](https://user-images.githubusercontent.com/1711539/195892370-b177228b-2520-486a-94fc-67a91978cb58.png)
@@ -112,17 +112,17 @@ more than 500 (`BLOCK_HORIZON`) blocks away from the current HEAD).
 When a given block is received, the node checks if it can be added to the
 current chain.
 
-If block’s “parent” (`prev_block`) is not in the chain yet - the block gets added
+If block's “parent” (`prev_block`) is not in the chain yet - the block gets added
 to the orphan list.
 
 If the parent is already in the chain - we can try to add the block as the head
 of the chain.
 
 Before adding the block, we want to download the chunks for the shards that we
-are tracking - so in many cases, we’ll call `missing_chunks` functions that will
+are tracking - so in many cases, we'll call `missing_chunks` functions that will
 try to go ahead and request those chunks.
 
-**Note:** as an optimization, we’re also sometimes trying to fetch chunks for
+**Note:** as an optimization, we're also sometimes trying to fetch chunks for
 the blocks that are in the orphan pool – but only if they are not more than 3
 (`NUM_ORPHAN_ANCESTORS_CHECK`) blocks away from our head.
 
@@ -130,7 +130,7 @@ We also keep a separate job in client_actor that keeps retrying chunk fetching
 from other nodes if the original request fails.
 
 After all the chunks for a given block are received (we have a separate HashMap
-that checks how many chunks are missing for each block) - we’re ready to
+that checks how many chunks are missing for each block) - we're ready to
 process the block and attach it to the chain.
 
 Afterwards, we look at other entries in the orphan pool to see if any of them
@@ -148,19 +148,19 @@ For example, if a node tracks shard 0 at epoch T and tracks shard 1 at epoch T+1
 it actually needs to have the state of shard 1 ready before the beginning of
 epoch T+1. We make sure this happens by making the node start downloading
 the state for shard 1 at the beginning of epoch T and applying blocks during
-epoch T to shard 1’s state. Because downloading state can take time, the
+epoch T to shard 1's state. Because downloading state can take time, the
 node may have already processed some blocks (for shard 0 at this epoch), so when
 the state finishes downloading, the node needs to “catch up” processing these
 blocks for shard 1.
 
-Right now, all nodes do track all shards, so technically we shouldn’t need the
+Right now, all nodes do track all shards, so technically we shouldn't need the
 catchup process, but it is still implemented for the future.
 
 Image below: Example of the node, that tracked only shard 0 in epoch T-1, and
 will start tracking shard 0 & 1 in epoch T+1.
 
 At the beginning of the epoch T, it will initiate the state download (green) and
-afterwards will try to ‘catchup’ the blocks (orange). After blocks are caught
+afterwards will try to 'catchup' the blocks (orange). After blocks are caught
 up, it will continue processing as normal.
 
 ![image](https://user-images.githubusercontent.com/1711539/195892395-2e12808e-002b-4c04-9505-611288386dc8.png)
@@ -236,10 +236,10 @@ initiates the syncing process for these shards. After the state is downloaded,
 
 One thing to note is that `run_catchup` is located at `ClientActor`, but
 intensive work such as applying state parts and applying blocks is actually
-offloaded to `SyncJobsActor` in another thread, because we don’t want
+offloaded to `SyncJobsActor` in another thread, because we don't want
 `ClientActor` to be blocked by this. `run_catchup` is simply responsible for
 scheduling `SyncJobsActor` to do the intensive job. Note that `SyncJobsActor` is
-state-less, it doesn’t have write access to the chain. It will return the changes
+state-less, it doesn't have write access to the chain. It will return the changes
 that need to be made as part of the response to `ClientActor`, and `ClientActor`
 is responsible for applying these changes. This is to ensure only one thread
 (`ClientActor`) has write access to the chain state. However, this also adds a
@@ -261,9 +261,9 @@ be delayed if ClientActor has messages in its actix queue. A better way to do
 this is to move the scheduling of `run_catchup` to `check_triggers`.
 
 Third, because of how `run_catchup` interacts with `SyncJobsActor`, `run_catchup`
-can catch up at most one block every 100 ms. This is because we don’t want to
+can catch up at most one block every 100 ms. This is because we don't want to
 write to `ChainStore` in multiple threads. However, the changes that catching up
 blocks make do not interfere with regular block processing and they can be
 processed at the same time. However, to restructure this, we will need to
 re-implement `ChainStore` to separate the parts that can be shared among threads
-and the part that can’t.
+and the part that can't.

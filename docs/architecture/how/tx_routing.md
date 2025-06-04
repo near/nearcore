@@ -1,6 +1,6 @@
 # Transaction Routing
 
-We all know that transactions are ‘added’ to the chain - but how do they get
+We all know that transactions are 'added' to the chain - but how do they get
 there?
 
 Hopefully by the end of this article, the image below should make total sense.
@@ -23,9 +23,9 @@ pub struct SignedTransaction {
 ```
 
 With such a payload, they can go ahead and send it as a JSON-RPC request to ANY
-node in the system (they can choose between using ‘sync’ or ‘async’ options).
+node in the system (they can choose between using 'sync' or 'async' options).
 
-From now on, they’ll also be able to query the status of the transaction - by
+From now on, they'll also be able to query the status of the transaction - by
 using the hash of this object.
 
 **Fun fact:** the `Transaction` object also contains some fields to prevent
@@ -38,14 +38,14 @@ validity of the transaction (it must be added within
 Our transaction has made it to a node in the system - but most of the nodes
 are not validators - which means that they cannot mutate the chain.
 
-That’s why the node has to forward it to someone who can - the upcoming
+That's why the node has to forward it to someone who can - the upcoming
 validator.
 
 The node, roughly, does the following steps:
 
-* verify transaction’s metadata - check signatures etc. (we want to make sure
-  that we don’t forward bogus data)
-* forward it to the ‘upcoming’ validator - currently we pick the validators that
+* verify transaction's metadata - check signatures etc. (we want to make sure
+  that we don't forward bogus data)
+* forward it to the 'upcoming' validator - currently we pick the validators that
   would be a chunk creator in +2, +3, +4 and +8 blocks (this is controlled by
   `TX_ROUTING_HEIGHT_HORIZON`) - and send the transaction to all of them.
 
@@ -75,7 +75,7 @@ What happens afterwards will be covered in future episodes/articles.
 
 ### Transaction being added multiple times
 
-But such an approach means, that we’re forwarding the same transaction to multiple
+But such an approach means, that we're forwarding the same transaction to multiple
 validators (currently 4) - so can it be added multiple times?
 
 No. Remember that a transaction has a concrete hash which is used as a global
@@ -84,9 +84,9 @@ it removes it from its local mempool.
 
 ### Can transaction get lost?
 
-Yes - they can and they do. Sometimes a node doesn’t have a path to a given
-validator or it didn’t receive an `AnnounceAccount` for it, so it doesn’t know
+Yes - they can and they do. Sometimes a node doesn't have a path to a given
+validator or it didn't receive an `AnnounceAccount` for it, so it doesn't know
 where to forward the message. And if this happens to all 4 validators that we
 try to send to, then the message can be silently dropped.
 
-We’re working on adding some monitoring to see how often this happens.
+We're working on adding some monitoring to see how often this happens.

@@ -97,7 +97,7 @@ class LogTracker:
 
     # Pattern matching ANSI escape codes starting with a Control Sequence
     # Introducer (CSI) sequence.  Most notably Select Graphic Rendition (SGR)
-    # such as ‘\x1b[35;41m’.
+    # such as '\x1b[35;41m'.
     _CSI_RE = re.compile('\x1b\\[[^\x40-\x7E]*[\x40-\x7E]')
 
     def _read_file(self) -> str:
@@ -425,7 +425,7 @@ def poll_blocks(node: cluster.LocalNode,
             sent to the node.
         kw: Keyword arguments passed to `BaseDone.get_latest_block` method.
     Yields:
-        A `cluster.BlockId` object for each time node’s latest block
+        A `cluster.BlockId` object for each time node's latest block
         changes including the first block when function starts.  Note that there
         is no guarantee that there will be no skipped blocks.
     Raises:
@@ -476,14 +476,14 @@ def wait_for_blocks(node: cluster.LocalNode,
     """Waits until given node reaches expected target block height.
 
     Exactly one of `target` or `count` arguments must be specified.  Specifying
-    `count` is equivalent to setting `target` to node’s current height plus the
+    `count` is equivalent to setting `target` to node's current height plus the
     given count.
 
     Args:
         node: Node to query about its latest block.
         target: Target height of the latest block known by the node.
         count: How many new blocks to wait for.  If this argument is given,
-            target is calculated as node’s current block height plus the given
+            target is calculated as node's current block height plus the given
             count.
         timeout: Total timeout from the first status request sent to the node.
             If not specified, the default is to assume that overall each block

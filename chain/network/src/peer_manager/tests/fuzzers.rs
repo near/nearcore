@@ -17,7 +17,7 @@ async fn random_handshake_connect(input: &[u8]) {
     let chain = Arc::new(network_protocol::testonly::Chain::make(&mut clock, &mut rng, 0));
     let clock = clock.clock();
     let mut config = chain.make_config(&mut rng);
-    // Do not wait too long in this test, we’ll push the handshake right away anyway
+    // Do not wait too long in this test, we'll push the handshake right away anyway
     config.handshake_timeout = Duration::milliseconds(10);
     let mut pm = peer_manager::testonly::start(
         clock.clone(),
@@ -32,7 +32,7 @@ async fn random_handshake_connect(input: &[u8]) {
     pm.events
         .recv_until(|ev| match ev {
             Event::PeerManager(PME::HandshakeCompleted(_)) => {
-                // TODO: should remove this panic, but for now let’s keep it until the fuzzer actually
+                // TODO: should remove this panic, but for now let's keep it until the fuzzer actually
                 // hits it: it will prove that the fuzzer is actually able to generate interesting inputs.
                 panic!("Fuzzer did find a valid handshake");
             }

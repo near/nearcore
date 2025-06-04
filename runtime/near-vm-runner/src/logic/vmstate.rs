@@ -120,7 +120,7 @@ pub(super) struct Registers {
     /// Total memory usage as counted for the purposes of the contract
     /// execution.
     ///
-    /// Usage of each register is counted as its value’s length plus eight
+    /// Usage of each register is counted as its value's length plus eight
     /// (i.e. size of `u64`).  Total usage is sum over all registers.  This only
     /// approximates actual usage in memory.
     total_memory_usage: u64,
@@ -129,8 +129,8 @@ pub(super) struct Registers {
 impl Registers {
     /// Returns register with given index.
     ///
-    /// Returns an error if (i) there’s not enough gas to perform the register
-    /// read or (ii) register with given index doesn’t exist.
+    /// Returns an error if (i) there's not enough gas to perform the register
+    /// read or (ii) register with given index doesn't exist.
     pub(super) fn get<'s>(
         &'s self,
         gas_counter: &mut GasCounter,
@@ -158,7 +158,7 @@ impl Registers {
 
     /// Sets register with given index.
     ///
-    /// Returns an error if (i) there’s not enough gas to perform the register
+    /// Returns an error if (i) there's not enough gas to perform the register
     /// write or (ii) if setting the register would violate configured limits.
     pub(super) fn set<T>(
         &mut self,
@@ -201,9 +201,9 @@ impl Registers {
         if data_len > config.max_register_size {
             return Err(HostError::MemoryAccessViolation.into());
         }
-        // Fun fact: if we are at the limit and we replace a register, we’ll
+        // Fun fact: if we are at the limit and we replace a register, we'll
         // fail even though we should be succeeding.  This bug is now part of
-        // the protocol so we can’t change it.
+        // the protocol so we can't change it.
         if self.registers.len() as u64 >= config.max_number_registers {
             return Err(HostError::MemoryAccessViolation.into());
         }
@@ -232,8 +232,8 @@ impl Registers {
 ///
 /// If `len` is `u64::MAX` read register with index `ptr`.  Otherwise, reads
 /// `len` bytes of guest memory starting at given offset.  Returns error if
-/// there’s insufficient gas, memory interval is out of bounds or given register
-/// isn’t set.
+/// there's insufficient gas, memory interval is out of bounds or given register
+/// isn't set.
 ///
 /// This is not a method on `VMLogic` so that the compiler can track borrowing
 /// of gas counter, memory and registers separately.  This allows `VMLogic` to

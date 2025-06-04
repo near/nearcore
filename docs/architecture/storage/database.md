@@ -36,4 +36,4 @@ We store the database in RocksDB. This document is an attempt to give hints abou
   ```
 
   (Note that the last grep is required because not every such value appears to contain contract code)
-  We should implement a feature to state-viewer that’d allow better visualization of this data, but in the meantime this seems to work.
+  We should implement a feature to state-viewer that'd allow better visualization of this data, but in the meantime this seems to work.

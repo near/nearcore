@@ -77,7 +77,7 @@ pub fn get_default_home() -> PathBuf {
     PathBuf::default()
 }
 
-/// Opens node’s storage performing migrations and checks when necessary.
+/// Opens node's storage performing migrations and checks when necessary.
 ///
 /// If opened storage is an RPC store and `near_config.config.archive` is true,
 /// converts the storage to archival node.  Otherwise, if opening archival node
@@ -108,7 +108,7 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         Err(StoreOpenerError::HotColdExistenceMismatch) => {
             Err(anyhow::anyhow!(
                 "Hot and cold databases must either both exist or both not exist.\n\
-                 Note that at this moment it’s not possible to convert and RPC or legacy archive database into split hot+cold database.\n\
+                 Note that at this moment it's not possible to convert and RPC or legacy archive database into split hot+cold database.\n\
                  To set up node in that configuration, start with neither of the databases existing.",
             ))
         },
@@ -124,9 +124,9 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         }
         Err(StoreOpenerError::SnapshotAlreadyExists(snap_path)) => {
             Err(anyhow::anyhow!(
-                "Detected an existing database migration snapshot at ‘{}’.\n\
+                "Detected an existing database migration snapshot at '{}'.\n\
                  Probably a database migration got interrupted and your database is corrupted.\n\
-                 Please replace files in ‘{}’ with contents of the snapshot, delete the snapshot and try again.",
+                 Please replace files in '{}' with contents of the snapshot, delete the snapshot and try again.",
                 snap_path.display(),
                 opener.path().display(),
             ))
@@ -139,7 +139,7 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
             Err(anyhow::anyhow!(
                 "Failed to create a database migration snapshot: {err}.\n\
                  To change the location of snapshot adjust \
-                 ‘store.migration_snapshot’ property in ‘config.json’:\n{on}\n\
+                 'store.migration_snapshot' property in 'config.json':\n{on}\n\
                  Alternatively, you can disable database migration snapshots \
                  in `config.json`:\n{off}"
             ))

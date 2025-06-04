@@ -180,7 +180,7 @@ impl GasCounter {
         // 2. `new_used_gas < new_burnt_gas` means that the `new_used_gas` computation wrapped
         //    and `used_gas_limit` is now set to a lower value than it otherwise should be. In the
         //    past this would have triggered an unconditional assert leading to nodes crashing and
-        //    network getting stuck/going down. We don’t actually need to assert, though. By
+        //    network getting stuck/going down. We don't actually need to assert, though. By
         //    replacing the wrapping subtraction with a saturating one we make sure that the
         //    resulting value of `self.promises_gas` is well behaved (becomes 0.) All a potential
         //    attacker has achieved in this case is throwing some of their gas away.
@@ -189,7 +189,7 @@ impl GasCounter {
         // If we crossed both limits prefer reporting GasLimitExceeded.
         // Alternative would be to prefer reporting limit that is lower (or
         // perhaps even some other heuristic) but old code preferred
-        // GasLimitExceeded and we’re keeping compatibility with that.
+        // GasLimitExceeded and we're keeping compatibility with that.
         if new_burnt_gas > self.max_gas_burnt {
             HostError::GasLimitExceeded
         } else {

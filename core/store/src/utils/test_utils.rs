@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 /// Creates an in-memory node storage.
 ///
-/// In tests you’ll often want to use [`create_test_store`] instead.
+/// In tests you'll often want to use [`create_test_store`] instead.
 pub fn create_test_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
     let storage = NodeStorage::new(TestDB::new());
 
@@ -38,7 +38,7 @@ pub fn create_test_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeSto
 
 /// Creates an in-memory node storage.
 ///
-/// In tests you’ll often want to use [`create_test_store`] or
+/// In tests you'll often want to use [`create_test_store`] or
 /// [`create_test_split_store`] (for archival nodes) instead.
 /// It initializes the db version and db kind to sensible defaults -
 /// the current version and rpc kind.

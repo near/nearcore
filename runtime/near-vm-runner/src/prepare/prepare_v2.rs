@@ -288,7 +288,7 @@ pub(crate) fn prepare_contract(
             tracing::error!(?err, ?kind, "Analysis failed");
             PrepareError::Deserialization
         })?
-        // Make sure contracts can’t call the instrumentation functions via `env`.
+        // Make sure contracts can't call the instrumentation functions via `env`.
         .instrument("internal", &lightly_steamed)
         .map_err(|err| {
             tracing::error!(?err, ?kind, "Instrumentation failed");
@@ -453,7 +453,7 @@ mod test {
             // pass our validation step!
             if let Ok(_) = validate_contract(input, features, &config) {
                 match super::prepare_contract(input, features, &config, VMKind::Wasmtime) {
-                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
+                    Err(_e) => (), // TODO: this should be a panic, but for now it'd actually trigger
                     Ok(code) => {
                         let mut validator = wp::Validator::new_with_features(features.into());
                         match validator.validate_all(&code) {
@@ -478,7 +478,7 @@ mod test {
             // pass our validation step!
             if let Ok(_) = validate_contract(input, features, &config) {
                 match super::prepare_contract(input, features, &config, VMKind::NearVm) {
-                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
+                    Err(_e) => (), // TODO: this should be a panic, but for now it'd actually trigger
                     Ok(code) => {
                         let mut validator = wp::Validator::new_with_features(features.into());
                         match validator.validate_all(&code) {

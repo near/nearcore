@@ -80,7 +80,7 @@ fn get_receipts_status_with_clear_hash(
         .map(|outcome| {
             match outcome.outcome.status {
                 ExecutionStatusView::SuccessReceiptId(_) => {
-                    // We don’t control the hash of the receipt so clear it.
+                    // We don't control the hash of the receipt so clear it.
                     ExecutionStatusView::SuccessReceiptId(Default::default())
                 }
                 ref status => status.clone(),

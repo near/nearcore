@@ -1085,7 +1085,7 @@ pub(crate) struct Transaction {
     /// transactions.  An unpopulated network identifier indicates that the
     /// related transaction is on the same network.
     ///
-    /// We’re using it to link NEAR transactions and receipts with receipts they
+    /// We're using it to link NEAR transactions and receipts with receipts they
     /// generated.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub related_transactions: Vec<RelatedTransaction>,
@@ -1115,8 +1115,8 @@ pub(crate) struct RelatedTransaction {
 pub(crate) enum RelatedTransactionDirection {
     /// Direction indicating a transaction relation is from parent to child.
     Forward,
-    // Rosetta also defines ‘backward’ direction (which indicates a transaction
-    // relation is from child to parent) but we’re not implementing it at the
+    // Rosetta also defines 'backward' direction (which indicates a transaction
+    // relation is from child to parent) but we're not implementing it at the
     // moment.
 }
 

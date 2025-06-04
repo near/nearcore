@@ -506,7 +506,7 @@ All these messages are handled by `receive_client_message` in Peer.
 `NetworkRequests` to `PeerManager` actor trigger the `RawRoutedMessage` for
 messages that are meant to be sent to another `peer`.
 
-`lib.rs` (`ShardsManager`) has a `network_adapter` - coming from the client’s
+`lib.rs` (`ShardsManager`) has a `network_adapter` - coming from the client's
 `network_adapter` that comes from `ClientActor` that comes from the `start_client` call
 that comes from `start_with_config` (that creates `PeerManagerActor` - that is
 passed as target to `network_recipient`).

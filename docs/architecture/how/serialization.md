@@ -1,8 +1,8 @@
 # Serialization: Borsh, Json, ProtoBuf
 
-If you spent some time looking at NEAR code, you’ll notice that we have
+If you spent some time looking at NEAR code, you'll notice that we have
 different methods of serializing structures into strings. So in this article,
-we’ll compare these different approaches, and explain how and where we’re using
+we'll compare these different approaches, and explain how and where we're using
 them.
 
 ## ProtocolSchema
@@ -61,7 +61,7 @@ tab on [borsh.io](https://borsh.io).
 The biggest pitfall/risk of Borsh, is that any change to the structure, might
 cause previous data to no longer be parsable.
 
-For example, inserting a new enum ‘in the middle’:
+For example, inserting a new enum 'in the middle':
 
 ```rust
 pub enum MyCar {
@@ -94,12 +94,12 @@ enabled, will not be parsable by binaries without this feature.
 
 Removing and adding fields to structures is also dangerous.
 
-Basically - the only ‘safe’ thing that you can do with Borsh - is add a new Enum
+Basically - the only 'safe' thing that you can do with Borsh - is add a new Enum
 value at the end.
 
 ## JSON
 
-JSON doesn’t need much introduction. We’re using it for external APIs (jsonrpc)
+JSON doesn't need much introduction. We're using it for external APIs (jsonrpc)
 and configuration. It is a very popular, flexible and human-readable format.
 
 ## Proto (Protocol Buffers)
@@ -123,16 +123,16 @@ message HandshakeFailure {
 ```
 
 <!-- cspell:words protoc -->
-Afterwards, such a proto file is fed to protoc ‘compiler’ that returns
+Afterwards, such a proto file is fed to protoc 'compiler' that returns
 auto-generated code (in our case Rust code) - that can be directly imported into
 your library.
 
 The main benefit of protocol buffers is their backwards compatibility (as long
-as you adhere to the rules and don’t reuse the same field ids).
+as you adhere to the rules and don't reuse the same field ids).
 
 ## Summary
 
-So to recap what we’ve learned:
+So to recap what we've learned:
 
 JSON - mostly used for external APIs - look for serde::Serialize/Deserialize
 
@@ -145,20 +145,20 @@ BorshSerialize/BorshDeserialize
 
 ## Questions
 
-### Why don’t you use JSON for everything?
+### Why don't you use JSON for everything?
 
 While this is a tempting option, JSON has a few drawbacks:
 
 * size (json is self-describing, so all the field names etc are included every time)
-* non-canonical: JSON doesn’t specify strict ordering of the fields, so we’d
+* non-canonical: JSON doesn't specify strict ordering of the fields, so we'd
   have to do additional restrictions/rules on that - otherwise the same
-  ‘conceptual’ message would end up with different hashes.
+  'conceptual' message would end up with different hashes.
 
 ### Ok - so how about proto for everything?
 
 There are couple risks related with using proto for things that have to be
 hashed. A Serialized protocol buffer can contain additional data (for example
-fields with tag ids that you’re not using) and still successfully parse (that’s
+fields with tag ids that you're not using) and still successfully parse (that's
 how it achieves backward compatibility).
 
 For example, in this proto:
@@ -173,12 +173,12 @@ message Second {
 }
 ```
 
-Every ‘First’ message will be successfully parsed as ‘Second’ message - which
+Every 'First' message will be successfully parsed as 'Second' message - which
 could lead to some programmatic bugs.
 
 ## Advanced section - RawTrieNode
 
-There is one more place in the code where we use a ‘custom’ encoding:
+There is one more place in the code where we use a 'custom' encoding:
 RawTrieNodeWithSize defined in store/src/trie/raw_node.rs.  While the format
 uses Borsh derives and API, there is a difference in how branch children
 (`[Option<CryptoHash>; 16]`) are encoded.  Standard Borsh encoding would

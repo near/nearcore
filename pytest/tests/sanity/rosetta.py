@@ -65,8 +65,8 @@ class RosettaExecResult:
     def hash(self) -> str:
         """The Rosetta hash of the transaction identifier.
 
-        This will be a value in ‘<prefix>:<base58-hash>’ format as used in
-        Rosetta RPC where prefix is either ‘tx’ for transactions or ‘receipt’
+        This will be a value in '<prefix>:<base58-hash>' format as used in
+        Rosetta RPC where prefix is either 'tx' for transactions or 'receipt'
         for receipts.
         """
         return self.identifier['hash']
@@ -75,7 +75,7 @@ class RosettaExecResult:
     def near_hash(self) -> str:
         """A NEAR transaction hash in base85.
 
-        Compared to `hash` it’s just the `<base58-hash>’ part of the Rosetta
+        Compared to `hash` it's just the `<base58-hash>' part of the Rosetta
         identifier which is the NEAR transaction or receipt hash (depending on
         what comes before the colon).  This can be used to query NEAR through
         JSON RPC.
@@ -87,7 +87,7 @@ class RosettaExecResult:
 
         When this method or `transaction` method is called the first time, it
         queries the node to find the node which includes the transaction.  The
-        return value is memoised so subsequent calls won’t do the querying.
+        return value is memoised so subsequent calls won't do the querying.
 
         Returns:
             A Rosetta RPC block data object.
@@ -99,7 +99,7 @@ class RosettaExecResult:
 
         When this method or `block` method is called the first time, it queries
         the node to find the node which includes the transaction.  The return
-        value is memoised so subsequent calls won’t do the querying.
+        value is memoised so subsequent calls won't do the querying.
 
         Returns:
             A Rosetta RPC transaction data object.
@@ -107,7 +107,7 @@ class RosettaExecResult:
         return self.__get_transaction()[1]
 
     def related(self, num: int) -> typing.Optional[JsonDict]:
-        """Returns related transaction or None if there aren’t that many.
+        """Returns related transaction or None if there aren't that many.
 
         The method uses `transaction` method so all comments regarding fetching
         the data from node apply to it as well.
@@ -602,7 +602,7 @@ class RosettaTestCase(unittest.TestCase):
         self.assertEqual(
             {
                 'block_identifier': block_0_id,
-                # Genesis block’s parent is genesis block itself.
+                # Genesis block's parent is genesis block itself.
                 'parent_block_identifier': block_0_id,
                 'timestamp': block_0['timestamp'],
                 'transactions': [trans_0]
@@ -656,7 +656,7 @@ class RosettaTestCase(unittest.TestCase):
     def test_fungible_token_transfer(self) -> None:
         """Tests sending fungible token transfer.
 
-        First sends some funds from validator’s account to an implicit account,
+        First sends some funds from validator's account to an implicit account,
         then checks how the transaction looks through Data API and finally
         deletes that account refunding the validator account.
         """
@@ -751,7 +751,7 @@ class RosettaTestCase(unittest.TestCase):
     def _get_account_balance(self,
                              account: key.Key,
                              require: bool = True) -> typing.Optional[int]:
-        """Returns balance of given account or None if account doesn’t exist.
+        """Returns balance of given account or None if account doesn't exist.
 
         Args:
             account: Account to get balance of.
@@ -773,7 +773,7 @@ class RosettaTestCase(unittest.TestCase):
     def test_implicit_account(self) -> None:
         """Tests creating and deleting implicit account
 
-        First sends some funds from validator’s account to an implicit account,
+        First sends some funds from validator's account to an implicit account,
         then checks how the transaction looks through Data API and finally
         deletes that account refunding the validator account.
         """
@@ -980,7 +980,7 @@ class RosettaTestCase(unittest.TestCase):
                 'transaction_identifier': receipt_id
             }, result.transaction())
 
-        # Fetch receipt’s receipt
+        # Fetch receipt's receipt
         result = RosettaExecResult(self.rosetta, block, receipt_id_2)
         self.assertEqual(
             {

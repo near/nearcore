@@ -14,7 +14,7 @@ use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatist
 const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
 const STATE_FILE_END_MARK: u8 = 255;
 
-/// Node’s single storage source.
+/// Node's single storage source.
 ///
 /// The Store holds one of the possible databases:
 /// - The hot database - access to the hot database only
@@ -44,7 +44,7 @@ impl Store {
     ///
     /// If the key does not exist in the column returns `None`.  Otherwise
     /// returns the data as [`DBSlice`] object.  The object dereferences into
-    /// a slice, for cases when caller doesn’t need to own the value, and
+    /// a slice, for cases when caller doesn't need to own the value, and
     /// provides conversion into a vector or an Arc.
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let value = if column.is_rc() {
@@ -259,7 +259,7 @@ impl StoreUpdate {
     }
 
     /// Inserts a new reference-counted value or increases its reference count
-    /// if it’s already there.
+    /// if it's already there.
     ///
     /// It is a programming error if `increment_refcount_by` supplies a different
     /// value than the one stored in the database.  It may lead to data
@@ -370,7 +370,7 @@ impl StoreUpdate {
 
     /// Merge another store update into this one.
     ///
-    /// Panics if `self`’s and `other`’s storage are incompatible.
+    /// Panics if `self`'s and `other`'s storage are incompatible.
     pub fn merge(&mut self, other: StoreUpdate) {
         assert!(core::ptr::addr_eq(
             Arc::as_ptr(&self.store.storage),

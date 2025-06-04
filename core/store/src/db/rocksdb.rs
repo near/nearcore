@@ -17,7 +17,7 @@ use super::metadata;
 mod instance_tracker;
 pub mod snapshot;
 
-/// List of integer RocksDB properties we’re reading when collecting statistics.
+/// List of integer RocksDB properties we're reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
 static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
@@ -68,7 +68,7 @@ unsafe impl Sync for RocksDB {}
 impl RocksDB {
     /// Opens the database.
     ///
-    /// `path` specifies location of the database.  It’s assumed that it has
+    /// `path` specifies location of the database.  It's assumed that it has
     /// been resolved based on configuration in `store_config` and thus path
     /// configuration in `store_config` is ignored.
     ///
@@ -77,7 +77,7 @@ impl RocksDB {
     ///
     /// `mode` specifies whether to open the database in read/write or read-only
     /// mode.  In the latter case, the database will not be created if it
-    /// doesn’t exist nor any migrations will be performed if the database has
+    /// doesn't exist nor any migrations will be performed if the database has
     /// database version different than expected.
     ///
     /// `temp` specifies whether the database is cold or hot which affects
@@ -99,16 +99,16 @@ impl RocksDB {
     /// with only a subset of columns.  The `columns` argument specifies which
     /// columns to configure in the database.
     ///
-    /// Note that RocksDB is weird.  It’s not possible to open database in
+    /// Note that RocksDB is weird.  It's not possible to open database in
     /// read/write mode without specifying all the column families existing in
-    /// the database.  On the other hand, it’s not possible to open database in
-    /// read-only mode while specifying column families which don’t exist.
+    /// the database.  On the other hand, it's not possible to open database in
+    /// read-only mode while specifying column families which don't exist.
     ///
     /// Furthermore, note that when opening in read/write mode, we configure
     /// RocksDB to create missing columns.
     ///
-    /// With all that, it’s actually quite messy if at some point we’ll end up
-    /// opening cold storage as hot since it’ll create all the missing columns.
+    /// With all that, it's actually quite messy if at some point we'll end up
+    /// opening cold storage as hot since it'll create all the missing columns.
     fn open_with_columns(
         path: &Path,
         store_config: &StoreConfig,
@@ -185,14 +185,14 @@ impl RocksDB {
     ///
     /// This function is safe so long as `db` field has not been modified since
     /// `cf_handles` mapping has been constructed.  We technically should mark
-    /// this function unsafe but to improve ergonomics we didn’t.  This is an
-    /// internal method so hopefully the implementation knows what it’s doing.
+    /// this function unsafe but to improve ergonomics we didn't.  This is an
+    /// internal method so hopefully the implementation knows what it's doing.
     fn cf_handle(&self, col: DBCol) -> io::Result<&ColumnFamily> {
         if let Some(ptr) = self.cf_handles[col] {
             // SAFETY: The pointers are valid so long as self.db is valid.
             Ok(unsafe { ptr.as_ref() })
         } else if cfg!(debug_assertions) {
-            panic!("The database instance isn’t setup to access {col}");
+            panic!("The database instance isn't setup to access {col}");
         } else {
             Err(io::Error::other(format!("{col}: no such column")))
         }
@@ -202,14 +202,14 @@ impl RocksDB {
     ///
     /// This is kind of like iterating over all [`DBCol`] variants and calling
     /// [`Self::cf_handle`] except this method takes care of properly filtering
-    /// out column families that the database instance isn’t setup to handle.
+    /// out column families that the database instance isn't setup to handle.
     ///
     /// ## Safety
     ///
     /// This function is safe so long as `db` field has not been modified since
     /// `cf_handles` mapping has been constructed.  We technically should mark
-    /// this function unsafe but to improve ergonomics we didn’t.  This is an
-    /// internal method so hopefully the implementation knows what it’s doing.
+    /// this function unsafe but to improve ergonomics we didn't.  This is an
+    /// internal method so hopefully the implementation knows what it's doing.
     fn cf_handles(&self) -> impl Iterator<Item = (DBCol, &ColumnFamily)> {
         self.cf_handles.iter().filter_map(|(col, ptr)| {
             if let Some(ptr) = *ptr {
@@ -240,9 +240,9 @@ impl RocksDB {
         }
         if let Some(prefix) = prefix {
             read_options.set_iterate_range(::rocksdb::PrefixRange(prefix));
-            // Note: prefix_same_as_start doesn’t do anything for us.  It takes
+            // Note: prefix_same_as_start doesn't do anything for us.  It takes
             // effect only if prefix extractor is configured for the column
-            // family which is something we’re not doing.  Setting this option
+            // family which is something we're not doing.  Setting this option
             // is therefore pointless.
             //     read_options.set_prefix_same_as_start(true);
         }
@@ -645,7 +645,7 @@ impl RocksDB {
         instance_tracker::block_until_all_instances_are_closed();
     }
 
-    /// Returns metadata of the database or `None` if the db doesn’t exist.
+    /// Returns metadata of the database or `None` if the db doesn't exist.
     pub(crate) fn get_metadata(
         path: &Path,
         config: &StoreConfig,
@@ -653,9 +653,9 @@ impl RocksDB {
         if !path.join("CURRENT").is_file() {
             return Ok(None);
         }
-        // Specify only DBCol::DbVersion.  It’s ok to open db in read-only mode
-        // without specifying all column families but it’s an error to provide
-        // a descriptor for a column family which doesn’t exist.  This allows us
+        // Specify only DBCol::DbVersion.  It's ok to open db in read-only mode
+        // without specifying all column families but it's an error to provide
+        // a descriptor for a column family which doesn't exist.  This allows us
         // to read the version without modifying the database before we figure
         // out if there are any necessary migrations to perform.
         let cols = [DBCol::DbVersion];
@@ -797,7 +797,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::EpochValidatorInfo => "col47",
         DBCol::HeaderHashesByHeight => "col48",
         DBCol::StateChangesForSplitStates => "col49",
-        // If you’re adding a new column, do *not* create a new case for it.
+        // If you're adding a new column, do *not* create a new case for it.
         // All new columns are handled by this default case:
         #[allow(unreachable_patterns)]
         _ => <&str>::from(col),
@@ -864,7 +864,7 @@ mod tests {
             let none = Option::<&[u8]>::None;
             let cf = rocksdb.cf_handle(DBCol::State).unwrap();
 
-            // I’m not sure why but we need to run compaction twice.  If we run
+            // I'm not sure why but we need to run compaction twice.  If we run
             // it only once, we end up with an empty value for the key.  This is
             // surprising because I assumed that compaction filter would discard
             // empty values.

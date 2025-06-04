@@ -650,7 +650,7 @@ pub struct ClientConfig {
     pub trie_viewer_state_size_limit: Option<u64>,
     /// Max burnt gas per view method.  If present, overrides value stored in
     /// genesis file.  The value only affects the RPCs without influencing the
-    /// protocol thus changing it per-node doesn’t affect the blockchain.
+    /// protocol thus changing it per-node doesn't affect the blockchain.
     pub max_gas_burnt_view: Option<Gas>,
     /// Re-export storage layer statistics as prometheus metrics.
     pub enable_statistics_export: bool,

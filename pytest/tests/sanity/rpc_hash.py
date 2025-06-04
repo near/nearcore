@@ -89,7 +89,7 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
 
     inner_rest = inner_rest_msg()
     # Some of the fields are superfluous in some of the versions of the message
-    # but that’s quite all right.  Serializer will ignore them and
+    # but that's quite all right.  Serializer will ignore them and
     # unconditionally setting them makes the code simpler.
     inner_rest.block_body_hash = get_hash('block_body_hash')
     inner_rest.chunk_receipts_root = get_hash('chunk_receipts_root')

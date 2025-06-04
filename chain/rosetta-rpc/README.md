@@ -107,7 +107,7 @@ For mainnet you can follow the same steps that you have followed in Testnet docu
 
 ## How to Compile
 
-To compile the `neard` executable you’ll need Rust and make installed.
+To compile the `neard` executable you'll need Rust and make installed.
 With those dependencies fulfilled, simply invoke `make neard` to build
 fully optimized executable.  Such executable is adequate for running
 in production and will be located at `./target/release/neard`.

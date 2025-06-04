@@ -65,7 +65,7 @@ impl DbMetadata {
         let version = read("DbVersion", db, VERSION_KEY)?;
         let kind = if version < DB_VERSION_WITH_KIND {
             // If database is at version less than DB_VERSION_WITH_KIND then it
-            // doesn’t have kind.  Return None as kind.
+            // doesn't have kind.  Return None as kind.
             None
         } else {
             Some(read("DbKind", db, KIND_KEY)?)
@@ -98,7 +98,7 @@ fn read<T: std::str::FromStr>(
     db: &dyn crate::Database,
     key: &[u8],
 ) -> std::io::Result<T> {
-    let msg = "it’s not a neard database or database is corrupted";
+    let msg = "it's not a neard database or database is corrupted";
     let result = maybe_read::<T>(what, db, key)?;
 
     match result {
@@ -110,19 +110,19 @@ fn read<T: std::str::FromStr>(
 /// Reads value from DbVersion column and parses it using `FromStr`.
 ///
 /// Reads raw bytes for given `key` from [`DBCol::DbVersion`], verifies that
-/// they’re valid UTF-8 and then converts into `T` using `from_str`.  If the
+/// they're valid UTF-8 and then converts into `T` using `from_str`.  If the
 /// value is missing or parsing fails returns None.
 fn maybe_read<T: std::str::FromStr>(
     what: &str,
     db: &dyn crate::Database,
     key: &[u8],
 ) -> std::io::Result<Option<T>> {
-    let msg = "it’s not a neard database or database is corrupted";
+    let msg = "it's not a neard database or database is corrupted";
     db.get_raw_bytes(crate::DBCol::DbVersion, key)?
         .map(|bytes| {
             let value = std::str::from_utf8(&bytes)
                 .map_err(|_err| format!("invalid {what}: {bytes:?}; {msg}"))?;
-            T::from_str(value).map_err(|_err| format!("invalid {what}: ‘{value}’; {msg}"))
+            T::from_str(value).map_err(|_err| format!("invalid {what}: '{value}'; {msg}"))
         })
         .transpose()
         .map_err(std::io::Error::other)

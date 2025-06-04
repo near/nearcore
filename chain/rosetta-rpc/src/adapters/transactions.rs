@@ -25,7 +25,7 @@ pub(crate) struct ExecutionToReceipts {
 impl ExecutionToReceipts {
     /// Fetches execution outcomes for given block and constructs a mapping from
     /// transaction or receipt causing the execution to list of created
-    /// receipts’ hashes.
+    /// receipts' hashes.
     pub(crate) async fn for_block(
         view_client_addr: &Addr<near_client::ViewClientActor>,
         block_hash: CryptoHash,
@@ -230,7 +230,7 @@ impl<'a> RosettaTransactions<'a> {
     ///
     /// `transaction_identifier`, `related_transactions` and `metadata` of the
     /// object will be populated but initially the `operations` will be an empty
-    /// vector.  It’s caller’s responsibility to fill it out as required.
+    /// vector.  It's caller's responsibility to fill it out as required.
     fn get_for_cause(
         &mut self,
         cause: &near_primitives::views::StateChangeCauseView,
@@ -255,7 +255,7 @@ impl<'a> RosettaTransactions<'a> {
     ///
     /// `transaction_identifier`, `related_transactions` and `metadata` of the
     /// object will be populated but initially the `operations` will be an empty
-    /// vector.  It’s caller’s responsibility to fill it out as required.
+    /// vector.  It's caller's responsibility to fill it out as required.
     fn generate_transaction_for_fungible_token(
         &mut self,
         fungible_token_event: &FungibleTokenEvent,

@@ -70,7 +70,7 @@ upload_binary neard
 
 # near-sandbox is used by near-workspaces which is an SDK for end-to-end contracts testing that automatically 
 # spins up localnet using near-sandbox (neard with extra features useful for testing - state patching, time travel). 
-# There are JS and Rust SDKs and it wouldn’t be efficient to build nearcore from scratch on the 
+# There are JS and Rust SDKs and it wouldn't be efficient to build nearcore from scratch on the 
 # user machine and CI, so it relies on the prebuilt binaries.
 # example PR https://github.com/near/near-sandbox/pull/81/files
 if [ "$release" = "release" ]

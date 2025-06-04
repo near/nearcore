@@ -60,7 +60,7 @@ fn assign_to_satisfy_shards_inner<T: HasStake + Eq, I: Iterator<Item = (usize, T
 ) {
     let mut buffer = Vec::with_capacity(shard_assignment.len());
     // Stores (shard_index, cp_index) meaning that cp at cp_index has already been
-    // added to shard shard_index.  Used to make sure we don’t add a cp to the same
+    // added to shard shard_index.  Used to make sure we don't add a cp to the same
     // shard multiple times.
     let seen_capacity = result.len() * min_validators_per_shard;
     let mut seen = HashSet::<(ShardIndex, usize)>::with_capacity(seen_capacity);
@@ -71,19 +71,19 @@ fn assign_to_satisfy_shards_inner<T: HasStake + Eq, I: Iterator<Item = (usize, T
         // indexing is done before cycling thus the same cp always gets the same
         // cp_index.
         let (cp_index, cp) = cp_iter.next().unwrap();
-        // Decide which shard to assign this chunk producer to.  We mustn’t
+        // Decide which shard to assign this chunk producer to.  We mustn't
         // assign producers to a single shard multiple times.
         loop {
             match shard_assignment.peek_mut() {
                 None => {
-                    // No shards left which don’t already contain this chunk
+                    // No shards left which don't already contain this chunk
                     // producer.  Skip it and move to another producer.
                     break;
                 }
                 Some(top) if top.validators >= min_validators_per_shard => {
                     // `shard_assignment` is sorted by number of chunk producers,
                     // thus all remaining shards have min_validators_per_shard
-                    // producers already assigned to them.  Don’t assign current
+                    // producers already assigned to them.  Don't assign current
                     // one to any shard and move to next cp.
                     break;
                 }
@@ -99,7 +99,7 @@ fn assign_to_satisfy_shards_inner<T: HasStake + Eq, I: Iterator<Item = (usize, T
                 Some(top) => {
                     // This chunk producer is already assigned to this shard.
                     // Pop the shard from the heap for now and try assigning the
-                    // producer to the next shard.  (We’ll look back at the
+                    // producer to the next shard.  (We'll look back at the
                     // shard once we figure out what to do with current `cp`).
                     buffer.push(PeekMut::pop(top));
                 }
@@ -425,7 +425,7 @@ pub(crate) fn assign_chunk_producers_to_shards(
     use_stable_shard_assignment: bool,
     assignment_restrictions: Option<AssignmentRestrictions>,
 ) -> Result<Vec<Vec<ValidatorStake>>, NotEnoughValidators> {
-    // If there's not enough chunk producers to fill up a single shard there’s
+    // If there's not enough chunk producers to fill up a single shard there's
     // nothing we can do. Return with an error.
     let num_chunk_producers = chunk_producers.len();
     if num_chunk_producers < min_validators_per_shard {

@@ -178,7 +178,7 @@ async def run_handshake(conn: Connection,
         # The peer might sent us an unsolicited message before replying to
         # a successful handshake.  This is because node is multi-threaded and
         # peers are added to PeerManager before the reply is sent.  Since we
-        # don’t care about those messages, ignore them and wait for some kind of
+        # don't care about those messages, ignore them and wait for some kind of
         # Handshake reply.
         return await conn.recv(lambda msg: msg.enum.startswith('Handshake'))
 

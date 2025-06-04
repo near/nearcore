@@ -135,9 +135,9 @@ result?.into_iter().try_for_each(
 )?;
 ```
 
-**Rationale:** The `for_each` and `try_for_each` method don’t play nice with
+**Rationale:** The `for_each` and `try_for_each` method don't play nice with
 `break` and `continue` statements nor do they mesh well with async IO (since
-`.await` inside of the closure isn’t possible). And while `try_for_each` allows
+`.await` inside of the closure isn't possible). And while `try_for_each` allows
 for the use of question mark operator, one may end up having to uses it twice:
 once inside the closure and second time outside the call to `try_for_each`.
 Furthermore, usage of the functions often introduce some minor syntax noise.
@@ -145,10 +145,10 @@ Furthermore, usage of the functions often introduce some minor syntax noise.
 There are situations when those methods may lead to more readable code. Common
 example are long call chains. Even then such code may evolve with the closure
 growing and leading to less readable code. If advantages of using the methods
-aren’t clear cut, it’s usually better to err on side of more imperative style.
+aren't clear cut, it's usually better to err on side of more imperative style.
 
 Lastly, anecdotally the methods (e.g. when used with `chain` or `flat_map`) may
-lead to faster code. This intuitively makes sense but it’s worth to keep in
+lead to faster code. This intuitively makes sense but it's worth to keep in
 mind that compilers are pretty good at optimizing and in practice may generate
 optimal code anyway. Furthermore, optimizing code for readability may be more
 important (especially outside of hot path) than small performance gains.
@@ -156,7 +156,7 @@ important (especially outside of hot path) than small performance gains.
 ### Prefer `to_string` to `format!("{}")`
 
 Prefer calling `to_string` method on an object rather than passing it through
-`format!("{}")` if all you’re doing is converting it to a `String`.
+`format!("{}")` if all you're doing is converting it to a `String`.
 
 ```rust
 // GOOD
@@ -278,7 +278,7 @@ e / 5
 f % 7
 ```
 
-If you’re confident the arithmetic operation cannot fail,
+If you're confident the arithmetic operation cannot fail,
 `x.checked_[add|sub|mul|div](y).expect("explanation why the operation is safe")` is a great
 alternative, as it neatly documents not just the infallibility, but also *why* that is the case.
 
@@ -305,17 +305,17 @@ project overall.
 - Use `-` rather than `_` in crate names and in corresponding folder names.
 - Avoid single-letter variable names especially in long functions.  Common `i`,
   `j` etc. loop variables are somewhat of an exception but since Rust encourages
-  use of iterators those cases aren’t that common anyway.
+  use of iterators those cases aren't that common anyway.
 - Follow standard [Rust naming patterns](https://rust-lang.github.io/api-guidelines/naming.html) such as:
-  - Don’t use `get_` prefix for getter methods.  A getter method is one which
+  - Don't use `get_` prefix for getter methods.  A getter method is one which
     returns (a reference to) a field of an object.
   - Use `set_` prefix for setter methods.  An exception are builder objects
     which may use different a naming style.
   - Use `into_` prefix for methods which consume `self` and `to_` prefix for
-    methods which don’t.
+    methods which don't.
 - Use `get_block_header` rather than `get_header` for methods which return
   a block header.
-- Don’t use `_by_hash` suffix for methods which lookup chain objects (blocks,
+- Don't use `_by_hash` suffix for methods which lookup chain objects (blocks,
   chunks, block headers etc.) by their hash (i.e. their primary identifier).
 - Use `_by_height` and similar suffixes for methods which lookup chain objects
   (blocks, chunks, block headers etc.) by their height or other property which

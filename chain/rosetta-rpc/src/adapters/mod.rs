@@ -13,7 +13,7 @@ mod validated_operations;
 /// transactions](https://stackoverflow.com/a/63347167/1178806).
 ///
 /// Genesis records can be huge (order of gigabytes of JSON data).  Rosetta API
-/// doesn’t define any pagination and suggests to use `other_transactions` to
+/// doesn't define any pagination and suggests to use `other_transactions` to
 /// deal with this:
 /// <https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98>
 /// We choose to do a proper implementation for the genesis block later.
@@ -125,7 +125,7 @@ pub(crate) async fn convert_block_to_transactions(
         .await?
         .unwrap();
 
-    // TODO(mina86): Do we actually need ‘seen’?  I’m kinda confused at this
+    // TODO(mina86): Do we actually need 'seen'?  I'm kinda confused at this
     // point how changes are stored in the database and whether view_client can
     // return duplicate AccountTouched entries.
     let mut seen = std::collections::HashSet::new();

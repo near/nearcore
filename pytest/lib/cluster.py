@@ -145,7 +145,7 @@ def make_boot_nodes_arg(boot_node: BootNode) -> typing.Tuple[str]:
 
 
 class BlockId(typing.NamedTuple):
-    """Stores block’s height and hash.
+    """Stores block's height and hash.
 
     The values can be accessed either through properties or by structural
     deconstruction, e.g.:
@@ -155,9 +155,9 @@ class BlockId(typing.NamedTuple):
         assert block_hash == block_id.hash
 
     Attributes:
-        height: Block’s height.
-        hash: Block’s hash encoding using base58.
-        hash_bytes: Block’s hash decoded as raw bytes.  Note that this attribute
+        height: Block's height.
+        hash: Block's hash encoding using base58.
+        hash_bytes: Block's hash decoded as raw bytes.  Note that this attribute
             cannot be accessed through aforementioned deconstruction.
     """
     height: int

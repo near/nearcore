@@ -287,14 +287,14 @@ fn copy_from_store(
     let mut total_size = 0;
     let total_keys = keys.len();
     for key in keys {
-        // TODO: Look into using RocksDB’s multi_key function.  It
+        // TODO: Look into using RocksDB's multi_key function.  It
         // might speed things up.  Currently our Database abstraction
-        // doesn’t offer interface for it so that would need to be
+        // doesn't offer interface for it so that would need to be
         // added.
         let data = hot_store.get_for_cold(col, &key)?;
         if let Some(value) = data {
             // TODO: As an optimization, we might consider breaking the
-            // abstraction layer.  Since we’re always writing to cold database,
+            // abstraction layer.  Since we're always writing to cold database,
             // rather than using `cold_db: &dyn Database` argument we could have
             // `cold_db: &ColdDB` and then some custom function which lets us
             // write raw bytes. This would also allow us to bypass stripping and

@@ -24,14 +24,14 @@ impl NearVmMemory {
         )?)))
     }
 
-    /// Returns pointer to memory at the specified offset provided that there’s
+    /// Returns pointer to memory at the specified offset provided that there's
     /// enough space in the buffer starting at the returned pointer.
     ///
     /// Safety: Caller must guarantee that the returned pointer is not used
     /// after guest memory mapping is changed (e.g. grown).
     unsafe fn get_ptr(&self, offset: u64, len: usize) -> Result<*mut u8, ()> {
         let offset = usize::try_from(offset).map_err(|_| ())?;
-        // SAFETY: Caller promises memory mapping won’t change.
+        // SAFETY: Caller promises memory mapping won't change.
         let vmmem = unsafe { self.0.vmmemory().as_ref() };
         // `checked_sub` here verifies that offsetting the buffer by offset
         // still lands us in-bounds of the allocated object.
@@ -44,7 +44,7 @@ impl NearVmMemory {
     /// Safety: Caller must guarantee that guest memory mapping is not changed
     /// (e.g. grown) while the slice is held.
     unsafe fn get(&self, offset: u64, len: usize) -> Result<&[u8], ()> {
-        // SAFETY: Caller promises memory mapping won’t change.
+        // SAFETY: Caller promises memory mapping won't change.
         let ptr = unsafe { self.get_ptr(offset, len)? };
         // SAFETY: get_ptr verifies that [ptr, ptr+len) is valid slice.
         Ok(unsafe { core::slice::from_raw_parts(ptr, len) })
@@ -55,10 +55,10 @@ impl NearVmMemory {
     /// Safety: Caller must guarantee that guest memory mapping is not changed
     /// (e.g. grown) while the slice is held.
     unsafe fn get_mut(&mut self, offset: u64, len: usize) -> Result<&mut [u8], ()> {
-        // SAFETY: Caller promises memory mapping won’t change.
+        // SAFETY: Caller promises memory mapping won't change.
         let ptr = unsafe { self.get_ptr(offset, len)? };
         // SAFETY: get_ptr verifies that [ptr, ptr+len) is valid slice and since
-        // we’re holding exclusive self reference another mut reference won’t be
+        // we're holding exclusive self reference another mut reference won't be
         // created
         Ok(unsafe { core::slice::from_raw_parts_mut(ptr, len) })
     }
@@ -78,7 +78,7 @@ impl MemoryLike for NearVmMemory {
     fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
         // SAFETY: Firstly, contracts are executed on a single thread thus we
         // know no one will change guest memory mapping under us.  Secondly, the
-        // way MemoryLike interface is used we know the memory mapping won’t be
+        // way MemoryLike interface is used we know the memory mapping won't be
         // changed by the caller while it holds the slice reference.
         unsafe { self.get(slice.ptr, slice.len()?) }.map(Cow::Borrowed)
     }

@@ -62,7 +62,7 @@ fn test_join() {
 }
 
 /// Splits a slice into a slice of N-element arrays.
-// TODO(mina86): Replace with [T]::as_chunks once that’s stabilized.
+// TODO(mina86): Replace with [T]::as_chunks once that's stabilized.
 pub fn as_chunks<const N: usize, T>(slice: &[T]) -> (&[[T; N]], &[T]) {
     const {
         if N == 0 {
@@ -96,7 +96,7 @@ impl std::fmt::Display for InexactChunkingError {
     }
 }
 
-/// Like `as_chunks` but returns an error if there’s a remainder.
+/// Like `as_chunks` but returns an error if there's a remainder.
 pub fn as_chunks_exact<const N: usize, T>(slice: &[T]) -> Result<&[[T; N]], InexactChunkingError> {
     let (chunks, remainder) = as_chunks(slice);
     if remainder.is_empty() {

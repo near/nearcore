@@ -19,7 +19,7 @@ _IS_NAYDUCK = bool(os.getenv('NAYDUCK'))
 
 
 def current_branch() -> str:
-    """Returns checked out branch name or sha if we’re on detached head."""
+    """Returns checked out branch name or sha if we're on detached head."""
     branch = os.environ.get('BUILDKITE_BRANCH')
     if branch:
         return branch
@@ -29,7 +29,7 @@ def current_branch() -> str:
     except subprocess.CalledProcessError as ex:
         if ex.returncode != 1:
             raise
-        # We’re on detached HEAD
+        # We're on detached HEAD
     return subprocess.check_output(('git', 'rev-parse', '@')).strip().decode()
 
 
@@ -171,7 +171,7 @@ def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
     Does nothing if file `filename` already exists.  Otherwise, downloads data
     from `url` and saves them in `filename`.  Downloading is done with `curl`
     tool and on failure (i.e. if it returns non-zero exit code) `filename` is
-    not created.  On success, the file’s mode is set to 0x555 (i.e. readable and
+    not created.  On success, the file's mode is set to 0x555 (i.e. readable and
     executable by anyone).
 
     Args:
@@ -223,7 +223,7 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
 
     Args:
         chain_id: Chain id to get latest deployed executable for.  Can be
-            ‘master’, ‘testnet’ or ‘betanet’.
+            'master', 'testnet' or 'betanet'.
     Returns:
         An ABExecutables object where `current` describes executable built at
         current HEAD while `stable` points at executable which is deployed in
@@ -234,7 +234,7 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
     release, deploy, stable = __get_executables_for(chain_id)
 
     if _IS_NAYDUCK:
-        # On NayDuck the file is fetched from a builder host so there’s no need
+        # On NayDuck the file is fetched from a builder host so there's no need
         # to build it.
         current = Executables(_OUT_DIR, _OUT_DIR / 'neard')
     else:
@@ -269,7 +269,7 @@ def get_executables_for(chain_id: str) -> Executables:
 
     Args:
         chain_id: Chain id to get latest deployed executable for.  Can be
-            ‘master’, ‘testnet’ or ‘betanet’.
+            'master', 'testnet' or 'betanet'.
     Returns:
         An Executables object where pointing at executable which is deployed in
         production at given chain.

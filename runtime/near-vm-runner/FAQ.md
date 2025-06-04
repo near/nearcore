@@ -1,10 +1,10 @@
-# FAQ for using virtual machines in the blockchain.
+# FAQ for using virtual machines in the blockchain
 
 ## Preface
 
 This document is formed as an FAQ for the new blockchain architect and implementer,
 documenting possible contract runtime design decisions and the logic behind them.
-In some cases it’s really an answer, and in some others -  musings on possible ways
+In some cases it's really an answer, and in some others -  musings on possible ways
 of thinking about the problem.
 
 ## Higher level architectural questions
@@ -60,7 +60,7 @@ be assisted by the developers tools.
 
 Gas metering, being computation itself, has its cost. There are few options, such as
 hardware assisted gas metering, or fully precomputed gas cost if the contract execution
-path is fully predictable, but in general case it’s rather hard to make it free for
+path is fully predictable, but in general case it's rather hard to make it free for
 the system.
 
 ### Why is gas metering not part of the Wasm standard? What shall be done with external/host functions then?
@@ -72,7 +72,7 @@ unless there's a better mechanism provided by the OS/hardware.
 
 ### Shall gas be one scalar quantity, or vector (i.e. for CPU, memory, disk, network resources)?
 
-There’s no definitive answer to this question yet, however, complex gas metering/pricing
+There's no definitive answer to this question yet, however, complex gas metering/pricing
 strategies would make development experience even more complex, as one has to estimate
 not one quantity, but the whole vector, and the token cost of different vector
 components need to be decided as well.
@@ -88,9 +88,9 @@ of the blockchain.
 ## Practical aspects of the execution engines
 
 ### Shall I use an interpreter, non-optimizing JIT, optimizing JIT, non-optimizing AOT, optimizing AOT compiler in my blockchain?
+
 The answer depends on the required features, and the following table will try to help.
 Every solution is subjectively measured on a bad/ok/good/great scale.
-
 
 | **Metric**        | **Interpreter**|**Non-opt JIT**|**Opt JIT**|**Non-opt AOT**|**Opt AOT**|
 | ----------------- |:--------------:| -------------:|----------:|--------------:|----------:|
@@ -101,7 +101,7 @@ Every solution is subjectively measured on a bad/ok/good/great scale.
 | additional per-contract computations | great | ok  | bad       | good          | good      |
 | Gas counting in VM | great         | ok            | mostly ok | ok            | mostly ok |
 
-With an optimizing compiler, it’s possible to have decent performance, at the cost of spending
+With an optimizing compiler, it's possible to have decent performance, at the cost of spending
 more time in the runtime in case of JIT, or more storage and compilation time on execution
 of the contract first time in case of AOT compilers. Another potential limitation of optimizing
 compilers is the possibility of JIT bombs and other security vulnerabilities coming from running
@@ -122,7 +122,7 @@ and technically compilation cost here could be included into the cost of contrac
 
 Unlike traditional software development, bugs and UB in the contract runtime could be pretty
 devastating for the network coherence, as they may trigger inconsistency between nodes, and
-lead to undesired blockchain forks. Thus, whenever there’s a risk of behavioral discrepancy
+lead to undesired blockchain forks. Thus, whenever there's a risk of behavioral discrepancy
 between nodes executing contract code - it shall be mitigated. No visible state shall rely
 upon timing taken for the certain operation, compilation or execution alike, and if an
 execution correctness problem exists - it must be the same on all nodes.
@@ -151,7 +151,7 @@ compilation.
 
 ### What contracts can be executed without the actual blockchain? How to automatically test contracts?
 
-Contracts are state machines, transferring the input state to the output state, so it’s not
+Contracts are state machines, transferring the input state to the output state, so it's not
 required to have the traditional blockchain notions, such as network consensus and global
 transaction history to be present to just execute the contract on known state. Thus, running
 certain contracts, such as tests, in predefined blockchain state is an extremely desirable feature
@@ -163,7 +163,7 @@ estimate the gas usage.
 Up to a certain extent, the pure computations part (such as compiler algorithms) is easy, when host
 functions (external to Wasm functions provided by the blockchain) are involved it becomes harder.
 
-## Development tools.
+## Development tools
 
 ### What programming languages shall I support in my blockchain?
 
@@ -182,13 +182,13 @@ libraries are expected to be used in the contract.
 As one could see from the previous question, high level languages may require GC,
 and the contract runtime may not have such a feature available. There are few options:
 
-   * Not support such a languages
-   * Support such languages but not implement object reclamation and GC as many contracts are short
+* Not support such a languages
+* Support such languages but not implement object reclamation and GC as many contracts are short
      lived it could be a viable option
-   * Implement automated memory management as part of the language runtime and ship it with every
+* Implement automated memory management as part of the language runtime and ship it with every
      program or once per language runtime version
-   * Use runtime with existing GC, such as JVM or JS VM
-   * Move forward with the [WebAssembly GC proposal]
+* Use runtime with existing GC, such as JVM or JS VM
+* Move forward with the [WebAssembly GC proposal]
 
 [WebAssembly GC proposal]: https://github.com/WebAssembly/gc/blob/master/proposals/gc/Overview.md
 
@@ -210,7 +210,7 @@ helping developers to write the better code.
 
 There is no definitive answer to that question yet, however, for many practical aspects Turing
 incompleteness means lack of the unbound loops/recursion, which limits the language expressive
-and computational power. Many practical algorithms, such as Dijkstra’s algorithm or even simple
+and computational power. Many practical algorithms, such as Dijkstra's algorithm or even simple
 BFS/DFS are expressed in a form that is hard to formally prove to be bound, and so hard to
 express in a Turing incomplete language. However, in some cases, Turing-incomplete contracts
 could be useful as they are much easier statically analyzed and formally verified.
@@ -239,16 +239,16 @@ discussion.
 Dichotomy here is either taking a paternalistic approach for the users, and trying to constraint
 them as much as possible through eDSL to the point where we minimize the chance of them making
 some common contract-specific mistake. Or we take a liberal approach and consider typical
-contract mistakes to be under full users’ responsibility. Most of the modern blockchains
+contract mistakes to be under full users' responsibility. Most of the modern blockchains
 follow the latter approach, sometimes augmented with the static analysis tools to help users
 avoid certain classes of mistakes.
 
 ### Who is responsible for the safety of contract execution in the blockchain?
 
-The question of responsibility of what’s going on in a decentralized distributed system is a very
+The question of responsibility of what's going on in a decentralized distributed system is a very
 complex topic. From contract runtime point of view, it can only provide an execution environment
 which behaves according to the specification, and allows chain to proceed with any contract given
-as input, by either consistently executing it and modifying the ledger per contract’s execution
+as input, by either consistently executing it and modifying the ledger per contract's execution
 result or refusing execution with a sensible error message and making no changes in the ledger.
 Correctness and responsibility beyond that shall be usually decided outside of the contract runtime.
 
@@ -277,15 +277,14 @@ communicated to the blockchain developers.
 While a pretty broad question, when projected on smart contract context, it means few rather simple
 questions.
 
-   * Shall cross-contract calls be represented as:
-       * sync operations
-       * async operations
-       * continuations
-   * Shall some/all host functions be asynchronous?
+* Shall cross-contract calls be represented as:
+  * sync operations
+  * async operations
+  * continuations
+* Shall some/all host functions be asynchronous?
 
 Answers to those questions depend on the blockchain architecture, however general purpose
 contract runtime likely shall support both modes of operation.
-
 
 ### How to think about the computational model for smart contracts, especially if they do I/O ?
 

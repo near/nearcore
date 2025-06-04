@@ -15,11 +15,11 @@ follows:
     }
 
 The `test` and `cfg_attr` annotations can be specified in whatever order but
-note that the script isn’t too smart about parsing Rust files and using
+note that the script isn't too smart about parsing Rust files and using
 something more complicated in the `cfg_attr` will confuse it.
 
 Expensive tests are not executed when running `cargo test` nor are they run in
-CI and it’s the purpose of this script to make sure that they are listed for
+CI and it's the purpose of this script to make sure that they are listed for
 NayDuck to run.
 """
 

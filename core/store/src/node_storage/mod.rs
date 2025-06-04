@@ -35,7 +35,7 @@ impl FromStr for Temperature {
     }
 }
 
-/// Node’s storage holding chain and all other necessary data.
+/// Node's storage holding chain and all other necessary data.
 ///
 /// Provides access to hot storage, cold storage and split storage. Typically
 /// users will want to use one of the above via the Store abstraction.
@@ -89,7 +89,7 @@ impl NodeStorage {
 
     /// Constructs new object backed by given database.
     ///
-    /// Note that you most likely don’t want to use this method.  If you’re
+    /// Note that you most likely don't want to use this method.  If you're
     /// opening an on-disk storage, you want to use [`Self::opener`] instead
     /// which takes care of opening the on-disk database and applying all the
     /// necessary configuration.  If you need an in-memory database for testing,
@@ -170,7 +170,7 @@ impl NodeStorage {
     ///
     /// This is useful for certain data which only lives in hot storage and
     /// interfaces which deal with it.  For example, peer store uses hot
-    /// storage’s [`Database`] interface directly.
+    /// storage's [`Database`] interface directly.
     ///
     /// Note that this is not appropriate for code which only ever accesses hot
     /// storage but touches information kinds which live in cold storage as

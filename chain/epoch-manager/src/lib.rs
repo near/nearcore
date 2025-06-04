@@ -135,7 +135,7 @@ pub struct EpochManager {
 
     /// Unique chunk producers.
     epoch_chunk_producers_unique: SyncLruCache<EpochId, Arc<[ValidatorStake]>>,
-    /// Aggregator that keeps statistics about the current epoch.  It’s data are
+    /// Aggregator that keeps statistics about the current epoch.  It's data are
     /// synced up to the last final block.  The information are updated by
     /// [`Self::update_epoch_info_aggregator_upto_final`] method.  To get
     /// statistics up to a last block use
@@ -1564,10 +1564,10 @@ impl EpochManager {
             let different_epoch = &epoch_id != block_info.epoch_id();
 
             if different_epoch || block_info.is_genesis() {
-                // We’ve reached the beginning of an epoch or a genesis block
+                // We've reached the beginning of an epoch or a genesis block
                 // without seeing self.epoch_info_aggregator.last_block_hash.
                 // This implies self.epoch_info_aggregator.last_block_hash
-                // belongs to different epoch or we’re on different fork (though
+                // belongs to different epoch or we're on different fork (though
                 // the latter should never happen).  In either case, the
                 // aggregator contains full epoch information.
                 break (aggregator, true);
@@ -1605,9 +1605,9 @@ impl EpochManager {
             aggregator.update_tail(&block_info, &epoch_info, &shard_layout, prev_height);
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
-                // We’ve reached sync point of the old aggregator.  If old
+                // We've reached sync point of the old aggregator.  If old
                 // aggregator was for a different epoch, we have full info in
-                // our aggregator; otherwise we don’t.
+                // our aggregator; otherwise we don't.
                 break (aggregator, epoch_id != prev_epoch);
             }
 

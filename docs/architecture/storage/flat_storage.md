@@ -203,7 +203,7 @@ by get_ref method.
 If storage is fully empty, then we need to create flat storage from scratch. FlatStorage is stored
 inside NightshadeRuntime, and it itself is stored inside Chain, so we need to create them in the same order
 and dependency hierarchy should be the same. But at the same time, we parse genesis file only during Chain
-creation. That’s why FlatStorageManager has set_flat_storage_for_genesis method which is called
+creation. That's why FlatStorageManager has set_flat_storage_for_genesis method which is called
 during Chain creation.
 
 ### Regular block processing vs. catchups

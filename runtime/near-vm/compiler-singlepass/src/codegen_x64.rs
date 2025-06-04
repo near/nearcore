@@ -352,7 +352,7 @@ impl<'a> FuncGen<'a> {
 
     fn emit_gas_const(&mut self, cost: u64) {
         if let Ok(cost) = i32::try_from(cost) {
-            // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
+            // This as `u32` cast is valid, as fallible u64->i32 conversions can't produce a
             // negative integer.
             return self.emit_gas(Location::Imm32(cost as u32));
         }
@@ -1276,7 +1276,7 @@ impl<'a> FuncGen<'a> {
         if memarg.offset != 0 {
             self.assembler.emit_add(
                 Size::S32,
-                Location::Imm32(u32::try_from(memarg.offset).unwrap()), // we don’t support 64-bit memory, and this module was validated
+                Location::Imm32(u32::try_from(memarg.offset).unwrap()), // we don't support 64-bit memory, and this module was validated
                 Location::GPR(tmp_addr),
             );
 

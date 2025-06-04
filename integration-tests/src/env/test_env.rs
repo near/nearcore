@@ -689,7 +689,7 @@ impl TestEnv {
     }
 
     /// Returns an [`AccountId`] used by a client at given index.  More
-    /// specifically, returns validator id of the client’s validator signer.
+    /// specifically, returns validator id of the client's validator signer.
     pub fn get_client_id(&self, idx: usize) -> AccountId {
         let validator_signer = self.clients[idx].validator_signer.get();
         validator_signer.unwrap().validator_id().clone()

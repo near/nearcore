@@ -114,7 +114,7 @@ pub struct CodeMemory {
 impl CodeMemory {
     #[cfg(not(windows))]
     fn create(size: usize) -> rustix::io::Result<Self> {
-        // Make sure callers don’t pass in a 0-sized map request. That is most likely a bug.
+        // Make sure callers don't pass in a 0-sized map request. That is most likely a bug.
         assert!(size != 0);
         let size = round_up(size, rustix::param::page_size());
         let map = unsafe {

@@ -342,7 +342,7 @@ pub(super) struct InitCmd {
 ///
 /// Verifies that when running on mainnet or testnet chain a neard binary built
 /// with `make release` command is used.  That Makefile targets enable
-/// optimization options which aren’t enabled when building with different
+/// optimization options which aren't enabled when building with different
 /// methods and is the only officially supported method of building the binary
 /// to run in production.
 ///
@@ -357,8 +357,8 @@ fn check_release_build(chain: &str) {
     {
         warn!(
             target: "neard",
-            "Running a neard executable which wasn’t built with `make release` \
-             command isn’t supported on {}.",
+            "Running a neard executable which wasn't built with `make release` \
+             command isn't supported on {}.",
             chain
         );
         warn!(
@@ -434,7 +434,7 @@ pub(super) struct RunCmd {
     #[clap(long)]
     produce_empty_blocks: Option<bool>,
     /// Customize RPC listening address (useful for running multiple nodes on
-    /// the same machine).  Ignored if ‘--disable-rpc’ is given.
+    /// the same machine).  Ignored if '--disable-rpc' is given.
     #[cfg(feature = "json_rpc")]
     #[clap(long)]
     rpc_addr: Option<String>,
@@ -444,7 +444,7 @@ pub(super) struct RunCmd {
     #[cfg(feature = "json_rpc")]
     #[clap(long)]
     rpc_prometheus_addr: Option<String>,
-    /// Disable the RPC endpoint.  This is a no-op on builds which don’t support
+    /// Disable the RPC endpoint.  This is a no-op on builds which don't support
     /// RPC endpoint.
     #[clap(long)]
     #[allow(dead_code)]
@@ -453,7 +453,7 @@ pub(super) struct RunCmd {
     #[clap(long)]
     telemetry_url: Option<String>,
     /// Customize max_gas_burnt_view runtime limit.  If not specified, either
-    /// value given at ‘init’ (i.e. present in config.json) or one from genesis
+    /// value given at 'init' (i.e. present in config.json) or one from genesis
     /// configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
@@ -651,8 +651,8 @@ pub(super) struct LocalnetCmd {
     /// to create non-validator nodes configured for the archival and RPC roles.
     #[clap(short = 'n', long, alias = "n", default_value = "0")]
     non_validators: NumSeats,
-    /// Prefix for the directory name for each node with (e.g. ‘node’ results in
-    /// ‘node0’, ‘node1’, ...)
+    /// Prefix for the directory name for each node with (e.g. 'node' results in
+    /// 'node0', 'node1', ...)
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Comma separated list of shards to track, the word 'all' to track all shards or the word 'none' to track no shards.

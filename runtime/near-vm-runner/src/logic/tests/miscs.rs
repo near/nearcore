@@ -263,10 +263,10 @@ fn test_value_length_limit() {
 
     logic
         .storage_write(key.len, key.ptr, limit / 2, 0, 0)
-        .expect("Value length doesn’t exceed the limit");
+        .expect("Value length doesn't exceed the limit");
     logic
         .storage_write(key.len, key.ptr, limit, 0, 0)
-        .expect("Value length doesn’t exceed the limit");
+        .expect("Value length doesn't exceed the limit");
     assert_eq!(
         logic.storage_write(key.len, key.ptr, limit + 1, 0, 0),
         Err(HostError::ValueLengthExceeded { length: limit + 1, limit }.into())

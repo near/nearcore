@@ -26,7 +26,7 @@ pytest --timeout=600 sanity/state_sync.py onetx 265
 pytest --timeout=600 sanity/state_sync.py onetx 265 --features nightly
 pytest --timeout=240 sanity/state_sync1.py
 pytest --timeout=240 sanity/state_sync1.py --features nightly
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
+# TODO(#4618): Those tests are currently broken.  Comment out while we're
 # working on a fix / deciding whether to remove them.
 #pytest --timeout=900 sanity/state_sync2.py
 #pytest --timeout=900 sanity/state_sync2.py nightly --features nightly
@@ -36,7 +36,7 @@ pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=240 sanity/state_sync4.py --features nightly
 pytest --timeout=240 sanity/state_sync5.py
 pytest --timeout=240 sanity/state_sync5.py --features nightly
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
+# TODO(#4618): Those tests are currently broken.  Comment out while we're
 # working on a fix / deciding whether to remove them.
 #pytest --timeout=300 sanity/state_sync_late.py notx
 #pytest --timeout=300 sanity/state_sync_late.py notx --features nightly

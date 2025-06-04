@@ -39,7 +39,7 @@ struct GenesisWithIdentifier {
 /// Verifies that network identifier provided by the user is what we expect.
 ///
 /// `blockchain` and `network` must match and `sub_network_identifier` must not
-/// be provided.  On success returns client actor’s status response.
+/// be provided.  On success returns client actor's status response.
 async fn check_network_identifier(
     client_addr: &web::Data<Addr<ClientActor>>,
     identifier: models::NetworkIdentifier,

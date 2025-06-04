@@ -66,11 +66,11 @@ message gets attached `opentelemetry::Context`. That context somehow represents 
 about the parent span. This mechanism is the reason you see annoying `.with_span_context()`
 function calls whenever you send a message to an actix Actor.
 * Inter-process tracing is theoretically available, but I have never tested it. The plan was to
-test it as soon as the Canary images get updated 😭 Therefore it most likely doesn’t work. Each
+test it as soon as the Canary images get updated 😭 Therefore it most likely doesn't work. Each
 `PeerMessage` is injected with `TraceContext` (1, 2) and the receiving node extracts that context
 and all spans generated in handling that message should be parented to the trace from another node.
 * Some spans are created using `info_span!()` but they are few and mostly for the logs. Exporting
-only info-level spans doesn’t give any useful tracing information in Grafana.
+only info-level spans doesn't give any useful tracing information in Grafana.
 
 * `actix::Actor::handle()` deserves a special note. The design choice was to provide a macro that
 lets us easily annotate every implementation of `actix::Actor::handle()`. This macro sets the
@@ -111,7 +111,7 @@ and invoke `sudo pkill -HUP neard`. Double check that the collector is running a
 
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 
-**Good to know**: You can modify the event/span/log targets you’re interested in just like when
+**Good to know**: You can modify the event/span/log targets you're interested in just like when
 setting the `RUST_LOG` environment variable, including target filters. If you're setting verbose
 levels, consider selecting specific targets you're interested in too. This will help to keep trace
 ingest costs down.

@@ -364,7 +364,7 @@ static NODE_DB_VERSION: LazyLock<IntGauge> = LazyLock::new(|| {
 static NODE_BUILD_INFO: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_build_info",
-        "Metric whose labels indicate node’s version; see \
+        "Metric whose labels indicate node's version; see \
              <https://www.robustperception.io/exposing-the-software-version-to-prometheus>.",
         &["release", "build", "rustc_version"],
     )
@@ -450,7 +450,7 @@ pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: LazyLock<HistogramVec> = La
 });
 /// Exports neard, protocol and database versions via Prometheus metrics.
 ///
-/// Sets metrics which export node’s max supported protocol version, used
+/// Sets metrics which export node's max supported protocol version, used
 /// database version and build information.  The latter is taken from
 /// `neard_version` argument.
 pub(crate) fn export_version(chain_id: &str, neard_version: &near_primitives::version::Version) {

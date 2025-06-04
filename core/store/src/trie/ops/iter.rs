@@ -187,7 +187,7 @@ where
         //
         // When doing prefix seek, this checks whether `key` is a prefix of
         // `ext_key`.  When doing regular range seek, this checks whether `key`
-        // is no greater than `ext_key`.  If those conditions aren’t met, the
+        // is no greater than `ext_key`.  If those conditions aren't met, the
         // node with `ext_key` should not match our query.
         let check_ext_key = |key: &NibbleSlice, ext_key: &NibbleSlice| {
             if is_prefix_seek { ext_key.starts_with(key) } else { ext_key >= key }

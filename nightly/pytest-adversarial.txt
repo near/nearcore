@@ -14,7 +14,7 @@ pytest adversarial/start_from_genesis.py doomslug_off --features nightly
 #pytest adversarial/start_from_genesis.py overtake doomslug_off
 #pytest adversarial/start_from_genesis.py overtake doomslug_off --features nightly
 
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
+# TODO(#4618): Those tests are currently broken.  Comment out while we're
 # working on a fix.
 #pytest adversarial/gc_rollback.py
 #pytest adversarial/gc_rollback.py --features nightly

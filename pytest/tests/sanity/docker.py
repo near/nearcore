@@ -102,7 +102,7 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
         cmd.extend(('-astdout', '-astderr'))
 
     if network:
-        # Don’t create separate network.  This makes it much simpler for nodes
+        # Don't create separate network.  This makes it much simpler for nodes
         # inside of the containers to communicate with each other.
         cmd.append('--network=host')
     else:
@@ -173,10 +173,10 @@ class DockerNode(cluster.LocalNode):
     __WARN_LOGS = True
 
     def output_logs(self):
-        # Unfortunately because we’re running the containers as detached
+        # Unfortunately because we're running the containers as detached
         # anything neard writes to stdout and stderr is lost.  We could start
         # nodes using `docker run -d ... sh -c 'neard ... >stdout 2>stderr'` but
-        # that would mean that we’re not testing the `run_docker.sh` script
+        # that would mean that we're not testing the `run_docker.sh` script
         # which we do want to read.
         if self.__WARN_LOGS:
             logger.info(
@@ -231,8 +231,8 @@ def main():
 
     finally:
         # `docker stop` takes a few seconds so stop all containers in parallel.
-        # atexit we’ll call DockerNode.cleanup method for each node as well and
-        # it’ll handle all the other cleanups.
+        # atexit we'll call DockerNode.cleanup method for each node as well and
+        # it'll handle all the other cleanups.
         cids = tuple(filter(None, (node._container_id for node in nodes)))
         if cids:
             logger.info('Stopping containers')

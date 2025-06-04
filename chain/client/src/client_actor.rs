@@ -1339,7 +1339,7 @@ impl ClientActorInner {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::Block { block: block.clone() },
         ));
-        // We’ve produced the block so that counts as validated block.
+        // We've produced the block so that counts as validated block.
         let block = MaybeValidated::from_validated(block);
         let res = self.client.start_process_block(
             block,
@@ -1396,7 +1396,7 @@ impl ClientActorInner {
             },
         ));
 
-        // We’ve produced the optimistic block, mark it as done so we don't produce it again.
+        // We've produced the optimistic block, mark it as done so we don't produce it again.
         self.client.save_optimistic_block(&optimistic_block);
         self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
 

@@ -74,7 +74,7 @@ where
     /// Copy the contents of the source slice into this `MemoryView`.
     ///
     /// This function will efficiently copy the memory from within the wasm
-    /// module’s own linear memory to this typed array.
+    /// module's own linear memory to this typed array.
     ///
     /// # Safety
     ///

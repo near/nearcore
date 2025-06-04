@@ -131,7 +131,7 @@ serialization of the machine code and other similar operations.
 
 An estimate of the deployment cost will typically involve a function which uses the size of the
 input Wasm code as its primary input. Such a function can only exist if we have a good knowledge of
-the runtime’s time complexity properties are known. For our purposes a linear or `O(n log n)`
+the runtime's time complexity properties are known. For our purposes a linear or `O(n log n)`
 relationship between the input size and execution time is the highest we can accept.
 
 ### Latency

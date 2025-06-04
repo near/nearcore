@@ -333,12 +333,12 @@ impl InfoHelper {
         let header_head = unwrap_or_return!(client.chain.header_head());
         let validator_production_status = if is_syncing {
             // EpochManager::get_validator_info method (which is what runtime
-            // adapter calls) is expensive when node is syncing so we’re simply
+            // adapter calls) is expensive when node is syncing so we're simply
             // not collecting the statistics.  The statistics are used to update
             // a few Prometheus metrics only so we prefer to leave the metrics
             // unset until node finishes synchronizing.  TODO(#6763): If we
             // manage to get get_validator_info fasts again (or return an error
-            // if computation would be too slow), remove the ‘if is_syncing’
+            // if computation would be too slow), remove the 'if is_syncing'
             // check.
             Default::default()
         } else {
@@ -792,7 +792,7 @@ impl std::fmt::Display for FormatMillis {
 }
 
 /// Formats information about each block.  Each information line is *preceded*
-/// by a new line character.  There’s no final new line character.  This is
+/// by a new line character.  There's no final new line character.  This is
 /// meant to be used in logging where final new line is not desired.
 struct BlocksInfo {
     blocks_info: Vec<near_primitives::views::BlockProcessingInfo>,
