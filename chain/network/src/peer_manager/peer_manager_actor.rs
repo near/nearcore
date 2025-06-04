@@ -1206,7 +1206,8 @@ impl PeerManagerActor {
             }
             // TODO(spice): remove
             NetworkRequests::TestonlySpiceIncomingReceipts { .. } => {
-                unreachable!();
+                debug_assert!(false);
+                NetworkResponses::NoResponse
             }
         }
     }
