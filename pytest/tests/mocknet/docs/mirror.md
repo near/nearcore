@@ -21,7 +21,7 @@ In your newly created folder, edit the `main.tf` file:
 * **unique_id**: You will identify your forknet by this string. i.e. `my-test`, but not too long. GCP has a limit on names.
 * **start_height**: `START_HEIGHT` **# the number from above**
 * state_dumper : true/false #  When set to `true`, it creates the infrastructure needed for state sync, including a state part dumper and state parts bucket. If you don't plan to have your nodes change tracked shards, keep it `false`.
-* **nodes_location** : here you add your nodes in diferent locations. Only use [these locations](https://github.com/Near-One/infra-ops/blob/main/ansible/prometheus-scrapper/update-config-prometheus.yml) .
+* **nodes_location** : here you add your nodes in different locations. Only use [these locations](https://github.com/Near-One/infra-ops/blob/main/ansible/prometheus-scrapper/update-config-prometheus.yml) .
 * **tracing_server**: If you want to gather traces on a dedicated server.
 * **machine_type** : Depending on your need "n2d-standard-16" has 64GB RAM while"n2d-standard-8" has 32GB.
 
@@ -34,7 +34,6 @@ Edit `resources.tf`:
 Once you have these files run `terraform init`, `terraform apply` (make sure to run these commands from the newly created directory, not from `mocknet` directory), and push your changes to a branch in the repo. This will allow others to amend / delete this network.
 
 To save resources, destroy the infrastructure if you do not use it. You can do this with `terraform destroy`
-
 
 ## Configure the nodes
 
@@ -106,7 +105,6 @@ mirror new-test \
 
 First time you run `new-test` it will take less than 1 minute for the nodes to be ready. Check the status with `mirror status`. If you run `new-test` on an existing network the process will take slightly longer because it needs to delete the existing `data` folder (2-3 minutes). 
 
-
 ### \[Optional\] Custom shard tracking
 
 If you need to set full shard tracking on any node, you can change the configs like this:
@@ -147,7 +145,6 @@ mirror start-traffic
 mirror start-nodes
 ```
 
-
 ### Stop the network
 
 ```none
@@ -158,14 +155,12 @@ mirror stop-nodes
 mirror stop-traffic
 ```
 
-
 ### Reset the network
 
 ```none
 mirror stop-nodes
 mirror reset --backup-id start --yes
 ```
-
 
 ### Update the binary
 
@@ -190,9 +185,9 @@ URL=https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/som
 mirror amend-binaries --neard-binary-url $URL --binary-idx 0
 ```
 
-The following option is not recommened, but, if the binary isn't available at a public URL, but you have it on your machine/laptop, you can upload it like:`gcloud --project near-mocknet compute scp {local_neard_path} ubuntu@{instance_name}:/home/ubuntu/.near/neard-runner/binaries/neard0`
+The following option is not recommended, but, if the binary isn't available at a public URL, but you have it on your machine/laptop, you can upload it like:`gcloud --project near-mocknet compute scp {local_neard_path} ubuntu@{instance_name}:/home/ubuntu/.near/neard-runner/binaries/neard0`
 
-### Run commands on the nodes:
+### Run commands on the nodes
 
 ```javascript
 mirror run-cmd --cmd "cat .near/neard-runner/.env"
@@ -216,6 +211,7 @@ There are three selectors that can be combined
 
 In Forknet, all accounts are set up with a full-access key, allowing full control over all transactions made by those accounts. To retrieve this injected key, you can use the neard mirror show-keys tool on any mainnet database. This can be done using either a local database copy or an accessible RPC endpoint.  This setup is useful for testing purposes since having a full-access key on all accounts enables precise control over transactions and allows for easy testing and debugging across network simulations.
 
+<!-- cspell:words poolv -->
 ```javascript
 neard mirror show-keys from-rpc  --account-id "astro-stakers.poolv1.near" --rpc-url https://rpc.mainnet.near.org/
 
