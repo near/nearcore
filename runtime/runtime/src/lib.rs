@@ -333,6 +333,36 @@ impl Runtime {
             .collect()
     }
 
+    fn validate_transactions(
+        config: &RuntimeConfig,
+        gas_price: Balance,
+        signed_txs: impl IntoIterator<Item = SignedTransaction>,
+        current_protocol_version: ProtocolVersion,
+    ) -> Vec<(CryptoHash, Result<(ValidatedTransaction, TransactionCost), InvalidTxError>)> {
+        signed_txs
+            .into_iter()
+            .map(|signed_tx| {
+                (
+                    signed_tx.get_hash(),
+                    match validate_transaction(config, signed_tx, current_protocol_version) {
+                        Ok(validated_tx) => {
+                            match tx_cost(
+                                config,
+                                &validated_tx.to_tx(),
+                                gas_price,
+                                current_protocol_version,
+                            ) {
+                                Ok(cost) => Ok((validated_tx, cost)),
+                                Err(e) => Err(InvalidTxError::from(e)),
+                            }
+                        }
+                        Err((e, _tx)) => Err(e),
+                    },
+                )
+            })
+            .collect()
+    }
+
     /// Takes one signed transaction, verifies it and converts it to a receipt.
     ///
     /// Add the produced receipt either to the new local receipts if the signer is the same
@@ -1579,7 +1609,12 @@ impl Runtime {
                 measure = "apply",
             )
             .entered();
-            self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
+            self.process_transactions(
+                &apply_state.apply_reason,
+                &mut processing_state,
+                signed_txs,
+                &mut receipt_sink,
+            )?;
         }
 
         // Step 3: process receipts.
@@ -1660,6 +1695,7 @@ impl Runtime {
     /// insufficient NEAR balance, etc.) will be skipped, producing no receipts.
     fn process_transactions(
         &self,
+        apply_reason: &ApplyChunkReason,
         processing_state: &mut ApplyProcessingReceiptState,
         signed_txs: SignedValidPeriodTransactions,
         receipt_sink: &mut ReceiptSink,
@@ -1668,13 +1704,23 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let signed_txs = signed_txs.into_par_iter_nonexpired_transactions();
-        for (tx_hash, result) in Self::parallel_validate_transactions(
-            &apply_state.config,
-            apply_state.gas_price,
-            signed_txs,
-            apply_state.current_protocol_version,
-        ) {
+        let txs = if apply_reason == &ApplyChunkReason::ValidateChunkStateWitness {
+            Self::validate_transactions(
+                &apply_state.config,
+                apply_state.gas_price,
+                signed_txs.into_iter_nonexpired_transactions(),
+                apply_state.current_protocol_version,
+            )
+        } else {
+            let signed_txs = signed_txs.into_par_iter_nonexpired_transactions();
+            Self::parallel_validate_transactions(
+                &apply_state.config,
+                apply_state.gas_price,
+                signed_txs,
+                apply_state.current_protocol_version,
+            )
+        };
+        for (tx_hash, result) in txs {
             match result {
                 Ok((validated_tx, cost)) => {
                     let (receipt, outcome_with_id) = match self.process_transaction(
