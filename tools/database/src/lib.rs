@@ -10,6 +10,7 @@ mod compact;
 mod drop_column;
 mod make_snapshot;
 mod memtrie;
+mod rollback_to_26;
 mod run_migrations;
 mod set_version;
 mod state_perf;
