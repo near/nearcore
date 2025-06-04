@@ -13,7 +13,12 @@ all: release
 #? docker-nearcore: build nearcore docker image with tag 'nearcore'
 docker-nearcore: DOCKER_TAG ?= nearcore
 docker-nearcore:
-	docker build -t $(DOCKER_TAG) -f Dockerfile --build-arg=make_target=neard-release         --progress=plain .
+	docker build -t $(DOCKER_TAG) -f Dockerfile --build-arg=make_target=neard-release --progress=plain .
+
+#? docker-nearcore-debug: build nearcore docker image with tag 'nearcore-debug'
+docker-nearcore-debug: DOCKER_TAG ?= nearcore-debug
+docker-nearcore-debug:
+	docker build -t $(DOCKER_TAG) -f Dockerfile --build-arg=make_target=neard-debug --progress=plain .
 
 #? docker-nearcore-sandbox: build nearcore docker image with tag 'nearcore-sandbox'
 docker-nearcore-sandbox: DOCKER_TAG ?= nearcore-sandbox
