@@ -45,7 +45,7 @@ pub fn chunk_endorsement_dropper_by_hash(
         // retrieve epoch id.
         // This case appears to be too rare to interfere with the goal of
         // dropping chunk.
-        if epoch_manager_adapter.get_epoch_id_from_prev_block(chunk.prev_block_hash()).is_err() {
+        if epoch_manager_adapter.get_epoch_id_from_prev_block(&chunk.prev_block_hash()).is_err() {
             return Some(request);
         };
 

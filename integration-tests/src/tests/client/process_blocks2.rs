@@ -136,7 +136,7 @@ fn test_bad_shard_id() {
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
     let congestion_info = CongestionInfo::default();
     let mut modified_chunk = ShardChunkHeaderV3::new(
-        *chunk.prev_block_hash(),
+        chunk.prev_block_hash(),
         chunk.prev_state_root(),
         chunk.prev_outcome_root(),
         chunk.encoded_merkle_root(),
@@ -288,7 +288,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
     mode.corrupt(&mut congestion_info);
 
     let mut modified_chunk_header = ShardChunkHeaderV3::new(
-        *chunk.prev_block_hash(),
+        chunk.prev_block_hash(),
         chunk.prev_state_root(),
         chunk.prev_outcome_root(),
         chunk.encoded_merkle_root(),

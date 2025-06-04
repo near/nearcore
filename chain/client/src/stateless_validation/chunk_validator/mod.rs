@@ -80,7 +80,8 @@ impl ChunkValidator {
         let prev_block_hash = state_witness.chunk_header().prev_block_hash();
         let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
         let shard_id = state_witness.chunk_header().shard_id();
-        let expected_epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let expected_epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
         if expected_epoch_id != epoch_id {
             return Err(Error::InvalidChunkStateWitness(format!(
                 "Invalid EpochId {:?} for previous block {}, expected {:?}",
@@ -106,9 +107,8 @@ impl ChunkValidator {
         // We don't need to switch to parent shard uid, because resharding
         // creates chunk extra for new shard uid.
         let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &expected_epoch_id)?;
-        let prev_block = chain.get_block(prev_block_hash)?;
-        let last_header =
-            Chain::get_prev_chunk_header(epoch_manager.as_ref(), &prev_block, shard_id)?;
+        let prev_block = chain.get_block(&prev_block_hash)?;
+        let last_header = epoch_manager.get_prev_chunk_header(&prev_block, shard_id)?;
 
         let chunk_production_key = ChunkProductionKey {
             shard_id,
@@ -118,11 +118,11 @@ impl ChunkValidator {
         let chunk_producer_name =
             epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
-        if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
+        if let Ok(prev_chunk_extra) = chain.get_chunk_extra(&prev_block_hash, &shard_uid) {
             match validate_chunk_with_chunk_extra(
                 chain.chain_store(),
                 self.epoch_manager.as_ref(),
-                prev_block_hash,
+                &prev_block_hash,
                 &prev_chunk_extra,
                 last_header.height_included(),
                 &chunk_header,
@@ -203,8 +203,19 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     signer: &ValidatorSigner,
     network_sender: &Sender<PeerManagerMessageRequest>,
 ) -> Option<ChunkEndorsement> {
+    let _span = tracing::debug_span!(
+        target: "client",
+        "send_chunk_endorsement",
+        chunk_hash = ?chunk_header.chunk_hash(),
+        height = %chunk_header.height_created(),
+        shard_id = ?chunk_header.shard_id(),
+        validator = %signer.validator_id(),
+        tag_block_production = true,
+    )
+    .entered();
+
     let epoch_id =
-        epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash()).unwrap();
+        epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash()).unwrap();
 
     // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
     // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
@@ -275,7 +286,7 @@ impl Client {
         }
 
         let signer = signer.unwrap();
-        match self.chain.get_block(witness.chunk_header().prev_block_hash()) {
+        match self.chain.get_block(&witness.chunk_header().prev_block_hash()) {
             Ok(block) => self.process_chunk_state_witness_with_prev_block(
                 witness,
                 &block,
@@ -313,7 +324,7 @@ impl Client {
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
-        if witness.chunk_header().prev_block_hash() != prev_block.hash() {
+        if &witness.chunk_header().prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(
                 "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",
                 witness.chunk_header().prev_block_hash(),

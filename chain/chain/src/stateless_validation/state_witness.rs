@@ -1,5 +1,5 @@
 use crate::store::ChainStoreAccess;
-use crate::{BlockHeader, Chain, ChainStore, ReceiptFilter, get_incoming_receipts_for_shard};
+use crate::{BlockHeader, ChainStore, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -52,7 +52,7 @@ impl ChainStore {
     ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
         let epoch_id =
-            epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+            epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
         let prev_chunk = self.get_chunk(&prev_chunk_header.chunk_hash())?;
         let StateTransitionData {
             main_transition,
@@ -107,7 +107,7 @@ impl ChainStore {
         // resharding happens after its processing.
         // TODO(logunov): consider uniting with `get_incoming_receipts_for_shard`
         // because it has the same purpose.
-        let mut current_block_hash = *chunk_header.prev_block_hash();
+        let mut current_block_hash = chunk_header.prev_block_hash();
         let mut next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&current_block_hash)?;
         let mut next_shard_id = chunk_header.shard_id();
         let mut implicit_transitions = vec![];
@@ -283,11 +283,8 @@ impl ChainStore {
         // We are interested in all incoming receipts that weren't handled by `prev_prev_chunk`.
         let prev_prev_chunk_block = self.get_block(prev_chunk_original_block.prev_hash())?;
         // Find the header of the chunk before `prev_chunk`
-        let prev_prev_chunk_header = Chain::get_prev_chunk_header(
-            epoch_manager,
-            &prev_prev_chunk_block,
-            prev_chunk_header.shard_id(),
-        )?;
+        let prev_prev_chunk_header = epoch_manager
+            .get_prev_chunk_header(&prev_prev_chunk_block, prev_chunk_header.shard_id())?;
 
         // Fetch all incoming receipts for `prev_chunk`.
         // They will be between `prev_prev_chunk.height_included` (first block containing `prev_prev_chunk`)

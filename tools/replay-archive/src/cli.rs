@@ -228,8 +228,7 @@ impl ReplayController {
             .get_block(prev_block_hash)
             .context("Failed to get previous block to determine gas price")?;
 
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
 
         let chunks = block.chunks();
         let mut total_gas_burnt: u64 = 0;

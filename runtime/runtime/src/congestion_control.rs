@@ -18,14 +18,13 @@ use near_primitives::receipt::{
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
-use near_primitives::version::ProtocolFeature;
 use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 pub enum ReceiptSink {
     V2(ReceiptSinkV2),
@@ -213,14 +212,9 @@ impl ReceiptSinkV2 {
     ) -> Result<(), RuntimeError> {
         tracing::debug!(target: "runtime", "forwarding receipts from outgoing buffers");
 
-        let protocol_version = apply_state.current_protocol_version;
         let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
-        let (shard_ids, parent_shard_ids) =
-            if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
-                (shard_layout.shard_ids().collect_vec(), shard_layout.get_split_parent_shard_ids())
-            } else {
-                (self.outgoing_limit.keys().copied().collect_vec(), BTreeSet::new())
-            };
+        let shard_ids = shard_layout.shard_ids().collect_vec();
+        let parent_shard_ids = shard_layout.get_split_parent_shard_ids();
 
         // There mustn't be any shard ids in both the parents and the current
         // shard ids. If this happens the same buffer will be processed twice.
