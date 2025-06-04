@@ -22,6 +22,7 @@ use std::io;
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccountVersion {
     #[default]
     V1,
@@ -299,10 +300,13 @@ impl Account {
 /// Account representation for serde ser/deser that maintains both backward
 /// and forward compatibility.
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 struct SerdeAccount {
     #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     amount: Balance,
     #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     locked: Balance,
     code_hash: CryptoHash,
     storage_usage: StorageUsage,
@@ -385,6 +389,17 @@ impl serde::Serialize for Account {
     }
 }
 
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for Account {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Account".to_string().into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        SerdeAccount::json_schema(generator)
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize)]
 enum BorshVersionedAccount {
     // V1 is not included since it is serialized directly without being wrapped in enum
@@ -447,6 +462,7 @@ impl BorshSerialize for Account {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKey {
     /// Nonce for this access key, used for tx nonce generation. When access key is created, nonce
     /// is set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation.
@@ -478,6 +494,7 @@ impl AccessKey {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
 
@@ -502,6 +519,7 @@ pub enum AccessKeyPermission {
     Debug,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct FunctionCallPermission {
     /// Allowance is a balance limit to use by this access key to pay for function call gas and
     /// transaction fees. When this access key is used, both account balance and the allowance is
@@ -510,6 +528,7 @@ pub struct FunctionCallPermission {
     /// NOTE: To change or increase the allowance, the old access key needs to be deleted and a new
     /// access key should be created.
     #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub allowance: Option<Balance>,
 
     // This isn't an AccountId because already existing records in testnet genesis have invalid

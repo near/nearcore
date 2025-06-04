@@ -689,7 +689,7 @@ impl ShardsManagerActor {
         chunk_header: &ShardChunkHeader,
         me: Option<&AccountId>,
     ) {
-        self.request_chunk_single(chunk_header, *chunk_header.prev_block_hash(), true, me)
+        self.request_chunk_single(chunk_header, chunk_header.prev_block_hash(), true, me)
     }
 
     /// send partial chunk requests for one chunk
@@ -737,7 +737,7 @@ impl ShardsManagerActor {
             return;
         }
 
-        let prev_block_hash = *chunk_header.prev_block_hash();
+        let prev_block_hash = chunk_header.prev_block_hash();
         self.requested_partial_encoded_chunks.insert(
             chunk_hash.clone(),
             ChunkRequestInfo {
@@ -1390,7 +1390,7 @@ impl ShardsManagerActor {
         //    And if the validation fails in this case, we actually can't say if the chunk is actually
         //    invalid. So we must return chain_error instead of return error
         let (epoch_id, epoch_id_confirmed) = {
-            let prev_block_hash = *header.prev_block_hash();
+            let prev_block_hash = header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
             if let Ok(epoch_id) = epoch_id {
                 (epoch_id, true)
@@ -1624,14 +1624,14 @@ impl ShardsManagerActor {
         // the right block producers, which may make validators wait for chunks for a little longer,
         // but it doesn't affect the correctness of the protocol.
         if let Ok(epoch_id) =
-            self.epoch_manager.get_epoch_id_from_prev_block(header.prev_block_hash())
+            self.epoch_manager.get_epoch_id_from_prev_block(&header.prev_block_hash())
         {
             self.send_partial_encoded_chunk_to_chunk_trackers(
                 &header,
                 parts.into_iter(),
                 new_part_ords,
                 &epoch_id,
-                header.prev_block_hash(),
+                &header.prev_block_hash(),
                 me,
             )?;
         } else {
@@ -2042,7 +2042,7 @@ impl ShardsManagerActor {
 
         // Receipt proofs need to be distributed to the block producers of the next epoch
         // because they already start tracking the shard in the current epoch.
-        let next_epoch_id = self.epoch_manager.get_next_epoch_id(prev_block_hash)?;
+        let next_epoch_id = self.epoch_manager.get_next_epoch_id(&prev_block_hash)?;
         let next_epoch_block_producers =
             self.epoch_manager.get_epoch_block_producers_ordered(&next_epoch_id)?;
         for bp in next_epoch_block_producers {
@@ -2586,7 +2586,7 @@ mod test {
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            *fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash(),
             account_id.as_ref(),
         );
         let marked_as_requested = shards_manager
@@ -2785,7 +2785,7 @@ mod test {
         // complete. Sleeping and resending later should also not send any requests.
         shards_manager.request_chunk_single(
             &fixture.mock_chunk_header,
-            *fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash(),
             false,
             Some(&fixture.mock_shard_tracker),
         );

@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcLightClientExecutionProofRequest {
     #[serde(flatten)]
     pub id: near_primitives::types::TransactionOrReceiptId,
@@ -9,17 +10,20 @@ pub struct RpcLightClientExecutionProofRequest {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcLightClientNextBlockRequest {
     pub last_block_hash: near_primitives::hash::CryptoHash,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcLightClientBlockProofRequest {
     pub block_hash: near_primitives::hash::CryptoHash,
     pub light_client_head: near_primitives::hash::CryptoHash,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcLightClientExecutionProofResponse {
     pub outcome_proof: near_primitives::views::ExecutionOutcomeWithIdView,
     pub outcome_root_proof: near_primitives::merkle::MerklePath,
@@ -28,18 +32,21 @@ pub struct RpcLightClientExecutionProofResponse {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcLightClientNextBlockResponse {
     #[serde(flatten)]
     pub light_client_block: Option<Arc<near_primitives::views::LightClientBlockView>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcLightClientBlockProofResponse {
     pub block_header_lite: near_primitives::views::LightClientBlockLiteView,
     pub block_proof: near_primitives::merkle::MerklePath,
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientProofError {
     #[error(
@@ -70,6 +77,7 @@ pub enum RpcLightClientProofError {
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientNextBlockError {
     #[error("Internal error: {error_message}")]

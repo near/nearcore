@@ -17,22 +17,22 @@ pub enum ShardChunkHeaderInner {
 
 impl ShardChunkHeaderInner {
     #[inline]
-    pub fn prev_state_root(&self) -> &StateRoot {
+    pub fn prev_state_root(&self) -> StateRoot {
         match self {
-            Self::V1(inner) => &inner.prev_state_root,
-            Self::V2(inner) => &inner.prev_state_root,
-            Self::V3(inner) => &inner.prev_state_root,
-            Self::V4(inner) => &inner.prev_state_root,
+            Self::V1(inner) => inner.prev_state_root,
+            Self::V2(inner) => inner.prev_state_root,
+            Self::V3(inner) => inner.prev_state_root,
+            Self::V4(inner) => inner.prev_state_root,
         }
     }
 
     #[inline]
-    pub fn prev_block_hash(&self) -> &CryptoHash {
+    pub fn prev_block_hash(&self) -> CryptoHash {
         match self {
-            Self::V1(inner) => &inner.prev_block_hash,
-            Self::V2(inner) => &inner.prev_block_hash,
-            Self::V3(inner) => &inner.prev_block_hash,
-            Self::V4(inner) => &inner.prev_block_hash,
+            Self::V1(inner) => inner.prev_block_hash,
+            Self::V2(inner) => inner.prev_block_hash,
+            Self::V3(inner) => inner.prev_block_hash,
+            Self::V4(inner) => inner.prev_block_hash,
         }
     }
 
@@ -87,22 +87,22 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
-    pub fn prev_outcome_root(&self) -> &CryptoHash {
+    pub fn prev_outcome_root(&self) -> CryptoHash {
         match self {
-            Self::V1(inner) => &inner.prev_outcome_root,
-            Self::V2(inner) => &inner.prev_outcome_root,
-            Self::V3(inner) => &inner.prev_outcome_root,
-            Self::V4(inner) => &inner.prev_outcome_root,
+            Self::V1(inner) => inner.prev_outcome_root,
+            Self::V2(inner) => inner.prev_outcome_root,
+            Self::V3(inner) => inner.prev_outcome_root,
+            Self::V4(inner) => inner.prev_outcome_root,
         }
     }
 
     #[inline]
-    pub fn encoded_merkle_root(&self) -> &CryptoHash {
+    pub fn encoded_merkle_root(&self) -> CryptoHash {
         match self {
-            Self::V1(inner) => &inner.encoded_merkle_root,
-            Self::V2(inner) => &inner.encoded_merkle_root,
-            Self::V3(inner) => &inner.encoded_merkle_root,
-            Self::V4(inner) => &inner.encoded_merkle_root,
+            Self::V1(inner) => inner.encoded_merkle_root,
+            Self::V2(inner) => inner.encoded_merkle_root,
+            Self::V3(inner) => inner.encoded_merkle_root,
+            Self::V4(inner) => inner.encoded_merkle_root,
         }
     }
 
@@ -127,22 +127,22 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
-    pub fn prev_outgoing_receipts_root(&self) -> &CryptoHash {
+    pub fn prev_outgoing_receipts_root(&self) -> CryptoHash {
         match self {
-            Self::V1(inner) => &inner.prev_outgoing_receipts_root,
-            Self::V2(inner) => &inner.prev_outgoing_receipts_root,
-            Self::V3(inner) => &inner.prev_outgoing_receipts_root,
-            Self::V4(inner) => &inner.prev_outgoing_receipts_root,
+            Self::V1(inner) => inner.prev_outgoing_receipts_root,
+            Self::V2(inner) => inner.prev_outgoing_receipts_root,
+            Self::V3(inner) => inner.prev_outgoing_receipts_root,
+            Self::V4(inner) => inner.prev_outgoing_receipts_root,
         }
     }
 
     #[inline]
-    pub fn tx_root(&self) -> &CryptoHash {
+    pub fn tx_root(&self) -> CryptoHash {
         match self {
-            Self::V1(inner) => &inner.tx_root,
-            Self::V2(inner) => &inner.tx_root,
-            Self::V3(inner) => &inner.tx_root,
-            Self::V4(inner) => &inner.tx_root,
+            Self::V1(inner) => inner.tx_root,
+            Self::V2(inner) => inner.tx_root,
+            Self::V3(inner) => inner.tx_root,
+            Self::V4(inner) => inner.tx_root,
         }
     }
 

@@ -17,6 +17,7 @@ num-rational.workspace = true
 serde.workspace = true
 serde_yaml.workspace = true
 serde_repr.workspace = true
+schemars = {workspace = true, optional = true }
 strum.workspace = true
 thiserror.workspace = true
 borsh.workspace = true

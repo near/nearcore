@@ -25,6 +25,8 @@ mod process_blocks;
 mod protocol_upgrade;
 mod reject_outdated_blocks;
 mod resharding_v3;
+mod single_shard_tracking;
+mod spice;
 mod state_sync;
 mod syncing;
 mod view_requests_to_archival_node;

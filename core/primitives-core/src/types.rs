@@ -75,6 +75,7 @@ pub type ShardIndex = usize;
     PartialOrd,
     Ord,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ShardId(u64);
 
 impl ShardId {

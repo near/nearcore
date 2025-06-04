@@ -34,6 +34,7 @@ use tracing::debug_span;
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChunkHash(pub CryptoHash);
 
 impl ChunkHash {
@@ -270,7 +271,7 @@ impl ShardChunkHeaderV3 {
         let inner_bytes = borsh::to_vec(&inner).expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
-        ChunkHash(combine_hash(&inner_hash, inner.encoded_merkle_root()))
+        ChunkHash(combine_hash(&inner_hash, &inner.encoded_merkle_root()))
     }
 
     pub fn new(
@@ -406,22 +407,22 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.inner.prev_state_root,
             Self::V2(header) => header.inner.prev_state_root,
-            Self::V3(header) => *header.inner.prev_state_root(),
+            Self::V3(header) => header.inner.prev_state_root(),
         }
     }
 
     #[inline]
-    pub fn prev_block_hash(&self) -> &CryptoHash {
+    pub fn prev_block_hash(&self) -> CryptoHash {
         match self {
-            Self::V1(header) => &header.inner.prev_block_hash,
-            Self::V2(header) => &header.inner.prev_block_hash,
+            Self::V1(header) => header.inner.prev_block_hash,
+            Self::V2(header) => header.inner.prev_block_hash,
             Self::V3(header) => header.inner.prev_block_hash(),
         }
     }
 
     #[inline]
     pub fn is_genesis(&self) -> bool {
-        self.prev_block_hash() == &CryptoHash::default()
+        self.prev_block_hash() == CryptoHash::default()
     }
 
     #[inline]
@@ -429,7 +430,7 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.inner.encoded_merkle_root,
             Self::V2(header) => header.inner.encoded_merkle_root,
-            Self::V3(header) => *header.inner.encoded_merkle_root(),
+            Self::V3(header) => header.inner.encoded_merkle_root(),
         }
     }
 
@@ -483,7 +484,7 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.prev_outgoing_receipts_root,
             ShardChunkHeader::V2(header) => header.inner.prev_outgoing_receipts_root,
-            ShardChunkHeader::V3(header) => *header.inner.prev_outgoing_receipts_root(),
+            ShardChunkHeader::V3(header) => header.inner.prev_outgoing_receipts_root(),
         }
     }
 
@@ -492,7 +493,7 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.prev_outcome_root,
             ShardChunkHeader::V2(header) => header.inner.prev_outcome_root,
-            ShardChunkHeader::V3(header) => *header.inner.prev_outcome_root(),
+            ShardChunkHeader::V3(header) => header.inner.prev_outcome_root(),
         }
     }
 
@@ -501,7 +502,7 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.tx_root,
             ShardChunkHeader::V2(header) => header.inner.tx_root,
-            ShardChunkHeader::V3(header) => *header.inner.tx_root(),
+            ShardChunkHeader::V3(header) => header.inner.tx_root(),
         }
     }
 
@@ -758,9 +759,9 @@ impl PartialEncodedChunk {
     }
 
     #[inline]
-    pub fn prev_block(&self) -> &CryptoHash {
+    pub fn prev_block(&self) -> CryptoHash {
         match &self {
-            PartialEncodedChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
+            PartialEncodedChunk::V1(chunk) => chunk.header.inner.prev_block_hash,
             PartialEncodedChunk::V2(chunk) => chunk.header.prev_block_hash(),
         }
     }
@@ -978,9 +979,9 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn prev_block(&self) -> &CryptoHash {
+    pub fn prev_block(&self) -> CryptoHash {
         match &self {
-            ShardChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
+            ShardChunk::V1(chunk) => chunk.header.inner.prev_block_hash,
             ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
         }
     }
@@ -1060,7 +1061,7 @@ impl ShardChunk {
     pub fn prev_block_hash(&self) -> CryptoHash {
         match self {
             Self::V1(chunk) => chunk.header.inner.prev_block_hash,
-            Self::V2(chunk) => *chunk.header.prev_block_hash(),
+            Self::V2(chunk) => chunk.header.prev_block_hash(),
         }
     }
 

@@ -7,4 +7,4 @@ pessimistic_gas_price_inflation:
     new: { numerator: 1, denominator: 1 },
   }
 refund_gas_price_changes: { old: true, new: false }
-
+global_contract_host_fns: { old: false, new: true }

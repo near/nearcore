@@ -2,14 +2,6 @@
 ./pytest.txt
 ./expensive.txt
 
-# Very expensive catchup tests
-expensive --timeout=3600 test-loop-tests test_loop_tests tests::client::catching_up::ultra_slow_test_all_chunks_accepted_1000
-expensive --timeout=3600 test-loop-tests test_loop_tests tests::client::catching_up::ultra_slow_test_all_chunks_accepted_1000 --features nightly
-expensive --timeout=7200 test-loop-tests test_loop_tests tests::client::catching_up::ultra_slow_test_all_chunks_accepted_1000_slow
-expensive --timeout=7200 test-loop-tests test_loop_tests tests::client::catching_up::ultra_slow_test_all_chunks_accepted_1000_slow --features nightly
-expensive --timeout=1800 test-loop-tests test_loop_tests tests::client::catching_up::ultra_slow_test_all_chunks_accepted_1000_rare_epoch_changing
-expensive --timeout=1800 test-loop-tests test_loop_tests tests::client::catching_up::ultra_slow_test_all_chunks_accepted_1000_rare_epoch_changing --features nightly
-
 # Very expensive test: make sure Docker image can be build and run
 pytest --skip-build --timeout=1h sanity/docker.py
 

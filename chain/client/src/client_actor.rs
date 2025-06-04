@@ -1001,6 +1001,7 @@ impl ClientActorInner {
         Ok(Some(new_latest_known))
     }
 
+    #[allow(clippy::needless_pass_by_ref_mut)] // &mut self is needed with the sandbox feature
     fn pre_block_production(&mut self) -> Result<(), Error> {
         #[cfg(feature = "sandbox")]
         {
@@ -1015,6 +1016,7 @@ impl ClientActorInner {
         Ok(())
     }
 
+    #[allow(clippy::needless_pass_by_ref_mut)] // &mut self is needed with the sandbox feature
     fn post_block_production(&mut self) {
         #[cfg(feature = "sandbox")]
         if self.fastforward_delta > 0 {

@@ -106,7 +106,7 @@ pub(crate) fn apply_block(
         let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
         runtime
             .apply_chunk(
-                storage.create_runtime_storage(*chunk_inner.prev_state_root()),
+                storage.create_runtime_storage(chunk_inner.prev_state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -240,6 +240,7 @@ pub(crate) fn apply_chunk(
 
 pub(crate) fn apply_range(
     mode: ApplyRangeMode,
+    storage: StorageSource,
     start_index: Option<BlockHeight>,
     end_index: Option<BlockHeight>,
     shard_id: ShardId,
@@ -250,7 +251,6 @@ pub(crate) fn apply_range(
     read_store: Store,
     write_store: Option<Store>,
     only_contracts: bool,
-    storage: StorageSource,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 

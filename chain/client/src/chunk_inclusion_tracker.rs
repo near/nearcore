@@ -75,7 +75,7 @@ impl ChunkInclusionTracker {
         chunk_header: ShardChunkHeader,
         chunk_producer: AccountId,
     ) {
-        let prev_block_hash = chunk_header.prev_block_hash();
+        let prev_block_hash = &chunk_header.prev_block_hash();
         if let Some(entry) = self.prev_block_to_chunk_hash_ready.get_mut(prev_block_hash) {
             // If prev_block_hash entry exists, add the new chunk to the entry.
             entry.insert(chunk_header.shard_id(), chunk_header.chunk_hash());
@@ -171,7 +171,7 @@ impl ChunkInclusionTracker {
                     "Not including chunk because of insufficient chunk endorsements"
                 );
             }
-            if !banned && is_endorsed {
+            if !banned && (is_endorsed || cfg!(feature = "protocol_feature_spice")) {
                 // only add to chunk_headers_ready_for_inclusion if chunk is not from a banned chunk producer
                 // and chunk has sufficient chunk endorsements.
                 // Chunk endorsements are got as part of call to prepare_chunk_headers_ready_for_inclusion
