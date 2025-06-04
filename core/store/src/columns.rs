@@ -105,11 +105,9 @@ pub enum DBCol {
     /// - *Rows*: ShardChunkHeader object
     /// - *Content type*: EncodedShardChunk
     InvalidChunks,
-    /// Contains 'BlockExtra' information that is computed after block was processed.
-    /// Currently it stores only challenges results.
-    /// - *Rows*: BlockHash (CryptoHash)
-    /// - *Content type*: BlockExtra
-    BlockExtra,
+    // Deprecated.
+    #[strum(serialize = "BlockExtra")]
+    _BlockExtra,
     /// Store hash of all block per each height, to detect double signs.
     /// In most cases, it is better to get the value from BlockHeight column instead (which
     /// keeps the hash of the block from canonical chain)
@@ -378,7 +376,6 @@ impl DBCol {
         match self {
             DBCol::Block
             | DBCol::BlockHeader
-            | DBCol::BlockExtra
             | DBCol::BlockInfo
             | DBCol::Chunks
             | DBCol::InvalidChunks
@@ -447,7 +444,6 @@ impl DBCol {
             DBCol::DbVersion | DBCol::BlockMisc => false,
             // Most of the GC-ed columns should be copied to the cold storage.
             DBCol::Block
-            | DBCol::BlockExtra
             | DBCol::BlockInfo
             // TODO can be reconstruction from BlockHeight instead of saving to cold storage.
             | DBCol::BlockPerHeight
@@ -501,6 +497,7 @@ impl DBCol {
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::BlockHeader
+            | DBCol::_BlockExtra
             | DBCol::_GCCount
             | DBCol::BlockHeight
             | DBCol::_Peers
@@ -520,7 +517,6 @@ impl DBCol {
             | DBCol::_LastBlockWithNewChunk
             | DBCol::_TransactionRefCount
             | DBCol::_TransactionResult
-            // | DBCol::StateChangesForSplitStates
             | DBCol::CachedContractCode
             | DBCol::FlatState
             | DBCol::FlatStateChanges
@@ -562,7 +558,7 @@ impl DBCol {
             DBCol::ChallengedBlocks => &[DBKeyType::BlockHash],
             DBCol::StateHeaders => &[DBKeyType::ShardId, DBKeyType::BlockHash],
             DBCol::InvalidChunks => &[DBKeyType::ChunkHash],
-            DBCol::BlockExtra => &[DBKeyType::BlockHash],
+            DBCol::_BlockExtra => &[DBKeyType::BlockHash],
             DBCol::BlockPerHeight => &[DBKeyType::BlockHeight],
             DBCol::StateParts => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId],
             DBCol::EpochStart => &[DBKeyType::EpochId],
