@@ -427,17 +427,15 @@ impl ChunkExecutorActor {
 
     /// Returns keys from block_receipts_cache for prev_block_hash that correspond to all incoming
     /// receipts that we care about grouped by destination shard id.
-    /// Returns an error if some of the receipts are still missing.
+    /// Returns None if some of the receipts are still missing.
     fn all_incoming_receipts_keys(
         &mut self,
         me: Option<&AccountId>,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
-    ) -> Result<Vec<(ShardId, ShardId)>, Error> {
+    ) -> Result<Option<Vec<(ShardId, ShardId)>>, Error> {
         let Some(block_receipts) = self.block_receipts_cache.get(prev_block_hash) else {
-            return Err(Error::Other(format!(
-                "missing all incoming receipts originating from block {prev_block_hash}"
-            )));
+            return Ok(None);
         };
         let epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
         let shard_ids = self.epoch_manager.shard_ids(&epoch_id)?;
@@ -458,14 +456,12 @@ impl ChunkExecutorActor {
             }
             for from_shard_id in &shard_ids {
                 if !block_receipts.contains_key(&(*from_shard_id, *to_shard_id)) {
-                    return Err(Error::Other(format!(
-                        "missing incoming receipts originating from block {prev_block_hash}, from_shard_id={from_shard_id}, to_shard_id={to_shard_id}"
-                    )));
+                    return Ok(None);
                 }
                 keys.push((*from_shard_id, *to_shard_id));
             }
         }
-        Ok(keys)
+        Ok(Some(keys))
     }
 
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%prev_block_hash, %block_hash, ?me))]
@@ -475,12 +471,11 @@ impl ChunkExecutorActor {
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
     ) -> Result<(), Error> {
-        let receipt_keys = match self.all_incoming_receipts_keys(me, prev_block_hash, block_hash) {
-            Ok(v) => v,
-            Err(err) => {
-                tracing::info!(target: "chunk_executor", ?err, ?prev_block_hash, ?block_hash, "failed to find all incoming receipts");
-                return Err(err);
-            }
+        let Some(receipt_keys) =
+            self.all_incoming_receipts_keys(me, prev_block_hash, block_hash)?
+        else {
+            tracing::debug!(target: "chunk_executor", ?prev_block_hash, ?block_hash, "haven't received all receipts yet");
+            return Ok(());
         };
 
         let mut block_receipts = self.block_receipts_cache.pop(&prev_block_hash).unwrap();
