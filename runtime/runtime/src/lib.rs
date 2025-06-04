@@ -1573,7 +1573,7 @@ impl Runtime {
 
         // Step 2: process transactions.
         {
-            let _span = tracing::debug_span!(
+            let _span = tracing::info_span!(
                 target: "runtime",
                 "process_transactions",
                 measure = "apply",
@@ -1584,7 +1584,7 @@ impl Runtime {
 
         // Step 3: process receipts.
         let process_receipts_result = {
-            let _span = tracing::debug_span!(
+            let _span = tracing::info_span!(
                 target: "runtime",
                 "process_receipts",
                 measure = "apply",
@@ -1603,7 +1603,7 @@ impl Runtime {
 
         // Step 4: validate and apply the state update.
         {
-            let _span = tracing::debug_span!(
+            let _span = tracing::info_span!(
                 target: "runtime",
                 "validate_apply_state_update",
                 measure = "apply",
