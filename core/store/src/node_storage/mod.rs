@@ -6,6 +6,7 @@ use std::sync::{Arc, LazyLock};
 
 use opener::StoreOpener;
 
+use crate::archive::ArchivalStore;
 use crate::config::ArchivalConfig;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
@@ -42,6 +43,7 @@ impl FromStr for Temperature {
 pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
     cold_storage: Option<Arc<crate::db::ColdDB>>,
+    archival_store: Option<Arc<ArchivalStore>>,
 }
 
 impl NodeStorage {
@@ -69,7 +71,7 @@ impl NodeStorage {
             None
         };
 
-        Self { hot_storage, cold_storage: cold_db }
+        Self { hot_storage, cold_storage: cold_db, archival_store: None }
     }
 
     /// Initializes an opener for a new temporary test store.
@@ -97,7 +99,7 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None }
+        Self { hot_storage: storage, cold_storage: None, archival_store: None }
     }
 }
 
@@ -206,10 +208,18 @@ impl NodeStorage {
     }
 
     pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
-        Self { hot_storage: hot, cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))) }
+        Self {
+            hot_storage: hot,
+            cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))),
+            archival_store: None,
+        }
     }
 
     pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {
         self.cold_storage.as_ref()
+    }
+
+    pub fn archival_store(&self) -> Option<&Arc<ArchivalStore>> {
+        self.archival_store.as_ref()
     }
 }
