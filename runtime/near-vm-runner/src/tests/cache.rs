@@ -29,7 +29,7 @@ fn test_caches_compilation_error() {
         let cache = MockContractRuntimeCache::default();
         let code = [42; 1000];
         let code = ContractCode::new(code.to_vec(), None);
-        let code_hash = *code.hash();
+        let code_hash = code.hash();
         let terragas = 1000000000000u64;
         assert_eq!(cache.len(), 0);
         let outcome1 = make_cached_contract_call_vm(
@@ -69,7 +69,7 @@ fn test_does_not_cache_io_error() {
 
         let code = near_test_contracts::trivial_contract();
         let code = ContractCode::new(code.to_vec(), None);
-        let code_hash = *code.hash();
+        let code_hash = code.hash();
         let prepaid_gas = 10u64.pow(12);
         let cache = FaultingContractRuntimeCache::default();
 
