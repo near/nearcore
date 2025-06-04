@@ -538,8 +538,11 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
             // Simulate state sync
 
             tracing::info!(target: "test", "state sync - get parts");
-            let sync_hash =
-                env.clients[0].chain.get_sync_hash(&blocks.last().unwrap().hash()).unwrap().unwrap();
+            let sync_hash = env.clients[0]
+                .chain
+                .get_sync_hash(&blocks.last().unwrap().hash())
+                .unwrap()
+                .unwrap();
             let sync_block_idx = blocks
                 .iter()
                 .position(|b| b.hash() == sync_hash)

@@ -600,7 +600,8 @@ pub(crate) fn print_chain(
             } else {
                 let parent_header =
                     chain_store.get_block_header(&header.prev_hash()).unwrap().clone();
-                if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(&header.prev_hash())
+                if let Ok(epoch_id) =
+                    epoch_manager.get_epoch_id_from_prev_block(&header.prev_hash())
                 {
                     cur_epoch_id = Some(epoch_id);
                     match epoch_manager.is_next_block_epoch_start(&header.prev_hash()) {

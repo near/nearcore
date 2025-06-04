@@ -358,11 +358,7 @@ fn test_bad_congestion_info_none() {
 // Helper function to check that a block was produced from an optimistic block
 fn check_block_produced_from_optimistic_block(block: &Block, optimistic_block: &OptimisticBlock) {
     assert_eq!(block.header().height(), optimistic_block.inner.block_height, "height");
-    assert_eq!(
-        block.header().prev_hash(),
-        optimistic_block.inner.prev_block_hash,
-        "previous hash"
-    );
+    assert_eq!(block.header().prev_hash(), optimistic_block.inner.prev_block_hash, "previous hash");
     assert_eq!(block.header().raw_timestamp(), optimistic_block.inner.block_timestamp, "timestamp");
     assert_eq!(block.header().random_value(), optimistic_block.inner.random_value, "random value");
 }

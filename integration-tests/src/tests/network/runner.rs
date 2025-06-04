@@ -92,10 +92,8 @@ fn setup_network_node(
         state_roots,
     )
     .unwrap();
-    let genesis_id = GenesisId {
-        chain_id: client_config.chain_id.clone(),
-        hash: genesis_block.header().hash(),
-    };
+    let genesis_id =
+        GenesisId { chain_id: client_config.chain_id.clone(), hash: genesis_block.header().hash() };
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();

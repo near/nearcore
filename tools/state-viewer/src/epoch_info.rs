@@ -122,7 +122,8 @@ fn get_block_height_range(
     loop {
         if cur_block_info.epoch_id() == epoch_id {
             // Found the requested epoch.
-            let epoch_start_height = epoch_manager.get_epoch_start_height(&cur_block_info.hash())?;
+            let epoch_start_height =
+                epoch_manager.get_epoch_start_height(&cur_block_info.hash())?;
             if &head.epoch_id == epoch_id {
                 // This is the current epoch and we can't know when exactly it will end.
                 // Estimate that the epoch should end at this height.
