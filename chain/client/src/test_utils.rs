@@ -115,11 +115,11 @@ impl Client {
             signer.as_ref().unwrap().validator_id().clone(),
         )
         .unwrap();
-        let prev_block = self.chain.get_block(shard_chunk.prev_block()).unwrap();
+        let prev_block = self.chain.get_block(&shard_chunk.prev_block()).unwrap();
         let prev_chunk_header =
             self.epoch_manager.get_prev_chunk_header(&prev_block, shard_chunk.shard_id()).unwrap();
         self.send_chunk_state_witness_to_chunk_validators(
-            &self.epoch_manager.get_epoch_id_from_prev_block(shard_chunk.prev_block()).unwrap(),
+            &self.epoch_manager.get_epoch_id_from_prev_block(&shard_chunk.prev_block()).unwrap(),
             prev_block.header(),
             &prev_chunk_header,
             &shard_chunk,
@@ -198,7 +198,7 @@ pub fn create_chunk(
 
         let header = encoded_chunk.cloned_header();
         let (new_chunk, mut new_merkle_paths) = ShardChunkWithEncoding::new(
-            *header.prev_block_hash(),
+            header.prev_block_hash(),
             header.prev_state_root(),
             header.prev_outcome_root(),
             header.height_created(),

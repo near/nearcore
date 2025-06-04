@@ -150,7 +150,7 @@ fn get_state_witness_block_range(
         last_chunk_shard_id: ShardId,
     }
 
-    let initial_prev_hash = *state_witness.chunk_header.prev_block_hash();
+    let initial_prev_hash = state_witness.chunk_header.prev_block_hash();
     let initial_prev_block = store.get_block(&initial_prev_hash)?;
     let initial_shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(&initial_prev_hash)?;

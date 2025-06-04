@@ -193,7 +193,7 @@ fn apply_block_from_range(
 
         runtime_adapter
             .apply_chunk(
-                storage.create_runtime_storage(*chunk_inner.prev_state_root()),
+                storage.create_runtime_storage(chunk_inner.prev_state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,

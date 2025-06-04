@@ -1259,7 +1259,7 @@ impl Client {
         chunk_header: ShardChunkHeader,
     ) -> Result<(), Error> {
         let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+            self.epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
         let chunk_producer = self
             .epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {
@@ -1300,7 +1300,7 @@ impl Client {
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
 
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
-        let parent_hash = *chunk_header.prev_block_hash();
+        let parent_hash = chunk_header.prev_block_hash();
         let shard_layout = self
             .epoch_manager
             .get_shard_layout_from_prev_block(&parent_hash)

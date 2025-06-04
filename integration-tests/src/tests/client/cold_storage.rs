@@ -183,7 +183,7 @@ fn test_storage_after_commit_of_cold_update() {
     no_check_rules.push(Box::new(move |col, _key, value| -> bool {
         if col == DBCol::Chunks {
             let chunk = ShardChunk::try_from_slice(&*value).unwrap();
-            if *chunk.prev_block() == last_hash {
+            if chunk.prev_block() == last_hash {
                 return true;
             }
         }
@@ -338,7 +338,7 @@ fn test_cold_db_copy_with_height_skips() {
     no_check_rules.push(Box::new(move |col, _key, value| -> bool {
         if col == DBCol::Chunks {
             let chunk = ShardChunk::try_from_slice(&*value).unwrap();
-            if *chunk.prev_block() == last_hash {
+            if chunk.prev_block() == last_hash {
                 return true;
             }
         }
