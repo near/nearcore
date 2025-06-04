@@ -6,6 +6,7 @@ use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::Store;
@@ -72,12 +73,12 @@ impl DumpWitnessesCmd {
         }
 
         for (i, witness) in witnesses.iter().enumerate() {
+            let ChunkProductionKey { shard_id, height_created, epoch_id } =
+                witness.chunk_production_key();
+
             println!(
                 "#{} (height: {}, shard_id: {}, epoch_id: {:?})",
-                i,
-                witness.chunk_header.height_created(),
-                witness.chunk_header.shard_id(),
-                witness.epoch_id
+                i, height_created, shard_id, epoch_id
             );
             match self.mode {
                 DumpWitnessesMode::Pretty => {
@@ -85,13 +86,8 @@ impl DumpWitnessesCmd {
                     println!("");
                 }
                 DumpWitnessesMode::Binary { ref output_dir } => {
-                    let file_name = format!(
-                        "witness_{}_{}_{}_{}.bin",
-                        witness.chunk_header.height_created(),
-                        witness.chunk_header.shard_id(),
-                        witness.epoch_id.0,
-                        i
-                    );
+                    let file_name =
+                        format!("witness_{}_{}_{}_{}.bin", height_created, shard_id, epoch_id.0, i);
                     let file_path = output_dir.join(file_name);
                     std::fs::write(&file_path, borsh::to_vec(witness).unwrap()).unwrap();
                     println!("Saved to {:?}", file_path);
