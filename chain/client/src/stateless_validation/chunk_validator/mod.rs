@@ -77,13 +77,15 @@ impl ChunkValidator {
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
-        let prev_block_hash = &state_witness.chunk_header.prev_block_hash();
-        let shard_id = state_witness.chunk_header.shard_id();
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        if epoch_id != state_witness.epoch_id {
+        let prev_block_hash = state_witness.chunk_header().prev_block_hash();
+        let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
+        let shard_id = state_witness.chunk_header().shard_id();
+        let expected_epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        if expected_epoch_id != epoch_id {
             return Err(Error::InvalidChunkStateWitness(format!(
                 "Invalid EpochId {:?} for previous block {}, expected {:?}",
-                state_witness.epoch_id, prev_block_hash, epoch_id
+                epoch_id, prev_block_hash, expected_epoch_id
             )));
         }
 
@@ -93,7 +95,7 @@ impl ChunkValidator {
             self.epoch_manager.as_ref(),
         )?;
 
-        let chunk_header = state_witness.chunk_header.clone();
+        let chunk_header = state_witness.chunk_header().clone();
         let network_sender = self.network_sender.clone();
         let epoch_manager = self.epoch_manager.clone();
 
@@ -104,23 +106,23 @@ impl ChunkValidator {
         // We can also skip validating the chunk state witness in this case.
         // We don't need to switch to parent shard uid, because resharding
         // creates chunk extra for new shard uid.
-        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id)?;
-        let prev_block = chain.get_block(prev_block_hash)?;
+        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &expected_epoch_id)?;
+        let prev_block = chain.get_block(&prev_block_hash)?;
         let last_header = epoch_manager.get_prev_chunk_header(&prev_block, shard_id)?;
 
         let chunk_production_key = ChunkProductionKey {
             shard_id,
-            epoch_id,
+            epoch_id: expected_epoch_id,
             height_created: chunk_header.height_created(),
         };
         let chunk_producer_name =
             epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
-        if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
+        if let Ok(prev_chunk_extra) = chain.get_chunk_extra(&prev_block_hash, &shard_uid) {
             match validate_chunk_with_chunk_extra(
                 chain.chain_store(),
                 self.epoch_manager.as_ref(),
-                prev_block_hash,
+                &prev_block_hash,
                 &prev_chunk_extra,
                 last_header.height_included(),
                 &chunk_header,
@@ -262,8 +264,8 @@ impl Client {
     ) -> Result<(), Error> {
         tracing::debug!(
             target: "client",
-            chunk_hash=?witness.chunk_header.chunk_hash(),
-            shard_id=?witness.chunk_header.shard_id(),
+            chunk_hash=?witness.chunk_header().chunk_hash(),
+            shard_id=?witness.chunk_header().shard_id(),
             "process_chunk_state_witness",
         );
 
@@ -273,18 +275,18 @@ impl Client {
             "Received a chunk state witness but this is not a validator node. Witness={:?}",
             witness
         );
-        let signer = signer.unwrap();
 
         // Send the acknowledgement for the state witness back to the chunk producer.
         // This is currently used for network roundtrip time measurement, so we do not need to
         // wait for validation to finish.
-        self.send_state_witness_ack(&witness, &signer);
+        self.send_state_witness_ack(&witness)?;
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
         }
 
-        match self.chain.get_block(&witness.chunk_header.prev_block_hash()) {
+        let signer = signer.unwrap();
+        match self.chain.get_block(&witness.chunk_header().prev_block_hash()) {
             Ok(block) => self.process_chunk_state_witness_with_prev_block(
                 witness,
                 &block,
@@ -300,25 +302,19 @@ impl Client {
         }
     }
 
-    fn send_state_witness_ack(&self, witness: &ChunkStateWitness, signer: &Arc<ValidatorSigner>) {
-        // In production PartialWitnessActor does not forward a state witness to the chunk producer that
-        // produced the witness. However some tests bypass PartialWitnessActor, thus when a chunk producer
-        // receives its own state witness, we log a warning instead of panicking.
-        // TODO: Make sure all tests run with "test_features" and panic for non-test builds.
-        if signer.validator_id() == &witness.chunk_producer {
-            tracing::warn!(
-                "Validator {:?} received state witness from itself. Witness={:?}",
-                signer.validator_id(),
-                witness
-            );
-            return;
-        }
+    fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
+        let chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&witness.chunk_production_key())?
+            .account_id()
+            .clone();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkStateWitnessAck(
-                witness.chunk_producer.clone(),
+                chunk_producer,
                 ChunkStateWitnessAck::new(witness),
             ),
         ));
+        Ok(())
     }
 
     pub fn process_chunk_state_witness_with_prev_block(
@@ -328,10 +324,10 @@ impl Client {
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
-        if &witness.chunk_header.prev_block_hash() != prev_block.hash() {
+        if &witness.chunk_header().prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(
                 "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",
-                witness.chunk_header.prev_block_hash(),
+                witness.chunk_header().prev_block_hash(),
                 prev_block.hash()
             )));
         }
