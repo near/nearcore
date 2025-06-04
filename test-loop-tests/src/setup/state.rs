@@ -8,7 +8,7 @@ use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::chunk_executor_actor::{ChunkExecutorActor, ExecutorIncomingReceipt};
+use near_client::chunk_executor_actor::{ChunkExecutorActor, ExecutorIncomingReceipts};
 use near_client::client_actor::ClientActorInner;
 use near_client::{PartialWitnessActor, RpcHandler, ViewClientActorInner};
 use near_jsonrpc::ViewClientSenderForRpc;
@@ -137,8 +137,8 @@ impl From<&NodeExecutionData> for Sender<TestLoopNetworkBlockInfo> {
     }
 }
 
-impl From<&NodeExecutionData> for Sender<ExecutorIncomingReceipt> {
-    fn from(data: &NodeExecutionData) -> Sender<ExecutorIncomingReceipt> {
+impl From<&NodeExecutionData> for Sender<ExecutorIncomingReceipts> {
+    fn from(data: &NodeExecutionData) -> Sender<ExecutorIncomingReceipts> {
         data.chunk_executor_sender.clone().with_delay(NETWORK_DELAY).into_sender()
     }
 }

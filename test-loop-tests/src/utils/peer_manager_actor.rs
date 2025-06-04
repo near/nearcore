@@ -11,7 +11,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::BlockHeader;
-use near_client::chunk_executor_actor::ExecutorIncomingReceipt;
+use near_client::chunk_executor_actor::ExecutorIncomingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
@@ -211,7 +211,7 @@ struct OneClientSenders {
     rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
-    chunk_executor_sender: Sender<ExecutorIncomingReceipt>,
+    chunk_executor_sender: Sender<ExecutorIncomingReceipts>,
     peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
 }
 
@@ -265,7 +265,7 @@ impl TestLoopNetworkSharedState {
         PartialWitnessSenderForNetwork: From<&'a D>,
         Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
         Sender<TestLoopNetworkBlockInfo>: From<&'a D>,
-        Sender<ExecutorIncomingReceipt>: From<&'a D>,
+        Sender<ExecutorIncomingReceipts>: From<&'a D>,
     {
         let account_id = AccountId::from(data);
         let peer_id = PeerId::from(data);
@@ -281,7 +281,7 @@ impl TestLoopNetworkSharedState {
                 partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
                 peer_manager_sender: Sender::<TestLoopNetworkBlockInfo>::from(data),
-                chunk_executor_sender: Sender::<ExecutorIncomingReceipt>::from(data),
+                chunk_executor_sender: Sender::<ExecutorIncomingReceipts>::from(data),
             }),
         );
     }
@@ -678,7 +678,7 @@ fn network_message_to_shards_manager_handler(
                 shared_state
                     .senders_for_account(&my_account_id, &account_id)
                     .chunk_executor_sender
-                    .send(ExecutorIncomingReceipt {
+                    .send(ExecutorIncomingReceipts {
                         block_hash,
                         receipt_proofs: receipt_proofs.clone(),
                     });

@@ -87,7 +87,7 @@ impl near_async::messaging::Actor for ChunkExecutorActor {}
 /// For now this is useful to do testing with test loop.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub struct ExecutorIncomingReceipt {
+pub struct ExecutorIncomingReceipts {
     pub block_hash: CryptoHash,
     pub receipt_proofs: Vec<ReceiptProof>,
 }
@@ -100,10 +100,10 @@ pub struct ExecutorBlock {
     pub block_hash: CryptoHash,
 }
 
-impl Handler<ExecutorIncomingReceipt> for ChunkExecutorActor {
+impl Handler<ExecutorIncomingReceipts> for ChunkExecutorActor {
     fn handle(
         &mut self,
-        ExecutorIncomingReceipt { block_hash, receipt_proofs }: ExecutorIncomingReceipt,
+        ExecutorIncomingReceipts { block_hash, receipt_proofs }: ExecutorIncomingReceipts,
     ) {
         let block_receipts =
             self.block_receipts_cache.get_or_insert_mut(block_hash, || HashMap::new());
