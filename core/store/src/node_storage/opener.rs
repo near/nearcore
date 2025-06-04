@@ -677,6 +677,40 @@ pub fn clear_columns<'a>(
     Ok(())
 }
 
+/// Rollback the database from format used by neard 2.7 to the format used by neard 2.6.
+/// Sets DB version to 44.
+pub fn rollback_database_from_27_to_26<'a>(
+    home_dir: &std::path::Path,
+    config: &StoreConfig,
+    archival_config: Option<ArchivalConfig<'a>>,
+    get_confirmation: impl FnOnce() -> bool,
+) -> anyhow::Result<()> {
+    const PREV_DB_VERSION: DbVersion = 44;
+    let opener = StoreOpener::new(home_dir, &config, archival_config);
+
+    // First open in read-only mode to ensure that db version is correct
+    // Opening in ReadWrite mode would create nonexisting columns before failing, corrupting the db :/
+    let _ = opener.open_dbs(Mode::ReadOnly)?;
+
+    let (hot_db, _hot_snapshot, cold_db, _cold_snapshot) =
+        opener.open_dbs(Mode::ReadWriteExisting)?;
+    if !get_confirmation() {
+        println!("Rollback cancelled.");
+        return Ok(());
+    }
+    println!("Starting rollback");
+    let hot_store = Store::new(Arc::new(hot_db));
+    println!("Setting hot DB version to {}", PREV_DB_VERSION);
+    hot_store.set_db_version(PREV_DB_VERSION)?;
+    if let Some(cold) = cold_db {
+        let cold_store = Store::new(Arc::new(cold));
+        println!("Setting cold DB version to {}", PREV_DB_VERSION);
+        cold_store.set_db_version(PREV_DB_VERSION)?;
+    }
+    println!("Rollback successful. You can now start neard 2.6");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
