@@ -189,7 +189,7 @@ impl NearVM {
         cache: &dyn ContractRuntimeCache,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(*code.hash(), &self.config);
+        let key = get_contract_cache_key(code.hash(), &self.config);
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
             compiled: match &executable_or_error {
