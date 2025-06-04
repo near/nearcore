@@ -29,25 +29,25 @@ export NEARD_BINARY_URL=https://s3-us-west-1.amazonaws.com/build.nearprotocol.co
 python tests/mocknet/sharded_bm.py init && python tests/mocknet/sharded_bm.py start --enable-tx-generator
 ```
 
-3. Stop the benchmark:
+3. Monitor the benchmark:
+
+* [Look at Grafana dashboard](../../../../benchmarks/sharded-bm/README.md#forknet---monitoring)
+* Download OpenTelemetry traces corresponding to the latest timeframe for opening in [traviz](https://github.com/jancionear/traviz):
+
+```bash
+python tests/mocknet/sharded_bm.py get-traces
+```
+
+4. Stop the benchmark:
 
 ```bash
 python3 tests/mocknet/sharded_bm.py stop --disable-tx-generator
 ```
 
-4. Reset the benchmark state to start the new one from scratch:
+5. Reset the benchmark state to start the new one from scratch:
 
 ```bash
 python tests/mocknet/sharded_bm.py reset
-```
-
-## Monitoring
-
-* [Grafana dashboard](../../../../benchmarks/sharded-bm/README.md#forknet---monitoring)
-* Download OpenTelemetry traces corresponding to the latest timeframe for opening in [traviz](https://github.com/jancionear/traviz):
-
-```bash
-python tests/mocknet/sharded_bm.py get-traces
 ```
 
 ## Tweaking
