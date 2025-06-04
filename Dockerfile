@@ -28,7 +28,9 @@ RUN rustup toolchain install
 
 ENV PORTABLE=ON
 ARG make_target=
-RUN make CARGO_TARGET_DIR=/tmp/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/tmp/target \
+    make CARGO_TARGET_DIR=/tmp/target \
     "${make_target:?make_target not set}"
 
 # Docker image
