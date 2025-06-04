@@ -24,8 +24,9 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => &inner.prev_state_root,
             Self::V3(inner) => &inner.prev_state_root,
             Self::V4(inner) => &inner.prev_state_root,
-            Self::V5(_) => {
-                unreachable!("Transaction only header doesn't include prev_state_root");
+            Self::V5(inner) => {
+                debug_assert!(false, "Transaction only header doesn't include prev_state_root");
+                &inner.default_hash
             }
         }
     }
@@ -49,7 +50,7 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => inner.gas_limit,
             Self::V4(inner) => inner.gas_limit,
             Self::V5(_) => {
-                // TODO(spice): assert this is unreachable after verifying that nothing depend on this
+                // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
                 // anymore.
                 0
             }
@@ -64,7 +65,7 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => inner.prev_gas_used,
             Self::V4(inner) => inner.prev_gas_used,
             Self::V5(_) => {
-                // TODO(spice): assert this is unreachable after verifying that nothing depend on this
+                // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
                 // anymore.
                 0
             }
@@ -79,7 +80,7 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => ValidatorStakeIter::new(&inner.prev_validator_proposals),
             Self::V4(inner) => ValidatorStakeIter::new(&inner.prev_validator_proposals),
             Self::V5(_) => {
-                // TODO(spice): assert this is unreachable after verifying that nothing depend on this
+                // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
                 // anymore.
                 ValidatorStakeIter::empty()
             }
@@ -115,8 +116,10 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => &inner.prev_outcome_root,
             Self::V3(inner) => &inner.prev_outcome_root,
             Self::V4(inner) => &inner.prev_outcome_root,
-            Self::V5(_) => {
-                unreachable!("Transaction only header doesn't include prev_outcome_root");
+            Self::V5(inner) => {
+                // TODO(spice): add debug_assert after making sure nothing depends on
+                // prev_outcome_root.
+                &inner.default_hash
             }
         }
     }
@@ -151,7 +154,7 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => inner.prev_balance_burnt,
             Self::V4(inner) => inner.prev_balance_burnt,
             Self::V5(_) => {
-                // TODO(spice): assert this is unreachable after verifying that nothing depend on this
+                // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
                 // anymore.
                 0
             }
@@ -165,7 +168,7 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => &inner.prev_outgoing_receipts_root,
             Self::V3(inner) => &inner.prev_outgoing_receipts_root,
             Self::V4(inner) => &inner.prev_outgoing_receipts_root,
-            // TODO(spice): assert as unreachable. See comment on the field for more details.
+            // TODO(spice): debug_assert as unreachable. See comment on the field for more details.
             Self::V5(inner) => &inner.prev_outgoing_receipts_root,
         }
     }
@@ -190,7 +193,7 @@ impl ShardChunkHeaderInner {
             }
             Self::V3(v3) => v3.congestion_info,
             Self::V4(v4) => v4.congestion_info,
-            // TODO(spice): assert this is unreachable after verifying that nothing depend on this
+            // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
             // anymore.
             Self::V5(_) => CongestionInfo::default(),
         }
@@ -350,4 +353,12 @@ pub struct ShardChunkHeaderInnerV5SpiceTxOnly {
     pub prev_outgoing_receipts_root: CryptoHash,
     /// Tx merkle root.
     pub tx_root: CryptoHash,
+
+    /// Contains default CryptoHash. Some methods return references to CryptoHash that aren't
+    /// available anymore in this version and for now we cannot make sure that all of them are
+    /// unreachable when spice is disabled so we want to return default hash instead to avoid
+    /// crashing.
+    // TODO(spice): Remove after making sure that none of the places where this is required are
+    // reachable.
+    pub default_hash: CryptoHash,
 }

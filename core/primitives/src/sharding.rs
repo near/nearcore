@@ -306,6 +306,7 @@ impl ShardChunkHeaderV3 {
                 shard_id,
                 tx_root,
                 prev_outgoing_receipts_root,
+                default_hash: CryptoHash::default(),
             })
         } else {
             ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
@@ -449,6 +450,7 @@ impl ShardChunkHeader {
                 shard_id,
                 prev_outgoing_receipts_root,
                 tx_root,
+                default_hash: _,
             }) => {
                 let chunk_extra = prev_chunk_extra;
                 ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
@@ -556,16 +558,7 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.prev_outcome_root,
             ShardChunkHeader::V2(header) => header.inner.prev_outcome_root,
-            ShardChunkHeader::V3(header) => {
-                if let ShardChunkHeaderInner::V5(_) = header.inner {
-                    // TODO(spice): make sure that nothing depends on prev_outcome_root
-                    // being in chunk and add debug_assert(false).
-                    // Since with spice execution is async outcome cannot be present in chunks.
-                    CryptoHash::default()
-                } else {
-                    *header.inner.prev_outcome_root()
-                }
-            }
+            ShardChunkHeader::V3(header) => *header.inner.prev_outcome_root(),
         }
     }
 
