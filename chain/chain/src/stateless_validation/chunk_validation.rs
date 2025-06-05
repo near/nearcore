@@ -530,7 +530,7 @@ pub fn validate_chunk_state_witness(
     let span = tracing::debug_span!(
         target: "client",
         "validate_chunk_state_witness",
-        height_created,
+        height = height_created,
         shard_id = ?witness_chunk_shard_id,
         tag_block_production = true
     )
