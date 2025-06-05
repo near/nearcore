@@ -211,7 +211,7 @@ fn ultra_slow_test_get_execution_outcome_tx_success() {
 }
 
 #[test]
-fn test_get_execution_outcome_tx_failure() {
+fn slow_test_get_execution_outcome_tx_failure() {
     test_get_execution_outcome(false);
 }
 

@@ -1235,7 +1235,7 @@ fn slow_test_gc_after_state_sync() {
 }
 
 #[test]
-fn test_process_block_after_state_sync() {
+fn slow_test_process_block_after_state_sync() {
     let epoch_length = 1024;
     // test with shard_version > 0
     let mut genesis = Genesis::test_sharded_new_version(
