@@ -138,7 +138,7 @@ impl ChunkProducer {
                 me = ?signer.as_ref().validator_id(),
                 ?chunk_proposer,
                 next_height,
-                ?shard_id,
+                %shard_id,
                 "Not producing chunk. Not chunk producer for next chunk.");
             return Ok(None);
         }
@@ -230,7 +230,7 @@ impl ChunkProducer {
             // apply block with the new chunk, so we also skip chunk production.
             if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)?
             {
-                debug!(target: "client", ?shard_id, next_height, "Produce chunk: prev block is not caught up");
+                debug!(target: "client", %shard_id, next_height, "Produce chunk: prev block is not caught up");
                 return Err(Error::ChunkProducer(
                     "State for the epoch is not downloaded yet, skipping chunk production"
                         .to_string(),
@@ -238,7 +238,7 @@ impl ChunkProducer {
             }
         }
 
-        debug!(target: "client", me = ?validator_signer.validator_id(), next_height, ?shard_id, "Producing chunk");
+        debug!(target: "client", me = ?validator_signer.validator_id(), next_height, %shard_id, "Producing chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         let chunk_extra = if cfg!(feature = "protocol_feature_spice") {

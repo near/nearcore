@@ -531,7 +531,7 @@ pub fn validate_chunk_state_witness(
         target: "client",
         "validate_chunk_state_witness",
         height = height_created,
-        shard_id = ?witness_chunk_shard_id,
+        shard_id = %witness_chunk_shard_id,
         tag_block_production = true
     )
     .entered();
@@ -734,7 +734,7 @@ impl Chain {
         let height_created = witness.chunk_header().height_created();
         let chunk_hash = witness.chunk_header().chunk_hash();
         let parent_span = tracing::debug_span!(
-            target: "chain", "shadow_validate", ?shard_id, height_created);
+            target: "chain", "shadow_validate", %shard_id, height_created);
         let (encoded_witness, raw_witness_size) = {
             let shard_id_label = shard_id.to_string();
             let encode_timer =
@@ -769,7 +769,7 @@ impl Chain {
             pre_validate_chunk_state_witness(&witness, &self, epoch_manager)?;
         tracing::debug!(
             parent: &parent_span,
-            ?shard_id,
+            %shard_id,
             ?chunk_hash,
             witness_size = encoded_witness.size_bytes(),
             raw_witness_size,
@@ -795,7 +795,7 @@ impl Chain {
                 Ok(()) => {
                     tracing::debug!(
                         parent: &parent_span,
-                        ?shard_id,
+                        %shard_id,
                         ?chunk_hash,
                         validation_elapsed = ?validation_start.elapsed(),
                         "completed shadow chunk validation"
@@ -808,7 +808,7 @@ impl Chain {
                     tracing::error!(
                         parent: &parent_span,
                         ?err,
-                        ?shard_id,
+                        %shard_id,
                         ?chunk_hash,
                         "shadow chunk validation failed"
                     );

@@ -762,9 +762,9 @@ fn slow_test_state_sync_headers() {
                     let state_response = state_response_info.take_state_response();
                     assert!(state_response.part().is_none());
                     if state_response.has_header() {
-                        tracing::info!(?sync_hash, ?shard_id, "got header");
+                        tracing::info!(?sync_hash, %shard_id, "got header");
                     } else {
-                        tracing::info!(?sync_hash, ?shard_id, "got no header");
+                        tracing::info!(?sync_hash, %shard_id, "got no header");
                         return ControlFlow::Continue(());
                     }
 
@@ -788,12 +788,12 @@ fn slow_test_state_sync_headers() {
                     let part = state_response.take_part();
                     if let Some((part_id, _part)) = part {
                         if part_id != 0 {
-                            tracing::info!(?sync_hash, ?shard_id, part_id, "got wrong part");
+                            tracing::info!(?sync_hash, %shard_id, part_id, "got wrong part");
                             return ControlFlow::Continue(());
                         }
-                        tracing::info!(?sync_hash, ?shard_id, part_id, "got part");
+                        tracing::info!(?sync_hash, %shard_id, part_id, "got part");
                     } else {
-                        tracing::info!(?sync_hash, ?shard_id, "got no part");
+                        tracing::info!(?sync_hash, %shard_id, "got no part");
                         return ControlFlow::Continue(());
                     }
                 }

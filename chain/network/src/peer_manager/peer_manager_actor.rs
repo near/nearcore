@@ -830,7 +830,7 @@ impl PeerManagerActor {
                     .snapshot_hosts
                     .select_host_for_header(&sync_prev_prev_hash, shard_id)
                 else {
-                    tracing::debug!(target: "network", ?shard_id, ?sync_hash, "no snapshot hosts available");
+                    tracing::debug!(target: "network", %shard_id, ?sync_hash, "no snapshot hosts available");
                     return NetworkResponses::NoDestinationsAvailable;
                 };
 
@@ -868,7 +868,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", ?shard_id, ?sync_hash, "requesting state header from host {peer_id}");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, "requesting state header from host {peer_id}");
                 NetworkResponses::SelectedDestination(peer_id)
             }
             NetworkRequests::StateRequestPart {
@@ -890,7 +890,7 @@ impl PeerManagerActor {
                     shard_id,
                     part_id,
                 ) else {
-                    tracing::debug!(target: "network", ?shard_id, ?sync_hash, ?part_id, "no snapshot hosts available");
+                    tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, "no snapshot hosts available");
                     return NetworkResponses::NoDestinationsAvailable;
                 };
 
@@ -911,7 +911,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", ?shard_id, ?sync_hash, ?part_id, "requesting state part from host {peer_id}");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, "requesting state part from host {peer_id}");
                 NetworkResponses::SelectedDestination(peer_id)
             }
             NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {

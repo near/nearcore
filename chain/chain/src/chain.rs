@@ -1900,7 +1900,7 @@ impl Chain {
                 // during catchup of this block.
                 cares_about_shard
             };
-            tracing::debug!(target: "chain", ?shard_id, need_storage_update, "Updating storage");
+            tracing::debug!(target: "chain", %shard_id, need_storage_update, "Updating storage");
 
             if need_storage_update {
                 self.resharding_manager.start_resharding(
@@ -2022,7 +2022,7 @@ impl Chain {
                 Ok(result) => {
                     debug!(
                         target: "chain", ?prev_block_hash, block_height,
-                        ?shard_id, ?cached_shard_update_key,
+                        %shard_id, ?cached_shard_update_key,
                         "Caching ShardUpdate result from OptimisticBlock"
                     );
                     self.apply_chunk_results_cache.push(cached_shard_update_key, result);
@@ -2030,7 +2030,7 @@ impl Chain {
                 Err(e) => {
                     warn!(
                         target: "chain", ?e,
-                        ?prev_block_hash, block_height, ?shard_id,
+                        ?prev_block_hash, block_height, %shard_id,
                         ?cached_shard_update_key,
                         "Error applying chunk for OptimisticBlock"
                     );
@@ -3263,7 +3263,7 @@ impl Chain {
                 shard_id,
                 matches!(block.block_type, BlockType::Normal),
             ) {
-                debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
+                debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
                 let result = result.clone();
                 return Ok(Some((
                     shard_id,
@@ -3272,7 +3272,7 @@ impl Chain {
                 )));
             }
         }
-        debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
+        debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
@@ -3295,7 +3295,7 @@ impl Chain {
                 warn!(
                     target: "chain",
                     ?err,
-                    ?shard_id,
+                    %shard_id,
                     prev_chunk_height_included,
                     ?prev_chunk_extra,
                     ?chunk_header,

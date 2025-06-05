@@ -1329,7 +1329,7 @@ impl EncodedShardChunk {
             target: "sharding",
             "decode_chunk",
             height_included = self.cloned_header().height_included(),
-            shard_id = ?self.cloned_header().shard_id(),
+            shard_id = %self.cloned_header().shard_id(),
             chunk_hash = ?self.chunk_hash())
         .entered();
 
