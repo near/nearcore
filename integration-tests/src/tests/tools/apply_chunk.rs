@@ -113,7 +113,7 @@ fn test_apply_chunk() {
                     epoch_manager.as_ref(),
                     runtime.as_ref(),
                     &mut chain_store,
-                    chunk_hash.clone(),
+                    chunk_hash,
                     None,
                     Some(rng),
                     StorageSource::Trie,

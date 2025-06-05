@@ -229,7 +229,7 @@ pub(crate) fn apply_chunk(
         epoch_manager.as_ref(),
         runtime.as_ref(),
         &mut chain_store,
-        chunk_hash,
+        &chunk_hash,
         target_height,
         None,
         storage,
