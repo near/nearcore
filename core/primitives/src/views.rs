@@ -2290,6 +2290,7 @@ pub struct CurrentEpochValidatorInfo {
     #[serde(default)]
     pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
     /// Shards this validator is assigned to as chunk validator in the current epoch.
+    #[serde(default)]
     pub shards_endorsed: Vec<ShardId>,
 }
 
