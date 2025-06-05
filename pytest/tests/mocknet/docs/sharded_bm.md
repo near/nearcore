@@ -52,10 +52,9 @@ python tests/mocknet/sharded_bm.py reset
 
 ## Tweaking
 
-For now, if you want to change load schedule, it is easier to run `python tests/mocknet/sharded_bm.py init` again.
-TODO: make it faster.
+If you want to tweak some non-critical parameters, modify locally the json patches in `CASE` and then run `python tests/mocknet/sharded_bm.py tweak-config`.
 
-Changing neard binary also requires calling `init`. You can either:
+For more critical changes, like changing neard binary, you must call `init`. You can either:
 
 * give flag `--neard-binary-url URL` which takes the highest priority;
 * otherwise, value of env var `NEARD_BINARY_URL` will be taken, if set;
