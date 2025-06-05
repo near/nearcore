@@ -25,19 +25,19 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: warp-ubuntu-2204-x64-16x
+            os: ubuntu-22.04
             type: stable
             upload_profraws: true
             run_on_pr: true
           - name: Linux Nightly
             id: linux-nightly
-            os: warp-ubuntu-2204-x64-16x
+            os: ubuntu-22.04
             type: nightly
             upload_profraws: true
             run_on_pr: true
           - name: MacOS
             id: macos
-            os: warp-macos-14-arm64-6x
+            os: macos-14
             type: stable
             upload_profraws: false
             run_on_pr: false
@@ -92,7 +92,7 @@ jobs:
 
   pytest_nightly_tests:
     name: "Large pytest (nightly) Checks"
-    runs-on: warp-ubuntu-2204-x64-16x
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
     timeout-minutes: 90
@@ -127,7 +127,7 @@ jobs:
 
   pytest_tests:
     name: "Large pytest Tests"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: WarpBuilds/setup-python@v5
@@ -158,7 +158,7 @@ jobs:
 
   protocol_schema_check:
     name: "Protocol Schema"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -193,7 +193,7 @@ jobs:
 
   check_clippy:
     name: "Cargo Clippy"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -203,7 +203,7 @@ jobs:
 
   doctests:
     name: "Rust Doctests"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -259,7 +259,7 @@ jobs:
 
   check_udeps:
     name: "Unused Dependencies"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -374,7 +374,7 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: warp-ubuntu-2204-x64-2x
+            os: ubuntu-22.04
           - name: Windows
             id: win
             os: windows-latest
