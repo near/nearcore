@@ -10,6 +10,9 @@ expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ult
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9 --features nightly
 
+expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup
+expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup --features nightly
+
 # cross-shard transactions tests
 expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx
 expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx --features nightly
@@ -130,6 +133,8 @@ expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2 --features nightly
 
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join --features nightly
 expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_kickout
 expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_kickout --features nightly
 

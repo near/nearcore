@@ -324,7 +324,7 @@ fn slow_test_validator_kickout() {
 /// Poll `/status` until you see the change of validator assignments.
 /// Afterwards check that `locked` amount on accounts Node1 and Node2 are 0 and TESTING_INIT_STAKE.
 #[test]
-fn test_validator_join() {
+fn ultra_slow_test_validator_join() {
     heavy_test(|| {
         let num_nodes = 4;
         let dirs = (0..num_nodes)
