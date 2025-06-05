@@ -35,7 +35,7 @@ use crate::utils::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
-fn ultra_slow_test_sync_state_nodes() {
+fn slow_test_sync_state_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
