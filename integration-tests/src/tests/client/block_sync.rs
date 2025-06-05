@@ -88,7 +88,7 @@ fn test_block_sync() {
         blocks.push(block.clone());
         env.process_block(0, block, Provenance::PRODUCED);
     }
-    let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
+    let block_headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
     let peer_infos = create_highest_height_peer_infos(2);
     env.clients[1].chain.sync_block_headers(block_headers).unwrap();
 
@@ -167,7 +167,7 @@ fn test_block_sync_archival() {
         blocks.push(block.clone());
         env.process_block(0, block, Provenance::PRODUCED);
     }
-    let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
+    let block_headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
     let peer_infos = create_highest_height_peer_infos(2);
     env.clients[1].chain.sync_block_headers(block_headers).unwrap();
 
