@@ -93,6 +93,8 @@ expensive --timeout=1200 integration-tests integration_tests tests::client::bloc
 expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails --features nightly
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard --features nightly
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block --features nightly
 

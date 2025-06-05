@@ -345,7 +345,7 @@ fn test_query_rpc_account_view_account_does_not_exist_must_return_error() {
 }
 
 #[test]
-fn test_tx_not_enough_balance_must_return_error() {
+fn slow_test_tx_not_enough_balance_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
