@@ -1008,7 +1008,7 @@ impl Chain {
         {
             if chunk_header.height_included() == block.header().height() {
                 // new chunk
-                if &chunk_header.prev_block_hash() != block.header().prev_hash() {
+                if chunk_header.prev_block_hash() != block.header().prev_hash() {
                     return Err(Error::InvalidChunk(format!(
                         "Invalid prev_block_hash, chunk hash {:?}, chunk prev block hash {}, block prev block hash {}",
                         chunk_header.chunk_hash(),
@@ -2121,14 +2121,14 @@ impl Chain {
             .get(shard_index)
             .ok_or_else(|| Error::InvalidShardId(shard_uid.shard_id()))?;
         let chunk_shard_layout =
-            self.epoch_manager.get_shard_layout_from_prev_block(&chunk_header.prev_block_hash())?;
+            self.epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_shard_uid =
             ShardUId::from_shard_id_and_layout(chunk_header.shard_id(), &chunk_shard_layout);
 
         if shard_uid != chunk_shard_uid {
             return Ok(None);
         }
-        let new_flat_head = chunk_header.prev_block_hash();
+        let new_flat_head = *chunk_header.prev_block_hash();
         if new_flat_head == CryptoHash::default() {
             return Ok(None);
         }
@@ -3359,10 +3359,10 @@ impl Chain {
     fn min_chunk_prev_height(&self, block: &Block) -> Result<BlockHeight, Error> {
         let mut ret = None;
         for chunk in block.chunks().iter_raw() {
-            let prev_height = if chunk.prev_block_hash() == CryptoHash::default() {
+            let prev_height = if chunk.prev_block_hash() == &CryptoHash::default() {
                 0
             } else {
-                let prev_header = self.get_block_header(&chunk.prev_block_hash())?;
+                let prev_header = self.get_block_header(chunk.prev_block_hash())?;
                 prev_header.height()
             };
             if let Some(min_height) = ret {

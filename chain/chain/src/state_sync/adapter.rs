@@ -503,7 +503,7 @@ impl ChainStateSyncAdapter {
         let chunk_inner = chunk.take_header().take_inner();
         if !self.runtime_adapter.validate_state_root_node(
             shard_state_header.state_root_node(),
-            &chunk_inner.prev_state_root(),
+            chunk_inner.prev_state_root(),
         ) {
             byzantine_assert!(false);
             return Err(Error::Other("set_shard_state failed: state_root_node is invalid".into()));
@@ -527,7 +527,7 @@ impl ChainStateSyncAdapter {
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
-        let state_root = chunk.take_header().take_inner().prev_state_root();
+        let state_root = *chunk.take_header().take_inner().prev_state_root();
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, data) {
             byzantine_assert!(false);
             return Err(Error::Other(format!(

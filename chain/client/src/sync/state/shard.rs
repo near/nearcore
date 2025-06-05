@@ -173,7 +173,7 @@ pub(super) async fn run_state_sync_for_shard(
         // If block_hash is equal to default - this means that we're all the way back at genesis.
         // So we don't have to add the storage state for shard in such case.
         // TODO(8438) - add additional test scenarios for this case.
-        if block_hash != CryptoHash::default() {
+        if *block_hash != CryptoHash::default() {
             create_flat_storage_for_shard(&store, &*runtime, shard_uid, &chunk)?;
         }
     }
@@ -218,7 +218,7 @@ fn create_flat_storage_for_shard(
     // Flat storage must not exist at this point because leftover keys corrupt its state.
     assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
-    let flat_head_hash = chunk.prev_block();
+    let flat_head_hash = *chunk.prev_block();
     let flat_head_header =
         store.get_ser::<BlockHeader>(DBCol::BlockHeader, flat_head_hash.as_bytes())?.ok_or_else(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", flat_head_hash)),

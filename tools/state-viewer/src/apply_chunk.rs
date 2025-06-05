@@ -103,7 +103,7 @@ pub fn apply_chunk(
     // This doesn't work at resharding epoch boundary if there are missing chunks.
     let shard_id = chunk_header.shard_id();
 
-    let prev_block_hash = &chunk_header.prev_block_hash();
+    let prev_block_hash = chunk_header.prev_block_hash();
     let prev_state_root = chunk.prev_state_root();
 
     let transactions = chunk.to_transactions().to_vec();
@@ -232,7 +232,7 @@ fn find_tx_or_receipt(
         for receipt in chunk.prev_outgoing_receipts() {
             if &receipt.get_hash() == hash {
                 let shard_layout =
-                    epoch_manager.get_shard_layout_from_prev_block(&chunk.prev_block())?;
+                    epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
                 let to_shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
                 return Ok(Some((HashType::Receipt, to_shard)));
             }
@@ -463,7 +463,7 @@ fn apply_receipt_in_chunk(
                 for receipt in chunk.prev_outgoing_receipts() {
                     if receipt.get_hash() == *id {
                         let shard_layout =
-                            epoch_manager.get_shard_layout_from_prev_block(&chunk.prev_block())?;
+                            epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
                         let to_shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
                         to_apply.insert((height, to_shard));
                         println!(
