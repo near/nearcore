@@ -8,6 +8,7 @@ use crate::compact::RunCompactionCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::{LoadMemTrieCommand, SplitShardTrieCommand};
+use crate::rollback_to_26::RollbackTo26Command;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::set_version::SetVersionCommand;
 use crate::state_perf::StatePerfCommand;
@@ -68,6 +69,10 @@ enum SubCommand {
 
     /// Manually set database version
     SetVersion(SetVersionCommand),
+
+    /// Rollback the database from format used by neard 2.7 to the format used by neard 2.6.
+    /// Sets DB version to 44.
+    RollbackTo26(RollbackTo26Command),
 }
 
 impl DatabaseCommand {
@@ -95,6 +100,7 @@ impl DatabaseCommand {
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home, genesis_validation),
             SubCommand::SetVersion(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::RollbackTo26(cmd) => cmd.run(home, genesis_validation),
         }
     }
 }
