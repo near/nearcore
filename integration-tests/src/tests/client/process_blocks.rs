@@ -1205,7 +1205,7 @@ fn test_gc_execution_outcome() {
 }
 
 #[test]
-fn ultra_slow_test_gc_after_state_sync() {
+fn test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;

@@ -35,7 +35,7 @@ use crate::utils::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
-fn ultra_slow_test_sync_state_nodes() {
+fn test_sync_state_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
@@ -448,7 +448,7 @@ fn ultra_slow_test_sync_state_dump() {
 // Test that state sync behaves well when the chunks are absent before the sync_hash block.
 // TODO: consider adding more scenarios for the CurrentEpochStateSync case, because with only one shard,
 // it's not possible to have the block before the sync_hash block miss any chunks.
-fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
+fn test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
         init_test_logger();
         let epoch_length = 12;
