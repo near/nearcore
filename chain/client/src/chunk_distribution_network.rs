@@ -260,7 +260,7 @@ mod tests {
 
         // Block missing chunks unknown to the client are requested by shard manager
         let blocks_missing_chunks = vec![BlockMissingChunks {
-            prev_hash: missing_chunk.prev_block(),
+            prev_hash: *missing_chunk.prev_block(),
             missing_chunks: vec![missing_chunk.cloned_header()],
         }];
         system.block_on(async {
@@ -276,7 +276,7 @@ mod tests {
                 message,
                 ShardsManagerRequestFromClient::RequestChunks {
                     chunks_to_request: vec![missing_chunk.cloned_header()],
-                    prev_hash: missing_chunk.prev_block()
+                    prev_hash: *missing_chunk.prev_block()
                 }
             );
             assert_eq!(message_receiver.try_recv().unwrap_err(), mpsc::error::TryRecvError::Empty);
@@ -286,7 +286,7 @@ mod tests {
         let orphans_missing_chunks = vec![OrphanMissingChunks {
             missing_chunks: vec![missing_chunk.cloned_header()],
             epoch_id: EpochId::default(),
-            ancestor_hash: missing_chunk.prev_block(),
+            ancestor_hash: *missing_chunk.prev_block(),
         }];
         system.block_on(async {
             request_missing_chunks(
@@ -302,7 +302,7 @@ mod tests {
                 ShardsManagerRequestFromClient::RequestChunksForOrphan {
                     chunks_to_request: vec![missing_chunk.cloned_header()],
                     epoch_id: EpochId::default(),
-                    ancestor_hash: missing_chunk.prev_block()
+                    ancestor_hash: *missing_chunk.prev_block()
                 }
             );
             assert_eq!(message_receiver.try_recv().unwrap_err(), mpsc::error::TryRecvError::Empty);
@@ -315,13 +315,13 @@ mod tests {
         client.publish_chunk(&known_chunk_1).now_or_never();
         client.publish_chunk(&known_chunk_2).now_or_never();
         let blocks_missing_chunks = vec![BlockMissingChunks {
-            prev_hash: known_chunk_1.prev_block(),
+            prev_hash: *known_chunk_1.prev_block(),
             missing_chunks: vec![known_chunk_1.cloned_header()],
         }];
         let orphans_missing_chunks = vec![OrphanMissingChunks {
             missing_chunks: vec![known_chunk_2.cloned_header()],
             epoch_id: EpochId::default(),
-            ancestor_hash: known_chunk_2.prev_block(),
+            ancestor_hash: *known_chunk_2.prev_block(),
         }];
         system.block_on(async {
             request_missing_chunks(
@@ -337,7 +337,7 @@ mod tests {
                 ShardsManagerRequestFromClient::ProcessOrRequestChunk {
                     candidate_chunk: known_chunk_1.clone(),
                     request_header: known_chunk_1.cloned_header(),
-                    prev_hash: known_chunk_1.prev_block()
+                    prev_hash: *known_chunk_1.prev_block()
                 }
             );
             let message = message_receiver.recv().await.unwrap();
@@ -347,7 +347,7 @@ mod tests {
                     candidate_chunk: known_chunk_2.clone(),
                     request_header: known_chunk_2.cloned_header(),
                     epoch_id: EpochId::default(),
-                    ancestor_hash: known_chunk_2.prev_block(),
+                    ancestor_hash: *known_chunk_2.prev_block(),
                 }
             );
             assert_eq!(message_receiver.try_recv().unwrap_err(), mpsc::error::TryRecvError::Empty);
@@ -356,13 +356,13 @@ mod tests {
         // If the chunk distribution client is broken (returns errors to requests) then
         // the p2p network is used for requesting chunks.
         let blocks_missing_chunks = vec![BlockMissingChunks {
-            prev_hash: known_chunk_1.prev_block(),
+            prev_hash: *known_chunk_1.prev_block(),
             missing_chunks: vec![known_chunk_1.cloned_header()],
         }];
         let orphans_missing_chunks = vec![OrphanMissingChunks {
             missing_chunks: vec![known_chunk_2.cloned_header()],
             epoch_id: EpochId::default(),
-            ancestor_hash: known_chunk_2.prev_block(),
+            ancestor_hash: *known_chunk_2.prev_block(),
         }];
         system.block_on(async {
             request_missing_chunks(
@@ -377,7 +377,7 @@ mod tests {
                 message,
                 ShardsManagerRequestFromClient::RequestChunks {
                     chunks_to_request: vec![known_chunk_1.cloned_header()],
-                    prev_hash: known_chunk_1.prev_block()
+                    prev_hash: *known_chunk_1.prev_block()
                 }
             );
             let message = message_receiver.recv().await.unwrap();
@@ -386,7 +386,7 @@ mod tests {
                 ShardsManagerRequestFromClient::RequestChunksForOrphan {
                     chunks_to_request: vec![known_chunk_2.cloned_header()],
                     epoch_id: EpochId::default(),
-                    ancestor_hash: known_chunk_2.prev_block(),
+                    ancestor_hash: *known_chunk_2.prev_block(),
                 }
             );
             assert_eq!(message_receiver.try_recv().unwrap_err(), mpsc::error::TryRecvError::Empty);
@@ -445,7 +445,7 @@ mod tests {
             &mut self,
             chunk: &PartialEncodedChunk,
         ) -> Result<Self::Response, Self::Error> {
-            let prev_hash = chunk.prev_block();
+            let prev_hash = *chunk.prev_block();
             let shard_id = chunk.shard_id();
             self.known_chunks.insert((prev_hash, shard_id), chunk.clone());
             Ok(())

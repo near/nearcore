@@ -236,7 +236,7 @@ fn is_chunk_validated_by(
     let prev_block_hash = chunk.prev_block_hash();
     let shard_id = chunk.shard_id();
     let height_created = chunk.height_created();
-    let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
+    let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
 
     let chunk_validators = epoch_manager_adapter
         .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)
@@ -250,7 +250,7 @@ fn should_drop_chunk_by_height(
     chunk: ShardChunkHeader,
     chunks_produced: HashMap<ShardId, Vec<bool>>,
 ) -> bool {
-    let prev_block_hash = &chunk.prev_block_hash();
+    let prev_block_hash = chunk.prev_block_hash();
     let shard_id = chunk.shard_id();
     let height_created = chunk.height_created();
 
@@ -282,7 +282,7 @@ fn should_drop_chunk_for_protocol_upgrade(
     let prev_block_hash = chunk.prev_block_hash();
     let shard_id = chunk.shard_id();
     let height_created = chunk.height_created();
-    let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
+    let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
     let shard_layout = epoch_manager_adapter.get_shard_layout(&epoch_id).unwrap();
     let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     // If there is no condition for the shard, all chunks
@@ -296,7 +296,7 @@ fn should_drop_chunk_for_protocol_upgrade(
     // Drop condition for the first epoch with new protocol version.
     if epoch_protocol_version >= version_of_protocol_upgrade {
         let prev_epoch_id =
-            epoch_manager_adapter.get_prev_epoch_id_from_prev_block(&prev_block_hash).unwrap();
+            epoch_manager_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash).unwrap();
         let prev_epoch_protocol_version =
             epoch_manager_adapter.get_epoch_protocol_version(&prev_epoch_id).unwrap();
         // If this is not the first epoch with new protocol version,
@@ -308,7 +308,7 @@ fn should_drop_chunk_for_protocol_upgrade(
         // Check the first block height in the epoch separately,
         // because the block itself is not created yet.
         // Its relative height is 0.
-        if epoch_manager_adapter.is_next_block_epoch_start(&prev_block_hash).unwrap() {
+        if epoch_manager_adapter.is_next_block_epoch_start(prev_block_hash).unwrap() {
             return range.contains(&0);
         }
 
@@ -320,7 +320,7 @@ fn should_drop_chunk_for_protocol_upgrade(
     } else if epoch_protocol_version < version_of_protocol_upgrade {
         // Drop condition for the last epoch with old protocol version.
         let maybe_upgrade_height = epoch_manager_adapter
-            .get_estimated_protocol_upgrade_block_height(prev_block_hash)
+            .get_estimated_protocol_upgrade_block_height(*prev_block_hash)
             .unwrap();
 
         // The protocol upgrade height is known if and only if
@@ -329,7 +329,7 @@ fn should_drop_chunk_for_protocol_upgrade(
             return false;
         };
         let next_epoch_id =
-            epoch_manager_adapter.get_next_epoch_id_from_prev_block(&prev_block_hash).unwrap();
+            epoch_manager_adapter.get_next_epoch_id_from_prev_block(prev_block_hash).unwrap();
         let next_epoch_protocol_version =
             epoch_manager_adapter.get_epoch_protocol_version(&next_epoch_id).unwrap();
         assert!(epoch_protocol_version < next_epoch_protocol_version);
