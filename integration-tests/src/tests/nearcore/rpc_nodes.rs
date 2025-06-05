@@ -206,7 +206,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
 }
 
 #[test]
-fn test_get_execution_outcome_tx_success() {
+fn ultra_slow_test_get_execution_outcome_tx_success() {
     test_get_execution_outcome(true);
 }
 
