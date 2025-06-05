@@ -117,12 +117,12 @@ impl Handler<ExecutorIncomingReceipts> for ChunkExecutorActor {
 
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
 
-        let Some(next_block_hashes) = self.next_block_hashes.pop(&block_hash) else {
+        let Some(next_block_hashes) = self.next_block_hashes.get(&block_hash) else {
             // Next block wasn't processed yet.
             tracing::debug!(target: "chunk_executor", %block_hash, "no next block hash is available");
             return;
         };
-        for next_block_hash in next_block_hashes {
+        for next_block_hash in next_block_hashes.clone() {
             // TODO(spice): Avoid storing the same incoming receipts several times.. With many
             // forks we would be saving the same incoming receipts associated with different blocks
             // which is redundant.
