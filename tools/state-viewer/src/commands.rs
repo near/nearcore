@@ -106,7 +106,7 @@ pub(crate) fn apply_block(
         let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
         runtime
             .apply_chunk(
-                storage.create_runtime_storage(chunk_inner.prev_state_root()),
+                storage.create_runtime_storage(*chunk_inner.prev_state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,

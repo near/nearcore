@@ -215,7 +215,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     .entered();
 
     let epoch_id =
-        epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash()).unwrap();
+        epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash()).unwrap();
 
     // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
     // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
@@ -286,7 +286,7 @@ impl Client {
         }
 
         let signer = signer.unwrap();
-        match self.chain.get_block(&witness.chunk_header().prev_block_hash()) {
+        match self.chain.get_block(witness.chunk_header().prev_block_hash()) {
             Ok(block) => self.process_chunk_state_witness_with_prev_block(
                 witness,
                 &block,
@@ -324,7 +324,7 @@ impl Client {
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
-        if &witness.chunk_header().prev_block_hash() != prev_block.hash() {
+        if witness.chunk_header().prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(
                 "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",
                 witness.chunk_header().prev_block_hash(),

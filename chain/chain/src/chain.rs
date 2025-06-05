@@ -131,7 +131,7 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// CatchingUp is for when apply_chunks is called through catchup_blocks, this is to catch up the
 /// shard states for the next epoch
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
-enum ApplyChunksMode {
+pub enum ApplyChunksMode {
     IsCaughtUp,
     CatchingUp,
     NotCaughtUp,
@@ -356,7 +356,7 @@ impl Drop for Chain {
 
 /// UpdateShardJob is a closure that is responsible for updating a shard for a single block.
 /// Execution context (latest blocks/chunks details) are already captured within.
-type UpdateShardJob = (
+pub type UpdateShardJob = (
     ShardId,
     CachedShardUpdateKey,
     Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>,
@@ -1008,7 +1008,7 @@ impl Chain {
         {
             if chunk_header.height_included() == block.header().height() {
                 // new chunk
-                if &chunk_header.prev_block_hash() != block.header().prev_hash() {
+                if chunk_header.prev_block_hash() != block.header().prev_hash() {
                     return Err(Error::InvalidChunk(format!(
                         "Invalid prev_block_hash, chunk hash {:?}, chunk prev block hash {}, block prev block hash {}",
                         chunk_header.chunk_hash(),
@@ -2121,14 +2121,14 @@ impl Chain {
             .get(shard_index)
             .ok_or_else(|| Error::InvalidShardId(shard_uid.shard_id()))?;
         let chunk_shard_layout =
-            self.epoch_manager.get_shard_layout_from_prev_block(&chunk_header.prev_block_hash())?;
+            self.epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_shard_uid =
             ShardUId::from_shard_id_and_layout(chunk_header.shard_id(), &chunk_shard_layout);
 
         if shard_uid != chunk_shard_uid {
             return Ok(None);
         }
-        let new_flat_head = chunk_header.prev_block_hash();
+        let new_flat_head = *chunk_header.prev_block_hash();
         if new_flat_head == CryptoHash::default() {
             return Ok(None);
         }
@@ -3202,7 +3202,7 @@ impl Chain {
 
     /// Get a key which can uniquely define result of applying a chunk based on
     /// block execution context and other chunks.
-    fn get_cached_shard_update_key(
+    pub fn get_cached_shard_update_key(
         block_context: &ApplyChunkBlockContext,
         chunk_headers: &Chunks,
         shard_id: ShardId,
@@ -3359,10 +3359,10 @@ impl Chain {
     fn min_chunk_prev_height(&self, block: &Block) -> Result<BlockHeight, Error> {
         let mut ret = None;
         for chunk in block.chunks().iter_raw() {
-            let prev_height = if chunk.prev_block_hash() == CryptoHash::default() {
+            let prev_height = if chunk.prev_block_hash() == &CryptoHash::default() {
                 0
             } else {
-                let prev_header = self.get_block_header(&chunk.prev_block_hash())?;
+                let prev_header = self.get_block_header(chunk.prev_block_hash())?;
                 prev_header.height()
             };
             if let Some(min_height) = ret {
@@ -3438,7 +3438,7 @@ impl Chain {
 /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
 /// that it does not guard whether the children shards are ready or not, see the
 /// comments before `need_to_reshard`
-fn get_should_apply_chunk(
+pub fn get_should_apply_chunk(
     mode: ApplyChunksMode,
     cares_about_shard_this_epoch: bool,
     cares_about_shard_next_epoch: bool,

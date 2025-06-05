@@ -121,7 +121,7 @@ impl EntityDebugHandlerImpl {
                     .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
                 let epoch_id =
-                    self.epoch_manager.get_epoch_id_from_prev_block(&chunk.prev_block())?;
+                    self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
                 let author = self
                     .epoch_manager
                     .get_chunk_producer_info(&ChunkProductionKey {
@@ -152,7 +152,7 @@ impl EntityDebugHandlerImpl {
                     )?
                     .ok_or_else(|| anyhow!("Cannot find block at chunk's height"))?;
                 let epoch_id =
-                    self.epoch_manager.get_epoch_id_from_prev_block(&chunk.prev_block())?;
+                    self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
                 let shard_id = chunk.shard_id();
                 let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
                 let chunk_extra = store

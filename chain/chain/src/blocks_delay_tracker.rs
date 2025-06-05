@@ -126,7 +126,7 @@ impl ChunkTrackingStats {
         Self {
             height_created: chunk_header.height_created(),
             shard_id: chunk_header.shard_id(),
-            prev_block_hash: chunk_header.prev_block_hash(),
+            prev_block_hash: *chunk_header.prev_block_hash(),
             requested_timestamp: None,
             completed_timestamp: None,
         }

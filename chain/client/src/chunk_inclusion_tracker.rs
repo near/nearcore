@@ -75,7 +75,7 @@ impl ChunkInclusionTracker {
         chunk_header: ShardChunkHeader,
         chunk_producer: AccountId,
     ) {
-        let prev_block_hash = &chunk_header.prev_block_hash();
+        let prev_block_hash = chunk_header.prev_block_hash();
         if let Some(entry) = self.prev_block_to_chunk_hash_ready.get_mut(prev_block_hash) {
             // If prev_block_hash entry exists, add the new chunk to the entry.
             entry.insert(chunk_header.shard_id(), chunk_header.chunk_hash());

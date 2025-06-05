@@ -226,7 +226,7 @@ def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
     """Parses timeout interval and converts it into number of seconds.
 
     Args:
-        timeout: An integer with an optional ‘h’, ‘m’ or ‘s’ suffix which
+        timeout: An integer with an optional 'h', 'm' or 's' suffix which
             multiply the integer by 3600, 60 and 1 respectively.
     Returns:
         Interval in seconds.
@@ -271,8 +271,6 @@ def run_locally(args, tests):
                 "test",
                 "-p",
                 fields[1],  # '--test', fields[2],
-                "--features",
-                "expensive_tests",
                 "--",
                 "--exact",
                 fields[3],

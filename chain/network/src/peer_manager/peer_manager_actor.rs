@@ -1204,6 +1204,11 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            // TODO(spice): remove
+            NetworkRequests::TestonlySpiceIncomingReceipts { .. } => {
+                debug_assert!(false);
+                NetworkResponses::NoResponse
+            }
         }
     }
 

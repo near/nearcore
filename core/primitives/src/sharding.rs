@@ -6,6 +6,7 @@ use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 #[cfg(feature = "solomon")]
 use crate::transaction::ValidatedTransaction;
+use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -271,7 +272,7 @@ impl ShardChunkHeaderV3 {
         let inner_bytes = borsh::to_vec(&inner).expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
-        ChunkHash(combine_hash(&inner_hash, &inner.encoded_merkle_root()))
+        ChunkHash(combine_hash(&inner_hash, inner.encoded_merkle_root()))
     }
 
     pub fn new(
@@ -407,22 +408,69 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.inner.prev_state_root,
             Self::V2(header) => header.inner.prev_state_root,
-            Self::V3(header) => header.inner.prev_state_root(),
+            Self::V3(header) => *header.inner.prev_state_root(),
         }
     }
 
+    // TODO(spice): Create a separate data structure that will be used for chunk application
+    // and equivalent to current chunk version that includes chunk extra information.
     #[inline]
-    pub fn prev_block_hash(&self) -> CryptoHash {
+    pub fn into_spice_chunk_execution_header(self, prev_chunk_extra: &ChunkExtra) -> Self {
+        let Self::V3(mut header) = self else {
+            return self;
+        };
+
+        header.inner = match header.inner {
+            ShardChunkHeaderInner::V1(_)
+            | ShardChunkHeaderInner::V2(_)
+            | ShardChunkHeaderInner::V3(_) => header.inner,
+            // TODO(spice): Create a new inner version to distinguish spice's tx-only chunk.
+            ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                prev_block_hash,
+                encoded_merkle_root,
+                encoded_length,
+                height_created,
+                shard_id,
+                prev_outgoing_receipts_root,
+                tx_root,
+                ..
+            }) => {
+                let chunk_extra = prev_chunk_extra;
+                ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                    prev_state_root: *chunk_extra.state_root(),
+                    prev_outcome_root: *chunk_extra.outcome_root(),
+                    prev_gas_used: chunk_extra.gas_used(),
+                    gas_limit: chunk_extra.gas_limit(),
+                    prev_balance_burnt: chunk_extra.balance_burnt(),
+                    prev_validator_proposals: chunk_extra.validator_proposals().collect(),
+                    bandwidth_requests: chunk_extra.bandwidth_requests().cloned().unwrap(),
+                    congestion_info: chunk_extra.congestion_info(),
+                    prev_block_hash,
+                    encoded_merkle_root,
+                    encoded_length,
+                    height_created,
+                    shard_id,
+                    tx_root,
+                    prev_outgoing_receipts_root,
+                })
+            }
+        };
+        header.hash = ShardChunkHeaderV3::compute_hash(&header.inner);
+        Self::V3(header)
+    }
+
+    #[inline]
+    pub fn prev_block_hash(&self) -> &CryptoHash {
         match self {
-            Self::V1(header) => header.inner.prev_block_hash,
-            Self::V2(header) => header.inner.prev_block_hash,
+            Self::V1(header) => &header.inner.prev_block_hash,
+            Self::V2(header) => &header.inner.prev_block_hash,
             Self::V3(header) => header.inner.prev_block_hash(),
         }
     }
 
     #[inline]
     pub fn is_genesis(&self) -> bool {
-        self.prev_block_hash() == CryptoHash::default()
+        self.prev_block_hash() == &CryptoHash::default()
     }
 
     #[inline]
@@ -430,7 +478,7 @@ impl ShardChunkHeader {
         match self {
             Self::V1(header) => header.inner.encoded_merkle_root,
             Self::V2(header) => header.inner.encoded_merkle_root,
-            Self::V3(header) => header.inner.encoded_merkle_root(),
+            Self::V3(header) => *header.inner.encoded_merkle_root(),
         }
     }
 
@@ -484,7 +532,7 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.prev_outgoing_receipts_root,
             ShardChunkHeader::V2(header) => header.inner.prev_outgoing_receipts_root,
-            ShardChunkHeader::V3(header) => header.inner.prev_outgoing_receipts_root(),
+            ShardChunkHeader::V3(header) => *header.inner.prev_outgoing_receipts_root(),
         }
     }
 
@@ -493,7 +541,7 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.prev_outcome_root,
             ShardChunkHeader::V2(header) => header.inner.prev_outcome_root,
-            ShardChunkHeader::V3(header) => header.inner.prev_outcome_root(),
+            ShardChunkHeader::V3(header) => *header.inner.prev_outcome_root(),
         }
     }
 
@@ -502,7 +550,7 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.tx_root,
             ShardChunkHeader::V2(header) => header.inner.tx_root,
-            ShardChunkHeader::V3(header) => header.inner.tx_root(),
+            ShardChunkHeader::V3(header) => *header.inner.tx_root(),
         }
     }
 
@@ -759,9 +807,9 @@ impl PartialEncodedChunk {
     }
 
     #[inline]
-    pub fn prev_block(&self) -> CryptoHash {
+    pub fn prev_block(&self) -> &CryptoHash {
         match &self {
-            PartialEncodedChunk::V1(chunk) => chunk.header.inner.prev_block_hash,
+            PartialEncodedChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
             PartialEncodedChunk::V2(chunk) => chunk.header.prev_block_hash(),
         }
     }
@@ -979,9 +1027,9 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn prev_block(&self) -> CryptoHash {
+    pub fn prev_block(&self) -> &CryptoHash {
         match &self {
-            ShardChunk::V1(chunk) => chunk.header.inner.prev_block_hash,
+            ShardChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
             ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
         }
     }
@@ -1061,7 +1109,7 @@ impl ShardChunk {
     pub fn prev_block_hash(&self) -> CryptoHash {
         match self {
             Self::V1(chunk) => chunk.header.inner.prev_block_hash,
-            Self::V2(chunk) => chunk.header.prev_block_hash(),
+            Self::V2(chunk) => *chunk.header.prev_block_hash(),
         }
     }
 
