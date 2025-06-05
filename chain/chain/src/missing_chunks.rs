@@ -268,7 +268,7 @@ impl OptimisticBlockChunksPool {
             return;
         }
 
-        let prev_block_hash = chunk_header.prev_block_hash();
+        let prev_block_hash = *chunk_header.prev_block_hash();
         let entry = self.chunks.entry(prev_block_hash).or_insert_with(|| {
             OptimisticBlockChunks::new(prev_block_height, shard_layout.num_shards() as usize)
         });

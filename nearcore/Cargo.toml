@@ -94,11 +94,6 @@ test_features = [
     "near-primitives/test_features",
     "near-vm-runner/test_features",
 ]
-expensive_tests = [
-    "near-client/expensive_tests",
-    "near-epoch-manager/expensive_tests",
-    "near-chain/expensive_tests",
-]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
 
