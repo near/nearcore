@@ -140,7 +140,7 @@ fn test_swap_key_testnet() {
 }
 
 #[test]
-fn test_add_access_key_function_call_testnet() {
+fn slow_test_add_access_key_function_call_testnet() {
     run_testnet_test!(test_add_access_key_function_call);
 }
 
@@ -175,7 +175,7 @@ fn test_delete_access_key_testnet() {
 }
 
 #[test]
-fn test_add_access_key_with_allowance_testnet() {
+fn slow_test_add_access_key_with_allowance_testnet() {
     run_testnet_test!(test_add_access_key_with_allowance);
 }
 

@@ -66,12 +66,12 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
 }
 
 #[test]
-fn test_2_10_multiple_nodes() {
+fn slow_test_2_10_multiple_nodes() {
     heavy_test(|| run_multiple_nodes(2, 10, "2_10"));
 }
 
 #[test]
-fn test_4_10_multiple_nodes() {
+fn slow_test_4_10_multiple_nodes() {
     heavy_test(|| run_multiple_nodes(4, 10, "4_10"));
 }
 
