@@ -72,7 +72,8 @@ def nightly_tests(repo_dir: pathlib.Path) -> typing.Iterable[str]:
 
 def main() -> typing.Optional[str]:
     repo_dir = pathlib.Path(__file__).parent.parent
-    nightly_txt_tests = set(nightly_tests(repo_dir))
+    # Once we see the tests in the repo, we mark the test as found.
+    nightly_txt_tests = {i: False for i in nightly_tests(repo_dir)}
     for root, dirs, files in os.walk(repo_dir):
         dirs[:] = [
             dirname for dirname in dirs if dirname not in IGNORED_SUBDIRS
@@ -86,6 +87,12 @@ def main() -> typing.Optional[str]:
                     print(f"  expensive test {test}")
                     if test not in nightly_txt_tests:
                         return f"error: file {filepath} test {test} not in ci.txt"
+                    # Marking nightly test as found.
+                    nightly_txt_tests[test] = True
+    for test, found in nightly_txt_tests.items():
+        # Not sure why are we yielding `nightly`
+        if not found and test != "nightly":
+            return f"error: test {test} not found in repo"
     print("all tests in nightly")
     return None
 
