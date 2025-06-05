@@ -1,5 +1,5 @@
 use crate::network_protocol::Encoding;
-use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
+use crate::network_protocol::{RawTieredMessageBody, RoutedMessageV2};
 use crate::tcp;
 use crate::types::PeerType;
 use near_async::time;
@@ -464,7 +464,7 @@ pub(crate) enum MessageDropped {
 }
 
 impl MessageDropped {
-    pub fn inc(self, msg: &RoutedMessageBody) {
+    pub fn inc(self, msg: &RawTieredMessageBody) {
         self.inc_msg_type(msg.into())
     }
 

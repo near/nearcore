@@ -12,8 +12,8 @@ use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutedMessageBody, RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData,
-    SyncSnapshotHosts,
+    RawTieredMessageBody, RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData,
+    SyncSnapshotHosts, T2MessageBody,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -979,9 +979,9 @@ impl PeerActor {
         msg_author: PeerId,
         prev_hop: PeerId,
         msg_hash: CryptoHash,
-        body: RoutedMessageBody,
-    ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        Ok(network_state.receive_routed_message(clock, msg_author, prev_hop, msg_hash, body).await)
+        body: RawTieredMessageBody,
+    ) -> Result<Option<RawTieredMessageBody>, ReasonForBan> {
+        Ok(network_state.receive_message(clock, msg_author, prev_hop, msg_hash, body).await)
     }
 
     fn receive_message(
@@ -1410,7 +1410,7 @@ impl PeerActor {
                         return;
                     }
                 }
-                if let RoutedMessageBody::ForwardTx(_) = &msg.body {
+                if let RawTieredMessageBody::T2(T2MessageBody::ForwardTx(_)) = &msg.body {
                     // Check whenever we exceeded number of transactions we got since last block.
                     // If so, drop the transaction.
                     let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
@@ -1436,7 +1436,7 @@ impl PeerActor {
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong
                     match &msg.body {
-                        RoutedMessageBody::Ping(ping) => {
+                        RawTieredMessageBody::T2(T2MessageBody::Ping(ping)) => {
                             self.network_state.send_pong(
                                 &self.clock,
                                 conn.tier,
@@ -1450,7 +1450,7 @@ impl PeerActor {
                             #[cfg(test)]
                             message_processed_event();
                         }
-                        RoutedMessageBody::Pong(_pong) => {
+                        RawTieredMessageBody::T2(T2MessageBody::Pong(_pong)) => {
                             #[cfg(test)]
                             self.network_state.config.event_sink.send(Event::Pong(_pong.clone()));
                             #[cfg(test)]

@@ -3,7 +3,7 @@ use crate::client::{ClientSenderForNetworkInput, ClientSenderForNetworkMessage};
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, RoutedMessageBody,
+    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, RawTieredMessageBody,
     RoutedMessageV2,
 };
 use crate::peer::peer_actor::PeerActor;
@@ -85,7 +85,7 @@ impl PeerHandle {
 
     pub fn routed_message(
         &self,
-        body: RoutedMessageBody,
+        body: RawTieredMessageBody,
         peer_id: PeerId,
         ttl: u8,
         utc: Option<time::Utc>,
