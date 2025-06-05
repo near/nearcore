@@ -517,10 +517,8 @@ mod tests {
         }
 
         check(
-            RawTieredMessageBody::T2(T2MessageBody::TxStatusRequest(
-                "test_x".parse().unwrap(),
-                CryptoHash([42; 32]),
-            )),
+            T2MessageBody::TxStatusRequest("test_x".parse().unwrap(), CryptoHash([42; 32]))
+                .into_tiered_message_body(),
             &[
                 2, 6, 0, 0, 0, 116, 101, 115, 116, 95, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
                 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,

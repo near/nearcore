@@ -456,18 +456,19 @@ impl Connection {
             return None;
         }
         match &msg.body {
-            RawTieredMessageBody::T2(T2MessageBody::Ping(p)) => {
-                Some(RoutedMessage::Ping { nonce: p.nonce })
-            }
-            RawTieredMessageBody::T2(T2MessageBody::Pong(p)) => {
-                Some(RoutedMessage::Pong { nonce: p.nonce, source: p.source.clone() })
-            }
-            RawTieredMessageBody::T2(T2MessageBody::PartialEncodedChunkRequest(request)) => {
-                Some(RoutedMessage::PartialEncodedChunkRequest(request.clone()))
-            }
-            RawTieredMessageBody::T2(T2MessageBody::PartialEncodedChunkResponse(response)) => {
-                Some(RoutedMessage::PartialEncodedChunkResponse(response.clone()))
-            }
+            RawTieredMessageBody::T2(body) => match body.as_ref() {
+                T2MessageBody::Ping(p) => Some(RoutedMessage::Ping { nonce: p.nonce }),
+                T2MessageBody::Pong(p) => {
+                    Some(RoutedMessage::Pong { nonce: p.nonce, source: p.source.clone() })
+                }
+                T2MessageBody::PartialEncodedChunkRequest(request) => {
+                    Some(RoutedMessage::PartialEncodedChunkRequest(request.clone()))
+                }
+                T2MessageBody::PartialEncodedChunkResponse(response) => {
+                    Some(RoutedMessage::PartialEncodedChunkResponse(response.clone()))
+                }
+                _ => None,
+            },
             _ => None,
         }
     }

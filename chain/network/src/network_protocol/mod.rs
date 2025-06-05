@@ -521,7 +521,6 @@ impl PeerMessage {
     }
 }
 
-#[allow(clippy::large_enum_variant)]
 #[derive(
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
@@ -532,8 +531,8 @@ impl PeerMessage {
     ProtocolSchema,
 )]
 pub enum RawTieredMessageBody {
-    T1(T1MessageBody),
-    T2(T2MessageBody),
+    T1(Box<T1MessageBody>),
+    T2(Box<T2MessageBody>),
 }
 
 impl fmt::Debug for RawTieredMessageBody {
@@ -606,7 +605,7 @@ impl T1MessageBody {
     }
 
     pub fn into_tiered_message_body(self) -> RawTieredMessageBody {
-        RawTieredMessageBody::T1(self)
+        RawTieredMessageBody::T1(Box::new(self))
     }
 }
 
@@ -701,7 +700,7 @@ impl T2MessageBody {
     }
 
     pub fn into_tiered_message_body(self) -> RawTieredMessageBody {
-        RawTieredMessageBody::T2(self)
+        RawTieredMessageBody::T2(Box::new(self))
     }
 }
 
@@ -873,7 +872,7 @@ impl RoutedMessage {
     pub fn expect_response(&self) -> bool {
         if let RawTieredMessageBody::T2(body) = &self.body {
             matches!(
-                body,
+                **body,
                 T2MessageBody::Ping(_)
                     | T2MessageBody::TxStatusRequest(_, _)
                     | T2MessageBody::PartialEncodedChunkRequest(_)

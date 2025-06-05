@@ -509,19 +509,21 @@ impl NetworkState {
 
     #[cfg(test)]
     pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
-        let body = RawTieredMessageBody::T2(T2MessageBody::Ping(crate::network_protocol::Ping {
+        let body = T2MessageBody::Ping(crate::network_protocol::Ping {
             nonce,
             source: self.config.node_id(),
-        }));
+        })
+        .into_tiered_message_body();
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
     pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
-        let body = RawTieredMessageBody::T2(T2MessageBody::Pong(crate::network_protocol::Pong {
+        let body = T2MessageBody::Pong(crate::network_protocol::Pong {
             nonce,
             source: self.config.node_id(),
-        }));
+        })
+        .into_tiered_message_body();
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
@@ -729,9 +731,9 @@ impl NetworkState {
     pub async fn receive_t1_message(
         self: &Arc<Self>,
         prev_hop: PeerId,
-        body: T1MessageBody,
-    ) -> Option<T1MessageBody> {
-        match body {
+        body: Box<T1MessageBody>,
+    ) -> Option<Box<T1MessageBody>> {
+        match *body {
             T1MessageBody::BlockApproval(approval) => {
                 self.client.send_async(BlockApproval(approval, prev_hop)).await.ok();
                 None
@@ -779,16 +781,16 @@ impl NetworkState {
         clock: &time::Clock,
         msg_author: PeerId,
         msg_hash: CryptoHash,
-        body: T2MessageBody,
-    ) -> Option<T2MessageBody> {
-        match body {
+        body: Box<T2MessageBody>,
+    ) -> Option<Box<T2MessageBody>> {
+        match *body {
             T2MessageBody::TxStatusRequest(account_id, tx_hash) => self
                 .client
                 .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
                 .await
                 .ok()
                 .flatten()
-                .map(|response| T2MessageBody::TxStatusResponse(*response)),
+                .map(|response| T2MessageBody::TxStatusResponse(*response).into()),
             T2MessageBody::TxStatusResponse(tx_result) => {
                 self.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
                 None
