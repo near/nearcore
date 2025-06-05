@@ -6,6 +6,7 @@ use crate::logic::{HostError, VMLogicError};
 use crate::tests::test_vm_config;
 use expect_test::expect;
 use near_parameters::{ActionCosts, ExtCosts, Fee};
+use near_primitives_core::hash::CryptoHash;
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -478,6 +479,119 @@ fn deploy_contract(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
     let idx = promise_batch_create(logic, account_id)?;
     let code = logic.internal_mem_write(b"lorem ipsum with length 26");
     logic.promise_batch_action_deploy_contract(idx, code.len, code.ptr)?;
+    Ok(())
+}
+
+/// see longer comment above for how this test works
+#[test]
+fn out_of_gas_deploy_global_contract_base() {
+    check_action_gas_exceeds_limit(
+        ActionCosts::deploy_global_contract_base,
+        1,
+        deploy_global_contract,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deploy_global_contract_base,
+        1,
+        expect!["119677812659 burnt 10000000000000 used"],
+        deploy_global_contract,
+    );
+}
+
+/// see longer comment above for how this test works
+#[test]
+fn out_of_gas_deploy_global_contract_byte() {
+    check_action_gas_exceeds_limit(
+        ActionCosts::deploy_global_contract_byte,
+        26,
+        deploy_global_contract,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deploy_global_contract_byte,
+        26,
+        expect!["304443562909 burnt 10000000000000 used"],
+        deploy_global_contract,
+    );
+}
+
+/// function to trigger base + 26 bytes global contract deployment costs (26 is arbitrary)
+fn deploy_global_contract(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+    let code = logic.internal_mem_write(b"lorem ipsum with length 26");
+    logic.promise_batch_action_deploy_global_contract(idx, code.len, code.ptr)?;
+    Ok(())
+}
+
+/// see longer comment above for how this test works
+#[test]
+fn out_of_gas_use_global_contract_base() {
+    check_action_gas_exceeds_limit(ActionCosts::use_global_contract_base, 1, use_global_contract);
+    check_action_gas_exceeds_limit(
+        ActionCosts::use_global_contract_base,
+        1,
+        use_global_contract_by_account_id,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::use_global_contract_base,
+        1,
+        expect!["119700620657 burnt 10000000000000 used"],
+        use_global_contract,
+    );
+    check_action_gas_exceeds_attached(
+        ActionCosts::use_global_contract_base,
+        1,
+        expect!["125644575182 burnt 10000000000000 used"],
+        use_global_contract_by_account_id,
+    );
+}
+
+/// see longer comment above for how this test works
+#[test]
+fn out_of_gas_use_global_contract_byte() {
+    check_action_gas_exceeds_limit(ActionCosts::use_global_contract_byte, 32, use_global_contract);
+    check_action_gas_exceeds_limit(
+        ActionCosts::use_global_contract_byte,
+        10,
+        use_global_contract_by_account_id,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::use_global_contract_byte,
+        32,
+        expect!["304466370967 burnt 10000000000000 used"],
+        use_global_contract,
+    );
+    check_action_gas_exceeds_attached(
+        ActionCosts::use_global_contract_byte,
+        10,
+        expect!["310410325272 burnt 10000000000000 used"],
+        use_global_contract_by_account_id,
+    );
+}
+
+/// function to trigger base + 32 bytes use global contract costs (32 is the length of `CryptoHash`)
+fn use_global_contract(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+    let code_hash = logic.internal_mem_write(CryptoHash::hash_bytes(b"arbitrary").as_bytes());
+    logic.promise_batch_action_use_global_contract(idx, code_hash.len, code_hash.ptr)?;
+    Ok(())
+}
+
+/// function to trigger base + 10 bytes use global contract costs (10 is arbitrary)
+fn use_global_contract_by_account_id(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+    let account_id = logic.internal_mem_write(b"alice.near");
+    logic.promise_batch_action_use_global_contract_by_account_id(
+        idx,
+        account_id.len,
+        account_id.ptr,
+    )?;
     Ok(())
 }
 

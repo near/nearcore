@@ -10,7 +10,7 @@ pub mod metadata;
 mod mixeddb;
 mod recoverydb;
 pub mod refcount;
-pub(crate) mod rocksdb;
+pub mod rocksdb;
 mod slice;
 mod splitdb;
 mod testdb;
@@ -42,6 +42,7 @@ pub const STATE_SNAPSHOT_KEY: &[u8; 18] = b"STATE_SNAPSHOT_KEY";
 // `DBCol::Misc` keys
 pub const FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY: &[u8] =
     b"FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS";
+pub const TRIE_STATE_RESHARDING_STATUS_KEY: &[u8] = b"TRIE_STATE_RESHARDING_STATUS";
 pub const LATEST_WITNESSES_INFO: &[u8] = b"LATEST_WITNESSES_INFO";
 
 #[derive(Default, Debug)]

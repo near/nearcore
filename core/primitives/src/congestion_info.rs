@@ -184,6 +184,7 @@ pub enum RejectTransactionReason {
     Eq,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum CongestionInfo {
     V1(CongestionInfoV1),
 }
@@ -444,6 +445,7 @@ impl ExtendedCongestionInfo {
     Eq,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CongestionInfoV1 {
     /// Sum of gas in currently delayed receipts.
     pub delayed_receipts_gas: u128,

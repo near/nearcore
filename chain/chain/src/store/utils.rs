@@ -1,5 +1,6 @@
-use std::sync::Arc;
-
+use super::{ReceiptFilter, filter_incoming_receipts_for_shard};
+use crate::byzantine_assert;
+use crate::metrics;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::BlockHeader;
@@ -10,10 +11,7 @@ use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
-use crate::byzantine_assert;
-
-use super::{ReceiptFilter, filter_incoming_receipts_for_shard};
+use std::sync::Arc;
 
 /// Get full chunk from header with `height_included` taken from `header`, with
 /// possible error that contains the header for further retrieval.
@@ -76,6 +74,8 @@ pub fn check_transaction_validity_period(
         .map_err(|_| InvalidTxError::Expired)?
         .height();
     let prev_height = prev_block_header.height();
+    metrics::CHAIN_VALIDITY_PERIOD_CHECK_DELAY
+        .observe(prev_height.saturating_sub(base_height) as f64);
     if let Ok(base_block_hash_by_height) = chain_store.get_block_hash_by_height(base_height) {
         if &base_block_hash_by_height == base_block_hash {
             if let Ok(prev_hash) = chain_store.get_block_hash_by_height(prev_height) {

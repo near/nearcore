@@ -276,6 +276,8 @@ pub enum HostError {
     RecordedStorageExceeded {
         limit: ByteSize,
     },
+    /// Contract code hash is malformed.
+    ContractCodeHashMalformed,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -519,6 +521,7 @@ impl std::fmt::Display for HostError {
                 "Size of the recorded trie storage proof has exceeded the allowed limit ({})",
                 limit
             ),
+            ContractCodeHashMalformed => write!(f, "contract code hash is malformed"),
         }
     }
 }

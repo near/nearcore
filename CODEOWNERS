@@ -1,3 +1,5 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
 * @near/nearcore-codeowners
+
+chain/jsonrpc/openapi/openapi.json @frol

@@ -23,6 +23,7 @@ serde.workspace = true
 serde_repr.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+schemars = { workspace = true, optional = true }
 
 near-account-id.workspace = true
 near-schema-checker-lib.workspace = true
@@ -35,9 +36,8 @@ expect-test.workspace = true
 [features]
 default = []
 
-nightly = [
-]
+nightly = []
 
-protocol_schema = [
-  "near-schema-checker-lib/protocol_schema",
-]
+protocol_schema = ["near-schema-checker-lib/protocol_schema"]
+
+schemars = ["dep:schemars", "near-account-id/schemars-alpha"]

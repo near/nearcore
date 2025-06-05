@@ -21,7 +21,7 @@ fn main() {
 }
 
 fn try_main() -> Result<(), Error> {
-    let mut test_contract_features = vec!["latest_protocol"];
+    let mut test_contract_features = vec![];
 
     let is_nightly = std::env::var_os("CARGO_FEATURE_nightly").is_some();
     let test_features = &env::var(TEST_FEATURES_ENV);
@@ -31,32 +31,31 @@ fn try_main() -> Result<(), Error> {
         test_contract_features.push("test_features");
     }
 
-    let test_contract_features_string = test_contract_features.join(",");
     build_contract(
         "./test-contract-rs",
-        &["--features", &test_contract_features_string],
-        "test_contract_rs",
+        &test_contract_features,
+        "backwards_compatible_rs_contract",
     )?;
+
+    test_contract_features.push("latest_protocol");
+    build_contract("./test-contract-rs", &test_contract_features, "test_contract_rs")?;
     build_contract(
         "./congestion-control-test-contract",
-        &["--features", &test_contract_features_string],
+        &test_contract_features,
         "congestion_control_test_contract",
     )?;
 
     test_contract_features.push("nightly");
-    let test_contract_features_string = test_contract_features.join(",");
-    build_contract(
-        "./test-contract-rs",
-        &["--features", &test_contract_features_string],
-        "nightly_test_contract_rs",
-    )?;
+    build_contract("./test-contract-rs", &test_contract_features, "nightly_test_contract_rs")?;
+
     build_contract("./contract-for-fuzzing-rs", &[], "contract_for_fuzzing_rs")?;
     build_contract(
         "./estimator-contract",
-        if is_nightly { &["--features", "nightly"] } else { &[] },
+        if is_nightly { &["nightly"] } else { &[] },
         "estimator_contract",
     )?;
-    res_contract("backwards_compatible_rs_contract");
+
+    res_contract("legacy_backwards_compatible_rs_contract");
     res_contract("test_contract_ts");
     res_contract("fungible_token");
     Ok(())
@@ -72,11 +71,13 @@ fn res_contract(name: &str) {
 }
 
 /// build the contract and copy the wasm file to the `res` directory
-fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
+fn build_contract(dir: &str, features: &[&str], output: &str) -> Result<(), Error> {
     let target_dir = out_dir();
 
     // build the contract
     let mut cmd = cargo_build_cmd(&target_dir);
+    let features_string = features.join(",");
+    let args = if features.is_empty() { vec![] } else { vec!["--features", &features_string] };
     cmd.args(args);
     cmd.current_dir(dir);
     check_status(cmd)?;

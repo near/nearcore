@@ -68,7 +68,28 @@ pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
 pub static VALIDATOR_ACTIVE_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validator_active_total",
-        "The total number of validators active after last block",
+        "The total number of chunk producers active after last block (DEPRECATED: use near_validator_chunk_producers_total instead)",
+    )
+    .unwrap()
+});
+pub static VALIDATOR_CHUNK_PRODUCERS_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_validator_chunk_producers_total",
+        "The total number of chunk producers active after last block",
+    )
+    .unwrap()
+});
+pub static VALIDATOR_BLOCK_PRODUCERS_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_validator_block_producers_total",
+        "The total number of block producers active after last block",
+    )
+    .unwrap()
+});
+pub static VALIDATOR_CHUNK_VALIDATORS_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_validator_chunk_validators_total",
+        "The total number of chunk validators active after last block",
     )
     .unwrap()
 });
@@ -304,6 +325,15 @@ pub(crate) static STATE_TRANSITION_DATA_GC_TIME: LazyLock<Histogram> = LazyLock:
         // Generally since gc runs each second we want state transition data gc to take less than
         // that.
         vec![0.100, 0.5, 1.0, 5.0],
+    )
+    .unwrap()
+});
+
+pub(crate) static CHAIN_VALIDITY_PERIOD_CHECK_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chain_validity_period_check_delay",
+        "how far back in the past is the validity period we're checking (not 100% precise!)",
+        vec![5.0, 10.0, 20.0, 40.0, 60.0, 120.0, 180.0],
     )
     .unwrap()
 });

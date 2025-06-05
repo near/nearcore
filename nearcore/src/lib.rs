@@ -317,7 +317,8 @@ pub fn start_with_config_and_synchronization(
             (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
         };
 
-    let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, epoch_manager.clone())?;
+    let cold_store_loop_handle =
+        spawn_cold_store_loop(&config, &storage, epoch_manager.clone(), shard_tracker.clone())?;
 
     let telemetry = ActixWrapper::new(TelemetryActor::new(config.telemetry_config.clone())).start();
     let chain_genesis = ChainGenesis::new(&config.genesis.config);

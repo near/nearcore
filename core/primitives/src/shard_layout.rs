@@ -46,6 +46,7 @@ pub type ShardVersion = u32;
     Eq,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ShardLayout {
     V0(ShardLayoutV0),
     V1(ShardLayoutV1),
@@ -68,6 +69,7 @@ pub enum ShardLayout {
     Eq,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
@@ -109,6 +111,7 @@ pub fn shard_uids_to_ids(shard_uids: &[ShardUId]) -> Vec<ShardId> {
     Eq,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ShardLayoutV1 {
     /// The boundary accounts are the accounts on boundaries between shards.
     /// Each shard contains a range of accounts from one boundary account to
@@ -183,6 +186,7 @@ pub struct ShardLayoutV2 {
 /// Counterpart to `ShardLayoutV2` composed of maps with string keys to aid
 /// serde serialization.
 #[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 struct SerdeShardLayoutV2 {
     boundary_accounts: Vec<AccountId>,
     shard_ids: Vec<ShardId>,
@@ -288,6 +292,17 @@ impl<'de> serde::Deserialize<'de> for ShardLayoutV2 {
     {
         let serde_layout = SerdeShardLayoutV2::deserialize(deserializer)?;
         ShardLayoutV2::try_from(serde_layout).map_err(serde::de::Error::custom)
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for ShardLayoutV2 {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ShardLayoutV2".to_string().into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        SerdeShardLayoutV2::json_schema(generator)
     }
 }
 
@@ -702,10 +717,12 @@ impl ShardLayout {
 
     /// Returns all the shards from the previous shard layout that were
     /// split into multiple shards in this shard layout.
-    pub fn get_split_parent_shard_ids(&self) -> Result<BTreeSet<ShardId>, ShardLayoutError> {
+    pub fn get_split_parent_shard_ids(&self) -> BTreeSet<ShardId> {
         let mut parent_shard_ids = BTreeSet::new();
         for shard_id in self.shard_ids() {
-            let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
+            let parent_shard_id = self
+                .try_get_parent_shard_id(shard_id)
+                .expect("shard_id belongs to the shard layout");
             let Some(parent_shard_id) = parent_shard_id else {
                 continue;
             };
@@ -714,7 +731,17 @@ impl ShardLayout {
             }
             parent_shard_ids.insert(parent_shard_id);
         }
-        Ok(parent_shard_ids)
+        parent_shard_ids
+    }
+
+    /// Returns all the shards from the previous shard layout that were
+    /// split into multiple shards in this shard layout.
+    pub fn get_split_parent_shard_uids(&self) -> BTreeSet<ShardUId> {
+        let parent_shard_ids = self.get_split_parent_shard_ids();
+        parent_shard_ids
+            .into_iter()
+            .map(|shard_id| ShardUId::new(self.version(), shard_id))
+            .collect()
     }
 }
 
@@ -768,6 +795,7 @@ fn validate_and_derive_shard_parent_map_v2(
     Ord,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ShardUId {
     pub version: ShardVersion,
     pub shard_id: u32,
@@ -958,6 +986,7 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct ShardInfo {
     pub shard_index: ShardIndex,
     pub shard_uid: ShardUId,
@@ -1234,6 +1263,12 @@ mod tests {
                 ])),
             )
         );
+
+        // In case we are changing the shard layout version from hardcoded 3,
+        // make sure that we correctly return the shard_uid of the parent shards in
+        // get_split_parent_shard_uids function.
+        assert_eq!(base_layout.version(), 3);
+        assert_eq!(base_layout.version(), derived_layout.version());
     }
 
     // Check that the ShardLayout::multi_shard method returns interesting shard

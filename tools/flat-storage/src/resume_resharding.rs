@@ -1,5 +1,6 @@
 use crate::commands::ResumeReshardingCmd;
 use near_chain::resharding::flat_storage_resharder::FlatStorageResharder;
+use near_chain::resharding::trie_state_resharder::TrieStateResharder;
 use near_chain_configs::ReshardingHandle;
 use near_epoch_manager::EpochManager;
 use near_store::{ShardUId, StoreOpener};
@@ -27,7 +28,7 @@ pub(crate) fn resume_resharding(
 
     let flat_storage_resharder = FlatStorageResharder::new(
         epoch_manager,
-        runtime_adapter,
+        runtime_adapter.clone(),
         ReshardingHandle::new(),
         config.client_config.resharding_config.clone(),
     );
@@ -35,7 +36,16 @@ pub(crate) fn resume_resharding(
     let shard_uid = ShardUId::new(3, cmd.shard_id); // version is fixed at 3 in resharding V3
     flat_storage_resharder.resume(shard_uid)?;
 
-    tracing::info!(target: "resharding", "operation completed");
+    tracing::info!(target: "resharding", "FlatStorageResharder completed");
+
+    let trie_state_resharder = TrieStateResharder::new(
+        runtime_adapter,
+        ReshardingHandle::new(),
+        config.client_config.resharding_config.clone(),
+    );
+    trie_state_resharder.resume(shard_uid)?;
+
+    tracing::info!(target: "resharding", "TrieStateResharder completed");
 
     Ok(())
 }

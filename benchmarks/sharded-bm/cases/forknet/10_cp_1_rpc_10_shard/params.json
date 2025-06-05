@@ -5,9 +5,7 @@
     "base_genesis_patch": "../../10_shards_genesis_patch.json",
     "num_accounts": 100,
     "tx_generator": {
-        "enabled": true,
-        "tps": 3100,
-        "volume": 0
+        "enabled": true
     },
     "forknet": {
         "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/tx-generator-neard/neard"

@@ -1,8 +1,9 @@
 use std::io;
 
-use ::rocksdb::checkpoint::Checkpoint;
+use thiserror::Error;
 
 use crate::Temperature;
+use ::rocksdb::checkpoint::Checkpoint;
 
 /// Representation of a RocksDB checkpoint.
 ///
@@ -21,20 +22,23 @@ use crate::Temperature;
 pub struct Snapshot(pub Option<std::path::PathBuf>);
 
 /// Possible errors when creating a checkpoint.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum SnapshotError {
     /// Snapshot at requested location already exists.
     ///
     /// More specifically, the specified path exists (since the code does only
     /// rudimentary check whether the path is a checkpoint or not).
+    #[error("Snapshot already exists {0}")]
     AlreadyExists(std::path::PathBuf),
 
     /// Error while creating a snapshot.
+    #[error(transparent)]
     IOError(io::Error),
 }
 
 /// Possible errors when removing a checkpoint.
-#[derive(Debug)]
+#[derive(Error, Debug)]
+#[error("Error removing snapshot path={path} cause={error}")]
 pub struct SnapshotRemoveError {
     /// Path to the snapshot.
     pub path: std::path::PathBuf,

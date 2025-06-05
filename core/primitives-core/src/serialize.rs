@@ -15,6 +15,13 @@ pub fn from_base64(encoded: &str) -> Result<Vec<u8>, base64::DecodeError> {
     BASE64_STANDARD.decode(encoded)
 }
 
+#[cfg(feature = "schemars")]
+pub fn base64_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let mut schema = <String as schemars::JsonSchema>::json_schema(generator);
+    schema.ensure_object().insert("format".into(), "bytes".into());
+    schema
+}
+
 /// Serializes number as a string; deserializes either as a string or number.
 ///
 /// This format works for `u64`, `u128`, `Option<u64>` and `Option<u128>` types.

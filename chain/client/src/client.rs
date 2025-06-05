@@ -612,7 +612,7 @@ impl Client {
         height: BlockHeight,
     ) -> Result<Option<OptimisticBlock>, Error> {
         let _span =
-            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height)
+            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height, tag_block_production = true)
                 .entered();
 
         let head = self.chain.head()?;
@@ -677,7 +677,7 @@ impl Client {
         prepare_chunk_headers: bool,
     ) -> Result<Option<Block>, Error> {
         let _span =
-            tracing::debug_span!(target: "client", "produce_block_on_head", height).entered();
+            tracing::debug_span!(target: "client", "produce_block_on_head", height, tag_block_production = true).entered();
 
         let head = self.chain.head()?;
         assert_eq!(
@@ -817,8 +817,7 @@ impl Client {
         // The ordinal of the next Block will be equal to this amount plus one.
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        let mut chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
         let mut chunk_endorsements = vec![vec![]; chunk_headers.len()];
 
         // Add debug information about the block production (and info on when did the chunks arrive).
@@ -1710,7 +1709,7 @@ impl Client {
             let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
-            let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
+            let last_header = epoch_manager.get_prev_chunk_header(block, shard_id).unwrap();
             let result = self.chunk_producer.produce_chunk(
                 block,
                 &epoch_id,
@@ -1737,14 +1736,16 @@ impl Client {
                     return;
                 }
             };
-            if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
-                &epoch_id,
-                block.header(),
-                &last_header,
-                chunk.to_shard_chunk(),
-                &Some(signer.clone()),
-            ) {
-                tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
+            if !cfg!(feature = "protocol_feature_spice") {
+                if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
+                    &epoch_id,
+                    block.header(),
+                    &last_header,
+                    chunk.to_shard_chunk(),
+                    &Some(signer.clone()),
+                ) {
+                    tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
+                }
             }
             self.persist_and_distribute_encoded_chunk(
                 chunk,

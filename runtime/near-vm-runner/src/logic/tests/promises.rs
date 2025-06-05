@@ -4,6 +4,7 @@ use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::types::PromiseResult;
 
 use near_crypto::PublicKey;
+use near_primitives_core::hash::CryptoHash;
 use serde_json;
 
 fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
@@ -283,6 +284,164 @@ fn test_promise_batch_action_deploy_contract() {
                 108,
                 101
               ]
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+}
+
+#[test]
+fn test_promise_batch_action_deploy_global_contract() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let code = logic.internal_mem_write(b"sample");
+
+    logic
+        .promise_batch_action_deploy_global_contract(123, code.len, code.ptr)
+        .expect_err("shouldn't accept not existent promise index");
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_deploy_global_contract(non_receipt, code.len, code.ptr)
+        .expect_err("shouldn't accept non-receipt promise index");
+
+    logic
+        .promise_batch_action_deploy_global_contract(index, code.len, code.ptr)
+        .expect("should add an action to deploy contract");
+    assert_eq!(logic.used_gas().unwrap(), 5256154080152);
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          },
+          {
+            "DeployGlobalContract": {
+              "receipt_index": 0,
+              "code": [
+                115,
+                97,
+                109,
+                112,
+                108,
+                101
+              ],
+              "mode": "CodeHash"
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+}
+
+#[test]
+fn test_promise_batch_action_use_global_contract() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let code_hash = logic.internal_mem_write(CryptoHash::hash_bytes(b"arbitrary").as_bytes());
+    let malformed_code_hash = logic.internal_mem_write(b"not a valid CryptoHash repr");
+
+    logic
+        .promise_batch_action_use_global_contract(123, code_hash.len, code_hash.ptr)
+        .expect_err("shouldn't accept not existent promise index");
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_use_global_contract(non_receipt, code_hash.len, code_hash.ptr)
+        .expect_err("shouldn't accept non-receipt promise index");
+    logic
+        .promise_batch_action_use_global_contract(
+            123,
+            malformed_code_hash.len,
+            malformed_code_hash.ptr,
+        )
+        .expect_err("shouldn't accept malformed code hash");
+
+    logic
+        .promise_batch_action_use_global_contract(index, code_hash.len, code_hash.ptr)
+        .expect("should add an action to deploy contract");
+    assert_eq!(logic.used_gas().unwrap(), 5262559186522);
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          },
+          {
+            "UseGlobalContract": {
+              "receipt_index": 0,
+              "contract_id": {
+                "CodeHash": "A6buRpeED4eLGiYvbboigf7WSicK52xwKtdRNFwKcFgv"
+              }
             }
           }
         ]"#]]

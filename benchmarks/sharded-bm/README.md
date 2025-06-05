@@ -165,7 +165,7 @@ gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
 
 <!-- cspell:words BENCHNET -->
 ```sh
-export CASE=cases/forknet/10_cp_1_rpc_10_shard/
+export CASE=cases/forknet/realistic_20_cp_1_rpc_20_shard/
 export FORKNET_NAME=<unique name of forknet> 
 export FORKNET_START_HEIGHT=<forknet start height>
 

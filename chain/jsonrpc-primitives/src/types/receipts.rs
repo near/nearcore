@@ -1,21 +1,25 @@
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ReceiptReference {
     pub receipt_id: near_primitives::hash::CryptoHash,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcReceiptRequest {
     #[serde(flatten)]
     pub receipt_reference: ReceiptReference,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcReceiptResponse {
     #[serde(flatten)]
     pub receipt_view: near_primitives::views::ReceiptView,
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcReceiptError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]

@@ -1,5 +1,5 @@
 use super::{FlatStorageManager, FlatStorageStatus};
-use crate::metrics::flat_state_metrics;
+use crate::metrics::{flat_state_metrics, resharding};
 use near_o11y::metrics::IntGauge;
 use near_primitives::{shard_layout::ShardUId, types::BlockHeight};
 
@@ -73,7 +73,8 @@ impl FlatStorageReshardingShardSplitMetrics {
         left_child_shard: ShardUId,
         right_child_shard: ShardUId,
     ) -> Self {
-        use flat_state_metrics::*;
+        use resharding::flat_state_metrics;
+
         let parent_shard_label = parent_shard.to_string();
         let left_child_shard_label = left_child_shard.to_string();
         let right_child_shard_label = right_child_shard.to_string();
@@ -81,13 +82,15 @@ impl FlatStorageReshardingShardSplitMetrics {
             parent_shard,
             left_child_shard,
             right_child_shard,
-            parent_status: resharding::STATUS.with_label_values(&[&parent_shard_label]),
-            left_child_status: resharding::STATUS.with_label_values(&[&left_child_shard_label]),
-            right_child_status: resharding::STATUS.with_label_values(&[&right_child_shard_label]),
-            split_shard_processed_batches: resharding::SPLIT_SHARD_PROCESSED_BATCHES
+            parent_status: flat_state_metrics::STATUS.with_label_values(&[&parent_shard_label]),
+            left_child_status: flat_state_metrics::STATUS
+                .with_label_values(&[&left_child_shard_label]),
+            right_child_status: flat_state_metrics::STATUS
+                .with_label_values(&[&right_child_shard_label]),
+            split_shard_processed_batches: flat_state_metrics::SPLIT_SHARD_PROCESSED_BATCHES
                 .with_label_values(&[&parent_shard_label]),
-            split_shard_batch_size: resharding::SPLIT_SHARD_BATCH_SIZE.clone(),
-            split_shard_processed_bytes: resharding::SPLIT_SHARD_PROCESSED_BYTES
+            split_shard_batch_size: flat_state_metrics::SPLIT_SHARD_BATCH_SIZE.clone(),
+            split_shard_processed_bytes: flat_state_metrics::SPLIT_SHARD_PROCESSED_BYTES
                 .with_label_values(&[&parent_shard_label]),
         }
     }
@@ -137,11 +140,11 @@ pub struct FlatStorageReshardingShardCatchUpMetrics {
 
 impl FlatStorageReshardingShardCatchUpMetrics {
     pub fn new(shard_uid: &ShardUId) -> Self {
-        use flat_state_metrics::*;
         let shard_label = shard_uid.to_string();
         Self {
-            status: resharding::STATUS.with_label_values(&[&shard_label]),
-            head_height: FLAT_STORAGE_HEAD_HEIGHT.with_label_values(&[&shard_label]),
+            status: resharding::flat_state_metrics::STATUS.with_label_values(&[&shard_label]),
+            head_height: flat_state_metrics::FLAT_STORAGE_HEAD_HEIGHT
+                .with_label_values(&[&shard_label]),
         }
     }
 

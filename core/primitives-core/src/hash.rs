@@ -105,6 +105,17 @@ impl CryptoHash {
     }
 }
 
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for CryptoHash {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "CryptoHash".to_string().into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        String::json_schema(generator)
+    }
+}
+
 /// Result of decoding base58-encoded crypto hash.
 enum Decode58Result {
     /// Decoding succeeded.

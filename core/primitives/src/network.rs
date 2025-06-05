@@ -22,6 +22,7 @@ use std::sync::Arc;
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PeerId(Arc<PublicKey>);
 
 impl PeerId {

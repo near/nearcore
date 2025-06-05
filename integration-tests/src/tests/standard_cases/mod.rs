@@ -642,8 +642,8 @@ pub fn test_create_account_again(node: impl Node) {
             .into()
         )
     );
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 2 } else { 3 };
+    // Note: With gas_refund_penalty large enough, there should be one refund less.
+    let num_expected_receipts = 3;
     assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -695,8 +695,8 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
             .into()
         )
     );
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 2 } else { 3 };
+    // Note: With gas_refund_penalty large enough, there should be one refund less.
+    let num_expected_receipts = 3;
     assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);

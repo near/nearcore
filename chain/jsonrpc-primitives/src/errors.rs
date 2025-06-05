@@ -10,6 +10,7 @@ pub struct RpcParseError(pub String);
 /// It is expected that this struct has impl From<_> all other RPC errors
 /// like [RpcBlockError](crate::types::blocks::RpcBlockError)
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct RpcError {
     #[serde(flatten)]
@@ -24,6 +25,7 @@ pub struct RpcError {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "cause", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcErrorKind {
     RequestValidationError(RpcRequestValidationErrorKind),
@@ -32,6 +34,7 @@ pub enum RpcErrorKind {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcRequestValidationErrorKind {
     MethodNotFound { method_name: String },

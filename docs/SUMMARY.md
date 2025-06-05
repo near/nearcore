@@ -46,6 +46,7 @@
   - [Profiling](./practices/workflows/profiling.md)
   - [Benchmarks](./practices/workflows/benchmarks.md)
   - [Working with OpenTelemetry Traces](./practices/workflows/otel_traces.md)
+  - [Futex contention](./practices/workflows/futex_contention.md)
 - [Code Style](./practices/style.md)
 - [Documentation](./practices/docs.md)
 - [Tracking Issues](./practices/tracking_issues.md)

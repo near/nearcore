@@ -211,7 +211,7 @@ impl ChainConfig {
             save_trie_changes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
-                ReshardingConfig::default(),
+                ReshardingConfig::test(),
                 "resharding_config",
             ),
         }
@@ -281,7 +281,7 @@ impl RuntimeStorageConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum BlockType {
     Normal,
     Optimistic,

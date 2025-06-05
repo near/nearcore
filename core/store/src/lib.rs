@@ -23,7 +23,7 @@ pub use crate::trie::{
     estimator,
 };
 pub use crate::utils::*;
-pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
+pub use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, StorageError};
 pub use near_primitives::shard_layout::ShardUId;
 
 pub mod adapter;

@@ -1,6 +1,7 @@
 use std::sync::{Arc, atomic::AtomicBool};
 
 use near_chain::types::Tip;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
@@ -97,6 +98,7 @@ fn cold_store_copy(
     genesis_height: BlockHeight,
     epoch_manager: &EpochManagerHandle,
     num_threads: usize,
+    shard_tracker: &ShardTracker,
 ) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
     // If HEAD is not set for cold storage we default it to genesis_height.
     let cold_head = get_cold_head(cold_db)?;
@@ -141,14 +143,17 @@ fn cold_store_copy(
     // The next block hash exists in hot store so we can use it to get epoch id.
     let epoch_id = epoch_manager.get_epoch_id(&next_height_block_hash)?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-    let is_last_block_in_epoch =
-        epoch_manager.is_next_block_epoch_start(&next_height_block_hash)?;
+    let tracked_shards = shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
+    let block_info = epoch_manager.get_block_info(&next_height_block_hash)?;
+    let is_resharding_boundary = epoch_manager.is_resharding_boundary(block_info.prev_hash())?;
+
     update_cold_db(
         cold_db,
         hot_store,
         &shard_layout,
+        &tracked_shards,
         &next_height,
-        is_last_block_in_epoch,
+        is_resharding_boundary,
         num_threads,
     )?;
     update_cold_head(cold_db, hot_store, &next_height)?;
@@ -373,6 +378,7 @@ fn cold_store_loop(
     cold_db: Arc<ColdDB>,
     genesis_height: BlockHeight,
     epoch_manager: &EpochManagerHandle,
+    shard_tracker: ShardTracker,
 ) {
     tracing::info!(target : "cold_store", "Starting the cold store loop");
 
@@ -389,6 +395,7 @@ fn cold_store_loop(
             genesis_height,
             epoch_manager,
             split_storage_config.num_cold_store_read_threads,
+            &shard_tracker,
         );
         let duration = instant.elapsed();
 
@@ -434,6 +441,7 @@ pub fn spawn_cold_store_loop(
     config: &NearConfig,
     storage: &NodeStorage,
     epoch_manager: Arc<EpochManagerHandle>,
+    shard_tracker: ShardTracker,
 ) -> anyhow::Result<Option<ColdStoreLoopHandle>> {
     if config.config.save_trie_changes != Some(true) {
         tracing::debug!(target:"cold_store", "Not spawning cold store because TrieChanges are not saved");
@@ -457,6 +465,7 @@ pub fn spawn_cold_store_loop(
     // If the check fails when the node is starting it's better to just fail
     // fast and crash the node immediately.
     sanity_check(&hot_store, cold_db.as_ref(), genesis_height)?;
+    debug_assert!(shard_tracker.is_valid_for_archival());
 
     let split_storage_config = config.config.split_storage.clone().unwrap_or_default();
 
@@ -477,6 +486,7 @@ pub fn spawn_cold_store_loop(
                 cold_db,
                 genesis_height,
                 epoch_manager.as_ref(),
+                shard_tracker,
             )
         })?;
 

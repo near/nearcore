@@ -3,7 +3,10 @@ use super::dependencies::{External, MemSlice, MemoryLike};
 use super::errors::{FunctionCallError, InconsistentStateError};
 use super::gas_counter::GasCounter;
 use super::recorded_storage_counter::RecordedStorageCounter;
-use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
+use super::types::{
+    GlobalContractDeployMode, GlobalContractIdentifier, PromiseIndex, PromiseResult, ReceiptIndex,
+    ReturnData,
+};
 use super::utils::split_method_names;
 use super::{HostError, VMLogicError};
 use crate::ProfileDataV3;
@@ -2132,6 +2135,194 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         Ok(())
     }
 
+    /// Appends `DeployGlobalContract` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `code_len + code_ptr` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    /// * If the contract code length exceeds `max_contract_size` returns `ContractSizeExceeded`.
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory `
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    pub fn promise_batch_action_deploy_global_contract(
+        &mut self,
+        promise_idx: u64,
+        code_len: u64,
+        code_ptr: u64,
+    ) -> Result<()> {
+        self.promise_batch_action_deploy_global_contract_impl(
+            promise_idx,
+            code_len,
+            code_ptr,
+            GlobalContractDeployMode::CodeHash,
+            "promise_batch_action_deploy_global_contract",
+        )
+    }
+
+    /// Appends `DeployGlobalContractByAccountId` action to the batch of actions for the given
+    /// promise pointed by `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `code_len + code_ptr` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    /// * If the contract code length exceeds `max_contract_size` returns `ContractSizeExceeded`.
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory `
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    pub fn promise_batch_action_deploy_global_contract_by_account_id(
+        &mut self,
+        promise_idx: u64,
+        code_len: u64,
+        code_ptr: u64,
+    ) -> Result<()> {
+        self.promise_batch_action_deploy_global_contract_impl(
+            promise_idx,
+            code_len,
+            code_ptr,
+            GlobalContractDeployMode::AccountId,
+            "promise_batch_action_deploy_global_contract_by_account_id",
+        )
+    }
+
+    fn promise_batch_action_deploy_global_contract_impl(
+        &mut self,
+        promise_idx: u64,
+        code_len: u64,
+        code_ptr: u64,
+        mode: GlobalContractDeployMode,
+        method_name: &str,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView { method_name: method_name.to_owned() }.into());
+        }
+        let code = get_memory_or_register!(self, code_ptr, code_len)?;
+        let code_len = code.len() as u64;
+        let limit = self.config.limit_config.max_contract_size;
+        if code_len > limit {
+            return Err(HostError::ContractSizeExceeded { size: code_len, limit }.into());
+        }
+        let code = code.into_owned();
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.pay_action_base(ActionCosts::deploy_global_contract_base, sir)?;
+        self.pay_action_per_byte(ActionCosts::deploy_global_contract_byte, code_len, sir)?;
+
+        self.ext.append_action_deploy_global_contract(receipt_idx, code, mode)?;
+        Ok(())
+    }
+
+    /// Appends `UseGlobalContract` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If called as view function returns `ProhibitedInView`.
+    /// * If `code_hash_len + code_hash_ptr` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    /// * If a malformed code hash is passed, returns `ContractCodeHashMalformed`.
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory `
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    pub fn promise_batch_action_use_global_contract(
+        &mut self,
+        promise_idx: u64,
+        code_hash_len: u64,
+        code_hash_ptr: u64,
+    ) -> Result<()> {
+        self.promise_batch_action_use_global_contract_impl(
+            promise_idx,
+            GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr },
+            "promise_batch_action_use_global_contract",
+        )
+    }
+
+    /// Appends `UseGlobalContract` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If called as view function returns `ProhibitedInView`.
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    /// * If account_id string is not UTF-8 returns `BadUtf8`.
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes
+    /// + cost of reading vector from memory + cost of reading and parsing account name`
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    pub fn promise_batch_action_use_global_contract_by_account_id(
+        &mut self,
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    ) -> Result<()> {
+        self.promise_batch_action_use_global_contract_impl(
+            promise_idx,
+            GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr },
+            "promise_batch_action_use_global_contract_by_account_id",
+        )
+    }
+
+    fn promise_batch_action_use_global_contract_impl(
+        &mut self,
+        promise_idx: u64,
+        contract_id_ptr: GlobalContractIdentifierPtrData,
+        method_name: &str,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView { method_name: method_name.to_owned() }.into());
+        }
+        let contract_id = match contract_id_ptr {
+            GlobalContractIdentifierPtrData::CodeHash { code_hash_len, code_hash_ptr } => {
+                let code_hash_bytes = get_memory_or_register!(self, code_hash_ptr, code_hash_len)?;
+                let code_hash: [_; CryptoHash::LENGTH] = (&*code_hash_bytes)
+                    .try_into()
+                    .map_err(|_| HostError::ContractCodeHashMalformed)?;
+                GlobalContractIdentifier::CodeHash(CryptoHash(code_hash))
+            }
+            GlobalContractIdentifierPtrData::AccountId { account_id_len, account_id_ptr } => {
+                let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+                GlobalContractIdentifier::AccountId(account_id)
+            }
+        };
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.pay_action_base(ActionCosts::use_global_contract_base, sir)?;
+        let len = contract_id.len() as u64;
+        self.pay_action_per_byte(ActionCosts::use_global_contract_byte, len, sir)?;
+
+        self.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+        Ok(())
+    }
+
     /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by
     /// `promise_idx`.
     ///
@@ -3478,4 +3669,9 @@ impl std::fmt::Debug for VMOutcome {
         }
         Ok(())
     }
+}
+
+enum GlobalContractIdentifierPtrData {
+    CodeHash { code_hash_len: u64, code_hash_ptr: u64 },
+    AccountId { account_id_len: u64, account_id_ptr: u64 },
 }

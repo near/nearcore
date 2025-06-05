@@ -22,7 +22,7 @@ const STATE_FILE_END_MARK: u8 = 255;
 /// - The split database - access to both hot and cold databases
 #[derive(Clone)]
 pub struct Store {
-    pub(crate) storage: Arc<dyn Database>,
+    storage: Arc<dyn Database>,
 }
 
 impl StoreAdapter for Store {
@@ -34,6 +34,10 @@ impl StoreAdapter for Store {
 impl Store {
     pub fn new(storage: Arc<dyn Database>) -> Self {
         Self { storage }
+    }
+
+    pub fn database(&self) -> &dyn Database {
+        &*self.storage
     }
 
     /// Fetches value from given column.

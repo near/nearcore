@@ -1,13 +1,14 @@
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
-use near_primitives::block::Tip;
+use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardInfo, ShardLayout};
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -49,6 +50,8 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Note: this shouldn't be too large, our Reed-Solomon supports at most 256
     /// parts.
     fn num_total_parts(&self) -> usize;
+
+    fn genesis_protocol_version(&self) -> ProtocolVersion;
 
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
@@ -93,7 +96,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         }
     }
 
-    /// Returns true, if given hash is last block in it's epoch.
+    /// Returns true, if the block with the given `parent_hash` is last block in its epoch.
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let block_info = self.get_block_info(parent_hash)?;
         if block_info.is_genesis() {
@@ -157,20 +160,18 @@ pub trait EpochManagerAdapter: Send + Sync {
         self.get_epoch_config(epoch_id).map(ShardConfig::new)
     }
 
-    /// For each `ShardId` in the current block, returns its parent `ShardId`
+    /// For each `ShardId` in the current block, returns its parent `ShardInfo`
     /// from previous block.
     ///
     /// Most of the times parent of the shard is the shard itself, unless a
     /// resharding happened and some shards were split.
-    /// If there was no resharding, it just returns `shard_ids` as is, without any validation.
-    /// The resulting Vec will always be of the same length as the `shard_ids` argument.
-    ///
-    /// TODO(wacban) - rename to reflect the new return type
-    fn get_prev_shard_ids(
+    /// The resulting Vec will always be of the same length as the `shard_ids`
+    /// argument.
+    fn get_prev_shard_infos(
         &self,
         prev_hash: &CryptoHash,
         shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<(ShardId, ShardIndex)>, Error> {
+    ) -> Result<Vec<ShardInfo>, Error> {
         let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
         let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
         let is_resharding_boundary =
@@ -180,14 +181,20 @@ pub trait EpochManagerAdapter: Send + Sync {
         if is_resharding_boundary {
             for shard_id in shard_ids {
                 let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+                let parent_shard_uid =
+                    ShardUId::from_shard_id_and_layout(parent_shard_id, &prev_shard_layout);
                 let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
-                result.push((parent_shard_id, parent_shard_index));
+                result.push(ShardInfo {
+                    shard_index: parent_shard_index,
+                    shard_uid: parent_shard_uid,
+                });
             }
             Ok(result)
         } else {
             for shard_id in shard_ids {
                 let shard_index = shard_layout.get_shard_index(shard_id)?;
-                result.push((shard_id, shard_index));
+                let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                result.push(ShardInfo { shard_index, shard_uid });
             }
             Ok(result)
         }
@@ -221,6 +228,42 @@ pub trait EpochManagerAdapter: Send + Sync {
         }
     }
 
+    /// Returns a vector of chunk headers, each of which corresponds to the chunk in the `prev_block`
+    /// This function is important when the block after `prev_block` has different number of chunks
+    /// from `prev_block` in cases of resharding.
+    /// In block production and processing, often we need to get the previous chunks of chunks
+    /// in the current block, this function provides a way to do so while handling sharding changes
+    /// correctly.
+    /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
+    /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
+    /// `get_prev_chunk_headers(epoch_manager, prev_block)` will return
+    /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
+    fn get_prev_chunk_headers(&self, prev_block: &Block) -> Result<Vec<ShardChunkHeader>, Error> {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block.hash())?;
+        let shard_ids = self.shard_ids(&epoch_id)?;
+
+        let prev_shard_infos = self.get_prev_shard_infos(prev_block.hash(), shard_ids)?;
+        let prev_chunks = prev_block.chunks();
+        Ok(prev_shard_infos
+            .into_iter()
+            .map(|shard_info| prev_chunks.get(shard_info.shard_index()).unwrap().clone())
+            .collect())
+    }
+
+    fn get_prev_chunk_header(
+        &self,
+        prev_block: &Block,
+        shard_id: ShardId,
+    ) -> Result<ShardChunkHeader, Error> {
+        let (_, prev_shard_id, prev_shard_index) =
+            self.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
+        Ok(prev_block
+            .chunks()
+            .get(prev_shard_index)
+            .ok_or(Error::InvalidShardId(prev_shard_id))?
+            .clone())
+    }
+
     /// Get shard layout given hash of previous block.
     fn get_shard_layout_from_prev_block(
         &self,
@@ -228,6 +271,17 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<ShardLayout, EpochError> {
         let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
         self.get_shard_layout(&epoch_id)
+    }
+
+    /// Given the `parent_hash` of a block, returns true if that block starts a
+    /// new epoch with a different shard layout.
+    fn is_resharding_boundary(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+        if !self.is_next_block_epoch_start(parent_hash)? {
+            return Ok(false);
+        }
+        let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
+        let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(parent_hash)?)?;
+        Ok(shard_layout != prev_shard_layout)
     }
 
     fn get_shard_layout_from_protocol_version(
@@ -831,12 +885,17 @@ pub trait EpochManagerAdapter: Send + Sync {
 impl EpochManagerAdapter for EpochManagerHandle {
     fn num_total_parts(&self) -> usize {
         let epoch_manager = self.read();
-        let genesis_protocol_version = epoch_manager.reward_calculator.genesis_protocol_version;
+        let genesis_protocol_version = epoch_manager.config.genesis_protocol_version();
         let seats = epoch_manager
             .config
             .for_protocol_version(genesis_protocol_version)
             .num_block_producer_seats;
         if seats > 1 { seats as usize } else { 2 }
+    }
+
+    fn genesis_protocol_version(&self) -> ProtocolVersion {
+        let epoch_manager = self.read();
+        epoch_manager.config.genesis_protocol_version()
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
