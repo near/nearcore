@@ -531,7 +531,7 @@ pub fn validate_chunk_state_witness(
         target: "client",
         "validate_chunk_state_witness",
         height_created,
-        shard_id = ?witness_chunk_shard_id,
+        shard_id = %witness_chunk_shard_id,
         tag_block_production = true
     )
     .entered();

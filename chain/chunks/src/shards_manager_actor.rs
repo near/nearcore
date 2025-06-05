@@ -1141,7 +1141,7 @@ impl ShardsManagerActor {
             target: "chunks",
             "check_chunk_complete",
             height_included = chunk.cloned_header().height_included(),
-            shard_id = ?chunk.cloned_header().shard_id(),
+            shard_id = %chunk.cloned_header().shard_id(),
             chunk_hash = ?chunk.chunk_hash())
         .entered();
 
@@ -1514,7 +1514,7 @@ impl ShardsManagerActor {
             target: "chunks",
             "process_partial_encoded_chunk",
             ?chunk_hash,
-            shard_id = ?partial_encoded_chunk.header.shard_id(),
+            shard_id = %partial_encoded_chunk.header.shard_id(),
             height_created = partial_encoded_chunk.header.height_created(),
             height_included = partial_encoded_chunk.header.height_included())
         .entered();

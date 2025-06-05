@@ -129,7 +129,7 @@ impl FlatStorageInner {
         if blocks.len() >= Self::HOPS_LIMIT {
             warn!(
                 target: "chain",
-                shard_id = ?self.shard_uid.shard_id(),
+                shard_id = %self.shard_uid.shard_id(),
                 flat_head_height = flat_head.height,
                 cached_deltas = self.deltas.len(),
                 num_hops = blocks.len(),
@@ -159,7 +159,7 @@ impl FlatStorageInner {
         if cached_changes_size_bytes >= Self::CACHED_CHANGES_SIZE_LIMIT {
             warn!(
                 target: "chain",
-                shard_id = ?self.shard_uid.shard_id(),
+                shard_id = %self.shard_uid.shard_id(),
                 flat_head_height = self.flat_head.height,
                 cached_deltas,
                 %cached_changes_size_bytes,

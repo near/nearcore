@@ -129,7 +129,7 @@ pub fn validate_chunk_endorsement(
         target: "stateless_validation",
         "validate_chunk_endorsement",
         height = endorsement.chunk_production_key().height_created,
-        shard_id = ?endorsement.chunk_production_key().shard_id,
+        shard_id = %endorsement.chunk_production_key().shard_id,
         validator = %endorsement.account_id(),
         tag_block_production = true
     )
