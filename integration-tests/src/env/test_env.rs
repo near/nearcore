@@ -97,7 +97,7 @@ impl TestEnv {
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     /// Runs garbage collection manually
-    pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
+    pub fn process_block(&mut self, id: usize, block: Arc<Block>, provenance: Provenance) {
         self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
         // runs gc
         let runtime_adapter = self.clients[id].chain.runtime_adapter.clone();
@@ -145,7 +145,7 @@ impl TestEnv {
     /// This means that transactions added before this call will be included in the next block produced by this validator.
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
-        self.process_block(id, block.unwrap(), Provenance::PRODUCED);
+        self.process_block(id, block.unwrap().into(), Provenance::PRODUCED);
     }
 
     // Produces block by the client that is the block producer for the given height.
@@ -164,7 +164,7 @@ impl TestEnv {
                 continue;
             }
             let block = self.clients[id].produce_block(height).unwrap().unwrap();
-            self.process_block(id, block, Provenance::PRODUCED);
+            self.process_block(id, block.into(), Provenance::PRODUCED);
             return;
         }
         panic!("No client found for block producer {}", block_producer);
@@ -544,6 +544,7 @@ impl TestEnv {
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
         block.mut_header().resign(&create_test_signer(block_producer.as_str()));
+        let block = Arc::new(block);
 
         let _ = self.clients[0]
             .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)

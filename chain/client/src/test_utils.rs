@@ -41,7 +41,7 @@ impl Client {
     ///                         the produced chunk content.
     fn process_block_sync_with_produce_chunk_options(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         should_produce_chunk: bool,
         allow_errors: bool,
@@ -59,7 +59,7 @@ impl Client {
 
     pub fn process_block_test(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.process_block_sync_with_produce_chunk_options(block, provenance, true, false)
@@ -67,7 +67,7 @@ impl Client {
 
     pub fn process_block_test_no_produce_chunk(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.process_block_sync_with_produce_chunk_options(block, provenance, false, false)
@@ -75,7 +75,7 @@ impl Client {
 
     pub fn process_block_test_no_produce_chunk_allow_errors(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.process_block_sync_with_produce_chunk_options(block, provenance, false, true)

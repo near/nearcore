@@ -1,7 +1,7 @@
-use std::rc::Rc;
-
 use near_chain::{Block, ChainStore, ChainStoreAccess, Error};
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
+use std::rc::Rc;
+use std::sync::Arc;
 
 /// Iterate over blocks between two block heights.
 /// `from_height` and `to_height` are inclusive
@@ -62,9 +62,9 @@ impl BlockHeightRangeIterator {
 }
 
 impl Iterator for BlockHeightRangeIterator {
-    type Item = Block;
+    type Item = Arc<Block>;
 
-    fn next(&mut self) -> Option<Block> {
+    fn next(&mut self) -> Option<Arc<Block>> {
         let current_block_hash = match self.current_block_hash.take() {
             Some(hash) => hash,
             None => return None,

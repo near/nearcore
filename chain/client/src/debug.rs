@@ -618,7 +618,7 @@ impl ClientActorInner {
                     .get_block_producer(block_header.epoch_id(), block_header.height())
                     .ok();
 
-                let chunk_endorsements = self.compute_chunk_endorsements_ratio(&block);
+                let chunk_endorsements = self.compute_chunk_endorsements_ratio(block.as_deref());
                 let congestion_control_config = self
                     .client
                     .runtime_adapter
@@ -849,7 +849,7 @@ impl ClientActorInner {
     /// The logic is based on `validate_chunk_endorsements_in_block`.
     fn compute_chunk_endorsements_ratio(
         &self,
-        block: &Option<Block>,
+        block: Option<&Block>,
     ) -> Option<HashMap<ChunkHash, f64>> {
         let Some(block) = block else {
             return None;

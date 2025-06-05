@@ -55,7 +55,7 @@ pub struct Network {
     pub stats: Stats,
     network_adapter: PeerManagerAdapter,
     pub block_headers: Arc<WeakMap<CryptoHash, Once<Vec<Arc<BlockHeader>>>>>,
-    pub blocks: Arc<WeakMap<CryptoHash, Once<Block>>>,
+    pub blocks: Arc<WeakMap<CryptoHash, Once<Arc<Block>>>>,
     pub chunks: Arc<WeakMap<ChunkHash, Once<PartialEncodedChunkResponseMsg>>>,
     data: Arc<Mutex<NetworkData>>,
 
@@ -174,7 +174,7 @@ impl Network {
     }
 
     // fetch_block() fetches a block with a given hash.
-    pub async fn fetch_block(self: &Arc<Self>, hash: CryptoHash) -> anyhow::Result<Block> {
+    pub async fn fetch_block(self: &Arc<Self>, hash: CryptoHash) -> anyhow::Result<Arc<Block>> {
         scope::run!(|s| async {
             self.stats.block_start.fetch_add(1, Ordering::Relaxed);
             let recv = self.blocks.get_or_insert(&hash, || Once::new());

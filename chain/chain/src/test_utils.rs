@@ -105,7 +105,7 @@ pub fn wait_for_block_in_processing(
 pub fn process_block_sync(
     chain: &mut Chain,
     me: &Option<AccountId>,
-    block: MaybeValidated<Block>,
+    block: MaybeValidated<Arc<Block>>,
     provenance: Provenance,
     block_processing_artifacts: &mut BlockProcessingArtifact,
 ) -> Result<Vec<AcceptedBlock>, Error> {
