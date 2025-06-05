@@ -101,6 +101,10 @@ expensive integration-tests integration_tests tests::client::sync_state_nodes::u
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block --features nightly
 
+expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_2_10_multiple_nodes
+expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_2_10_multiple_nodes --features nightly
+expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_4_10_multiple_nodes
+expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_4_10_multiple_nodes --features nightly
 expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_7_10_multiple_nodes
 expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_7_10_multiple_nodes --features nightly
 
