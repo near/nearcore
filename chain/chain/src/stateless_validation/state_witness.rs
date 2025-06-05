@@ -309,12 +309,11 @@ impl ChainStore {
             for proof in receipt_proof_response.1.iter() {
                 let from_shard_id = proof.1.from_shard_id;
                 let from_shard_index = shard_layout.get_shard_index(from_shard_id)?;
-                let from_chunk_hash = from_block
-                    .chunks()
+                let from_block_chunks = from_block.chunks();
+                let from_chunk_hash = from_block_chunks
                     .get(from_shard_index)
                     .ok_or(Error::InvalidShardId(proof.1.from_shard_id))?
-                    .chunk_hash()
-                    .clone();
+                    .chunk_hash();
                 let insert_res =
                     source_receipt_proofs.insert(from_chunk_hash.clone(), proof.clone());
                 if insert_res.is_some() {

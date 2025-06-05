@@ -1100,7 +1100,8 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                         .get_block(&h)?
                         .chunks()
                         .iter_deprecated()
-                        .map(|header| *header.prev_outcome_root())
+                        .map(|header| header.prev_outcome_root())
+                        .copied()
                         .collect::<Vec<_>>();
                     if target_shard_index >= outcome_roots.len() {
                         return Err(GetExecutionOutcomeError::InconsistentState {

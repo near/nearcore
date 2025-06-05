@@ -331,7 +331,8 @@ impl Block {
         merklize(
             &chunks
                 .into_iter()
-                .map(|chunk| *chunk.prev_outgoing_receipts_root())
+                .map(|chunk| chunk.prev_outgoing_receipts_root())
+                .copied()
                 .collect::<Vec<CryptoHash>>(),
         )
         .0
@@ -351,7 +352,10 @@ impl Block {
     pub fn compute_chunk_tx_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
     ) -> CryptoHash {
-        merklize(&chunks.into_iter().map(|chunk| *chunk.tx_root()).collect::<Vec<CryptoHash>>()).0
+        merklize(
+            &chunks.into_iter().map(|chunk| chunk.tx_root()).copied().collect::<Vec<CryptoHash>>(),
+        )
+        .0
     }
 
     pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
@@ -360,7 +364,8 @@ impl Block {
         merklize(
             &chunks
                 .into_iter()
-                .map(|chunk| *chunk.prev_outcome_root())
+                .map(|chunk| chunk.prev_outcome_root())
+                .copied()
                 .collect::<Vec<CryptoHash>>(),
         )
         .0

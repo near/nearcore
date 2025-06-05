@@ -1685,7 +1685,8 @@ impl Chain {
                         let block_hash = *block.hash();
                         let missing_chunk_hashes: Vec<_> = missing_chunks
                             .iter()
-                            .map(|header| header.chunk_hash().clone())
+                            .map(|header| header.chunk_hash())
+                            .cloned()
                             .collect();
                         block_processing_artifact.blocks_missing_chunks.push(BlockMissingChunks {
                             prev_hash: *block.header().prev_hash(),

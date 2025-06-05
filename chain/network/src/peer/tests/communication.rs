@@ -130,7 +130,7 @@ async fn test_peer_communication(
     let want_parts = data::make_chunk_parts(chain.chunks[&want_hash].clone());
     let want = PeerMessage::Routed(Box::new(outbound.routed_message(
         RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
-            chunk_hash: want_hash.clone(),
+            chunk_hash: want_hash,
             parts: want_parts.clone(),
             receipts: vec![],
         }),

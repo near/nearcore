@@ -215,13 +215,13 @@ fn find_tx_or_receipt(
     chain_store: &ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(block_hash)?;
-    let chunk_hashes =
-        block.chunks().iter_deprecated().map(|c| c.chunk_hash().clone()).collect::<Vec<_>>();
+    let chunks = block.chunks();
 
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
 
-    for (shard_index, chunk_hash) in chunk_hashes.iter().enumerate() {
+    let chunk_hashes = chunks.iter_deprecated().map(|c| c.chunk_hash());
+    for (shard_index, chunk_hash) in chunk_hashes.enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =
             chain_store.get_chunk(chunk_hash).context("Failed looking up candidate chunk")?;

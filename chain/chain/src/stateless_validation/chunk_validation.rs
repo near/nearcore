@@ -337,9 +337,10 @@ pub fn pre_validate_chunk_state_witness(
     let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
         Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
     })?;
+    let last_chunk_block_chunks = last_chunk_block.chunks();
     let last_new_chunk_tx_root =
-        *last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().tx_root();
-    if last_new_chunk_tx_root != tx_root_from_state_witness {
+        last_chunk_block_chunks.get(last_chunk_shard_index).unwrap().tx_root();
+    if last_new_chunk_tx_root != &tx_root_from_state_witness {
         return Err(Error::InvalidChunkStateWitness(format!(
             "Transaction root {:?} does not match expected transaction root {:?}",
             tx_root_from_state_witness, last_new_chunk_tx_root

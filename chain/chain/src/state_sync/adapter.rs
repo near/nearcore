@@ -184,7 +184,8 @@ impl ChainStateSyncAdapter {
                 &block
                     .chunks()
                     .iter_deprecated()
-                    .map(|chunk| *chunk.prev_outgoing_receipts_root())
+                    .map(|chunk| chunk.prev_outgoing_receipts_root())
+                    .copied()
                     .collect::<Vec<CryptoHash>>(),
             );
 
