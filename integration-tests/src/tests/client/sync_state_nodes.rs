@@ -744,7 +744,7 @@ fn slow_test_state_sync_headers() {
                 };
                 let sync_hash = block_view.header.hash;
                 let shard_ids = block_view.chunks.iter().map(|c| c.shard_id).collect_vec();
-                tracing::info!(?sync_hash, %shard_ids, "got sync_hash");
+                tracing::info!(?sync_hash, ?shard_ids, "got sync_hash");
 
                 for shard_id in shard_ids {
                     // Make StateRequestHeader and expect that the response contains a header.
@@ -909,7 +909,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 };
                 let sync_hash = block_view.header.hash;
                 let shard_ids = block_view.chunks.iter().map(|c| c.shard_id).collect_vec();
-                tracing::info!(?sync_hash, %shard_ids, "got sync_hash");
+                tracing::info!(?sync_hash, ?shard_ids, "got sync_hash");
 
                 for shard_id in shard_ids {
                     // Make StateRequestHeader and expect that the response contains a header.
