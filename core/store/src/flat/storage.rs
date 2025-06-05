@@ -381,7 +381,7 @@ impl FlatStorage {
         let shard_uid = guard.shard_uid;
         let shard_id = shard_uid.shard_id();
 
-        tracing::debug!(target: "store", flat_head = ?guard.flat_head.hash, ?new_head, ?shard_id, "Moving flat head");
+        tracing::debug!(target: "store", flat_head = ?guard.flat_head.hash, ?new_head, %shard_id, "Moving flat head");
         let blocks = guard.get_blocks_to_head(&new_head)?;
 
         for block_hash in blocks.into_iter().rev() {

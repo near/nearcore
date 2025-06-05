@@ -282,7 +282,7 @@ impl ChainStateSyncAdapter {
         let _span = tracing::debug_span!(
             target: "sync",
             "get_state_response_part",
-            ?shard_id,
+            %shard_id,
             part_id,
             ?sync_hash)
         .entered();

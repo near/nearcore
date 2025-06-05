@@ -108,7 +108,7 @@ impl StateSyncDumper {
         if let Some(shards) = dump_config.restart_dump_for_shards.as_ref() {
             for shard_id in shards {
                 chain.chain_store().set_state_sync_dump_progress(*shard_id, None).unwrap();
-                tracing::debug!(target: "state_sync_dump", ?shard_id, "Dropped existing progress");
+                tracing::debug!(target: "state_sync_dump", %shard_id, "Dropped existing progress");
             }
         }
         self.future_spawner.spawn_boxed(
@@ -280,7 +280,7 @@ impl DumpState {
                     *s.parts_missing.write() = missing;
                 }
                 Err(error) => {
-                    tracing::error!(target: "state_sync_dump", ?error, ?shard_id, "Failed to list stored state parts.");
+                    tracing::error!(target: "state_sync_dump", ?error, %shard_id, "Failed to list stored state parts.");
                 }
             }
         }
@@ -617,7 +617,7 @@ impl HeaderUploader {
         {
             Ok(stored) => stored,
             Err(err) => {
-                tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to determine header presence in external storage.");
+                tracing::error!(target: "state_sync_dump", ?err, %shard_id, "Failed to determine header presence in external storage.");
                 false
             }
         }

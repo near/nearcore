@@ -101,7 +101,7 @@ pub fn check_receipts_at_block(
     let num_shards = shard_layout.shard_ids().count();
     let has_delayed = congestion_info.delayed_receipts_gas() != 0;
     let has_buffered = congestion_info.buffered_receipts_gas() != 0;
-    tracing::info!(target: "test", height=tip.height, num_shards, ?shard_id, has_delayed, has_buffered, "checking receipts");
+    tracing::info!(target: "test", height=tip.height, num_shards, %shard_id, has_delayed, has_buffered, "checking receipts");
 
     match kind {
         ReceiptKind::Delayed => {

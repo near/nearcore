@@ -224,7 +224,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
-                warn!(target: "chain", ?shard_id, hash = %block.hash(), %err, "Error in applying chunk for block");
+                warn!(target: "chain", %shard_id, hash = %block.hash(), %err, "Error in applying chunk for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
@@ -410,7 +410,7 @@ impl<'a> ChainUpdate<'a> {
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<ShardUId, Error> {
         let _span =
-            tracing::debug_span!(target: "sync", "chain_update_set_state_finalize", ?shard_id, ?sync_hash).entered();
+            tracing::debug_span!(target: "sync", "chain_update_set_state_finalize", %shard_id, ?sync_hash).entered();
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
             ShardStateSyncResponseHeader::V1(shard_state_header) => (
                 ShardChunk::V1(shard_state_header.chunk),
@@ -552,7 +552,7 @@ impl<'a> ChainUpdate<'a> {
         sync_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let _span =
-            tracing::debug_span!(target: "sync", "set_state_finalize_on_height", height, ?shard_id)
+            tracing::debug_span!(target: "sync", "set_state_finalize_on_height", height, %shard_id)
                 .entered();
         // Note that block headers are already synced and can be taken
         // from store on disk.
