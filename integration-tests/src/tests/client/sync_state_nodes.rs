@@ -448,7 +448,7 @@ fn ultra_slow_test_sync_state_dump() {
 // Test that state sync behaves well when the chunks are absent before the sync_hash block.
 // TODO: consider adding more scenarios for the CurrentEpochStateSync case, because with only one shard,
 // it's not possible to have the block before the sync_hash block miss any chunks.
-fn test_dump_epoch_missing_chunk_in_last_block() {
+fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
         init_test_logger();
         let epoch_length = 12;
