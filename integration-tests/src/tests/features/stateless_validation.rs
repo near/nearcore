@@ -357,8 +357,8 @@ fn test_chunk_state_witness_bad_shard_id() {
     let error = res.unwrap_err();
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);
-    assert!(error_message.contains("shard"));
-    assert_matches!(error, near_chain::Error::InvalidShardId(_));
+    assert!(error_message.contains("invalid shard 1000000000"));
+    assert_matches!(error, near_chain::Error::ValidatorError(_));
 }
 
 /// Tests that eth-implicit accounts still work with stateless validation.

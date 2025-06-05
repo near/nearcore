@@ -8,9 +8,12 @@ import sys
 import json
 import copy
 import pathlib
+import requests
 import subprocess
-
 import time
+import datetime
+from tqdm import tqdm
+
 from types import SimpleNamespace
 from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
     reset_cmd, run_env_cmd, run_remote_cmd, run_remote_upload_file, \
@@ -280,6 +283,84 @@ def start_nodes(args, enable_tx_generator=False):
     start_nodes_cmd(CommandContext(start_nodes_cmd_args))
 
 
+def handle_get_traces(args):
+    """Handle the get-traces command - fetch traces from the tracing server.
+    """
+    if args.forknet_details['tracing_server_external_ip'] is None:
+        logger.error("Error: Tracing server external IP is not set")
+        return
+
+    try:
+        if args.time is None:
+            cur_time = datetime.datetime.now(datetime.timezone.utc)
+        else:
+            cur_time = datetime.datetime.strptime(args.time,
+                                                  "%Y-%m-%d %H:%M:%S")
+            cur_time = cur_time.replace(tzinfo=datetime.timezone.utc)
+
+        cur_time_seconds = cur_time.timestamp()
+    except ValueError as e:
+        logger.error(
+            f"Invalid datetime format. Expected 'YYYY-MM-DD HH:MM:SS'. Error: {e}"
+        )
+        return
+
+    start_time = int((cur_time_seconds - args.lag - args.len) * 1000)
+    end_time = int((cur_time_seconds - args.lag) * 1000)
+
+    logger.info(
+        f"Start time: {datetime.datetime.fromtimestamp(start_time/1000, tz=datetime.timezone.utc).isoformat()}"
+    )
+    logger.info(
+        f"End time: {datetime.datetime.fromtimestamp(end_time/1000, tz=datetime.timezone.utc).isoformat()}"
+    )
+
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    trace_file = os.path.join(args.output_dir, f"trace_{start_time}.json")
+
+    response = requests.post(
+        f"http://{args.forknet_details['tracing_server_external_ip']}:8080/raw_trace",
+        headers={
+            'Content-Type': 'application/json',
+            'Accept-Encoding': 'gzip, deflate',
+            'Accept': '*/*'
+        },
+        json={
+            "start_timestamp_unix_ms": start_time,
+            "end_timestamp_unix_ms": end_time,
+            "filter": {
+                "nodes": [],
+                "threads": []
+            }
+        },
+        stream=True)
+
+    if response.status_code == 200:
+        content_encoding = response.headers.get('content-encoding', 'none')
+        logger.info(f"Response encoding: {content_encoding}")
+
+        block_size = 1024
+        total_bytes = 0
+
+        with open(trace_file, 'wb') as f, tqdm(
+                desc="Downloading trace",
+                unit='iB',
+                unit_scale=True,
+                unit_divisor=1024,
+                bar_format='{desc}: {n_fmt} [{elapsed}, {rate_fmt}]') as bar:
+            for data in response.iter_content(block_size):
+                size = f.write(data)
+                total_bytes += size
+                bar.update(size)
+
+        logger.info(f"Downloaded size: {total_bytes/1024/1024:.1f}MB")
+        logger.info(f"=> Trace saved to {trace_file}")
+    else:
+        logger.error(
+            f"Failed to fetch traces: {response.status_code} {response.text}")
+
+
 def handle_start(args):
     """Handle the start command - start the benchmark."""
     start_nodes(args, args.enable_tx_generator)
@@ -356,6 +437,27 @@ def main():
 
     subparsers.add_parser('reset', help='Reset the benchmark state')
 
+    get_traces_parser = subparsers.add_parser(
+        'get-traces', help='Fetch traces from the tracing server')
+    get_traces_parser.add_argument(
+        '--output-dir',
+        default='.',
+        help='Directory to save the trace files (default: current directory)')
+    get_traces_parser.add_argument(
+        '--time',
+        help=
+        'End time in UTC format (YYYY-MM-DD HH:MM:SS). Default: current time')
+    get_traces_parser.add_argument(
+        '--lag',
+        type=int,
+        default=10,
+        help='Number of seconds to look back from the end time (default: 10)')
+    get_traces_parser.add_argument(
+        '--len',
+        type=int,
+        default=10,
+        help='Length of the trace window in seconds (default: 10)')
+
     args = parser.parse_args()
 
     # Route to appropriate handler based on command
@@ -369,6 +471,8 @@ def main():
         handle_start(args)
     elif args.command == 'reset':
         handle_reset(args)
+    elif args.command == 'get-traces':
+        handle_get_traces(args)
     else:
         parser.print_help()
 
