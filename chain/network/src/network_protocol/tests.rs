@@ -89,7 +89,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     let b = data::make_secret_key(&mut rng);
     let edge = data::make_edge(&a, &b, 1);
 
-    let chunk_hash = chain.blocks[3].chunks()[0].chunk_hash();
+    let chunk_hash = chain.blocks[3].chunks()[0].chunk_hash().clone();
     let routed_message1 = Box::new(data::make_routed_message(
         &mut rng,
         RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {

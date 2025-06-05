@@ -269,7 +269,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     let mut receipts = std::collections::BTreeSet::<near_primitives::hash::CryptoHash>::new();
     for client in &mut env.clients {
         let head = client.chain.get_head_block().unwrap();
-        let chunk_hash = head.chunks().iter_raw().next().unwrap().chunk_hash();
+        let chunk_hash = head.chunks().iter_raw().next().unwrap().chunk_hash().clone();
         let Ok(chunk) = client.chain.mut_chain_store().get_chunk(&chunk_hash) else {
             continue;
         };

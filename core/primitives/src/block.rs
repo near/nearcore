@@ -331,7 +331,7 @@ impl Block {
         merklize(
             &chunks
                 .into_iter()
-                .map(|chunk| chunk.prev_outgoing_receipts_root())
+                .map(|chunk| *chunk.prev_outgoing_receipts_root())
                 .collect::<Vec<CryptoHash>>(),
         )
         .0
@@ -343,7 +343,7 @@ impl Block {
         merklize(
             &chunks
                 .into_iter()
-                .map(|chunk| ChunkHashHeight(chunk.chunk_hash(), chunk.height_included()))
+                .map(|chunk| ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()))
                 .collect::<Vec<ChunkHashHeight>>(),
         )
     }
@@ -351,14 +351,17 @@ impl Block {
     pub fn compute_chunk_tx_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
     ) -> CryptoHash {
-        merklize(&chunks.into_iter().map(|chunk| chunk.tx_root()).collect::<Vec<CryptoHash>>()).0
+        merklize(&chunks.into_iter().map(|chunk| *chunk.tx_root()).collect::<Vec<CryptoHash>>()).0
     }
 
     pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
     ) -> CryptoHash {
         merklize(
-            &chunks.into_iter().map(|chunk| chunk.prev_outcome_root()).collect::<Vec<CryptoHash>>(),
+            &chunks
+                .into_iter()
+                .map(|chunk| *chunk.prev_outcome_root())
+                .collect::<Vec<CryptoHash>>(),
         )
         .0
     }
@@ -389,7 +392,7 @@ impl Block {
         verify_path(
             *chunk_root,
             merkle_path,
-            &ChunkHashHeight(chunk.chunk_hash(), chunk.height_included()),
+            &ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()),
         )
     }
 

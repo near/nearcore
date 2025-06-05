@@ -1683,8 +1683,10 @@ impl Chain {
                     }
                     Error::ChunksMissing(missing_chunks) => {
                         let block_hash = *block.hash();
-                        let missing_chunk_hashes: Vec<_> =
-                            missing_chunks.iter().map(|header| header.chunk_hash()).collect();
+                        let missing_chunk_hashes: Vec<_> = missing_chunks
+                            .iter()
+                            .map(|header| header.chunk_hash().clone())
+                            .collect();
                         block_processing_artifact.blocks_missing_chunks.push(BlockMissingChunks {
                             prev_hash: *block.header().prev_hash(),
                             missing_chunks: missing_chunks.clone(),

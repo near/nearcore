@@ -1032,7 +1032,7 @@ impl ChunkHeaderView {
 
 impl From<ShardChunkHeader> for ChunkHeaderView {
     fn from(chunk: ShardChunkHeader) -> Self {
-        let hash = chunk.chunk_hash();
+        let hash = chunk.chunk_hash().clone();
         let signature = chunk.signature().clone();
         let height_included = chunk.height_included();
         let inner = chunk.take_inner();

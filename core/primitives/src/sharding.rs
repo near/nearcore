@@ -426,11 +426,11 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn encoded_merkle_root(&self) -> CryptoHash {
+    pub fn encoded_merkle_root(&self) -> &CryptoHash {
         match self {
-            Self::V1(header) => header.inner.encoded_merkle_root,
-            Self::V2(header) => header.inner.encoded_merkle_root,
-            Self::V3(header) => *header.inner.encoded_merkle_root(),
+            Self::V1(header) => &header.inner.encoded_merkle_root,
+            Self::V2(header) => &header.inner.encoded_merkle_root,
+            Self::V3(header) => header.inner.encoded_merkle_root(),
         }
     }
 
@@ -480,38 +480,38 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn prev_outgoing_receipts_root(&self) -> CryptoHash {
+    pub fn prev_outgoing_receipts_root(&self) -> &CryptoHash {
         match &self {
-            ShardChunkHeader::V1(header) => header.inner.prev_outgoing_receipts_root,
-            ShardChunkHeader::V2(header) => header.inner.prev_outgoing_receipts_root,
-            ShardChunkHeader::V3(header) => *header.inner.prev_outgoing_receipts_root(),
+            ShardChunkHeader::V1(header) => &header.inner.prev_outgoing_receipts_root,
+            ShardChunkHeader::V2(header) => &header.inner.prev_outgoing_receipts_root,
+            ShardChunkHeader::V3(header) => header.inner.prev_outgoing_receipts_root(),
         }
     }
 
     #[inline]
-    pub fn prev_outcome_root(&self) -> CryptoHash {
+    pub fn prev_outcome_root(&self) -> &CryptoHash {
         match &self {
-            ShardChunkHeader::V1(header) => header.inner.prev_outcome_root,
-            ShardChunkHeader::V2(header) => header.inner.prev_outcome_root,
-            ShardChunkHeader::V3(header) => *header.inner.prev_outcome_root(),
+            ShardChunkHeader::V1(header) => &header.inner.prev_outcome_root,
+            ShardChunkHeader::V2(header) => &header.inner.prev_outcome_root,
+            ShardChunkHeader::V3(header) => header.inner.prev_outcome_root(),
         }
     }
 
     #[inline]
-    pub fn tx_root(&self) -> CryptoHash {
+    pub fn tx_root(&self) -> &CryptoHash {
         match &self {
-            ShardChunkHeader::V1(header) => header.inner.tx_root,
-            ShardChunkHeader::V2(header) => header.inner.tx_root,
-            ShardChunkHeader::V3(header) => *header.inner.tx_root(),
+            ShardChunkHeader::V1(header) => &header.inner.tx_root,
+            ShardChunkHeader::V2(header) => &header.inner.tx_root,
+            ShardChunkHeader::V3(header) => header.inner.tx_root(),
         }
     }
 
     #[inline]
-    pub fn chunk_hash(&self) -> ChunkHash {
+    pub fn chunk_hash(&self) -> &ChunkHash {
         match &self {
-            ShardChunkHeader::V1(header) => header.hash.clone(),
-            ShardChunkHeader::V2(header) => header.hash.clone(),
-            ShardChunkHeader::V3(header) => header.hash.clone(),
+            ShardChunkHeader::V1(header) => &header.hash,
+            ShardChunkHeader::V2(header) => &header.hash,
+            ShardChunkHeader::V3(header) => &header.hash,
         }
     }
 
@@ -640,8 +640,8 @@ impl ShardChunkHeaderV1 {
         self.hash = Self::compute_hash(&self.inner);
     }
 
-    pub fn chunk_hash(&self) -> ChunkHash {
-        self.hash.clone()
+    pub fn chunk_hash(&self) -> &ChunkHash {
+        &self.hash
     }
 
     pub fn compute_hash(inner: &ShardChunkHeaderInnerV1) -> ChunkHash {
@@ -728,9 +728,9 @@ impl PartialEncodedChunk {
         }
     }
 
-    pub fn chunk_hash(&self) -> ChunkHash {
+    pub fn chunk_hash(&self) -> &ChunkHash {
         match self {
-            Self::V1(chunk) => chunk.header.hash.clone(),
+            Self::V1(chunk) => &chunk.header.hash,
             Self::V2(chunk) => chunk.header.chunk_hash(),
         }
     }
@@ -927,7 +927,7 @@ impl ShardChunk {
         prev_outgoing_receipts: Vec<Receipt>,
     ) -> Self {
         ShardChunk::V2(ShardChunkV2 {
-            chunk_hash: header.chunk_hash(),
+            chunk_hash: header.chunk_hash().clone(),
             header,
             transactions,
             prev_outgoing_receipts,
@@ -938,7 +938,7 @@ impl ShardChunk {
         match chunk {
             Self::V1(chunk) => match header {
                 ShardChunkHeader::V1(header) => Some(ShardChunk::V1(ShardChunkV1 {
-                    chunk_hash: header.chunk_hash(),
+                    chunk_hash: header.chunk_hash().clone(),
                     header,
                     transactions: chunk.transactions,
                     prev_outgoing_receipts: chunk.prev_outgoing_receipts,
@@ -947,7 +947,7 @@ impl ShardChunk {
                 ShardChunkHeader::V3(_) => None,
             },
             Self::V2(chunk) => Some(ShardChunk::V2(ShardChunkV2 {
-                chunk_hash: header.chunk_hash(),
+                chunk_hash: header.chunk_hash().clone(),
                 header,
                 transactions: chunk.transactions,
                 prev_outgoing_receipts: chunk.prev_outgoing_receipts,
@@ -995,17 +995,17 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn tx_root(&self) -> CryptoHash {
+    pub fn tx_root(&self) -> &CryptoHash {
         match self {
-            Self::V1(chunk) => chunk.header.inner.tx_root,
+            Self::V1(chunk) => &chunk.header.inner.tx_root,
             Self::V2(chunk) => chunk.header.tx_root(),
         }
     }
 
     #[inline]
-    pub fn prev_outgoing_receipts_root(&self) -> CryptoHash {
+    pub fn prev_outgoing_receipts_root(&self) -> &CryptoHash {
         match self {
-            Self::V1(chunk) => chunk.header.inner.prev_outgoing_receipts_root,
+            Self::V1(chunk) => &chunk.header.inner.prev_outgoing_receipts_root,
             Self::V2(chunk) => chunk.header.prev_outgoing_receipts_root(),
         }
     }
@@ -1019,10 +1019,10 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn chunk_hash(&self) -> ChunkHash {
+    pub fn chunk_hash(&self) -> &ChunkHash {
         match self {
-            Self::V1(chunk) => chunk.chunk_hash.clone(),
-            Self::V2(chunk) => chunk.chunk_hash.clone(),
+            Self::V1(chunk) => &chunk.chunk_hash,
+            Self::V2(chunk) => &chunk.chunk_hash,
         }
     }
 
@@ -1050,7 +1050,7 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn header_hash(&self) -> ChunkHash {
+    pub fn header_hash(&self) -> &ChunkHash {
         match self {
             Self::V1(chunk) => chunk.header.chunk_hash(),
             Self::V2(chunk) => chunk.header.chunk_hash(),
@@ -1058,10 +1058,10 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn prev_block_hash(&self) -> CryptoHash {
+    pub fn prev_block_hash(&self) -> &CryptoHash {
         match self {
-            Self::V1(chunk) => chunk.header.inner.prev_block_hash,
-            Self::V2(chunk) => *chunk.header.prev_block_hash(),
+            Self::V1(chunk) => &chunk.header.inner.prev_block_hash,
+            Self::V2(chunk) => chunk.header.prev_block_hash(),
         }
     }
 
@@ -1172,9 +1172,9 @@ impl EncodedShardChunk {
     }
 
     #[inline]
-    pub fn encoded_merkle_root(&self) -> CryptoHash {
+    pub fn encoded_merkle_root(&self) -> &CryptoHash {
         match self {
-            Self::V1(chunk) => chunk.header.inner.encoded_merkle_root,
+            Self::V1(chunk) => &chunk.header.inner.encoded_merkle_root,
             Self::V2(chunk) => chunk.header.encoded_merkle_root(),
         }
     }
@@ -1209,7 +1209,7 @@ impl EncodedShardChunk {
         TransactionReceipt::try_from_slice(&encoded_data)
     }
 
-    pub fn chunk_hash(&self) -> ChunkHash {
+    pub fn chunk_hash(&self) -> &ChunkHash {
         match self {
             Self::V1(chunk) => chunk.header.chunk_hash(),
             Self::V2(chunk) => chunk.header.chunk_hash(),
@@ -1289,14 +1289,14 @@ impl EncodedShardChunk {
             Self::decode_transaction_receipts(&self.content().parts, self.encoded_length())?;
         match self {
             Self::V1(chunk) => Ok(ShardChunk::V1(ShardChunkV1 {
-                chunk_hash: chunk.header.chunk_hash(),
+                chunk_hash: chunk.header.chunk_hash().clone(),
                 header: chunk.header.clone(),
                 transactions: transaction_receipts.0,
                 prev_outgoing_receipts: transaction_receipts.1,
             })),
 
             Self::V2(chunk) => Ok(ShardChunk::V2(ShardChunkV2 {
-                chunk_hash: chunk.header.chunk_hash(),
+                chunk_hash: chunk.header.chunk_hash().clone(),
                 header: chunk.header.clone(),
                 transactions: transaction_receipts.0,
                 prev_outgoing_receipts: transaction_receipts.1,
