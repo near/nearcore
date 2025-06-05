@@ -529,6 +529,40 @@ impl Hash for Signature {
     }
 }
 
+pub fn verify_batch(signatures: &[Signature], data: &[&[u8]], public_keys: &[PublicKey]) -> bool {
+    // Check if all signatures are ED25519
+    if signatures.iter().all(|s| matches!(s, Signature::ED25519(_))) {
+        let sigs = signatures
+            .iter()
+            .map(|s| match s {
+                Signature::ED25519(sig) => *sig,
+                _ => unreachable!(),
+            })
+            .collect::<Vec<_>>();
+        let keys = public_keys
+            .iter()
+            .filter_map(|pk| match pk {
+                PublicKey::ED25519(ed_pk) => {
+                    match ed25519_dalek::VerifyingKey::from_bytes(&ed_pk.0) {
+                        Err(_) => None,
+                        Ok(public_key) => Some(public_key),
+                    }
+                }
+                _ => unreachable!(),
+            })
+            .collect::<Vec<_>>();
+        if sigs.len() != keys.len() || sigs.len() != data.len() {
+            return false;
+        }
+        return ed25519_dalek::verify_batch(data, &sigs, &keys).is_ok();
+    }
+
+    signatures
+        .iter()
+        .zip(data.iter().zip(public_keys.iter()))
+        .all(|(signature, (datum, public_key))| signature.verify(datum, public_key))
+}
+
 impl Signature {
     /// Construct Signature from key type and raw signature blob
     pub fn from_parts(
@@ -800,6 +834,70 @@ impl std::convert::From<DecodeBs58Error> for crate::errors::ParseSignatureError 
             }
             DecodeBs58Error::BadData(error_message) => Self::InvalidData { error_message },
         }
+    }
+}
+
+#[cfg(test)]
+mod verify_batch_tests {
+    use super::*;
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+
+    #[test]
+    fn test_verify_batch_ed25519_success() {
+        let mut rng = OsRng;
+        let keypair1 = SigningKey::generate(&mut rng);
+        let keypair2 = SigningKey::generate(&mut rng);
+
+        let data1 = b"hello world";
+        let data2 = b"goodbye world";
+
+        let sig1 = keypair1.sign(data1);
+        let sig2 = keypair2.sign(data2);
+
+        let signatures = vec![Signature::ED25519(sig1), Signature::ED25519(sig2)];
+        let data = vec![data1.as_ref(), data2.as_ref()];
+        let public_keys = vec![
+            PublicKey::ED25519(ED25519PublicKey(keypair1.verifying_key().to_bytes())),
+            PublicKey::ED25519(ED25519PublicKey(keypair2.verifying_key().to_bytes())),
+        ];
+
+        assert!(verify_batch(&signatures, &data, &public_keys));
+    }
+
+    #[test]
+    fn test_verify_batch_ed25519_failure() {
+        let mut rng = OsRng;
+        let keypair1 = SigningKey::generate(&mut rng);
+        let keypair2 = SigningKey::generate(&mut rng);
+
+        let data1 = b"hello world";
+        let data2 = b"goodbye world";
+
+        let sig1 = keypair1.sign(data1);
+        // Use sig1 for both, but data2 for the second, which should fail
+        let signatures = vec![Signature::ED25519(sig1), Signature::ED25519(sig1)];
+        let data = vec![data1.as_ref(), data2.as_ref()];
+        let public_keys = vec![
+            PublicKey::ED25519(ED25519PublicKey(keypair1.verifying_key().to_bytes())),
+            PublicKey::ED25519(ED25519PublicKey(keypair2.verifying_key().to_bytes())),
+        ];
+
+        assert!(!verify_batch(&signatures, &data, &public_keys));
+    }
+
+    #[test]
+    fn test_verify_batch_mismatched_lengths() {
+        let mut rng = OsRng;
+        let keypair = SigningKey::generate(&mut rng);
+        let data = b"test";
+        let sig = keypair.sign(data);
+
+        let signatures = vec![Signature::ED25519(sig)];
+        let data = vec![data.as_ref()];
+        let public_keys = vec![]; // Mismatched length
+
+        assert!(!verify_batch(&signatures, &data, &public_keys));
     }
 }
 

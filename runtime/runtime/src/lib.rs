@@ -339,28 +339,38 @@ impl Runtime {
         signed_txs: impl IntoIterator<Item = SignedTransaction>,
         current_protocol_version: ProtocolVersion,
     ) -> Vec<(CryptoHash, Result<(ValidatedTransaction, TransactionCost), InvalidTxError>)> {
-        signed_txs
-            .into_iter()
-            .map(|signed_tx| {
-                (
-                    signed_tx.get_hash(),
-                    match validate_transaction(config, signed_tx, current_protocol_version) {
-                        Ok(validated_tx) => {
-                            match tx_cost(
-                                config,
-                                &validated_tx.to_tx(),
-                                gas_price,
-                                current_protocol_version,
-                            ) {
-                                Ok(cost) => Ok((validated_tx, cost)),
-                                Err(e) => Err(InvalidTxError::from(e)),
-                            }
+        // First, try a batch validation.
+        let signed_txs: Vec<SignedTransaction> = signed_txs.into_iter().collect();
+        let hashes = signed_txs.iter().map(|tx| tx.get_hash()).collect::<Vec<_>>();
+        let results = ValidatedTransaction::new_list(config, signed_txs);
+
+        match results {
+            Ok(validated_txs) => {
+                // If batch validation is successful, calculate costs for each transaction.
+                // Zip hashes and validated transactions together.
+                validated_txs
+                    .into_iter()
+                    .map(|validated_tx| {
+                        let cost = tx_cost(
+                            config,
+                            &validated_tx.to_tx(),
+                            gas_price,
+                            current_protocol_version,
+                        );
+                        match cost {
+                            Ok(cost) => Ok((validated_tx, cost)),
+                            Err(e) => Err(InvalidTxError::from(e)),
                         }
-                        Err((e, _tx)) => Err(e),
-                    },
-                )
-            })
-            .collect()
+                    })
+                    .zip(hashes.into_iter())
+                    .map(|(result, hash)| (hash, result))
+                    .collect()
+            }
+            Err((e, _)) => {
+                // If batch validation fails, just return the same error for each transaction.
+                hashes.into_iter().map(|hash| (hash, Err(e.clone()))).collect()
+            }
+        }
     }
 
     /// Takes one signed transaction, verifies it and converts it to a receipt.

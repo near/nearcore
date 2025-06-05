@@ -8,7 +8,7 @@ use crate::merkle::MerklePath;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::types::{AccountId, Balance, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{PublicKey, Signature};
+use near_crypto::{PublicKey, Signature, verify_batch};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
@@ -251,6 +251,26 @@ impl ValidatedTransaction {
         }
     }
 
+    pub fn new_verified(
+        config: &RuntimeConfig,
+        signed_tx: SignedTransaction,
+    ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
+        // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
+        if matches!(signed_tx.transaction, Transaction::V1(_)) {
+            return Err((InvalidTxError::InvalidTransactionVersion, signed_tx));
+        }
+        let tx_size = signed_tx.get_size();
+        let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
+        if tx_size > max_tx_size {
+            return Err((
+                InvalidTxError::TransactionSizeExceeded { size: tx_size, limit: max_tx_size },
+                signed_tx,
+            ));
+        }
+
+        Ok(Self(signed_tx))
+    }
+
     /// This method should only be used for test purposes.
     pub fn new_for_test(signed_tx: SignedTransaction) -> Self {
         Self(signed_tx)
@@ -269,6 +289,21 @@ impl ValidatedTransaction {
         config: &RuntimeConfig,
         signed_txs: impl IntoIterator<Item = SignedTransaction>,
     ) -> Result<Vec<ValidatedTransaction>, (InvalidTxError, SignedTransaction)> {
+        // Try a batch verification.
+        let signed_txs = signed_txs.into_iter().collect::<Vec<_>>();
+        let sigs = signed_txs.iter().map(|tx| tx.signature.clone()).collect::<Vec<_>>();
+        let data = signed_txs.iter().map(|tx| tx.get_hash()).collect::<Vec<_>>();
+        let data_refs = data.iter().map(|d| d.as_ref()).collect::<Vec<_>>();
+        let public_keys =
+            signed_txs.iter().map(|tx| tx.transaction.public_key().clone()).collect::<Vec<_>>();
+        if verify_batch(&sigs, &data_refs, &public_keys) {
+            // If the batch verification passes, create validated transactions directly.
+            return signed_txs
+                .into_iter()
+                .map(|tx| ValidatedTransaction::new_verified(config, tx))
+                .collect();
+        }
+
         let mut validated_txs = vec![];
         for signed_tx in signed_txs {
             validated_txs.push(ValidatedTransaction::new(&config, signed_tx)?);
