@@ -131,7 +131,7 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// CatchingUp is for when apply_chunks is called through catchup_blocks, this is to catch up the
 /// shard states for the next epoch
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
-enum ApplyChunksMode {
+pub enum ApplyChunksMode {
     IsCaughtUp,
     CatchingUp,
     NotCaughtUp,
@@ -356,7 +356,7 @@ impl Drop for Chain {
 
 /// UpdateShardJob is a closure that is responsible for updating a shard for a single block.
 /// Execution context (latest blocks/chunks details) are already captured within.
-type UpdateShardJob = (
+pub type UpdateShardJob = (
     ShardId,
     CachedShardUpdateKey,
     Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>,
@@ -3202,7 +3202,7 @@ impl Chain {
 
     /// Get a key which can uniquely define result of applying a chunk based on
     /// block execution context and other chunks.
-    fn get_cached_shard_update_key(
+    pub fn get_cached_shard_update_key(
         block_context: &ApplyChunkBlockContext,
         chunk_headers: &Chunks,
         shard_id: ShardId,
@@ -3438,7 +3438,7 @@ impl Chain {
 /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
 /// that it does not guard whether the children shards are ready or not, see the
 /// comments before `need_to_reshard`
-fn get_should_apply_chunk(
+pub fn get_should_apply_chunk(
     mode: ApplyChunksMode,
     cares_about_shard_this_epoch: bool,
     cares_about_shard_next_epoch: bool,

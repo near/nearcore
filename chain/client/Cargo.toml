@@ -62,6 +62,7 @@ near-primitives = { workspace = true, features = ["clock"] }
 near-store.workspace = true
 near-telemetry.workspace = true
 near-vm-runner.workspace = true
+node-runtime.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true

@@ -97,6 +97,11 @@ test_features = [
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
 
+protocol_feature_spice = [
+    "near-epoch-manager/protocol_feature_spice",
+    "near-primitives/protocol_feature_spice",
+]
+
 nightly = [
     "near-actix-test-utils/nightly",
     "near-async/nightly",
