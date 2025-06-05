@@ -9,8 +9,6 @@ expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ult
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts --features nightly
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9 --features nightly
-expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_sanity_blocks_produced
-expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_sanity_blocks_produced --features nightly
 
 # cross-shard transactions tests
 expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx
@@ -93,14 +91,8 @@ expensive --timeout=700 near-chain near_chain tests::garbage_collection::ultra_s
 
 expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails
 expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails --features nightly
-expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_gc_after_state_sync
-expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_gc_after_state_sync --features nightly
-expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_process_block_after_state_sync
-expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_process_block_after_state_sync --features nightly
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard --features nightly
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block --features nightly
 
@@ -136,8 +128,6 @@ expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2 --features nightly
 
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join --features nightly
 expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_kickout
 expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_kickout --features nightly
 

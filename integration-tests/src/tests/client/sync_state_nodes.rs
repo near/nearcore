@@ -136,7 +136,7 @@ fn test_sync_state_nodes() {
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
-fn ultra_slow_test_sync_state_nodes_multishard() {
+fn test_sync_state_nodes_multishard() {
     heavy_test(|| {
         init_integration_logger();
 
