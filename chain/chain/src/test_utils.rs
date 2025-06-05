@@ -71,6 +71,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        None,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )
@@ -158,6 +159,7 @@ pub fn setup_with_tx_validity_period(
         &ChainGenesis::new(&genesis.config),
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
         None,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),

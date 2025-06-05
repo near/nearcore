@@ -1,33 +1,33 @@
+use near_async::futures::AsyncComputationSpawner;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use thiserror::Error;
-use thread_priority::{RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadSchedulePolicy};
+use thread_priority::{
+    RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadPriority, ThreadSchedulePolicy,
+};
 use tracing::debug;
-
-pub(crate) trait ThreadLimit {
-    fn max_threads(&self) -> usize;
-}
-
-/// TODO: Implement `ThreadLimit` which returns the current number of tracked/validated shards
-pub(crate) type ConstLimit = usize;
-
-impl ThreadLimit for ConstLimit {
-    fn max_threads(&self) -> usize {
-        *self
-    }
-}
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 type IdleThreadQueue = Arc<Mutex<VecDeque<oneshot::Sender<Option<Job>>>>>;
 
-pub(crate) struct ThreadPool<Limit: ThreadLimit> {
+/// OS thread pool for spawning latency-critical real time tasks.
+///
+/// The pool can spawn up to `limit` threads. Idle threads are kept for
+/// `idle_timeout` to be potentially reused for new tasks. All threads in the
+/// pool are spawned under round-robin realtime policy (`SCHED_RR`) with a
+/// configured `priority`. Realtime threads **always** take precedence over
+/// threads using normal policy (`SCHED_OTHER`), so `priority` applies **only
+/// among other realtime threads**.
+pub(crate) struct ThreadPool {
     /// Name of the pool. Used for logging/debugging purposes.
     name: &'static str,
     /// Limit of running threads.
-    limit: Limit,
+    limit: usize,
+    /// Priority of spawned threads (must be in [0; 100) range)
+    priority: ThreadPriority,
     /// Timeout after which an idle thread terminates.
     idle_timeout: Duration,
     /// Counter of currently running worker threads (active or idle).
@@ -45,21 +45,27 @@ pub(crate) enum Error {
     Spawn(#[from] std::io::Error),
 }
 
-impl<Limit: ThreadLimit> ThreadPool<Limit> {
-    pub(crate) fn new(name: &'static str, idle_timeout: Duration, limit: Limit) -> Self {
+impl ThreadPool {
+    /// Create a new thread pool. Panics if priority is out of [0; 100) range.
+    pub(crate) fn new(
+        name: &'static str,
+        idle_timeout: Duration,
+        limit: usize,
+        priority: u8,
+    ) -> Self {
         Self {
             name,
             limit,
+            priority: priority.try_into().expect("priority out of range"),
             idle_timeout,
             worker_counter: Default::default(),
             idle_thread_queue: Default::default(),
         }
     }
 
-    pub(crate) fn spawn(&self, f: impl FnOnce() + Send + 'static) -> Result<(), Error> {
-        self.spawn_boxed(Box::new(f))
-    }
-
+    /// Spawn a new task to be run on the pool. It will re-use existing idle threads
+    /// if possible, or spawn a new thread. Returns error when the thread limit is reached
+    /// or spawning a new thread fails.
     pub(crate) fn spawn_boxed(&self, job: Job) -> Result<(), Error> {
         // Try to use one of the existing idle threads
         let mut job = Some(job);
@@ -76,7 +82,7 @@ impl<Limit: ThreadLimit> ThreadPool<Limit> {
 
     fn try_spawn_thread(&self, job: Job) -> Result<(), Error> {
         let name = self.name;
-        let limit = self.limit.max_threads();
+        let limit = self.limit;
         self.worker_counter
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| (v < limit).then_some(v + 1))
             .map_err(|_| Error::ThreadLimitReached { name, limit })?;
@@ -87,7 +93,7 @@ impl<Limit: ThreadLimit> ThreadPool<Limit> {
         ThreadBuilder::default()
             .name(name)
             .policy(ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin))
-            // TODO: Set thread priority
+            .priority(self.priority)
             .spawn(move |res| {
                 if let Err(err) = res {
                     debug!("Setting scheduler policy failed: {err}")
@@ -100,6 +106,12 @@ impl<Limit: ThreadLimit> ThreadPool<Limit> {
             })?;
 
         Ok(())
+    }
+}
+
+impl AsyncComputationSpawner for ThreadPool {
+    fn spawn_boxed(&self, _name: &str, job: Box<dyn FnOnce() + Send>) {
+        self.spawn_boxed(job).expect("thread pool failed to spawn thread")
     }
 }
 

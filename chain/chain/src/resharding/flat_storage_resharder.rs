@@ -948,6 +948,7 @@ mod tests {
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),
             None,
+            None,
             MutableConfigValue::new(None, "validator_signer"),
             noop().into_multi_sender(),
         )

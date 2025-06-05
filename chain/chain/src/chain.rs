@@ -45,6 +45,8 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
+use near_async::futures::AsyncComputationSpawner;
+use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::MutableValidatorSigner;
@@ -316,7 +318,7 @@ pub struct Chain {
     /// Used to receive apply chunks results
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Used to spawn the apply chunks jobs.
-    apply_chunks_spawner: ThreadPool<usize>,
+    apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     pub apply_chunk_results_cache: ApplyChunksResultCache,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
@@ -381,6 +383,10 @@ enum SnapshotAction {
     None,
 }
 
+fn apply_chunks_default_spawner(limit: usize) -> Arc<dyn AsyncComputationSpawner> {
+    Arc::new(ThreadPool::new("apply_chunks", std::time::Duration::from_secs(30), limit, 50))
+}
+
 impl Chain {
     pub fn new_for_view_client(
         clock: Clock,
@@ -415,6 +421,7 @@ impl Chain {
             epoch_manager.clone(),
             noop().into_multi_sender(),
         );
+        let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -434,11 +441,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            apply_chunks_spawner: ThreadPool::new(
-                "apply_chunks",
-                std::time::Duration::from_secs(30),
-                20,
-            ),
+            apply_chunks_spawner: apply_chunks_default_spawner(num_shards),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
@@ -458,6 +461,7 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
+        apply_chunks_spawner: Option<Arc<dyn AsyncComputationSpawner>>,
         validator: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
     ) -> Result<Chain, Error> {
@@ -531,6 +535,7 @@ impl Chain {
         // of resharding. We need to revisit this.
         let tip = chain_store.head()?;
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id)?;
+        let num_shards = shard_layout.num_shards() as usize;
         let shard_uids = shard_layout.shard_uids().collect_vec();
         let tracked_shards: Vec<_> = shard_uids
             .iter()
@@ -572,6 +577,9 @@ impl Chain {
         let (sc, rc) = unbounded();
         let resharding_manager =
             ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
+
+        let apply_chunks_spawner =
+            apply_chunks_spawner.unwrap_or_else(|| apply_chunks_default_spawner(num_shards));
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -593,11 +601,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            apply_chunks_spawner: ThreadPool::new(
-                "apply_chunks",
-                std::time::Duration::from_secs(30),
-                20,
-            ),
+            apply_chunks_spawner,
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             pending_state_patch: Default::default(),
@@ -1777,24 +1781,21 @@ impl Chain {
     ) {
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
-        self.apply_chunks_spawner
-            .spawn(move || {
-                let apply_all_chunks_start_time = clock.now();
-                // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
-                let res = do_apply_chunks(block.clone(), block_height, work);
-                // If we encounter error here, that means the receiver is deallocated and the client
-                // thread is already shut down. The node is already crashed, so we can unwrap here
-                metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
-                    (clock.now().signed_duration_since(apply_all_chunks_start_time))
-                        .as_seconds_f64(),
-                );
-                sc.send((block, res)).unwrap();
-                drop(apply_chunks_still_applying);
-                if let Some(sender) = apply_chunks_done_sender {
-                    sender.send(ApplyChunksDoneMessage {});
-                }
-            })
-            .expect("spawning apply_chunks failed");
+        self.apply_chunks_spawner.spawn("apply_chunks", move || {
+            let apply_all_chunks_start_time = clock.now();
+            // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
+            let res = do_apply_chunks(block.clone(), block_height, work);
+            // If we encounter an error here, that means the receiver is deallocated and the client
+            // thread is already shut down. The node is already crashed, so we can unwrap here
+            metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
+                (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
+            );
+            sc.send((block, res)).unwrap();
+            drop(apply_chunks_still_applying);
+            if let Some(sender) = apply_chunks_done_sender {
+                sender.send(ApplyChunksDoneMessage {});
+            }
+        });
     }
 
     #[tracing::instrument(level = "debug", target = "chain", "postprocess_block_only", skip_all)]

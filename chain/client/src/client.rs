@@ -203,6 +203,22 @@ impl Client {
     }
 }
 
+pub struct AsyncComputationMultiSpawner {
+    pub apply_chunks: Option<Arc<dyn AsyncComputationSpawner>>,
+    pub epoch_sync: Arc<dyn AsyncComputationSpawner>,
+    pub stateless_validation: Arc<dyn AsyncComputationSpawner>,
+}
+
+impl AsyncComputationMultiSpawner {
+    pub fn from_single(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
+        Self {
+            apply_chunks: Some(spawner.clone()),
+            epoch_sync: spawner.clone(),
+            stateless_validation: spawner,
+        }
+    }
+}
+
 impl Client {
     pub fn new(
         clock: Clock,
@@ -217,7 +233,7 @@ impl Client {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
-        async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
+        async_computation_spawner: AsyncComputationMultiSpawner,
         partial_witness_adapter: PartialWitnessSenderForClient,
         resharding_sender: ReshardingSender,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
@@ -244,6 +260,7 @@ impl Client {
             doomslug_threshold_mode,
             chain_config,
             snapshot_callbacks,
+            async_computation_spawner.apply_chunks,
             validator_signer.clone(),
             resharding_sender.clone(),
         )?;
@@ -252,7 +269,7 @@ impl Client {
             clock.clone(),
             network_adapter.clone(),
             chain.genesis().clone(),
-            async_computation_spawner.clone(),
+            async_computation_spawner.epoch_sync,
             config.epoch_sync.clone(),
             &chain.chain_store.store(),
         );
@@ -319,7 +336,7 @@ impl Client {
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
             config.orphan_state_witness_pool_size,
-            async_computation_spawner,
+            async_computation_spawner.stateless_validation,
         );
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
