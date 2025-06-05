@@ -994,7 +994,7 @@ impl Client {
     // This function is just a wrapper for process_block_impl that makes error propagation easier.
     pub fn receive_block(
         &mut self,
-        block: Block,
+        block: Arc<Block>,
         peer_id: PeerId,
         was_requested: bool,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
@@ -1050,7 +1050,7 @@ impl Client {
     /// Then it starts the block processing process to process the full block.
     pub fn receive_block_impl(
         &mut self,
-        block: Block,
+        block: Arc<Block>,
         peer_id: PeerId,
         was_requested: bool,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
@@ -1178,7 +1178,7 @@ impl Client {
     /// propagated in the network fast.
     fn verify_and_rebroadcast_block(
         &mut self,
-        block: &MaybeValidated<Block>,
+        block: &MaybeValidated<Arc<Block>>,
         was_requested: bool,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
@@ -1193,7 +1193,7 @@ impl Client {
                     && !was_requested
                     && !self.sync_handler.sync_status.is_syncing()
                 {
-                    self.rebroadcast_block(block.as_ref().into_inner());
+                    self.rebroadcast_block(Arc::clone(block.as_ref().into_inner()));
                 }
                 Ok(())
             }
@@ -1223,7 +1223,7 @@ impl Client {
     /// `apply_chunks_done_sender`: a callback that will be called when applying chunks is finished.
     pub fn start_process_block(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         signer: &Option<Arc<ValidatorSigner>>,
@@ -1353,10 +1353,10 @@ impl Client {
         Ok(())
     }
 
-    fn rebroadcast_block(&mut self, block: &Block) {
+    fn rebroadcast_block(&mut self, block: Arc<Block>) {
         if self.rebroadcasted_blocks.get(block.hash()).is_none() {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block.clone() },
+                NetworkRequests::Block { block: Arc::clone(&block) },
             ));
             self.rebroadcasted_blocks.put(*block.hash(), ());
         }

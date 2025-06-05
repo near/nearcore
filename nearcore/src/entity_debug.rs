@@ -72,8 +72,7 @@ impl EntityDebugHandlerImpl {
                 let author = self
                     .epoch_manager
                     .get_block_producer(block.header().epoch_id(), block.header().height())?;
-                let mut ret =
-                    serialize_entity(&BlockView::from_author_block(author, block.clone()));
+                let mut ret = serialize_entity(&BlockView::from_author_block(author, &block));
                 if let EntityDataValue::Struct(inner) = &mut ret {
                     inner.add("chunk_endorsements", serialize_entity(block.chunk_endorsements()));
                 }

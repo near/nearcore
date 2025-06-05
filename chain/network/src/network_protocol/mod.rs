@@ -434,7 +434,7 @@ pub enum PeerMessage {
     BlockHeaders(Vec<Arc<BlockHeader>>),
 
     BlockRequest(CryptoHash),
-    Block(Block),
+    Block(Arc<Block>),
     OptimisticBlock(OptimisticBlock),
 
     Transaction(SignedTransaction),

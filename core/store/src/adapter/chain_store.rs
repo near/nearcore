@@ -118,9 +118,9 @@ impl ChainStoreAdapter {
     }
 
     /// Get full block.
-    pub fn get_block(&self, block_hash: &CryptoHash) -> Result<Block, Error> {
+    pub fn get_block(&self, block_hash: &CryptoHash) -> Result<Arc<Block>, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::Block, block_hash.as_ref()),
+            self.store.caching_get_ser(DBCol::Block, block_hash.as_ref()),
             format_args!("BLOCK: {}", block_hash),
         )
     }
@@ -254,7 +254,8 @@ impl ChainStoreAdapter {
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
+            self.store
+                .caching_get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
             format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
     }

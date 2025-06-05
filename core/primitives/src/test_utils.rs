@@ -778,7 +778,7 @@ impl TestBlockBuilder {
         };
         Self {
             clock,
-            prev: prev.clone(),
+            prev: Block::clone(prev),
             signer,
             height: prev.header().height() + 1,
             epoch_id: *prev.header().epoch_id(),
@@ -851,47 +851,25 @@ impl TestBlockBuilder {
 impl Block {
     pub fn mut_header(&mut self) -> &mut BlockHeader {
         match self {
-            Block::BlockV1(block) => {
-                let block = Arc::make_mut(block);
-                &mut block.header
-            }
-            Block::BlockV2(block) => {
-                let block = Arc::make_mut(block);
-                &mut block.header
-            }
-            Block::BlockV3(block) => {
-                let block = Arc::make_mut(block);
-                &mut block.header
-            }
-            Block::BlockV4(block) => {
-                let block = Arc::make_mut(block);
-                &mut block.header
-            }
+            Block::BlockV1(block) => &mut block.header,
+            Block::BlockV2(block) => &mut block.header,
+            Block::BlockV3(block) => &mut block.header,
+            Block::BlockV4(block) => &mut block.header,
         }
     }
 
     pub fn mut_chunks(&mut self) -> &mut Vec<ShardChunkHeader> {
         match self {
             Block::BlockV1(_) => unreachable!(),
-            Block::BlockV2(block) => {
-                let block = Arc::make_mut(block);
-                &mut block.chunks
-            }
-            Block::BlockV3(block) => {
-                let block = Arc::make_mut(block);
-                &mut block.body.chunks
-            }
-            Block::BlockV4(block) => {
-                let block = Arc::make_mut(block);
-                block.body.mut_chunks()
-            }
+            Block::BlockV2(block) => &mut block.chunks,
+            Block::BlockV3(block) => &mut block.body.chunks,
+            Block::BlockV4(block) => block.body.mut_chunks(),
         }
     }
 
     pub fn set_chunks(&mut self, chunks: Vec<ShardChunkHeader>) {
         match self {
             Block::BlockV1(block) => {
-                let block = Arc::make_mut(block);
                 let legacy_chunks = chunks
                     .into_iter()
                     .map(|chunk| match chunk {
@@ -907,15 +885,12 @@ impl Block {
                 block.chunks = legacy_chunks;
             }
             Block::BlockV2(block) => {
-                let block = Arc::make_mut(block);
                 block.chunks = chunks;
             }
             Block::BlockV3(block) => {
-                let block = Arc::make_mut(block);
                 block.body.chunks = chunks;
             }
             Block::BlockV4(block) => {
-                let block = Arc::make_mut(block);
                 block.body.set_chunks(chunks);
             }
         }
@@ -925,15 +900,12 @@ impl Block {
         match self {
             Block::BlockV1(_) => unreachable!(),
             Block::BlockV2(body) => {
-                let body = Arc::make_mut(body);
                 body.vrf_value = vrf_value;
             }
             Block::BlockV3(body) => {
-                let body = Arc::make_mut(body);
                 body.body.vrf_value = vrf_value;
             }
             Block::BlockV4(body) => {
-                let body = Arc::make_mut(body);
                 body.body.set_vrf_value(vrf_value);
             }
         };
@@ -943,7 +915,6 @@ impl Block {
         match self {
             Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => (),
             Block::BlockV4(body) => {
-                let body = Arc::make_mut(body);
                 body.body.set_chunk_endorsements(chunk_endorsements);
             }
         };
