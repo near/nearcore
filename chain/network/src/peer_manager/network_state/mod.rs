@@ -9,7 +9,8 @@ use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, SignedAccountData, SnapshotHostInfo,
+    RawTieredMessageBody, RoutedMessageV2, SignedAccountData, SnapshotHostInfo, T1MessageBody,
+    T2MessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
@@ -508,19 +509,19 @@ impl NetworkState {
 
     #[cfg(test)]
     pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
-        let body = RoutedMessageBody::Ping(crate::network_protocol::Ping {
+        let body = RawTieredMessageBody::T2(T2MessageBody::Ping(crate::network_protocol::Ping {
             nonce,
             source: self.config.node_id(),
-        });
+        }));
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
     pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
-        let body = RoutedMessageBody::Pong(crate::network_protocol::Pong {
+        let body = RawTieredMessageBody::T2(T2MessageBody::Pong(crate::network_protocol::Pong {
             nonce,
             source: self.config.node_id(),
-        });
+        }));
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
@@ -615,7 +616,7 @@ impl NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
         account_id: &AccountId,
-        msg: RoutedMessageBody,
+        msg: RawTieredMessageBody,
     ) -> bool {
         // If the message is allowed to be sent to self, we handle it directly.
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
@@ -630,7 +631,7 @@ impl NetworkState {
             );
             actix::spawn(async move {
                 let hash = msg.hash();
-                this.receive_routed_message(
+                this.receive_message(
                     &clock,
                     msg.msg.author.clone(),
                     my_peer_id,
@@ -705,31 +706,94 @@ impl NetworkState {
         success
     }
 
-    pub async fn receive_routed_message(
+    pub async fn receive_message(
         self: &Arc<Self>,
         clock: &time::Clock,
         msg_author: PeerId,
         prev_hop: PeerId,
         msg_hash: CryptoHash,
-        body: RoutedMessageBody,
-    ) -> Option<RoutedMessageBody> {
+        body: RawTieredMessageBody,
+    ) -> Option<RawTieredMessageBody> {
         match body {
-            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => self
+            RawTieredMessageBody::T1(body) => self
+                .receive_t1_message(prev_hop, body)
+                .await
+                .map(|body| RawTieredMessageBody::T1(body)),
+            RawTieredMessageBody::T2(body) => self
+                .receive_routed_message(clock, msg_author, msg_hash, body)
+                .await
+                .map(|body| RawTieredMessageBody::T2(body)),
+        }
+    }
+
+    pub async fn receive_t1_message(
+        self: &Arc<Self>,
+        prev_hop: PeerId,
+        body: T1MessageBody,
+    ) -> Option<T1MessageBody> {
+        match body {
+            T1MessageBody::BlockApproval(approval) => {
+                self.client.send_async(BlockApproval(approval, prev_hop)).await.ok();
+                None
+            }
+            T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
+                self.shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
+                None
+            }
+            T1MessageBody::PartialEncodedChunkForward(msg) => {
+                self.shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
+                None
+            }
+            T1MessageBody::PartialEncodedStateWitness(witness) => {
+                self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                None
+            }
+            T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
+                self.partial_witness_adapter
+                    .send(PartialEncodedStateWitnessForwardMessage(witness));
+                None
+            }
+            T1MessageBody::VersionedChunkEndorsement(endorsement) => {
+                self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+                None
+            }
+            T1MessageBody::ChunkContractAccesses(accesses) => {
+                self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
+                None
+            }
+            T1MessageBody::ContractCodeRequest(request) => {
+                self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
+                None
+            }
+            T1MessageBody::ContractCodeResponse(response) => {
+                self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
+                None
+            }
+        }
+    }
+
+    pub async fn receive_routed_message(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        msg_author: PeerId,
+        msg_hash: CryptoHash,
+        body: T2MessageBody,
+    ) -> Option<T2MessageBody> {
+        match body {
+            T2MessageBody::TxStatusRequest(account_id, tx_hash) => self
                 .client
                 .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
                 .await
                 .ok()
                 .flatten()
-                .map(|response| RoutedMessageBody::TxStatusResponse(*response)),
-            RoutedMessageBody::TxStatusResponse(tx_result) => {
+                .map(|response| T2MessageBody::TxStatusResponse(*response)),
+            T2MessageBody::TxStatusResponse(tx_result) => {
                 self.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
                 None
             }
-            RoutedMessageBody::BlockApproval(approval) => {
-                self.client.send_async(BlockApproval(approval, prev_hop)).await.ok();
-                None
-            }
-            RoutedMessageBody::ForwardTx(transaction) => {
+            T2MessageBody::ForwardTx(transaction) => {
                 self.client
                     .send_async(ProcessTxRequest {
                         transaction,
@@ -740,7 +804,7 @@ impl NetworkState {
                     .ok();
                 None
             }
-            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+            T2MessageBody::PartialEncodedChunkRequest(request) => {
                 self.shards_manager_adapter.send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                         partial_encoded_chunk_request: request,
@@ -749,7 +813,7 @@ impl NetworkState {
                 );
                 None
             }
-            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+            T2MessageBody::PartialEncodedChunkResponse(response) => {
                 self.shards_manager_adapter.send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                         partial_encoded_chunk_response: response,
@@ -758,34 +822,11 @@ impl NetworkState {
                 );
                 None
             }
-            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                self.shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                self.shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
-                None
-            }
-            RoutedMessageBody::ChunkStateWitnessAck(ack) => {
+            T2MessageBody::ChunkStateWitnessAck(ack) => {
                 self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
                 None
             }
-            RoutedMessageBody::PartialEncodedStateWitness(witness) => {
-                self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
-                None
-            }
-            RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
-                self.partial_witness_adapter
-                    .send(PartialEncodedStateWitnessForwardMessage(witness));
-                None
-            }
-            RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
-                self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
-                None
-            }
-            RoutedMessageBody::StateHeaderRequest(request) => {
+            T2MessageBody::StateHeaderRequest(request) => {
                 self.peer_manager_adapter.send(Tier3Request {
                     peer_info: PeerInfo {
                         id: msg_author,
@@ -799,7 +840,7 @@ impl NetworkState {
                 });
                 None
             }
-            RoutedMessageBody::StatePartRequest(request) => {
+            T2MessageBody::StatePartRequest(request) => {
                 self.peer_manager_adapter.send(Tier3Request {
                     peer_info: PeerInfo {
                         id: msg_author,
@@ -814,19 +855,7 @@ impl NetworkState {
                 });
                 None
             }
-            RoutedMessageBody::ChunkContractAccesses(accesses) => {
-                self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
-                None
-            }
-            RoutedMessageBody::ContractCodeRequest(request) => {
-                self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
-                None
-            }
-            RoutedMessageBody::ContractCodeResponse(response) => {
-                self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
-                None
-            }
-            RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
+            T2MessageBody::PartialEncodedContractDeploys(deploys) => {
                 self.partial_witness_adapter.send(PartialEncodedContractDeploysMessage(deploys));
                 None
             }

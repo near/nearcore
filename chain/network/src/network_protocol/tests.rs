@@ -93,19 +93,21 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     let chunk_hash = block3_chunks[0].chunk_hash();
     let routed_message1 = Box::new(data::make_routed_message(
         &mut rng,
-        RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+        T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
             chunk_hash: chunk_hash.clone(),
             part_ords: vec![],
             tracking_shards: Default::default(),
-        }),
+        })
+        .into_tiered_message_body(),
     ));
     let routed_message2 = Box::new(data::make_routed_message(
         &mut rng,
-        RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
+        T2MessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
             chunk_hash: chunk_hash.clone(),
             parts: data::make_chunk_parts(chain.chunks[chunk_hash].clone()),
             receipts: vec![],
-        }),
+        })
+        .into_tiered_message_body(),
     ));
     let msgs = [
         PeerMessage::Tier2Handshake(data::make_handshake(&mut rng, &chain)),
