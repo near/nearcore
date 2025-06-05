@@ -286,6 +286,7 @@ fn test_orphan_witness_far_from_head() {
         ShardChunkHeaderInner::V2(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V3(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V4(inner) => inner.height_created = bad_height,
+        ShardChunkHeaderInner::V5(inner) => inner.height_created = bad_height,
     });
 
     let outcome =
