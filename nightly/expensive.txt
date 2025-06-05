@@ -10,9 +10,6 @@ expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ult
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9 --features nightly
 
-expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup
-expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup --features nightly
-
 # cross-shard transactions tests
 expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx
 expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx --features nightly
@@ -28,10 +25,6 @@ expensive --timeout=3000 near-chain near_chain tests::doomslug::ultra_slow_test_
 expensive --timeout=3000 near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly
 expensive --timeout=500 test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches
 expensive --timeout=500 test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
-
-# testnet rpc
-expensive integration-tests integration_tests tests::other_tests::test_tps_regression::ultra_slow_test_high_load
-expensive integration-tests integration_tests tests::other_tests::test_tps_regression::ultra_slow_test_high_load --features nightly
 
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet --features nightly
@@ -62,13 +55,6 @@ expensive integration-tests integration_tests tests::client::sync_state_nodes::u
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard --features nightly
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block --features nightly
-
-expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_2_10_multiple_nodes
-expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_2_10_multiple_nodes --features nightly
-expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_4_10_multiple_nodes
-expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_4_10_multiple_nodes --features nightly
-expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_7_10_multiple_nodes
-expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_7_10_multiple_nodes --features nightly
 
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change --features nightly
