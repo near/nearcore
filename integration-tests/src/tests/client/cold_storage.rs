@@ -212,7 +212,6 @@ fn test_storage_after_commit_of_cold_update() {
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
                 || col == DBCol::StateShardUIdMapping
-                || col == DBCol::BlockExtra
                 || num_checks > 0
         );
     }
@@ -356,7 +355,6 @@ fn test_cold_db_copy_with_height_skips() {
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
                     || col == DBCol::StateShardUIdMapping
-                    || col == DBCol::BlockExtra
                     || num_checks > 0
             );
         }
@@ -413,7 +411,6 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         if col == DBCol::StateChangesForSplitStates
             || col == DBCol::StateHeaders
             || col == DBCol::StateShardUIdMapping
-            || col == DBCol::BlockExtra
         {
             continue;
         }

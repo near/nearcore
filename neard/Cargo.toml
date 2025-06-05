@@ -70,7 +70,6 @@ test_features = [
   "nearcore/test_features",
   "near-dump-test-contract/test_features",
 ]
-expensive_tests = ["nearcore/expensive_tests"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 

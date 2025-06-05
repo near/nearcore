@@ -203,7 +203,7 @@ impl ChunkProducer {
 
     #[instrument(target = "client", level = "debug", "produce_chunk", skip_all, fields(
         height = next_height,
-        shard_id,
+        %shard_id,
         ?epoch_id,
         chunk_hash = tracing::field::Empty,
         tag_block_production = true

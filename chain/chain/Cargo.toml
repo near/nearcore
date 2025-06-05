@@ -65,7 +65,6 @@ assert_matches.workspace = true
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = []
-expensive_tests = []
 test_features = [
     "near-vm-runner/test_features",
     "near-primitives/test_features",

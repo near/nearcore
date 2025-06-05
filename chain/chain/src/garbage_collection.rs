@@ -705,7 +705,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
-        self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
         self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
         self.gc_col(DBCol::BlocksToCatchup, block_hash.as_bytes());
@@ -840,7 +839,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 2. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
-        self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
         self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
         self.gc_col(DBCol::BlocksToCatchup, block_hash.as_bytes());
@@ -1003,9 +1001,6 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::Block => {
                 store_update.delete(col, key);
             }
-            DBCol::BlockExtra => {
-                store_update.delete(col, key);
-            }
             DBCol::NextBlockHashes => {
                 store_update.delete(col, key);
             }
@@ -1089,6 +1084,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             DBCol::DbVersion
             | DBCol::BlockMisc
+            | DBCol::_BlockExtra
             | DBCol::_GCCount
             | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
             | DBCol::_Peers
