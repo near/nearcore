@@ -27,7 +27,7 @@ import typing
 
 REPO_DIR = pathlib.Path(__file__).resolve().parents[1]
 
-DEFAULT_TEST_FILE = "nightly/nightly.txt"
+DEFAULT_TEST_FILE = "nightly/ci.txt"
 NAYDUCK_BASE_HREF = "https://nayduck.nearone.org"
 
 

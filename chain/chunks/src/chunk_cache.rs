@@ -147,7 +147,7 @@ impl EncodedChunksCache {
 
     pub fn remove(&mut self, chunk_hash: &ChunkHash) -> Option<EncodedChunksCacheEntry> {
         if let Some(entry) = self.encoded_chunks.remove(chunk_hash) {
-            self.remove_chunk_from_incomplete_chunks(entry.header.prev_block_hash(), chunk_hash);
+            self.remove_chunk_from_incomplete_chunks(&entry.header.prev_block_hash(), chunk_hash);
             Some(entry)
         } else {
             None
@@ -186,7 +186,7 @@ impl EncodedChunksCache {
                 .or_default()
                 .insert(chunk_header.shard_id(), chunk_hash.clone());
             self.incomplete_chunks
-                .entry(*chunk_header.prev_block_hash())
+                .entry(chunk_header.prev_block_hash())
                 .or_default()
                 .insert(chunk_hash.clone());
             EncodedChunksCacheEntry::from_chunk_header(chunk_header.clone())

@@ -12,7 +12,6 @@ An expensive test is one which beings with the `ultra_slow_test_` prefix:
         test_gc_random_common(25);
     }
 
-
 Expensive tests are not executed when running `cargo test` nor are they run in
 CI and it's the purpose of this script to make sure that they are listed for
 NayDuck to run.
@@ -86,7 +85,7 @@ def main() -> typing.Optional[str]:
                 for test in expensive_tests_in_file(filepath):
                     print(f"  expensive test {test}")
                     if test not in nightly_txt_tests:
-                        return f"error: file {filepath} test {test} not in nightly.txt"
+                        return f"error: file {filepath} test {test} not in ci.txt"
     print("all tests in nightly")
     return None
 

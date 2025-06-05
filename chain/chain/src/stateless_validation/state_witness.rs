@@ -52,7 +52,7 @@ impl ChainStore {
     ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
         let epoch_id =
-            epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+            epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
         let prev_chunk = self.get_chunk(&prev_chunk_header.chunk_hash())?;
         let StateTransitionData {
             main_transition,
@@ -68,6 +68,7 @@ impl ChainStore {
             prev_chunk_header,
         )?;
 
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let state_witness = ChunkStateWitness::new(
             chunk_producer,
             epoch_id,
@@ -80,6 +81,7 @@ impl ChainStore {
             applied_receipts_hash,
             prev_chunk.to_transactions().to_vec(),
             implicit_transitions,
+            protocol_version,
         );
         Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })
     }
@@ -105,7 +107,7 @@ impl ChainStore {
         // resharding happens after its processing.
         // TODO(logunov): consider uniting with `get_incoming_receipts_for_shard`
         // because it has the same purpose.
-        let mut current_block_hash = *chunk_header.prev_block_hash();
+        let mut current_block_hash = chunk_header.prev_block_hash();
         let mut next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&current_block_hash)?;
         let mut next_shard_id = chunk_header.shard_id();
         let mut implicit_transitions = vec![];
