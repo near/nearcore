@@ -48,7 +48,7 @@ pub struct EpochSync {
     /// We reuse the same proof as long as the current epoch ID is the same.
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
     // See `my_own_epoch_sync_boundary_block_header()`.
-    my_own_epoch_sync_boundary_block_header: Option<BlockHeader>,
+    my_own_epoch_sync_boundary_block_header: Option<Arc<BlockHeader>>,
 }
 
 impl EpochSync {
@@ -81,7 +81,7 @@ impl EpochSync {
     /// bootstrapped to using epoch sync, or None if this node was not bootstrapped using
     /// epoch sync.
     pub fn my_own_epoch_sync_boundary_block_header(&self) -> Option<&BlockHeader> {
-        self.my_own_epoch_sync_boundary_block_header.as_ref()
+        self.my_own_epoch_sync_boundary_block_header.as_deref()
     }
 
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
@@ -367,12 +367,12 @@ impl EpochSync {
                     let third_last_block_header =
                         chain_store.get_block_header(second_last_block_header.prev_hash())?;
                     (
-                        BlockHeader::clone(&third_last_block_header),
+                        Arc::clone(&third_last_block_header),
                         second_last_block_header.approvals().to_vec(),
                     )
                 } else {
                     (
-                        current_epoch_last_final_block_header.clone(),
+                        current_epoch_last_final_block_header.clone().into(),
                         current_epoch_second_last_block_approvals.clone(),
                     )
                 };
