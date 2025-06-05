@@ -126,6 +126,7 @@ pub fn apply_new_chunk(
         ?shard_id,
         chunk_hash = ?chunk_header.chunk_hash(),
         block_hash = ?block.block_hash,
+        block_type = ?block.block_type,
         ?apply_reason,
         tag_block_production = true)
     .entered();
@@ -175,6 +176,8 @@ pub fn apply_old_chunk(
         parent: parent_span,
         "apply_old_chunk",
         height = block.height,
+        block_hash = ?block.block_hash,
+        block_type = ?block.block_type,
         ?shard_id,
         ?apply_reason,
         tag_block_production = true)
