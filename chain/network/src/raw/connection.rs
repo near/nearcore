@@ -1,7 +1,8 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
-    PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate,
+    PeerMessage, Ping, Pong, RawRoutedMessage, RawTieredMessageBody, RoutingTableUpdate,
+    T2MessageBody,
 };
 use crate::tcp;
 use crate::types::{
@@ -414,16 +415,17 @@ impl Connection {
     ) -> io::Result<()> {
         let body = match msg {
             RoutedMessage::Ping { nonce } => {
-                RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() })
+                T2MessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() })
+                    .into_tiered_message_body()
             }
             RoutedMessage::Pong { nonce, source } => {
-                RoutedMessageBody::Pong(Pong { nonce, source })
+                T2MessageBody::Pong(Pong { nonce, source }).into_tiered_message_body()
             }
             RoutedMessage::PartialEncodedChunkRequest(request) => {
-                RoutedMessageBody::PartialEncodedChunkRequest(request)
+                T2MessageBody::PartialEncodedChunkRequest(request).into_tiered_message_body()
             }
             RoutedMessage::PartialEncodedChunkResponse(response) => {
-                RoutedMessageBody::PartialEncodedChunkResponse(response)
+                T2MessageBody::PartialEncodedChunkResponse(response).into_tiered_message_body()
             }
         };
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body }.sign(
@@ -444,26 +446,29 @@ impl Connection {
 
     fn recv_routed_msg(
         &mut self,
-        msg: &crate::network_protocol::RoutedMessage,
+        msg: &crate::network_protocol::VersionedRoutedMessage,
     ) -> Option<RoutedMessage> {
-        if !self.target_is_for_me(&msg.target) {
+        if !self.target_is_for_me(&msg.target()) {
             tracing::debug!(
                 target: "network", "{:?} dropping routed message {} for {:?}",
-                &self, <&'static str>::from(&msg.body), &msg.target
+                &self, <&str>::from(&*msg.body()), &msg.target()
             );
             return None;
         }
-        match &msg.body {
-            RoutedMessageBody::Ping(p) => Some(RoutedMessage::Ping { nonce: p.nonce }),
-            RoutedMessageBody::Pong(p) => {
-                Some(RoutedMessage::Pong { nonce: p.nonce, source: p.source.clone() })
-            }
-            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                Some(RoutedMessage::PartialEncodedChunkRequest(request.clone()))
-            }
-            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                Some(RoutedMessage::PartialEncodedChunkResponse(response.clone()))
-            }
+        match &msg.body() {
+            RawTieredMessageBody::T2(body) => match body.as_ref() {
+                T2MessageBody::Ping(p) => Some(RoutedMessage::Ping { nonce: p.nonce }),
+                T2MessageBody::Pong(p) => {
+                    Some(RoutedMessage::Pong { nonce: p.nonce, source: p.source.clone() })
+                }
+                T2MessageBody::PartialEncodedChunkRequest(request) => {
+                    Some(RoutedMessage::PartialEncodedChunkRequest(request.clone()))
+                }
+                T2MessageBody::PartialEncodedChunkResponse(response) => {
+                    Some(RoutedMessage::PartialEncodedChunkResponse(response.clone()))
+                }
+                _ => None,
+            },
             _ => None,
         }
     }

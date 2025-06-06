@@ -6,6 +6,8 @@ mod edge;
 mod peer;
 mod proto_conv;
 mod state_sync;
+use borsh::BorshDeserialize;
+use borsh::BorshSerialize;
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
@@ -36,7 +38,6 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use borsh::BorshDeserialize as _;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -62,6 +63,8 @@ use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
+use std::io::Read;
+use std::io::Write;
 use std::sync::Arc;
 use tracing::Span;
 
@@ -438,7 +441,7 @@ pub enum PeerMessage {
     OptimisticBlock(OptimisticBlock),
 
     Transaction(SignedTransaction),
-    Routed(Box<RoutedMessageV2>),
+    Routed(Box<VersionedRoutedMessage>),
 
     /// Gracefully disconnect from other peer.
     Disconnect(Disconnect),
@@ -521,6 +524,126 @@ impl PeerMessage {
     }
 }
 
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    strum::IntoStaticStr,
+    ProtocolSchema,
+)]
+pub enum RawTieredMessageBody {
+    T1(Box<T1MessageBody>),
+    T2(Box<T2MessageBody>),
+}
+
+impl fmt::Debug for RawTieredMessageBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RawTieredMessageBody::T1(body) => write!(f, "T1({:?})", body),
+            RawTieredMessageBody::T2(body) => write!(f, "T2({:?})", body),
+        }
+    }
+}
+
+impl RawTieredMessageBody {
+    pub fn message_resend_count(&self) -> usize {
+        match self {
+            RawTieredMessageBody::T1(body) => body.message_resend_count(),
+            RawTieredMessageBody::T2(body) => body.message_resend_count(),
+        }
+    }
+
+    // Return true if we allow the message sent to our own account_id to be redirected back to us.
+    // The default behavior is to drop all messages sent to our own account_id.
+    // This is helpful in managing scenarios like sending chunk_endorsement to block_producer, where
+    // we may be the block_producer.
+    pub fn allow_sending_to_self(&self) -> bool {
+        match self {
+            RawTieredMessageBody::T1(body) => body.allow_sending_to_self(),
+            RawTieredMessageBody::T2(body) => body.allow_sending_to_self(),
+        }
+    }
+}
+
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    strum::IntoStaticStr,
+    ProtocolSchema,
+)]
+pub enum T1MessageBody {
+    BlockApproval(Approval),
+    VersionedPartialEncodedChunk(Box<PartialEncodedChunk>),
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+    PartialEncodedStateWitness(PartialEncodedStateWitness),
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
+    VersionedChunkEndorsement(ChunkEndorsement),
+    ChunkContractAccesses(ChunkContractAccesses),
+    ContractCodeRequest(ContractCodeRequest),
+    ContractCodeResponse(ContractCodeResponse),
+}
+
+impl T1MessageBody {
+    pub fn message_resend_count(&self) -> usize {
+        match self {
+            T1MessageBody::BlockApproval(_) | T1MessageBody::VersionedPartialEncodedChunk(_) => {
+                IMPORTANT_MESSAGE_RESENT_COUNT
+            }
+            _ => 1,
+        }
+    }
+
+    pub fn allow_sending_to_self(&self) -> bool {
+        match self {
+            T1MessageBody::PartialEncodedStateWitness(_)
+            | T1MessageBody::PartialEncodedStateWitnessForward(_)
+            | T1MessageBody::VersionedChunkEndorsement(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn into_tiered_message_body(self) -> RawTieredMessageBody {
+        RawTieredMessageBody::T1(Box::new(self))
+    }
+}
+
+impl fmt::Debug for T1MessageBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            T1MessageBody::BlockApproval(approval) => write!(f, "BlockApproval({:?})", approval),
+            T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
+                write!(f, "VersionedPartialEncodedChunk({:?})", chunk)
+            }
+            T1MessageBody::PartialEncodedChunkForward(forward) => {
+                write!(f, "PartialEncodedChunkForward({:?})", forward)
+            }
+            T1MessageBody::PartialEncodedStateWitness(witness) => {
+                write!(f, "PartialEncodedStateWitness({:?})", witness)
+            }
+            T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
+                write!(f, "PartialEncodedStateWitnessForward({:?})", witness)
+            }
+            T1MessageBody::VersionedChunkEndorsement(endorsement) => {
+                write!(f, "VersionedChunkEndorsement({:?})", endorsement)
+            }
+            T1MessageBody::ChunkContractAccesses(accesses) => {
+                write!(f, "ChunkContractAccesses({:?})", accesses)
+            }
+            T1MessageBody::ContractCodeRequest(request) => {
+                write!(f, "ContractCodeRequest({:?})", request)
+            }
+            T1MessageBody::ContractCodeResponse(response) => {
+                write!(f, "ContractCodeResponse({:?})", response)
+            }
+        }
+    }
+}
+
 // TODO(#1313): Use Box
 #[derive(
     borsh::BorshSerialize,
@@ -531,8 +654,8 @@ impl PeerMessage {
     strum::IntoStaticStr,
     ProtocolSchema,
 )]
-pub enum RoutedMessageBody {
-    BlockApproval(Approval),
+pub enum T2MessageBody {
+    _UnusedBlockApproval(Approval),
     ForwardTx(SignedTransaction),
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
@@ -550,132 +673,122 @@ pub enum RoutedMessageBody {
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
-    VersionedPartialEncodedChunk(PartialEncodedChunk),
+    _UnusedVersionedPartialEncodedChunk(PartialEncodedChunk),
     _UnusedVersionedStateResponse,
-    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+    _UnusedPartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     _UnusedChunkStateWitness,
     _UnusedChunkEndorsement,
     ChunkStateWitnessAck(ChunkStateWitnessAck),
-    PartialEncodedStateWitness(PartialEncodedStateWitness),
-    PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
-    VersionedChunkEndorsement(ChunkEndorsement),
+    _UnusedPartialEncodedStateWitness(PartialEncodedStateWitness),
+    _UnusedPartialEncodedStateWitnessForward(PartialEncodedStateWitness),
+    _UnusedVersionedChunkEndorsement(ChunkEndorsement),
     /// Not used, but needed for borsh backward compatibility.
     _UnusedEpochSyncRequest,
     _UnusedEpochSyncResponse(CompressedEpochSyncProof),
     StatePartRequest(StatePartRequest),
-    ChunkContractAccesses(ChunkContractAccesses),
-    ContractCodeRequest(ContractCodeRequest),
-    ContractCodeResponse(ContractCodeResponse),
+    _UnusedChunkContractAccesses(ChunkContractAccesses),
+    _UnusedContractCodeRequest(ContractCodeRequest),
+    _UnusedContractCodeResponse(ContractCodeResponse),
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
     StateHeaderRequest(StateHeaderRequest),
 }
 
-impl RoutedMessageBody {
-    // Return the number of times this message should be sent.
-    // In routing logics, we send important messages multiple times to minimize the risk that they are lost
+impl T2MessageBody {
     pub fn message_resend_count(&self) -> usize {
-        match self {
-            // These messages are important because they are critical for block and chunk production,
-            // and lost messages cannot be requested again.
-            RoutedMessageBody::BlockApproval(_)
-            | RoutedMessageBody::VersionedPartialEncodedChunk(_) => IMPORTANT_MESSAGE_RESENT_COUNT,
-            // Default value is sending just once.
-            _ => 1,
-        }
+        1
     }
 
-    // Return true if we allow the message sent to our own account_id to be redirected back to us.
-    // The default behavior is to drop all messages sent to our own account_id.
-    // This is helpful in managing scenarios like sending chunk_endorsement to block_producer, where
-    // we may be the block_producer.
     pub fn allow_sending_to_self(&self) -> bool {
-        match self {
-            RoutedMessageBody::PartialEncodedStateWitness(_)
-            | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
-            | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
-            _ => false,
-        }
+        false
+    }
+
+    pub fn into_tiered_message_body(self) -> RawTieredMessageBody {
+        RawTieredMessageBody::T2(Box::new(self))
     }
 }
 
-impl fmt::Debug for RoutedMessageBody {
+impl fmt::Debug for T2MessageBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RoutedMessageBody::BlockApproval(approval) => write!(
+            T2MessageBody::_UnusedBlockApproval(approval) => write!(
                 f,
                 "Approval({}, {}, {:?})",
                 approval.target_height, approval.account_id, approval.inner
             ),
-            RoutedMessageBody::ForwardTx(tx) => write!(f, "tx {}", tx.get_hash()),
-            RoutedMessageBody::TxStatusRequest(account_id, hash) => {
+            T2MessageBody::ForwardTx(tx) => write!(f, "tx {}", tx.get_hash()),
+            T2MessageBody::TxStatusRequest(account_id, hash) => {
                 write!(f, "TxStatusRequest({}, {})", account_id, hash)
             }
-            RoutedMessageBody::TxStatusResponse(response) => {
+            T2MessageBody::TxStatusResponse(response) => {
                 write!(f, "TxStatusResponse({})", response.transaction.hash)
             }
-            RoutedMessageBody::_UnusedQueryRequest => write!(f, "QueryRequest"),
-            RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
-            RoutedMessageBody::_UnusedReceiptOutcomeRequest(_) => write!(f, "ReceiptRequest"),
-            RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
-            RoutedMessageBody::_UnusedStateRequestHeader => write!(f, "StateRequestHeader"),
-            RoutedMessageBody::_UnusedStateRequestPart => write!(f, "StateRequestPart"),
-            RoutedMessageBody::_UnusedStateResponse => write!(f, "StateResponse"),
-            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+            T2MessageBody::_UnusedQueryRequest => write!(f, "QueryRequest"),
+            T2MessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
+            T2MessageBody::_UnusedReceiptOutcomeRequest(_) => write!(f, "ReceiptRequest"),
+            T2MessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
+            T2MessageBody::_UnusedStateRequestHeader => write!(f, "StateRequestHeader"),
+            T2MessageBody::_UnusedStateRequestPart => write!(f, "StateRequestPart"),
+            T2MessageBody::_UnusedStateResponse => write!(f, "StateResponse"),
+            T2MessageBody::PartialEncodedChunkRequest(request) => {
                 write!(f, "PartialChunkRequest({:?}, {:?})", request.chunk_hash, request.part_ords)
             }
-            RoutedMessageBody::PartialEncodedChunkResponse(response) => write!(
+            T2MessageBody::PartialEncodedChunkResponse(response) => write!(
                 f,
                 "PartialChunkResponse({:?}, {:?})",
                 response.chunk_hash,
                 response.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
             ),
-            RoutedMessageBody::_UnusedPartialEncodedChunk => write!(f, "PartialEncodedChunk"),
-            RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
+            T2MessageBody::_UnusedPartialEncodedChunk => write!(f, "PartialEncodedChunk"),
+            T2MessageBody::_UnusedVersionedPartialEncodedChunk(_) => {
                 write!(f, "VersionedPartialEncodedChunk(?)")
             }
-            RoutedMessageBody::PartialEncodedChunkForward(forward) => write!(
+            T2MessageBody::_UnusedPartialEncodedChunkForward(forward) => write!(
                 f,
                 "PartialChunkForward({:?}, {:?})",
                 forward.chunk_hash,
                 forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
             ),
-            RoutedMessageBody::Ping(_) => write!(f, "Ping"),
-            RoutedMessageBody::Pong(_) => write!(f, "Pong"),
-            RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
-            RoutedMessageBody::_UnusedChunkStateWitness => write!(f, "ChunkStateWitness"),
-            RoutedMessageBody::_UnusedChunkEndorsement => write!(f, "ChunkEndorsement"),
-            RoutedMessageBody::ChunkStateWitnessAck(ack, ..) => {
+            T2MessageBody::Ping(_) => write!(f, "Ping"),
+            T2MessageBody::Pong(_) => write!(f, "Pong"),
+            T2MessageBody::_UnusedVersionedStateResponse => {
+                write!(f, "VersionedStateResponse")
+            }
+            T2MessageBody::_UnusedChunkStateWitness => write!(f, "ChunkStateWitness"),
+            T2MessageBody::_UnusedChunkEndorsement => write!(f, "ChunkEndorsement"),
+            T2MessageBody::ChunkStateWitnessAck(ack, ..) => {
                 f.debug_tuple("ChunkStateWitnessAck").field(&ack.chunk_hash).finish()
             }
-            RoutedMessageBody::PartialEncodedStateWitness(_) => {
+            T2MessageBody::_UnusedPartialEncodedStateWitness(_) => {
                 write!(f, "PartialEncodedStateWitness")
             }
-            RoutedMessageBody::PartialEncodedStateWitnessForward(_) => {
+            T2MessageBody::_UnusedPartialEncodedStateWitnessForward(_) => {
                 write!(f, "PartialEncodedStateWitnessForward")
             }
-            RoutedMessageBody::VersionedChunkEndorsement(_) => {
+            T2MessageBody::_UnusedVersionedChunkEndorsement(_) => {
                 write!(f, "VersionedChunkEndorsement")
             }
-            RoutedMessageBody::_UnusedEpochSyncRequest => write!(f, "EpochSyncRequest"),
-            RoutedMessageBody::_UnusedEpochSyncResponse(_) => {
+            T2MessageBody::_UnusedEpochSyncRequest => write!(f, "EpochSyncRequest"),
+            T2MessageBody::_UnusedEpochSyncResponse(_) => {
                 write!(f, "EpochSyncResponse")
             }
-            RoutedMessageBody::StatePartRequest(request) => write!(
+            T2MessageBody::StatePartRequest(request) => write!(
                 f,
                 "StatePartRequest(sync_hash={:?}, shard_id={:?}, part_id={:?})",
                 request.sync_hash, request.shard_id, request.part_id,
             ),
-            RoutedMessageBody::ChunkContractAccesses(accesses) => {
+            T2MessageBody::_UnusedChunkContractAccesses(accesses) => {
                 write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())
             }
-            RoutedMessageBody::ContractCodeRequest(request) => {
+            T2MessageBody::_UnusedContractCodeRequest(request) => {
                 write!(f, "ContractCodeRequest(code_hashes={:?})", request.contracts())
             }
-            RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
-            RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
+            T2MessageBody::_UnusedContractCodeResponse(_) => {
+                write!(f, "ContractCodeResponse",)
+            }
+            T2MessageBody::PartialEncodedContractDeploys(deploys) => {
                 write!(f, "PartialEncodedContractDeploys(part={:?})", deploys.part())
             }
-            RoutedMessageBody::StateHeaderRequest(request) => write!(
+            T2MessageBody::StateHeaderRequest(request) => write!(
                 f,
                 "StateHeaderRequest(sync_hash={:?}, shard_id={:?})",
                 request.sync_hash, request.shard_id,
@@ -707,10 +820,10 @@ pub struct RoutedMessage {
     /// decreased by 1. If this number is 0, drop this message.
     pub ttl: u8,
     /// Message
-    pub body: RoutedMessageBody,
+    pub body: RawTieredMessageBody,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct RoutedMessageV2 {
     /// Message
     pub msg: RoutedMessage,
@@ -719,6 +832,25 @@ pub struct RoutedMessageV2 {
     /// Number of peers this routed message traveled through.
     /// Doesn't include the peers that are the source and the destination of the message.
     pub num_hops: u32,
+}
+
+impl BorshSerialize for RoutedMessageV2 {
+    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.msg.serialize(writer)?;
+        self.created_at.map(|t| t.unix_timestamp()).serialize(writer)?;
+        self.num_hops.serialize(writer)
+    }
+}
+
+impl BorshDeserialize for RoutedMessageV2 {
+    fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
+        let msg = RoutedMessage::deserialize_reader(rd)?;
+        let created_at = Option::<i64>::deserialize_reader(rd)?
+            .map(|t| time::Utc::from_unix_timestamp(t).ok())
+            .flatten();
+        let num_hops = u32::deserialize_reader(rd)?;
+        Ok(RoutedMessageV2 { msg, created_at, num_hops })
+    }
 }
 
 impl std::ops::Deref for RoutedMessageV2 {
@@ -735,18 +867,158 @@ impl std::ops::DerefMut for RoutedMessageV2 {
     }
 }
 
+impl From<RoutedMessageV2> for VersionedRoutedMessage {
+    fn from(msg: RoutedMessageV2) -> Self {
+        VersionedRoutedMessage::V2(msg)
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+pub enum VersionedRoutedMessage {
+    V1(RoutedMessage),
+    V2(RoutedMessageV2),
+}
+
+impl VersionedRoutedMessage {
+    pub fn build_hash(
+        target: &PeerIdOrHash,
+        source: &PeerId,
+        body: &RawTieredMessageBody,
+    ) -> CryptoHash {
+        CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
+    }
+
+    pub fn target(&self) -> &PeerIdOrHash {
+        match self {
+            VersionedRoutedMessage::V1(msg) => &msg.target,
+            VersionedRoutedMessage::V2(msg) => &msg.target,
+        }
+    }
+
+    pub fn body(&self) -> &RawTieredMessageBody {
+        match self {
+            VersionedRoutedMessage::V1(msg) => &msg.body,
+            VersionedRoutedMessage::V2(msg) => &msg.body,
+        }
+    }
+
+    pub fn hash(&self) -> CryptoHash {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.hash(),
+            VersionedRoutedMessage::V2(msg) => msg.hash(),
+        }
+    }
+
+    pub fn verify(&self) -> bool {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.verify(),
+            VersionedRoutedMessage::V2(msg) => msg.verify(),
+        }
+    }
+
+    pub fn expect_response(&self) -> bool {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.expect_response(),
+            VersionedRoutedMessage::V2(msg) => msg.expect_response(),
+        }
+    }
+
+    /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
+    pub fn decrease_ttl(&mut self) -> bool {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.decrease_ttl(),
+            VersionedRoutedMessage::V2(msg) => msg.decrease_ttl(),
+        }
+    }
+
+    pub fn body_variant(&self) -> &'static str {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.body_variant(),
+            VersionedRoutedMessage::V2(msg) => msg.body_variant(),
+        }
+    }
+
+    pub fn num_hops(&self) -> u32 {
+        match self {
+            VersionedRoutedMessage::V1(_) => 0,
+            VersionedRoutedMessage::V2(msg) => msg.num_hops,
+        }
+    }
+
+    pub fn ttl(&self) -> u8 {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.ttl,
+            VersionedRoutedMessage::V2(msg) => msg.ttl,
+        }
+    }
+
+    // fn upgrade_to_v2(&mut self) {
+    //     match self {
+    //         VersionedRoutedMessage::V1(msg) => {
+    //             let msg = RoutedMessageV2 { msg: msg.clone(), created_at: None, num_hops: 0 };
+    //             *self = VersionedRoutedMessage::V2(msg);
+    //         }
+    //         VersionedRoutedMessage::V2(_) => {}
+    //     }
+    // }
+
+    pub fn num_hops_mut(&mut self) -> &mut u32 {
+        &mut self.msg_mut().num_hops
+    }
+
+    pub fn created_at(&self) -> Option<time::Utc> {
+        match self {
+            VersionedRoutedMessage::V1(_) => None,
+            VersionedRoutedMessage::V2(msg) => msg.created_at,
+        }
+    }
+
+    pub fn author(&self) -> &PeerId {
+        match self {
+            VersionedRoutedMessage::V1(msg) => &msg.author,
+            VersionedRoutedMessage::V2(msg) => &msg.author,
+        }
+    }
+
+    pub fn msg(&self) -> &RoutedMessage {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg,
+            VersionedRoutedMessage::V2(msg) => &msg.msg,
+        }
+    }
+
+    pub fn msg_owned(self) -> RoutedMessage {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg,
+            VersionedRoutedMessage::V2(msg) => msg.msg,
+        }
+    }
+
+    pub fn msg_mut(&mut self) -> &mut RoutedMessageV2 {
+        match self {
+            VersionedRoutedMessage::V1(msg) => {
+                let msg = RoutedMessageV2 { msg: msg.clone(), created_at: None, num_hops: 0 };
+                *self = VersionedRoutedMessage::V2(msg);
+                let VersionedRoutedMessage::V2(msg) = self else { unreachable!() };
+                msg
+            }
+            VersionedRoutedMessage::V2(msg) => msg,
+        }
+    }
+}
+
 #[derive(borsh::BorshSerialize, PartialEq, Eq, Clone, Debug)]
 struct RoutedMessageNoSignature<'a> {
     target: &'a PeerIdOrHash,
     author: &'a PeerId,
-    body: &'a RoutedMessageBody,
+    body: &'a RawTieredMessageBody,
 }
 
 impl RoutedMessage {
     pub fn build_hash(
         target: &PeerIdOrHash,
         source: &PeerId,
-        body: &RoutedMessageBody,
+        body: &RawTieredMessageBody,
     ) -> CryptoHash {
         CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
     }
@@ -760,12 +1032,16 @@ impl RoutedMessage {
     }
 
     pub fn expect_response(&self) -> bool {
-        matches!(
-            self.body,
-            RoutedMessageBody::Ping(_)
-                | RoutedMessageBody::TxStatusRequest(_, _)
-                | RoutedMessageBody::PartialEncodedChunkRequest(_)
-        )
+        if let RawTieredMessageBody::T2(body) = &self.body {
+            matches!(
+                **body,
+                T2MessageBody::Ping(_)
+                    | T2MessageBody::TxStatusRequest(_, _)
+                    | T2MessageBody::PartialEncodedChunkRequest(_)
+            )
+        } else {
+            false
+        }
     }
 
     /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
@@ -935,7 +1211,7 @@ impl StateResponseInfo {
 
 pub(crate) struct RawRoutedMessage {
     pub target: PeerIdOrHash,
-    pub body: RoutedMessageBody,
+    pub body: RawTieredMessageBody,
 }
 
 impl RawRoutedMessage {
@@ -946,11 +1222,11 @@ impl RawRoutedMessage {
         node_key: &near_crypto::SecretKey,
         routed_message_ttl: u8,
         now: Option<time::Utc>,
-    ) -> RoutedMessageV2 {
+    ) -> VersionedRoutedMessage {
         let author = PeerId::new(node_key.public_key());
         let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
         let signature = node_key.sign(hash.as_ref());
-        RoutedMessageV2 {
+        VersionedRoutedMessage::V2(RoutedMessageV2 {
             msg: RoutedMessage {
                 target: self.target,
                 author,
@@ -960,6 +1236,6 @@ impl RawRoutedMessage {
             },
             created_at: now,
             num_hops: 0,
-        }
+        })
     }
 }
