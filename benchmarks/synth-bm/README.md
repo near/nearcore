@@ -6,5 +6,5 @@ This crate provides tooling for benchmarking synthetic workloads. It is based on
 
 - [] Automatically measure TPS when transactions are sent with `wait_until: NONE`.
 - [] Enable removing `--nonce` parameters by querying the nonce from the network.
-- [] Add support for [other workloads](~/pytest/tests/loadtest/locust/):
+- [] Add support for [other workloads](../../pytest/tests/loadtest/locust/):
   - [] ft transfers
