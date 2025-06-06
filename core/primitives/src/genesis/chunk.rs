@@ -137,7 +137,7 @@ pub fn prod_genesis_chunks(
     );
 
     let mut chunk = ShardChunk::V1(ShardChunkV1 {
-        chunk_hash: header.chunk_hash(),
+        chunk_hash: header.chunk_hash().clone(),
         header,
         transactions: vec![],
         prev_outgoing_receipts: vec![],

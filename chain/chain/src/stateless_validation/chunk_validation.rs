@@ -337,9 +337,10 @@ pub fn pre_validate_chunk_state_witness(
     let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
         Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
     })?;
+    let last_chunk_block_chunks = last_chunk_block.chunks();
     let last_new_chunk_tx_root =
-        last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().tx_root();
-    if last_new_chunk_tx_root != tx_root_from_state_witness {
+        last_chunk_block_chunks.get(last_chunk_shard_index).unwrap().tx_root();
+    if last_new_chunk_tx_root != &tx_root_from_state_witness {
         return Err(Error::InvalidChunkStateWitness(format!(
             "Transaction root {:?} does not match expected transaction root {:?}",
             tx_root_from_state_witness, last_new_chunk_tx_root
@@ -506,7 +507,7 @@ fn validate_receipt_proof(
         )));
     }
     // Verify that (receipts, to_shard_id) belongs to the merkle tree of outgoing receipts in from_chunk.
-    if !receipt_proof.verify_against_receipt_root(from_chunk.prev_outgoing_receipts_root()) {
+    if !receipt_proof.verify_against_receipt_root(*from_chunk.prev_outgoing_receipts_root()) {
         return Err(Error::InvalidChunkStateWitness(format!(
             "Receipt proof for chunk {:?} has invalid merkle path, doesn't match outgoing receipts root",
             from_chunk.chunk_hash()
@@ -732,7 +733,7 @@ impl Chain {
     ) -> Result<(), Error> {
         let shard_id = witness.chunk_header().shard_id();
         let height_created = witness.chunk_header().height_created();
-        let chunk_hash = witness.chunk_header().chunk_hash();
+        let chunk_hash = witness.chunk_header().chunk_hash().clone();
         let parent_span = tracing::debug_span!(
             target: "chain", "shadow_validate", %shard_id, height_created);
         let (encoded_witness, raw_witness_size) = {
