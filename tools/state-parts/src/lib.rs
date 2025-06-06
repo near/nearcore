@@ -58,7 +58,7 @@ fn handle_message(
             };
 
             tracing::info!(
-                ?shard_id,
+                %shard_id,
                 ?sync_hash,
                 ?part_id,
                 ?duration,
@@ -141,7 +141,7 @@ async fn state_parts_from_node(
             _ = &mut next_request => {
                 let target = &peer_id;
                 let msg = DirectMessage::StateRequestPart(shard_id, block_hash, part_id);
-                tracing::info!(target: "state-parts", ?target, ?shard_id, ?block_hash, part_id, ttl, "Sending a request");
+                tracing::info!(target: "state-parts", ?target, %shard_id, ?block_hash, part_id, ttl, "Sending a request");
                 result = peer.send_message(msg).await.with_context(|| format!("Failed sending State Part Request to {:?}", target));
                 app_info.requests_sent.insert(part_id, near_time::Instant::now());
                 tracing::info!(target: "state-parts", ?result);

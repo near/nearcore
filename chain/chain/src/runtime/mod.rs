@@ -390,11 +390,11 @@ impl NightshadeRuntime {
             target: "runtime",
             "obtain_state_part",
             part_id = part_id.idx,
-            ?shard_id,
+            %shard_id,
             %prev_hash,
             num_parts = part_id.total)
         .entered();
-        tracing::debug!(target: "state-parts", ?shard_id, ?prev_hash, ?state_root, ?part_id, "obtain_state_part");
+        tracing::debug!(target: "state-parts", %shard_id, ?prev_hash, ?state_root, ?part_id, "obtain_state_part");
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
@@ -786,7 +786,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    #[instrument(target = "runtime", level = "info", skip_all, fields(height = block.height, shard_id = ?chunk.shard_id))]
+    #[instrument(target = "runtime", level = "info", skip_all, fields(height = block.height, shard_id = %chunk.shard_id))]
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
@@ -1036,7 +1036,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             target: "runtime",
             "obtain_state_part",
             part_id = part_id.idx,
-            ?shard_id,
+            %shard_id,
             %prev_hash,
             ?state_root,
             num_parts = part_id.total)

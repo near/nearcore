@@ -5,6 +5,7 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
+use crate::chunk_executor_actor::ExecutorBlock;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -25,7 +26,9 @@ use actix::Actor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
-use near_async::messaging::{self, CanSend, Handler, IntoMultiSender, LateBoundSender, Sender};
+use near_async::messaging::{
+    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
+};
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSenderFrom};
@@ -191,6 +194,8 @@ pub fn start_client(
         adv,
         config_updater,
         sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+        // TODO(spice): Pass in chunk_executor_sender.
+        noop().into_sender(),
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
@@ -266,6 +271,10 @@ pub struct ClientActorInner {
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
+
+    /// With spice chunk executor executes chunks asynchronously.
+    /// Should be noop sender otherwise.
+    chunk_executor_sender: Sender<ExecutorBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -339,6 +348,7 @@ impl ClientActorInner {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
+        chunk_executor_sender: Sender<ExecutorBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -377,6 +387,7 @@ impl ClientActorInner {
             shutdown_signal,
             config_updater,
             sync_jobs_sender,
+            chunk_executor_sender,
         })
     }
 }
@@ -1482,6 +1493,7 @@ impl ClientActorInner {
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block(), signer);
+            self.chunk_executor_sender.send(ExecutorBlock { block_hash: accepted_block });
         }
     }
 

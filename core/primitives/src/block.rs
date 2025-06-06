@@ -208,12 +208,19 @@ impl Block {
         ));
 
         let body = BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements);
+        let prev_state_root = if cfg!(feature = "protocol_feature_spice") {
+            // TODO(spice): include state root from the relevant previous executed block.
+            CryptoHash::default()
+        } else {
+            Block::compute_state_root(body.chunks())
+        };
+
         let header = BlockHeader::new(
             latest_protocol_version,
             height,
             *prev.hash(),
             body.compute_hash(),
-            Block::compute_state_root(body.chunks()),
+            prev_state_root,
             Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
             Block::compute_chunk_headers_root(body.chunks()).0,
             Block::compute_chunk_tx_root(body.chunks()),
@@ -459,9 +466,14 @@ impl Block {
     /// Checks that block content matches block hash, with the possible exception of chunk signatures
     pub fn check_validity(&self) -> Result<(), BlockValidityError> {
         // Check that state root stored in the header matches the state root of the chunks
-        let state_root = Block::compute_state_root(self.chunks().iter_deprecated());
-        if self.header().prev_state_root() != &state_root {
-            return Err(InvalidStateRoot);
+        // With spice chunks wouldn't contain prev_state_roots.
+        // TODO(spice): check that block's state_root matches state_root corresponding to chunks of
+        // the appropriate executed block from the past.
+        if !cfg!(feature = "protocol_feature_spice") {
+            let state_root = Block::compute_state_root(self.chunks().iter_deprecated());
+            if self.header().prev_state_root() != &state_root {
+                return Err(InvalidStateRoot);
+            }
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
