@@ -1,14 +1,15 @@
-use near_async::futures::AsyncComputationSpawner;
-use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+
+use near_async::futures::AsyncComputationSpawner;
+use parking_lot::Mutex;
 use thiserror::Error;
 use thread_priority::{
     RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadPriority, ThreadSchedulePolicy,
 };
-use tracing::debug;
+use tracing::warn;
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 type IdleThreadQueue = Arc<Mutex<VecDeque<oneshot::Sender<Option<Job>>>>>;
@@ -26,7 +27,7 @@ pub(crate) struct ThreadPool {
     name: &'static str,
     /// Limit of running threads.
     limit: usize,
-    /// Priority of spawned threads (must be in [0; 100) range)
+    /// Priority of spawned threads (must be in [0; 100] range)
     priority: ThreadPriority,
     /// Timeout after which an idle thread terminates.
     idle_timeout: Duration,
@@ -46,7 +47,7 @@ pub(crate) enum Error {
 }
 
 impl ThreadPool {
-    /// Create a new thread pool. Panics if priority is out of [0; 100) range.
+    /// Create a new thread pool. Panics if priority is out of [0; 100] range.
     pub(crate) fn new(
         name: &'static str,
         idle_timeout: Duration,
@@ -89,16 +90,16 @@ impl ThreadPool {
 
         let idle_timeout = self.idle_timeout;
         let idle_queue = self.idle_thread_queue.clone();
-        let worker_counter = self.worker_counter.clone();
+        let counter_guard = WorkerCounterGuard(self.worker_counter.clone());
         ThreadBuilder::default()
             .name(name)
             .policy(ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin))
             .priority(self.priority)
             .spawn(move |res| {
                 if let Err(err) = res {
-                    debug!("Setting scheduler policy failed: {err}")
+                    warn!(target: "chain", "Setting scheduler policy failed: {err}")
                 };
-                run_worker(job, idle_timeout, idle_queue, worker_counter)
+                run_worker(job, idle_timeout, idle_queue, counter_guard)
             })
             .map_err(|err| {
                 self.worker_counter.fetch_sub(1, Ordering::Relaxed);
@@ -125,13 +126,16 @@ impl Drop for WorkerCounterGuard {
     }
 }
 
+/// Start a worker thread. It will execute the initial job, and then pick up
+/// new jobs in a loop. The thread will terminate if it's idle for `idle_timeout`,
+/// or if `None` is sent via the job channel, or if the sender end of the channel
+/// is dropped.
 fn run_worker(
     mut job: Job,
     idle_timeout: Duration,
     idle_queue: IdleThreadQueue,
-    worker_counter: Arc<AtomicUsize>,
+    worker_counter_guard: WorkerCounterGuard,
 ) {
-    let _counter_guard = WorkerCounterGuard(worker_counter);
     loop {
         job();
         // Notify the pool that this thread is idle by pushing the sender into the idle queue
@@ -143,5 +147,114 @@ fn run_worker(
             _ => break,
         }
     }
-    // No need to notify the pool that this thread has terminated – dropping the receiver is enough
+    drop(worker_counter_guard); // Dropping the guard decreases running threads counter
+}
+
+/// Async computation spawner to be used for chunk applying tasks.
+#[derive(Default)]
+pub enum ApplyChunksSpawner {
+    /// Use a pool of OS-based high priority threads, limited by the number of shards.
+    #[default]
+    Default,
+    /// Use a custom spawner, e.g. rayon.
+    Custom(Arc<dyn AsyncComputationSpawner>),
+}
+
+impl ApplyChunksSpawner {
+    /// Get the custom spawner, or create the default spawner with the given thread limit.
+    pub fn into_spawner(self, thread_limit: usize) -> Arc<dyn AsyncComputationSpawner> {
+        match self {
+            ApplyChunksSpawner::Default => {
+                Arc::new(ThreadPool::new("apply_chunks", Duration::from_secs(30), thread_limit, 50))
+            }
+            ApplyChunksSpawner::Custom(spawner) => spawner,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::sync::Barrier;
+    use std::sync::atomic::AtomicBool;
+    use std::thread;
+
+    #[test]
+    #[should_panic(expected = "priority out of range")]
+    fn invalid_priority() {
+        ThreadPool::new("test_pool", Duration::from_millis(1), 1, 101);
+    }
+
+    #[test]
+    fn single_job() {
+        let pool = ThreadPool::new("test_pool", Duration::from_millis(1), 1, 50);
+        let executed = Arc::new(AtomicBool::new(false));
+        let executed_clone = executed.clone();
+
+        let job = Box::new(move || {
+            executed_clone.store(true, Ordering::Relaxed);
+        });
+        pool.spawn_boxed(job).unwrap();
+
+        thread::sleep(Duration::from_millis(50));
+        assert!(executed.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn thread_limit_reached() {
+        let pool = ThreadPool::new("test_pool", Duration::from_millis(1), 1, 50);
+        let barrier = Arc::new(Barrier::new(2));
+
+        let barrier_clone = barrier.clone();
+        let job = Box::new(move || {
+            barrier_clone.wait();
+        });
+        pool.spawn_boxed(job).unwrap();
+
+        let result = pool.spawn_boxed(Box::new(|| {}));
+        barrier.wait();
+        assert!(matches!(result.unwrap_err(), Error::ThreadLimitReached { .. }));
+    }
+
+    /// Helper function to create a job that will store its thread ID into the hashset
+    fn store_thread_id_job(thread_ids: &Arc<Mutex<HashSet<thread::ThreadId>>>) -> Job {
+        let thread_ids = thread_ids.clone();
+        Box::new(move || {
+            let thread_id = thread::current().id();
+            thread_ids.lock().insert(thread_id);
+        })
+    }
+
+    #[test]
+    fn thread_reuse() {
+        let pool = ThreadPool::new("test_pool", Duration::from_millis(200), 2, 50);
+        let thread_ids = Arc::new(Mutex::new(HashSet::new()));
+
+        pool.spawn_boxed(store_thread_id_job(&thread_ids)).unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        pool.spawn_boxed(store_thread_id_job(&thread_ids)).unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        // One idle thread should be still running, and there should be only 1 thread spawned in total
+        assert_eq!(pool.worker_counter.load(Ordering::Relaxed), 1);
+        assert_eq!(thread_ids.lock().len(), 1);
+    }
+
+    #[test]
+    fn idle_timeout() {
+        let pool = ThreadPool::new("test_pool", Duration::from_millis(1), 2, 50);
+        let thread_ids = Arc::new(Mutex::new(HashSet::new()));
+
+        pool.spawn_boxed(store_thread_id_job(&thread_ids)).unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        pool.spawn_boxed(store_thread_id_job(&thread_ids)).unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        // No idle threads should be running, and there should be 2 threads spawned in total
+        assert_eq!(pool.worker_counter.load(Ordering::Relaxed), 0);
+        assert_eq!(thread_ids.lock().len(), 2);
+    }
 }

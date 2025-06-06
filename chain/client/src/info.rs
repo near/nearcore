@@ -1031,7 +1031,7 @@ mod tests {
             doomslug_threshold_mode,
             ChainConfig::test(),
             None,
-            None,
+            Default::default(),
             validator.clone(),
             noop().into_multi_sender(),
         )

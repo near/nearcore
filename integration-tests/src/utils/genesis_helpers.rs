@@ -36,7 +36,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
-        None,
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )
@@ -63,7 +63,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
-        None,
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )

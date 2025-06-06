@@ -1,3 +1,4 @@
+use crate::apply_chunks_thread_pool::ApplyChunksSpawner;
 use crate::approval_verification::verify_approval_with_approvers_info;
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
@@ -26,7 +27,6 @@ use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for
 use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
-use crate::thread_pool::ThreadPool;
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
     RuntimeAdapter, StorageDataSource,
@@ -383,10 +383,6 @@ enum SnapshotAction {
     None,
 }
 
-fn apply_chunks_default_spawner(limit: usize) -> Arc<dyn AsyncComputationSpawner> {
-    Arc::new(ThreadPool::new("apply_chunks", std::time::Duration::from_secs(30), limit, 50))
-}
-
 impl Chain {
     pub fn new_for_view_client(
         clock: Clock,
@@ -441,7 +437,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            apply_chunks_spawner: apply_chunks_default_spawner(num_shards),
+            apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(num_shards),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
@@ -461,7 +457,7 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
-        apply_chunks_spawner: Option<Arc<dyn AsyncComputationSpawner>>,
+        apply_chunks_spawner: ApplyChunksSpawner,
         validator: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
     ) -> Result<Chain, Error> {
@@ -535,7 +531,6 @@ impl Chain {
         // of resharding. We need to revisit this.
         let tip = chain_store.head()?;
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id)?;
-        let num_shards = shard_layout.num_shards() as usize;
         let shard_uids = shard_layout.shard_uids().collect_vec();
         let tracked_shards: Vec<_> = shard_uids
             .iter()
@@ -578,8 +573,8 @@ impl Chain {
         let resharding_manager =
             ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
 
-        let apply_chunks_spawner =
-            apply_chunks_spawner.unwrap_or_else(|| apply_chunks_default_spawner(num_shards));
+        let num_shards = shard_layout.num_shards() as usize;
+        let apply_chunks_spawner = apply_chunks_spawner.into_spawner(num_shards);
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
