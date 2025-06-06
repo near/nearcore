@@ -626,7 +626,7 @@ impl ChunkForwardingOptimizationTestData {
                 );
                 for part in &partial_encoded_chunk.parts {
                     self.chunk_parts_that_must_be_known.insert((
-                        partial_encoded_chunk.header.chunk_hash(),
+                        partial_encoded_chunk.header.chunk_hash().clone(),
                         part.part_ord,
                         client_id,
                     ));

@@ -759,7 +759,7 @@ fn get_chunk_from_block(
     let shard_index = shard_layout.get_shard_index(shard_id)?;
     let chunk_header =
         block.chunks().get(shard_index).ok_or(near_chain::Error::InvalidShardId(shard_id))?.clone();
-    let chunk_hash = chunk_header.chunk_hash();
+    let chunk_hash = chunk_header.chunk_hash().clone();
     let chunk = chain.get_chunk(&chunk_hash)?;
     let res =
         ShardChunk::with_header(ShardChunk::clone(&chunk), chunk_header).ok_or_else(|| {
@@ -1101,6 +1101,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                         .chunks()
                         .iter_deprecated()
                         .map(|header| header.prev_outcome_root())
+                        .copied()
                         .collect::<Vec<_>>();
                     if target_shard_index >= outcome_roots.len() {
                         return Err(GetExecutionOutcomeError::InconsistentState {

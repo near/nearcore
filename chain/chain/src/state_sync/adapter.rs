@@ -104,7 +104,7 @@ impl ChainStateSyncAdapter {
                 .chunks()
                 .iter_deprecated()
                 .map(|shard_chunk| {
-                    ChunkHashHeight(shard_chunk.chunk_hash(), shard_chunk.height_included())
+                    ChunkHashHeight(shard_chunk.chunk_hash().clone(), shard_chunk.height_included())
                 })
                 .collect::<Vec<ChunkHashHeight>>(),
         );
@@ -121,46 +121,47 @@ impl ChainStateSyncAdapter {
         )?;
 
         // Collecting the `prev` state.
-        let (prev_chunk_header, prev_chunk_proof, prev_chunk_height_included) = match self
-            .chain_store
-            .get_block(block_header.prev_hash())
-        {
-            Ok(prev_block) => {
-                let prev_chunk_header = prev_block
-                    .chunks()
-                    .get(prev_shard_index)
-                    .ok_or(Error::InvalidShardId(shard_id))?
-                    .clone();
-                let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
-                    &prev_block
+        let (prev_chunk_header, prev_chunk_proof, prev_chunk_height_included) =
+            match self.chain_store.get_block(block_header.prev_hash()) {
+                Ok(prev_block) => {
+                    let prev_chunk_header = prev_block
                         .chunks()
-                        .iter_deprecated()
-                        .map(|shard_chunk| {
-                            ChunkHashHeight(shard_chunk.chunk_hash(), shard_chunk.height_included())
-                        })
-                        .collect::<Vec<ChunkHashHeight>>(),
-                );
-                assert_eq!(&prev_chunk_headers_root, prev_block.header().chunk_headers_root());
+                        .get(prev_shard_index)
+                        .ok_or(Error::InvalidShardId(shard_id))?
+                        .clone();
+                    let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
+                        &prev_block
+                            .chunks()
+                            .iter_deprecated()
+                            .map(|shard_chunk| {
+                                ChunkHashHeight(
+                                    shard_chunk.chunk_hash().clone(),
+                                    shard_chunk.height_included(),
+                                )
+                            })
+                            .collect::<Vec<ChunkHashHeight>>(),
+                    );
+                    assert_eq!(&prev_chunk_headers_root, prev_block.header().chunk_headers_root());
 
-                let prev_chunk_proof = prev_chunk_proofs
-                    .get(prev_shard_index)
-                    .ok_or(Error::InvalidShardId(shard_id))?
-                    .clone();
-                let prev_chunk_height_included = prev_chunk_header.height_included();
+                    let prev_chunk_proof = prev_chunk_proofs
+                        .get(prev_shard_index)
+                        .ok_or(Error::InvalidShardId(shard_id))?
+                        .clone();
+                    let prev_chunk_height_included = prev_chunk_header.height_included();
 
-                (Some(prev_chunk_header), Some(prev_chunk_proof), prev_chunk_height_included)
-            }
-            Err(e) => match e {
-                Error::DBNotFoundErr(_) => {
-                    if block_header.is_genesis() {
-                        (None, None, 0)
-                    } else {
-                        return Err(e);
-                    }
+                    (Some(prev_chunk_header), Some(prev_chunk_proof), prev_chunk_height_included)
                 }
-                _ => return Err(e),
-            },
-        };
+                Err(e) => match e {
+                    Error::DBNotFoundErr(_) => {
+                        if block_header.is_genesis() {
+                            (None, None, 0)
+                        } else {
+                            return Err(e);
+                        }
+                    }
+                    _ => return Err(e),
+                },
+            };
 
         // Getting all existing incoming_receipts from prev_chunk height up to the sync hash.
         let incoming_receipts_proofs = get_incoming_receipts_for_shard(
@@ -184,6 +185,7 @@ impl ChainStateSyncAdapter {
                     .chunks()
                     .iter_deprecated()
                     .map(|chunk| chunk.prev_outgoing_receipts_root())
+                    .copied()
                     .collect::<Vec<CryptoHash>>(),
             );
 
@@ -200,7 +202,7 @@ impl ChainStateSyncAdapter {
                 let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
                 let from_shard_index = prev_shard_layout.get_shard_index(*from_shard_id)?;
 
-                let root_proof = block.chunks()[from_shard_index].prev_outgoing_receipts_root();
+                let root_proof = *block.chunks()[from_shard_index].prev_outgoing_receipts_root();
                 root_proofs_cur
                     .push(RootProof(root_proof, block_receipts_proofs[from_shard_index].clone()));
 
@@ -384,7 +386,7 @@ impl ChainStateSyncAdapter {
         if !verify_path(
             *sync_prev_block_header.chunk_headers_root(),
             shard_state_header.chunk_proof(),
-            &ChunkHashHeight(chunk.chunk_hash(), chunk.height_included()),
+            &ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()),
         ) {
             byzantine_assert!(false);
             return Err(Error::Other(
@@ -406,7 +408,7 @@ impl ChainStateSyncAdapter {
                 if !verify_path(
                     *prev_block_header.chunk_headers_root(),
                     prev_chunk_proof,
-                    &ChunkHashHeight(prev_chunk_header.chunk_hash(), prev_chunk_header.height_included()),
+                    &ChunkHashHeight(prev_chunk_header.chunk_hash().clone(), prev_chunk_header.height_included()),
                 ) {
                     byzantine_assert!(false);
                     return Err(Error::Other(

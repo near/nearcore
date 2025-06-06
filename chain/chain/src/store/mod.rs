@@ -1496,7 +1496,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn save_partial_chunk(&mut self, partial_chunk: Arc<PartialEncodedChunk>) {
         self.chain_store_cache_update
             .partial_chunks
-            .insert(partial_chunk.chunk_hash(), partial_chunk);
+            .insert(partial_chunk.chunk_hash().clone(), partial_chunk);
     }
 
     pub fn save_block_merkle_tree(
@@ -1628,7 +1628,9 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_invalid_chunk(&mut self, chunk: EncodedShardChunk) {
-        self.chain_store_cache_update.invalid_chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
+        self.chain_store_cache_update
+            .invalid_chunks
+            .insert(chunk.chunk_hash().clone(), Arc::new(chunk));
     }
 
     pub fn save_block_height_processed(&mut self, height: BlockHeight) {
