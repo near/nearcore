@@ -1160,7 +1160,7 @@ impl ShardChunk {
             Self::V1(_) => self,
             Self::V2(mut chunk) => {
                 chunk.header = chunk.header.into_spice_chunk_execution_header(chunk_extra);
-                chunk.chunk_hash = chunk.header.chunk_hash();
+                chunk.chunk_hash = chunk.header.chunk_hash().clone();
                 Self::V2(chunk)
             }
         }
