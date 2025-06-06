@@ -4,8 +4,8 @@ use crate::db::metadata::{DbKind, DbMetadata, DbVersion, KIND_KEY, VERSION_KEY};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
 use crate::deserialized_column;
 use borsh::{BorshDeserialize, BorshSerialize};
-use enum_map::EnumMap;
 use near_fmt::{AbbrBytes, StorageKey};
+use quick_cache::sync::GuardResult;
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
@@ -78,21 +78,21 @@ impl Store {
             return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
         };
 
-        {
-            let mut lock = cache.lock();
-            if let Some(value) = lock.values.get(key) {
-                match Arc::downcast::<T>(Arc::clone(value)) {
-                    Ok(result) => return Ok(Some(result)),
-                    Err(_) => {
-                        tracing::debug!(
-                            target: "store",
-                            requested = std::any::type_name::<T>(),
-                            "could not downcast an available cached deserialized value"
-                        );
-                    }
+        let insert_guard = match cache.values.get_value_or_guard(key, None) {
+            GuardResult::Value(value) => match Arc::downcast::<T>(value) {
+                Ok(result) => return Ok(Some(result)),
+                Err(_) => {
+                    tracing::debug!(
+                        target: "store",
+                        requested = std::any::type_name::<T>(),
+                        "could not downcast an available cached deserialized value"
+                    );
+                    None
                 }
-            }
-        }
+            },
+            GuardResult::Guard(guard) => Some(guard),
+            GuardResult::Timeout => unreachable!(),
+        };
 
         let value = match self.get_ser::<T>(column, key) {
             Ok(Some(value)) => Arc::from(value),
@@ -100,9 +100,12 @@ impl Store {
             Err(e) => return Err(e),
         };
 
-        let mut lock = cache.lock();
-        if lock.active_flushes == 0 {
-            lock.values.put(key.into(), Arc::clone(&value) as _);
+        if let Ok(_ticket) = cache.try_acquire_put_ticket() {
+            if let Some(guard) = insert_guard {
+                let _ = guard.insert(Arc::clone(&value) as _);
+            } else {
+                cache.values.insert(key.into(), Arc::clone(&value) as _);
+            }
         }
         Ok(Some(value))
     }
@@ -214,8 +217,10 @@ impl Store {
     }
 
     pub fn write(&self, transaction: DBTransaction) -> io::Result<()> {
-        let mut keys_flushed = EnumMap::<DBCol, u64>::from_fn(|_| 0);
-
+        for col in DBCol::iter() {
+            let Some(cache) = self.cache.work_with(col) else { continue };
+            cache.acquire_write_ticket();
+        }
         for op in &transaction.ops {
             match op {
                 DBOp::Set { col, key, .. }
@@ -223,30 +228,23 @@ impl Store {
                 | DBOp::UpdateRefcount { col, key, .. }
                 | DBOp::Delete { col, key } => {
                     // FIXME(nagisa): investigate if collecting all the keys to discard into a
-                    // vector and then flushing everything in a single lock would be more
-                    // performant.
+                    // grouped vector and then going through this whole atomic thingy once would be
+                    // any faster.
                     let Some(cache) = self.cache.work_with(*col) else { continue };
-                    let mut lock = cache.lock();
-                    lock.active_flushes += 1;
-                    keys_flushed[*col] += 1;
-                    lock.values.pop(key);
+                    cache.wait_write_tickets_only();
+                    cache.values.remove(key);
                 }
                 DBOp::DeleteAll { col } | DBOp::DeleteRange { col, .. } => {
                     let Some(cache) = self.cache.work_with(*col) else { continue };
-                    let mut lock = cache.lock();
-                    lock.active_flushes += 1;
-                    keys_flushed[*col] += 1;
-                    lock.values.clear();
+                    cache.wait_write_tickets_only();
+                    cache.values.clear();
                 }
             }
         }
         let result = self.storage.write(transaction);
         for col in DBCol::iter() {
-            let flushed = keys_flushed[col];
-            if flushed != 0 {
-                let Some(cache) = self.cache.work_with(col) else { continue };
-                cache.lock().active_flushes -= flushed;
-            }
+            let Some(cache) = self.cache.work_with(col) else { continue };
+            cache.release_write_ticket();
         }
         result
     }
