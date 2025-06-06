@@ -6,6 +6,8 @@ mod edge;
 mod peer;
 mod proto_conv;
 mod state_sync;
+use borsh::BorshDeserialize;
+use borsh::BorshSerialize;
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
@@ -36,7 +38,6 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use borsh::BorshDeserialize as _;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -62,6 +63,8 @@ use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
+use std::io::Read;
+use std::io::Write;
 use std::sync::Arc;
 use tracing::Span;
 
@@ -438,7 +441,7 @@ pub enum PeerMessage {
     OptimisticBlock(OptimisticBlock),
 
     Transaction(SignedTransaction),
-    Routed(Box<RoutedMessageV2>),
+    Routed(Box<VersionedRoutedMessage>),
 
     /// Gracefully disconnect from other peer.
     Disconnect(Disconnect),
@@ -820,7 +823,7 @@ pub struct RoutedMessage {
     pub body: RawTieredMessageBody,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct RoutedMessageV2 {
     /// Message
     pub msg: RoutedMessage,
@@ -829,6 +832,25 @@ pub struct RoutedMessageV2 {
     /// Number of peers this routed message traveled through.
     /// Doesn't include the peers that are the source and the destination of the message.
     pub num_hops: u32,
+}
+
+impl BorshSerialize for RoutedMessageV2 {
+    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.msg.serialize(writer)?;
+        self.created_at.map(|t| t.unix_timestamp()).serialize(writer)?;
+        self.num_hops.serialize(writer)
+    }
+}
+
+impl BorshDeserialize for RoutedMessageV2 {
+    fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
+        let msg = RoutedMessage::deserialize_reader(rd)?;
+        let created_at = Option::<i64>::deserialize_reader(rd)?
+            .map(|t| time::Utc::from_unix_timestamp(t).ok())
+            .flatten();
+        let num_hops = u32::deserialize_reader(rd)?;
+        Ok(RoutedMessageV2 { msg, created_at, num_hops })
+    }
 }
 
 impl std::ops::Deref for RoutedMessageV2 {
@@ -842,6 +864,146 @@ impl std::ops::Deref for RoutedMessageV2 {
 impl std::ops::DerefMut for RoutedMessageV2 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.msg
+    }
+}
+
+impl From<RoutedMessageV2> for VersionedRoutedMessage {
+    fn from(msg: RoutedMessageV2) -> Self {
+        VersionedRoutedMessage::V2(msg)
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+pub enum VersionedRoutedMessage {
+    V1(RoutedMessage),
+    V2(RoutedMessageV2),
+}
+
+impl VersionedRoutedMessage {
+    pub fn build_hash(
+        target: &PeerIdOrHash,
+        source: &PeerId,
+        body: &RawTieredMessageBody,
+    ) -> CryptoHash {
+        CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
+    }
+
+    pub fn target(&self) -> &PeerIdOrHash {
+        match self {
+            VersionedRoutedMessage::V1(msg) => &msg.target,
+            VersionedRoutedMessage::V2(msg) => &msg.target,
+        }
+    }
+
+    pub fn body(&self) -> &RawTieredMessageBody {
+        match self {
+            VersionedRoutedMessage::V1(msg) => &msg.body,
+            VersionedRoutedMessage::V2(msg) => &msg.body,
+        }
+    }
+
+    pub fn hash(&self) -> CryptoHash {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.hash(),
+            VersionedRoutedMessage::V2(msg) => msg.hash(),
+        }
+    }
+
+    pub fn verify(&self) -> bool {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.verify(),
+            VersionedRoutedMessage::V2(msg) => msg.verify(),
+        }
+    }
+
+    pub fn expect_response(&self) -> bool {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.expect_response(),
+            VersionedRoutedMessage::V2(msg) => msg.expect_response(),
+        }
+    }
+
+    /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
+    pub fn decrease_ttl(&mut self) -> bool {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.decrease_ttl(),
+            VersionedRoutedMessage::V2(msg) => msg.decrease_ttl(),
+        }
+    }
+
+    pub fn body_variant(&self) -> &'static str {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.body_variant(),
+            VersionedRoutedMessage::V2(msg) => msg.body_variant(),
+        }
+    }
+
+    pub fn num_hops(&self) -> u32 {
+        match self {
+            VersionedRoutedMessage::V1(_) => 0,
+            VersionedRoutedMessage::V2(msg) => msg.num_hops,
+        }
+    }
+
+    pub fn ttl(&self) -> u8 {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg.ttl,
+            VersionedRoutedMessage::V2(msg) => msg.ttl,
+        }
+    }
+
+    // fn upgrade_to_v2(&mut self) {
+    //     match self {
+    //         VersionedRoutedMessage::V1(msg) => {
+    //             let msg = RoutedMessageV2 { msg: msg.clone(), created_at: None, num_hops: 0 };
+    //             *self = VersionedRoutedMessage::V2(msg);
+    //         }
+    //         VersionedRoutedMessage::V2(_) => {}
+    //     }
+    // }
+
+    pub fn num_hops_mut(&mut self) -> &mut u32 {
+        &mut self.msg_mut().num_hops
+    }
+
+    pub fn created_at(&self) -> Option<time::Utc> {
+        match self {
+            VersionedRoutedMessage::V1(_) => None,
+            VersionedRoutedMessage::V2(msg) => msg.created_at,
+        }
+    }
+
+    pub fn author(&self) -> &PeerId {
+        match self {
+            VersionedRoutedMessage::V1(msg) => &msg.author,
+            VersionedRoutedMessage::V2(msg) => &msg.author,
+        }
+    }
+
+    pub fn msg(&self) -> &RoutedMessage {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg,
+            VersionedRoutedMessage::V2(msg) => &msg.msg,
+        }
+    }
+
+    pub fn msg_owned(self) -> RoutedMessage {
+        match self {
+            VersionedRoutedMessage::V1(msg) => msg,
+            VersionedRoutedMessage::V2(msg) => msg.msg,
+        }
+    }
+
+    pub fn msg_mut(&mut self) -> &mut RoutedMessageV2 {
+        match self {
+            VersionedRoutedMessage::V1(msg) => {
+                let msg = RoutedMessageV2 { msg: msg.clone(), created_at: None, num_hops: 0 };
+                *self = VersionedRoutedMessage::V2(msg);
+                let VersionedRoutedMessage::V2(msg) = self else { unreachable!() };
+                msg
+            }
+            VersionedRoutedMessage::V2(msg) => msg,
+        }
     }
 }
 
@@ -1060,11 +1222,11 @@ impl RawRoutedMessage {
         node_key: &near_crypto::SecretKey,
         routed_message_ttl: u8,
         now: Option<time::Utc>,
-    ) -> RoutedMessageV2 {
+    ) -> VersionedRoutedMessage {
         let author = PeerId::new(node_key.public_key());
         let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
         let signature = node_key.sign(hash.as_ref());
-        RoutedMessageV2 {
+        VersionedRoutedMessage::V2(RoutedMessageV2 {
             msg: RoutedMessage {
                 target: self.target,
                 author,
@@ -1074,6 +1236,6 @@ impl RawRoutedMessage {
             },
             created_at: now,
             num_hops: 0,
-        }
+        })
     }
 }

@@ -445,7 +445,7 @@ impl PeerActor {
                 metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["sent"]).inc()
             }
             PeerMessage::Routed(routed) => {
-                tracing::debug!(target: "network", source=?routed.msg.author, target=?routed.msg.target, message=?routed.msg.body, "send_routed_message");
+                tracing::debug!(target: "network", source=?routed.author(), target=?routed.target(), message=?routed.msg().body, "send_routed_message");
             }
             _ => (),
         };
@@ -1025,13 +1025,14 @@ impl PeerActor {
             Ok(match msg {
                 PeerMessage::Routed(msg) => {
                     let msg_hash = msg.hash();
+                    let msg_owned = msg.msg_owned();
                     Self::receive_routed_message(
                         &clock,
                         &network_state,
-                        msg.msg.author,
+                        msg_owned.author,
                         peer_id.clone(),
                         msg_hash,
-                        msg.msg.body,
+                        msg_owned.body,
                     )
                     .await?
                     .map(|body| {
@@ -1383,11 +1384,11 @@ impl PeerActor {
                     target: "network",
                     "Received routed message from {} to {:?}.",
                     self.peer_info,
-                    msg.target);
-                let for_me = self.network_state.message_for_me(&msg.target);
+                    msg.target());
+                let for_me = self.network_state.message_for_me(&msg.target());
                 if for_me {
                     // Check if we have already received this message.
-                    let new_hash = CryptoHash::hash_borsh(&msg.body);
+                    let new_hash = CryptoHash::hash_borsh(&msg.msg().body);
                     let fastest = self
                         .network_state
                         .recent_routed_messages
@@ -1399,18 +1400,18 @@ impl PeerActor {
                 }
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
-                let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
+                let key = (msg.author().clone(), msg.target().clone(), msg.msg().signature.clone());
                 let now = self.clock.now();
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
-                        metrics::MessageDropped::Duplicate.inc(&msg.body);
+                        metrics::MessageDropped::Duplicate.inc(&msg.msg().body);
                         #[cfg(test)]
                         self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
-                        tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
+                        tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author(), msg.target());
                         return;
                     }
                 }
-                if let RawTieredMessageBody::T2(body) = &msg.body {
+                if let RawTieredMessageBody::T2(body) = &msg.msg().body {
                     if let T2MessageBody::ForwardTx(_) = body.as_ref() {
                         // Check whenever we exceeded number of transactions we got since last block.
                         // If so, drop the transaction.
@@ -1419,7 +1420,8 @@ impl PeerActor {
                         // parameters as number of nodes or number of shards. Reconsider why do we need
                         // this and whether this is really the right way of handling it.
                         if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
-                            metrics::MessageDropped::TransactionsPerBlockExceeded.inc(&msg.body);
+                            metrics::MessageDropped::TransactionsPerBlockExceeded
+                                .inc(&msg.msg().body);
                             return;
                         }
                         self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
@@ -1437,7 +1439,7 @@ impl PeerActor {
                 if for_me {
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong
-                    match &msg.body {
+                    match &msg.msg().body {
                         RawTieredMessageBody::T2(body) => {
                             match body.as_ref() {
                                 T2MessageBody::Ping(ping) => {
@@ -1473,7 +1475,7 @@ impl PeerActor {
                     }
                 } else {
                     if msg.decrease_ttl() {
-                        msg.num_hops += 1;
+                        *msg.num_hops_mut() += 1;
                         self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
                     } else {
                         #[cfg(test)]

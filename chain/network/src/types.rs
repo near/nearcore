@@ -451,7 +451,7 @@ pub struct PeerManagerSenderForNetwork {
 mod tests {
     use super::*;
     use crate::network_protocol::{
-        RawRoutedMessage, RawTieredMessageBody, RoutedMessage, T2MessageBody,
+        RawRoutedMessage, RawTieredMessageBody, T2MessageBody, VersionedRoutedMessage,
     };
 
     const ALLOWED_SIZE: usize = 1 << 20;
@@ -501,7 +501,7 @@ mod tests {
         assert_size!(PeerInfo);
         assert_size!(AnnounceAccount);
         assert_size!(RawRoutedMessage);
-        assert_size!(RoutedMessage);
+        assert_size!(VersionedRoutedMessage);
         assert_size!(KnownPeerState);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);

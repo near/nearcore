@@ -446,16 +446,16 @@ impl Connection {
 
     fn recv_routed_msg(
         &mut self,
-        msg: &crate::network_protocol::RoutedMessage,
+        msg: &crate::network_protocol::VersionedRoutedMessage,
     ) -> Option<RoutedMessage> {
-        if !self.target_is_for_me(&msg.target) {
+        if !self.target_is_for_me(&msg.target()) {
             tracing::debug!(
                 target: "network", "{:?} dropping routed message {} for {:?}",
-                &self, <&'static str>::from(&msg.body), &msg.target
+                &self, <&str>::from(&*msg.body()), &msg.target()
             );
             return None;
         }
-        match &msg.body {
+        match &msg.body() {
             RawTieredMessageBody::T2(body) => match body.as_ref() {
                 T2MessageBody::Ping(p) => Some(RoutedMessage::Ping { nonce: p.nonce }),
                 T2MessageBody::Pong(p) => {
