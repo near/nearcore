@@ -1602,7 +1602,7 @@ impl Runtime {
         )?;
 
         // Step 2: process transactions.
-        let parallel = apply_state.apply_reason != ApplyChunkReason::ValidateChunkStateWitness;
+        let parallel = false; // apply_state.apply_reason != ApplyChunkReason::ValidateChunkStateWitness;
         self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink, parallel)?;
 
         // Step 3: process receipts.
