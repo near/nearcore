@@ -16,14 +16,14 @@ use node_runtime::config::Rational32;
 use std::sync::Arc;
 
 pub fn set_block_protocol_version(
-    block: &mut Block,
+    block: &mut Arc<Block>,
     block_producer: AccountId,
     protocol_version: ProtocolVersion,
 ) {
     let validator_signer = create_test_signer(block_producer.as_str());
 
-    block.mut_header().set_latest_protocol_version(protocol_version);
-    block.mut_header().resign(&validator_signer);
+    Arc::make_mut(block).mut_header().set_latest_protocol_version(protocol_version);
+    Arc::make_mut(block).mut_header().resign(&validator_signer);
 }
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.
@@ -38,7 +38,6 @@ pub fn produce_blocks_from_height_with_protocol_version(
     for i in height..next_height {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         set_block_protocol_version(&mut block, env.get_client_id(0), protocol_version);
-        let block = Arc::new(block);
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         for j in 1..env.clients.len() {
             env.process_block(j, block.clone(), Provenance::NONE);

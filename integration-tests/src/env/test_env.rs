@@ -543,8 +543,7 @@ impl TestEnv {
             self.clients[0].epoch_manager.get_block_producer(&epoch_id, tip.height).unwrap();
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        block.mut_header().resign(&create_test_signer(block_producer.as_str()));
-        let block = Arc::new(block);
+        Arc::make_mut(&mut block).mut_header().resign(&create_test_signer(block_producer.as_str()));
 
         let _ = self.clients[0]
             .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)

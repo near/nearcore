@@ -1,3 +1,5 @@
+use crate::env::test_env::TestEnv;
+use crate::env::test_env_builder::TestEnvBuilder;
 use assert_matches::assert_matches;
 use near_chain::test_utils::is_optimistic_block_in_processing;
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -18,9 +20,7 @@ use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::MaybeValidated;
 use near_store::ShardUId;
-
-use crate::env::test_env::TestEnv;
-use crate::env::test_env_builder::TestEnvBuilder;
+use std::sync::Arc;
 
 /// Only process one block per height
 /// Test that if a node receives two blocks at the same height, it doesn't process the second one
@@ -36,9 +36,10 @@ fn test_not_process_height_twice() {
 
     let proposals =
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
-    duplicate_block.mut_header().set_prev_validator_proposals(proposals);
-    duplicate_block.mut_header().resign(&validator_signer);
-    let dup_block_hash = *duplicate_block.hash();
+    let mut_block = Arc::make_mut(&mut duplicate_block);
+    mut_block.mut_header().set_prev_validator_proposals(proposals);
+    mut_block.mut_header().resign(&validator_signer);
+    let dup_block_hash = *mut_block.hash();
     let signer = env.clients[0].validator_signer.get();
     // we should have dropped the block before we even tried to process it, so the result should be ok
     env.clients[0]
@@ -155,14 +156,15 @@ fn test_bad_shard_id() {
     );
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
-    block.mut_header().set_chunk_headers_root(Block::compute_chunk_headers_root(&chunks).0);
-    block.mut_header().set_prev_chunk_outgoing_receipts_root(
+    let mut_block = Arc::make_mut(&mut block);
+    mut_block.mut_header().set_chunk_headers_root(Block::compute_chunk_headers_root(&chunks).0);
+    mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
         Block::compute_chunk_prev_outgoing_receipts_root(&chunks),
     );
-    block.set_chunks(chunks);
-    let body_hash = block.compute_block_body_hash().unwrap();
-    block.mut_header().set_block_body_hash(body_hash);
-    block.mut_header().resign(&validator_signer);
+    mut_block.set_chunks(chunks);
+    let body_hash = mut_block.compute_block_body_hash().unwrap();
+    mut_block.mut_header().set_block_body_hash(body_hash);
+    mut_block.mut_header().resign(&validator_signer);
 
     let err = env.clients[0]
         .process_block_test(MaybeValidated::from(block), Provenance::NONE)
@@ -185,7 +187,7 @@ fn test_bad_block_content_vrf() {
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
-    bad_block.set_vrf_value(Value([0u8; 32]));
+    Arc::make_mut(&mut bad_block).set_vrf_value(Value([0u8; 32]));
     let signer = env.clients[0].validator_signer.get();
 
     let err = env.clients[0]
@@ -214,7 +216,7 @@ fn test_bad_block_signature() {
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
-    bad_block.mut_header().set_signature(Signature::default());
+    Arc::make_mut(&mut bad_block).mut_header().set_signature(Signature::default());
     let signer = env.clients[0].validator_signer.get();
 
     let err = env.clients[0]
