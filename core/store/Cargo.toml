@@ -43,7 +43,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-time.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-chain-primitives.workspace = true
 near-crypto.workspace = true
@@ -51,8 +50,9 @@ near-fmt.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
-near-vm-runner.workspace = true
 near-schema-checker-lib.workspace = true
+near-time.workspace = true
+near-vm-runner.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
