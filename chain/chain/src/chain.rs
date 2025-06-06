@@ -45,8 +45,7 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::futures::AsyncComputationSpawner;
-use near_async::futures::AsyncComputationSpawnerExt;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::MutableValidatorSigner;
@@ -437,7 +436,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(num_shards),
+            apply_chunks_spawner: ApplyChunksSpawner::new(num_shards),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
@@ -457,7 +456,7 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
-        apply_chunks_spawner: ApplyChunksSpawner,
+        apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         validator: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
     ) -> Result<Chain, Error> {
@@ -573,8 +572,6 @@ impl Chain {
         let resharding_manager =
             ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
 
-        let num_shards = shard_layout.num_shards() as usize;
-        let apply_chunks_spawner = apply_chunks_spawner.into_spawner(num_shards);
         Ok(Chain {
             clock: clock.clone(),
             chain_store,

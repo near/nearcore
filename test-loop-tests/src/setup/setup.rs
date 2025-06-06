@@ -125,9 +125,10 @@ pub fn setup_client(
     // Make sure this is the same as the account_id of the client to redirect the network messages properly.
     let peer_id = PeerId::new(create_test_signer(account_id.as_str()).public_key());
 
-    let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
-        test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
-    ));
+    let spawner =
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)));
+    let multi_spawner =
+        AsyncComputationMultiSpawner::new(spawner.clone(), spawner.clone(), spawner);
     let client = Client::new(
         test_loop.clock(),
         client_config.clone(),
