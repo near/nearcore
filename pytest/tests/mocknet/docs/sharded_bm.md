@@ -57,8 +57,19 @@ If you want to tweak some non-critical parameters, modify locally the json patch
 For more critical changes, like changing neard binary, you must call `init`. You can either:
 
 * give flag `--neard-binary-url URL` which takes the highest priority;
-* otherwise, value of env var `NEARD_BINARY_URL` will be taken, if set;
-* otherwise, `binary_url` from `CASE` will be taken.
+* otherwise, value of env var `NEARD_BINARY_URL` will be taken.
+
+### Critical parameters
+
+* Genesis
+* Epoch config
+* `params.json`
+
+### Non-critical parameters
+
+* `config.json`
+* `log_config.json`
+* Load schedule
 
 ## Other docs
 

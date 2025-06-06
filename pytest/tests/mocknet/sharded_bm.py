@@ -110,9 +110,9 @@ def handle_init(args):
         args.neard_binary_url = os.environ['NEARD_BINARY_URL']
     else:
         logger.info(
-            f"Using neard binary URL from benchmark params: {args.bm_params['forknet']['binary_url']}"
+            "Please provide neard binary URL via CLI or env var NEARD_BINARY_URL"
         )
-        args.neard_binary_url = args.bm_params['forknet']['binary_url']
+        sys.exit(1)
 
     init_args = SimpleNamespace(
         neard_upgrade_binary_url="",
