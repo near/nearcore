@@ -81,14 +81,14 @@ impl ReplayArchiveCommand {
 /// Result of replaying a block. It is used to decide on
 /// the right post-processing steps after replaying the block.
 enum ReplayBlockOutput {
-    Genesis(Block),
+    Genesis(Arc<Block>),
     Missing(BlockHeight),
-    Replayed(Block, Gas),
+    Replayed(Arc<Block>, Gas),
 }
 
 /// Result of replaying a chunk.
 struct ReplayChunkOutput {
-    chunk_extra: ChunkExtra,
+    chunk_extra: Arc<ChunkExtra>,
     outgoing_receipts: Vec<Receipt>,
 }
 
@@ -343,14 +343,14 @@ impl ReplayController {
                 apply_result,
             }) => {
                 let outgoing_receipts = apply_result.outgoing_receipts.clone();
-                let chunk_extra = apply_result_to_chunk_extra(apply_result, &chunk_header);
+                let chunk_extra = apply_result_to_chunk_extra(apply_result, &chunk_header).into();
                 ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid: _, apply_result }) => {
                 let mut chunk_extra = ChunkExtra::clone(&prev_chunk_extra.as_ref());
                 *chunk_extra.state_root_mut() = apply_result.new_root;
                 let outgoing_receipts = apply_result.outgoing_receipts;
-                ReplayChunkOutput { chunk_extra, outgoing_receipts }
+                ReplayChunkOutput { chunk_extra: chunk_extra.into(), outgoing_receipts }
             }
         };
 

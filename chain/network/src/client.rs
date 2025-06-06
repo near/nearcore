@@ -12,6 +12,7 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
+use std::sync::Arc;
 
 /// Transaction status query
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
@@ -28,14 +29,14 @@ pub struct TxStatusResponse(pub Box<FinalExecutionOutcomeView>);
 
 /// Request a block.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "Option<Box<Block>>")]
+#[rtype(result = "Option<Arc<Block>>")]
 pub struct BlockRequest(pub CryptoHash);
 
 /// Block response.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct BlockResponse {
-    pub block: Block,
+    pub block: Arc<Block>,
     pub peer_id: PeerId,
     pub was_requested: bool,
 }
@@ -46,13 +47,13 @@ pub struct BlockApproval(pub Approval, pub PeerId);
 
 /// Request headers.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "Option<Vec<BlockHeader>>")]
+#[rtype(result = "Option<Vec<Arc<BlockHeader>>>")]
 pub struct BlockHeadersRequest(pub Vec<CryptoHash>);
 
 /// Headers response.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "Result<(),ReasonForBan>")]
-pub struct BlockHeadersResponse(pub Vec<BlockHeader>, pub PeerId);
+pub struct BlockHeadersResponse(pub Vec<Arc<BlockHeader>>, pub PeerId);
 
 /// State request header.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
@@ -152,8 +153,8 @@ pub struct ClientSenderForNetwork {
     pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
     pub state_response: AsyncSender<StateResponseReceived, ()>,
     pub block_approval: AsyncSender<BlockApproval, ()>,
-    pub block_request: AsyncSender<BlockRequest, Option<Box<Block>>>,
-    pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<BlockHeader>>>,
+    pub block_request: AsyncSender<BlockRequest, Option<Arc<Block>>>,
+    pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>>,
     pub block: AsyncSender<BlockResponse, ()>,
     pub block_headers: AsyncSender<BlockHeadersResponse, Result<(), ReasonForBan>>,
     pub network_info: AsyncSender<SetNetworkInfo, ()>,

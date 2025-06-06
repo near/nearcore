@@ -107,7 +107,7 @@ fn query_status_not_crash() {
                     .client_actor
                     .send(
                         BlockResponse {
-                            block: next_block,
+                            block: next_block.into(),
                             peer_id: PeerInfo::random().id,
                             was_requested: false,
                         }
