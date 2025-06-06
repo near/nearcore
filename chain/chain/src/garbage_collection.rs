@@ -1145,8 +1145,15 @@ fn gc_parent_shard_after_resharding(
     let _span = tracing::debug_span!(target: "garbage_collection", "gc_resharding").entered();
 
     // Given block_hash is the resharding block, shard_layout is the shard layout of the next epoch
-    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(block_hash)?;
+    // Important: We are not allowed to call `epoch_manager.get_shard_layout_from_prev_block()` as
+    // the function relies on `self.get_block_info(block_info.epoch_first_block())` but epoch_first_block
+    // has already been cleaned up.
+    // We instead need to rely on chain_store to get the next block hash and use the block_info to get
+    // the next epoch id and shard layout.
     let store = chain_store_update.store();
+    let next_block_hash = store.chain_store().get_next_block_hash(block_hash)?;
+    let next_epoch_id = epoch_manager.get_epoch_id(&next_block_hash)?;
+    let shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
     let mut trie_store_update = store.trie_store().store_update();
     for parent_shard_uid in shard_layout.get_split_parent_shard_uids() {
         // Delete the state of the parent shard
