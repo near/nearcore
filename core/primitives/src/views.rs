@@ -48,7 +48,8 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::account::AccountContract;
+use near_primitives_core::account::{AccountContract, GasKey};
+use near_primitives_core::types::NonceIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
@@ -213,6 +214,43 @@ impl From<AccessKey> for AccessKeyView {
 impl From<AccessKeyView> for AccessKey {
     fn from(view: AccessKeyView) -> Self {
         Self { nonce: view.nonce, permission: view.permission.into() }
+    }
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Eq,
+    PartialEq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyView {
+    pub num_nonces: NonceIndex,
+    pub balance: Balance,
+    pub permission: AccessKeyPermissionView,
+}
+
+impl From<GasKey> for GasKeyView {
+    fn from(gas_key: GasKey) -> Self {
+        Self {
+            num_nonces: gas_key.num_nonces,
+            balance: gas_key.balance,
+            permission: gas_key.permission.into(),
+        }
+    }
+}
+
+impl From<GasKeyView> for GasKey {
+    fn from(view: GasKeyView) -> Self {
+        Self {
+            num_nonces: view.num_nonces,
+            balance: view.balance,
+            permission: view.permission.into(),
+        }
     }
 }
 
@@ -2386,7 +2424,13 @@ pub enum StateChangesRequestView {
     SingleAccessKeyChanges {
         keys: Vec<AccountWithPublicKey>,
     },
+    SingleGasKeyChanges {
+        keys: Vec<AccountWithPublicKey>,
+    },
     AllAccessKeyChanges {
+        account_ids: Vec<AccountId>,
+    },
+    AllGasKeyChanges {
         account_ids: Vec<AccountId>,
     },
     ContractCodeChanges {
@@ -2408,8 +2452,14 @@ impl From<StateChangesRequestView> for StateChangesRequest {
             StateChangesRequestView::SingleAccessKeyChanges { keys } => {
                 Self::SingleAccessKeyChanges { keys }
             }
+            StateChangesRequestView::SingleGasKeyChanges { keys } => {
+                Self::SingleGasKeyChanges { keys }
+            }
             StateChangesRequestView::AllAccessKeyChanges { account_ids } => {
                 Self::AllAccessKeyChanges { account_ids }
+            }
+            StateChangesRequestView::AllGasKeyChanges { account_ids } => {
+                Self::AllGasKeyChanges { account_ids }
             }
             StateChangesRequestView::ContractCodeChanges { account_ids } => {
                 Self::ContractCodeChanges { account_ids }
@@ -2520,6 +2570,21 @@ pub enum StateChangeValueView {
         account_id: AccountId,
         public_key: PublicKey,
     },
+    GasKeyUpdate {
+        account_id: AccountId,
+        public_key: PublicKey,
+        gas_key: GasKeyView,
+    },
+    GasKeyNonceUpdate {
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: u32,
+        nonce: Nonce,
+    },
+    GasKeyDeletion {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
     DataUpdate {
         account_id: AccountId,
         #[serde(rename = "key_base64")]
@@ -2558,6 +2623,15 @@ impl From<StateChangeValue> for StateChangeValueView {
             }
             StateChangeValue::AccessKeyDeletion { account_id, public_key } => {
                 Self::AccessKeyDeletion { account_id, public_key }
+            }
+            StateChangeValue::GasKeyUpdate { account_id, public_key, gas_key } => {
+                Self::GasKeyUpdate { account_id, public_key, gas_key: gas_key.into() }
+            }
+            StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
+                Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }
+            }
+            StateChangeValue::GasKeyDeletion { account_id, public_key } => {
+                Self::GasKeyDeletion { account_id, public_key }
             }
             StateChangeValue::DataUpdate { account_id, key, value } => {
                 Self::DataUpdate { account_id, key, value }
