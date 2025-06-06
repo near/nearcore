@@ -1,7 +1,7 @@
 use crate::broadcast::Receiver;
 use crate::config::NetworkConfig;
-use crate::network_protocol::{Encoding, PeerMessage};
-use crate::network_protocol::{PartialEncodedChunkRequestMsg, RoutedMessageBody, testonly as data};
+use crate::network_protocol::{Encoding, PeerMessage, T2MessageBody};
+use crate::network_protocol::{PartialEncodedChunkRequestMsg, testonly as data};
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::rate_limits::messages_limits;
@@ -182,16 +182,19 @@ async fn send_messages(
     // Duplicated routed messages are filtered out so we must tweak each message to make it unique.
 
     for i in 0..count {
-        let message = PeerMessage::Routed(Box::new(outbound.routed_message(
-            RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
-                chunk_hash: outbound.cfg.chain.blocks[5].chunks()[2].chunk_hash().clone(),
-                part_ords: vec![rng.r#gen()],
-                tracking_shards: Default::default(),
-            }),
-            inbound.cfg.id(),
-            1,
-            None,
-        )));
+        let message = PeerMessage::Routed(Box::new(
+            outbound.routed_message(
+                T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+                    chunk_hash: outbound.cfg.chain.blocks[5].chunks()[2].chunk_hash().clone(),
+                    part_ords: vec![rng.r#gen()],
+                    tracking_shards: Default::default(),
+                })
+                .into(),
+                inbound.cfg.id(),
+                1,
+                None,
+            ),
+        ));
         outbound.send(message.clone()).await;
         if i == count - 1 {
             messages_samples.push(message);
