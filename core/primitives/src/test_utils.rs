@@ -819,11 +819,11 @@ impl TestBlockBuilder {
         self
     }
 
-    pub fn build(self) -> Block {
+    pub fn build(self) -> Arc<Block> {
         use crate::version::PROTOCOL_VERSION;
 
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
-        Block::produce(
+        Arc::new(Block::produce(
             PROTOCOL_VERSION,
             self.prev.header(),
             self.height,
@@ -844,7 +844,7 @@ impl TestBlockBuilder {
             self.clock,
             None,
             None,
-        )
+        ))
     }
 }
 

@@ -1335,7 +1335,6 @@ impl ClientActorInner {
         let Some(block) = self.client.produce_block_on_head(next_height, false)? else {
             return Ok(());
         };
-        let block = Arc::new(block);
 
         // If we produced the block, send it out before we apply the block.
         self.client.chain.blocks_delay_tracker.mark_block_received(&block);
@@ -1861,7 +1860,7 @@ impl ClientActorInner {
         let signer = self.client.validator_signer.get();
         let mut blocks_produced = 0;
         for height in start_height.. {
-            let block: Option<Block> = if is_based_on_current_head {
+            let block = if is_based_on_current_head {
                 self.client.produce_block(height).expect("block should be produced")
             } else {
                 let prev_block_hash = self

@@ -281,7 +281,7 @@ impl ViewClientActorInner {
                 .and_then(|block_hash| self.chain.get_block(&block_hash))
                 .map(Some),
             BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis) => {
-                Ok(Some(self.chain.genesis_block().clone().into()))
+                Ok(Some(self.chain.genesis_block().into()))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
                 let block_hash = match self.chain.get_earliest_block_hash()? {

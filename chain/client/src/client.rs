@@ -737,7 +737,7 @@ impl Client {
 
     /// Produce block if we are block producer for given block `height`.
     /// Either returns produced block (not applied) or error.
-    pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Block>, Error> {
+    pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Arc<Block>>, Error> {
         self.produce_block_on_head(height, true)
     }
 
@@ -747,7 +747,7 @@ impl Client {
         &mut self,
         height: BlockHeight,
         prepare_chunk_headers: bool,
-    ) -> Result<Option<Block>, Error> {
+    ) -> Result<Option<Arc<Block>>, Error> {
         let _span =
             tracing::debug_span!(target: "client", "produce_block_on_head", height, tag_block_production = true).entered();
 
@@ -773,7 +773,7 @@ impl Client {
         &mut self,
         height: BlockHeight,
         prev_hash: CryptoHash,
-    ) -> Result<Option<Block>, Error> {
+    ) -> Result<Option<Arc<Block>>, Error> {
         let validator_signer = self.validator_signer.get().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
@@ -956,7 +956,7 @@ impl Client {
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let block = Block::produce(
+        let block = Arc::new(Block::produce(
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
@@ -978,7 +978,7 @@ impl Client {
             self.clock.clone(),
             sandbox_delta_time,
             optimistic_block,
-        );
+        ));
 
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain
