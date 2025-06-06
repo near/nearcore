@@ -517,8 +517,7 @@ mod tests {
         }
 
         check(
-            T2MessageBody::TxStatusRequest("test_x".parse().unwrap(), CryptoHash([42; 32]))
-                .into(),
+            T2MessageBody::TxStatusRequest("test_x".parse().unwrap(), CryptoHash([42; 32])).into(),
             &[
                 1, 2, 6, 0, 0, 0, 116, 101, 115, 116, 95, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42,
                 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,

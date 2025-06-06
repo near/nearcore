@@ -415,8 +415,7 @@ impl Connection {
     ) -> io::Result<()> {
         let body = match msg {
             RoutedMessage::Ping { nonce } => {
-                T2MessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() })
-                    .into()
+                T2MessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() }).into()
             }
             RoutedMessage::Pong { nonce, source } => {
                 T2MessageBody::Pong(Pong { nonce, source }).into()

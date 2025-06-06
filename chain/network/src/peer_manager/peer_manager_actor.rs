@@ -993,8 +993,7 @@ impl PeerManagerActor {
                             if self.state.send_message_to_account(
                                 &self.clock,
                                 account_id,
-                                T2MessageBody::PartialEncodedChunkRequest(request.clone())
-                                    .into(),
+                                T2MessageBody::PartialEncodedChunkRequest(request.clone()).into(),
                             ) {
                                 success = true;
                                 break;
@@ -1053,8 +1052,7 @@ impl PeerManagerActor {
                         &self.clock,
                         RawRoutedMessage {
                             target: PeerIdOrHash::Hash(route_back),
-                            body: T2MessageBody::PartialEncodedChunkResponse(response)
-                                .into(),
+                            body: T2MessageBody::PartialEncodedChunkResponse(response).into(),
                         },
                     ),
                 ) {
@@ -1103,8 +1101,7 @@ impl PeerManagerActor {
                 if self.state.send_message_to_account(
                     &self.clock,
                     &account_id,
-                    T2MessageBody::TxStatusRequest(signer_account_id, tx_hash)
-                        .into(),
+                    T2MessageBody::TxStatusRequest(signer_account_id, tx_hash).into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1202,15 +1199,13 @@ impl PeerManagerActor {
                     self.state.send_message_to_account(
                         &self.clock,
                         &account,
-                        T2MessageBody::PartialEncodedContractDeploys(deploys.clone())
-                            .into(),
+                        T2MessageBody::PartialEncodedContractDeploys(deploys.clone()).into(),
                     );
                 }
                 self.state.send_message_to_account(
                     &self.clock,
                     &last_account,
-                    T2MessageBody::PartialEncodedContractDeploys(deploys)
-                        .into(),
+                    T2MessageBody::PartialEncodedContractDeploys(deploys).into(),
                 );
                 NetworkResponses::NoResponse
             }
