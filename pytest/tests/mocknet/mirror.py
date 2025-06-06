@@ -355,7 +355,7 @@ def _apply_stateless_config(args, node):
     # TODO: Enable saving witness after fixing the performance problems.
     do_update_config(node, 'save_latest_witnesses=false')
     if not node.want_state_dump:
-        do_update_config(node, 'tracked_shards_config="NoShards"')
+        do_update_config(node, 'tracked_shards=[]')
         do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
     if not args.local_test:
         node.run_cmd(
