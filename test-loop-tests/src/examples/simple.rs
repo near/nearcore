@@ -87,9 +87,10 @@ fn test_client_with_simple_test_loop() {
     let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
 
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
-    let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
-        test_loop.async_computation_spawner("node0", |_| Duration::milliseconds(80)),
-    ));
+    let spawner =
+        Arc::new(test_loop.async_computation_spawner("node0", |_| Duration::milliseconds(80)));
+    let multi_spawner =
+        AsyncComputationMultiSpawner::new(spawner.clone(), spawner.clone(), spawner);
     let client = Client::new(
         test_loop.clock(),
         client_config,

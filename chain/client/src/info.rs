@@ -975,6 +975,7 @@ mod tests {
     use assert_matches::assert_matches;
     use near_async::messaging::{IntoMultiSender, IntoSender, noop};
     use near_async::time::Clock;
+    use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::runtime::NightshadeRuntime;
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -1031,7 +1032,7 @@ mod tests {
             doomslug_threshold_mode,
             ChainConfig::test(),
             None,
-            Default::default(),
+            Arc::new(RayonAsyncComputationSpawner),
             validator.clone(),
             noop().into_multi_sender(),
         )

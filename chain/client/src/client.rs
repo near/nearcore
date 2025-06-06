@@ -4,8 +4,6 @@
 
 use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributionNetwork};
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-#[cfg(feature = "test_features")]
-use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
@@ -35,8 +33,8 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
-    ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
-    ChainStoreAccess, Doomslug, DoomslugThresholdMode, Provenance,
+    BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
+    DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -76,6 +74,9 @@ use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{debug, debug_span, error, info, warn};
+
+#[cfg(feature = "test_features")]
+use crate::chunk_producer::AdvProduceChunksMode;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -207,38 +208,29 @@ impl Client {
 /// kinds of tasks run by the `Client`.
 pub struct AsyncComputationMultiSpawner {
     /// Spawner to run 'apply chunks' tasks (see `ApplyChunksSpawner` for default)
-    apply_chunks: ApplyChunksSpawner,
+    apply_chunks: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run 'epoch sync' tasks (defaults to `RayonAsyncComputationSpawner`)
     epoch_sync: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run 'stateless validation' tasks (defaults to `RayonAsyncComputationSpawner`)
     stateless_validation: Arc<dyn AsyncComputationSpawner>,
 }
 
-impl Default for AsyncComputationMultiSpawner {
-    fn default() -> Self {
+impl AsyncComputationMultiSpawner {
+    pub fn use_rayon() -> Self {
         let rayon_spawner = Arc::new(RayonAsyncComputationSpawner);
         Self {
-            apply_chunks: Default::default(),
+            apply_chunks: rayon_spawner.clone(),
             epoch_sync: rayon_spawner.clone(),
             stateless_validation: rayon_spawner,
         }
     }
-}
 
-impl AsyncComputationMultiSpawner {
-    /// Use a custom spawner for all kinds of tasks.
-    pub fn all_custom(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
-        Self {
-            apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
-            epoch_sync: spawner.clone(),
-            stateless_validation: spawner,
-        }
-    }
-
-    /// Use a custom spawner for 'apply chunks' tasks
-    pub fn custom_apply_chunks(mut self, spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
-        self.apply_chunks = ApplyChunksSpawner::Custom(spawner);
-        self
+    pub fn new(
+        apply_chunks: Arc<dyn AsyncComputationSpawner>,
+        epoch_sync: Arc<dyn AsyncComputationSpawner>,
+        stateless_validation: Arc<dyn AsyncComputationSpawner>,
+    ) -> Self {
+        Self { apply_chunks, epoch_sync, stateless_validation }
     }
 }
 

@@ -37,12 +37,14 @@ use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
 };
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{
-    Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
+    ApplyChunksSpawner, Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert,
+    near_chain_primitives,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner};
 use near_chain_primitives::error::EpochErrorResultToChainError;
@@ -156,7 +158,13 @@ pub fn start_client(
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
-    let multi_spawner = AsyncComputationMultiSpawner::default();
+    let num_shards = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+    let multi_spawner = AsyncComputationMultiSpawner::new(
+        ApplyChunksSpawner::new(num_shards),
+        Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
+    );
+
     let client = Client::new(
         clock.clone(),
         client_config,

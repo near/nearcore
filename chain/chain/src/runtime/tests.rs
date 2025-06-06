@@ -1,4 +1,5 @@
 use super::*;
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
@@ -1378,7 +1379,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
-        Default::default(),
+        Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )

@@ -432,8 +432,7 @@ pub fn setup_client_with_runtime(
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
-    let multi_spawner = AsyncComputationMultiSpawner::default()
-        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
+    let multi_spawner = AsyncComputationMultiSpawner::use_rayon();
     let mut client = Client::new(
         clock,
         config,
@@ -492,7 +491,7 @@ pub fn setup_synchronous_shards_manager(
             ),
         }, // irrelevant
         None,
-        Default::default(),
+        Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )

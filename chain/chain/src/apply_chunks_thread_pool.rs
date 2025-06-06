@@ -150,25 +150,12 @@ fn run_worker(
     drop(worker_counter_guard); // Dropping the guard decreases running threads counter
 }
 
-/// Async computation spawner to be used for chunk applying tasks.
-#[derive(Default)]
-pub enum ApplyChunksSpawner {
-    /// Use a pool of OS-based high priority threads, limited by the number of shards.
-    #[default]
-    Default,
-    /// Use a custom spawner, e.g. rayon.
-    Custom(Arc<dyn AsyncComputationSpawner>),
-}
+pub struct ApplyChunksSpawner;
 
 impl ApplyChunksSpawner {
     /// Get the custom spawner, or create the default spawner with the given thread limit.
-    pub fn into_spawner(self, thread_limit: usize) -> Arc<dyn AsyncComputationSpawner> {
-        match self {
-            ApplyChunksSpawner::Default => {
-                Arc::new(ThreadPool::new("apply_chunks", Duration::from_secs(30), thread_limit, 50))
-            }
-            ApplyChunksSpawner::Custom(spawner) => spawner,
-        }
+    pub fn new(thread_limit: usize) -> Arc<dyn AsyncComputationSpawner> {
+        Arc::new(ThreadPool::new("apply_chunks", Duration::from_secs(30), thread_limit, 50))
     }
 }
 
