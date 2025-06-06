@@ -61,9 +61,9 @@ For more critical changes, like changing neard binary, you must call `init`. You
 
 ### Critical parameters
 
-* Genesis
-* Epoch config
-* `params.json`
+* Genesis - because it defines fundamental chain parameters, like gas limit, and changing them may break validation rules.
+* Epoch config - because it defines parameters for the epoch duration, and changing them in the middle of epoch may do the same.
+* `params.json` - because it defines the initial cluster setup and doesn't change experiment if it was already launched.
 
 ### Non-critical parameters
 
