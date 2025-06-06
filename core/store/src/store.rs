@@ -1,15 +1,16 @@
-use std::fs::File;
-use std::path::Path;
-use std::sync::Arc;
-use std::{fmt, io};
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_fmt::{AbbrBytes, StorageKey};
-
 use crate::DBCol;
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::metadata::{DbKind, DbMetadata, DbVersion, KIND_KEY, VERSION_KEY};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
+use crate::deserialized_column;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_fmt::{AbbrBytes, StorageKey};
+use quick_cache::sync::GuardResult;
+use std::fs::File;
+use std::path::Path;
+use std::sync::Arc;
+use std::{fmt, io};
+use strum::IntoEnumIterator;
 
 const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
 const STATE_FILE_END_MARK: u8 = 255;
@@ -23,6 +24,7 @@ const STATE_FILE_END_MARK: u8 = 255;
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
+    cache: Arc<deserialized_column::Cache>,
 }
 
 impl StoreAdapter for Store {
@@ -33,7 +35,8 @@ impl StoreAdapter for Store {
 
 impl Store {
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { storage }
+        let cache = storage.deserialized_column_cache();
+        Self { storage, cache }
     }
 
     pub fn database(&self) -> &dyn Database {
@@ -64,6 +67,47 @@ impl Store {
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
         self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
+    }
+
+    pub fn caching_get_ser<T: BorshDeserialize + Send + Sync + 'static>(
+        &self,
+        column: DBCol,
+        key: &[u8],
+    ) -> io::Result<Option<Arc<T>>> {
+        let Some(cache) = self.cache.work_with(column) else {
+            return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
+        };
+
+        let insert_guard = match cache.values.get_value_or_guard(key, None) {
+            GuardResult::Value(value) => match Arc::downcast::<T>(value) {
+                Ok(result) => return Ok(Some(result)),
+                Err(_) => {
+                    tracing::debug!(
+                        target: "store",
+                        requested = std::any::type_name::<T>(),
+                        "could not downcast an available cached deserialized value"
+                    );
+                    None
+                }
+            },
+            GuardResult::Guard(guard) => Some(guard),
+            GuardResult::Timeout => unreachable!(),
+        };
+
+        let value = match self.get_ser::<T>(column, key) {
+            Ok(Some(value)) => Arc::from(value),
+            Ok(None) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+
+        if let Ok(_ticket) = cache.try_acquire_put_ticket() {
+            if let Some(guard) = insert_guard {
+                let _ = guard.insert(Arc::clone(&value) as _);
+            } else {
+                cache.values.insert(key.into(), Arc::clone(&value) as _);
+            }
+        }
+        Ok(Some(value))
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
@@ -169,7 +213,40 @@ impl Store {
             let (key, value) = BorshDeserialize::deserialize_reader(&mut file)?;
             transaction.set(STATE_COLUMNS[usize::from(column)], key, value);
         }
-        self.storage.write(transaction)
+        self.write(transaction)
+    }
+
+    pub fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+        for col in DBCol::iter() {
+            let Some(cache) = self.cache.work_with(col) else { continue };
+            cache.acquire_write_ticket();
+        }
+        for op in &transaction.ops {
+            match op {
+                DBOp::Set { col, key, .. }
+                | DBOp::Insert { col, key, .. }
+                | DBOp::UpdateRefcount { col, key, .. }
+                | DBOp::Delete { col, key } => {
+                    // FIXME(nagisa): investigate if collecting all the keys to discard into a
+                    // grouped vector and then going through this whole atomic thingy once would be
+                    // any faster.
+                    let Some(cache) = self.cache.work_with(*col) else { continue };
+                    cache.wait_write_tickets_only();
+                    cache.values.remove(key);
+                }
+                DBOp::DeleteAll { col } | DBOp::DeleteRange { col, .. } => {
+                    let Some(cache) = self.cache.work_with(*col) else { continue };
+                    cache.wait_write_tickets_only();
+                    cache.values.clear();
+                }
+            }
+        }
+        let result = self.storage.write(transaction);
+        for col in DBCol::iter() {
+            let Some(cache) = self.cache.work_with(col) else { continue };
+            cache.release_write_ticket();
+        }
+        result
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
@@ -492,7 +569,7 @@ impl StoreUpdate {
                 }
             }
         }
-        self.store.storage.write(self.transaction)
+        self.store.write(self.transaction)
     }
 }
 

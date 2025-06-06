@@ -1,14 +1,16 @@
 use crate::config::Mode;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
-use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, metrics};
+use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
 use anyhow::Context;
 use itertools::Itertools;
+use parking_lot::Mutex;
+use std::collections::BTreeMap;
 use std::io;
-use std::path::Path;
-use std::sync::LazyLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock};
 use strum::IntoEnumIterator;
 use tracing::warn;
 
@@ -47,6 +49,7 @@ static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
+    cache: Arc<deserialized_column::Cache>,
 
     /// Map from [`DBCol`] to a column family handler in the RocksDB.
     ///
@@ -116,11 +119,17 @@ impl RocksDB {
         temp: Temperature,
         columns: &[DBCol],
     ) -> io::Result<Self> {
+        static MAP: Mutex<BTreeMap<PathBuf, Arc<deserialized_column::Cache>>> =
+            Mutex::new(BTreeMap::new());
+        let mut guard = MAP.lock();
+        let cache = guard
+            .entry(path.to_path_buf())
+            .or_insert_with(|| Arc::new(deserialized_column::Cache::enabled()));
         let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
             .map_err(io::Error::other)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
-        Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter })
+        Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter, cache: Arc::clone(cache) })
     }
 
     /// Opens the database with given column families configured.
@@ -490,6 +499,10 @@ impl Database for RocksDB {
             }
         }
         Ok(())
+    }
+
+    fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
+        Arc::clone(&self.cache)
     }
 }
 
