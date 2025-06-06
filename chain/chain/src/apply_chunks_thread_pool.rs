@@ -9,7 +9,7 @@ use thiserror::Error;
 use thread_priority::{
     RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadPriority, ThreadSchedulePolicy,
 };
-use tracing::warn;
+use tracing::debug;
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 type IdleThreadQueue = Arc<Mutex<VecDeque<oneshot::Sender<Option<Job>>>>>;
@@ -97,7 +97,7 @@ impl ThreadPool {
             .priority(self.priority)
             .spawn(move |res| {
                 if let Err(err) = res {
-                    warn!(target: "chain", "Setting scheduler policy failed: {err}")
+                    debug!(target: "chain", name = name, err = %err, "Setting scheduler policy failed");
                 };
                 run_worker(job, idle_timeout, idle_queue, counter_guard)
             })
