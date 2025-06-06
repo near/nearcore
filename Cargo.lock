@@ -2439,6 +2439,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "finite-wasm"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4dce601f45d7bbc875827d3c35fa00f7dfc00ec63cdf327ff34b54ab1f2ac1ad"
+dependencies = [
+ "bitvec",
+ "dissimilar",
+ "num-traits",
+ "prefix-sum-vec",
+ "thiserror 1.0.50",
+ "wasm-encoder 0.228.0",
+ "wasmparser 0.228.0",
+]
+
+[[package]]
 name = "firestorm"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3612,6 +3627,12 @@ name = "leb128"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "884e2677b40cc8c339eaefcb701c32ef1fd2493d71118dc0ca4b6a736c93bd67"
+
+[[package]]
+name = "leb128fmt"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
@@ -5223,11 +5244,150 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-vm-2-compiler"
+version = "0.0.0"
+dependencies = [
+ "enumset",
+ "finite-wasm 0.6.0",
+ "near-vm-2-types",
+ "near-vm-2-vm",
+ "rkyv",
+ "target-lexicon 0.12.16",
+ "thiserror 2.0.12",
+ "tracing",
+ "wasmparser 0.99.0",
+]
+
+[[package]]
+name = "near-vm-2-compiler-singlepass"
+version = "0.0.0"
+dependencies = [
+ "dynasm",
+ "dynasmrt",
+ "enumset",
+ "finite-wasm 0.6.0",
+ "memoffset 0.8.0",
+ "near-vm-2-compiler",
+ "near-vm-2-types",
+ "near-vm-2-vm",
+ "rayon",
+ "smallvec",
+ "strum",
+ "target-lexicon 0.12.16",
+ "tracing",
+]
+
+[[package]]
+name = "near-vm-2-compiler-test-derive"
+version = "0.0.0"
+dependencies = [
+ "pretty_assertions",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.87",
+ "trybuild",
+]
+
+[[package]]
+name = "near-vm-2-engine"
+version = "0.0.0"
+dependencies = [
+ "backtrace",
+ "finite-wasm 0.6.0",
+ "more-asserts",
+ "near-vm-2-compiler",
+ "near-vm-2-types",
+ "near-vm-2-vm",
+ "parking_lot 0.12.1",
+ "rkyv",
+ "rustc-demangle",
+ "rustix 1.0.1",
+ "thiserror 2.0.12",
+ "tracing",
+]
+
+[[package]]
+name = "near-vm-2-test-api"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "cfg-if",
+ "finite-wasm 0.6.0",
+ "indexmap 2.7.0",
+ "near-vm-2-compiler",
+ "near-vm-2-compiler-singlepass",
+ "near-vm-2-compiler-test-derive",
+ "near-vm-2-engine",
+ "near-vm-2-test-generator",
+ "near-vm-2-types",
+ "near-vm-2-vm",
+ "near-vm-2-wast",
+ "parking_lot 0.12.1",
+ "prefix-sum-vec",
+ "target-lexicon 0.12.16",
+ "tempfile",
+ "test-log",
+ "thiserror 2.0.12",
+ "tracing",
+ "tracing-subscriber",
+ "wat",
+ "winapi",
+]
+
+[[package]]
+name = "near-vm-2-test-generator"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
+name = "near-vm-2-types"
+version = "0.0.0"
+dependencies = [
+ "bolero",
+ "indexmap 2.7.0",
+ "num-traits",
+ "rkyv",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "near-vm-2-vm"
+version = "0.0.0"
+dependencies = [
+ "backtrace",
+ "cc",
+ "cfg-if",
+ "finite-wasm 0.6.0",
+ "libc",
+ "memoffset 0.8.0",
+ "more-asserts",
+ "near-vm-2-types",
+ "parking_lot 0.12.1",
+ "region",
+ "rkyv",
+ "thiserror 2.0.12",
+ "tracing",
+ "winapi",
+]
+
+[[package]]
+name = "near-vm-2-wast"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "near-vm-2-test-api",
+ "thiserror 2.0.12",
+ "wast",
+]
+
+[[package]]
 name = "near-vm-compiler"
 version = "0.0.0"
 dependencies = [
  "enumset",
- "finite-wasm",
+ "finite-wasm 0.5.0",
  "near-vm-types",
  "near-vm-vm",
  "rkyv",
@@ -5244,7 +5404,7 @@ dependencies = [
  "dynasm",
  "dynasmrt",
  "enumset",
- "finite-wasm",
+ "finite-wasm 0.5.0",
  "memoffset 0.8.0",
  "near-vm-compiler",
  "near-vm-types",
@@ -5272,7 +5432,7 @@ name = "near-vm-engine"
 version = "0.0.0"
 dependencies = [
  "backtrace",
- "finite-wasm",
+ "finite-wasm 0.5.0",
  "more-asserts",
  "near-vm-compiler",
  "near-vm-types",
@@ -5306,7 +5466,8 @@ dependencies = [
  "ed25519-dalek",
  "enum-map",
  "expect-test",
- "finite-wasm",
+ "finite-wasm 0.5.0",
+ "finite-wasm 0.6.0",
  "hex",
  "lru 0.12.3",
  "memoffset 0.8.0",
@@ -5317,6 +5478,11 @@ dependencies = [
  "near-schema-checker-lib",
  "near-stdx",
  "near-test-contracts",
+ "near-vm-2-compiler",
+ "near-vm-2-compiler-singlepass",
+ "near-vm-2-engine",
+ "near-vm-2-types",
+ "near-vm-2-vm",
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
@@ -5364,7 +5530,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "cfg-if",
- "finite-wasm",
+ "finite-wasm 0.5.0",
  "indexmap 2.7.0",
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
@@ -5411,7 +5577,7 @@ dependencies = [
  "backtrace",
  "cc",
  "cfg-if",
- "finite-wasm",
+ "finite-wasm 0.5.0",
  "libc",
  "memoffset 0.8.0",
  "more-asserts",
@@ -8932,6 +9098,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-encoder"
+version = "0.228.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05d30290541f2d4242a162bbda76b8f2d8b1ac59eab3568ed6f2327d52c9b2c4"
+dependencies = [
+ "leb128fmt",
+ "wasmparser 0.228.0",
+]
+
+[[package]]
 name = "wasm-smith"
 version = "0.224.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8990,6 +9166,19 @@ name = "wasmparser"
 version = "0.224.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04f17a5917c2ddd3819e84c661fae0d6ba29d7b9c1f0e96c708c65a9c4188e11"
+dependencies = [
+ "bitflags 2.4.1",
+ "hashbrown 0.15.2",
+ "indexmap 2.7.0",
+ "semver",
+ "serde",
+]
+
+[[package]]
+name = "wasmparser"
+version = "0.228.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4abf1132c1fdf747d56bbc1bb52152400c70f336870f968b85e89ea422198ae3"
 dependencies = [
  "bitflags 2.4.1",
  "hashbrown 0.15.2",
