@@ -303,6 +303,36 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
+    fn validate_transactions(
+        config: &RuntimeConfig,
+        gas_price: Balance,
+        signed_txs: impl IntoIterator<Item = SignedTransaction>,
+        current_protocol_version: ProtocolVersion,
+    ) -> Vec<(CryptoHash, Result<(ValidatedTransaction, TransactionCost), InvalidTxError>)> {
+        signed_txs
+            .into_iter()
+            .map(|signed_tx| {
+                (
+                    signed_tx.get_hash(),
+                    match validate_transaction(config, signed_tx, current_protocol_version) {
+                        Ok(validated_tx) => {
+                            match tx_cost(
+                                config,
+                                &validated_tx.to_tx(),
+                                gas_price,
+                                current_protocol_version,
+                            ) {
+                                Ok(cost) => Ok((validated_tx, cost)),
+                                Err(e) => Err(InvalidTxError::from(e)),
+                            }
+                        }
+                        Err((e, _tx)) => Err(e),
+                    },
+                )
+            })
+            .collect()
+    }
+
     fn parallel_validate_transactions(
         config: &RuntimeConfig,
         gas_price: Balance,
@@ -1572,7 +1602,8 @@ impl Runtime {
         )?;
 
         // Step 2: process transactions.
-        self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
+        let parallel = apply_state.apply_reason != ApplyChunkReason::ValidateChunkStateWitness;
+        self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink, parallel)?;
 
         // Step 3: process receipts.
         let process_receipts_result =
@@ -1640,18 +1671,29 @@ impl Runtime {
         processing_state: &mut ApplyProcessingReceiptState,
         signed_txs: SignedValidPeriodTransactions,
         receipt_sink: &mut ReceiptSink,
+        parallel: bool,
     ) -> Result<(), RuntimeError> {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let signed_txs = signed_txs.into_par_iter_nonexpired_transactions();
-        for (tx_hash, result) in Self::parallel_validate_transactions(
-            &apply_state.config,
-            apply_state.gas_price,
-            signed_txs,
-            apply_state.current_protocol_version,
-        ) {
+        let txs = if parallel {
+            let signed_txs = signed_txs.into_par_iter_nonexpired_transactions();
+            Self::parallel_validate_transactions(
+                &apply_state.config,
+                apply_state.gas_price,
+                signed_txs,
+                apply_state.current_protocol_version,
+            )
+        } else {
+            Self::validate_transactions(
+                &apply_state.config,
+                apply_state.gas_price,
+                signed_txs.into_iter_nonexpired_transactions(),
+                apply_state.current_protocol_version,
+            )
+        };
+        for (tx_hash, result) in txs {
             match result {
                 Ok((validated_tx, cost)) => {
                     let (receipt, outcome_with_id) = match self.process_transaction(
