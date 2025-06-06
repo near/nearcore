@@ -799,8 +799,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &approval_message.target,
-                    T1MessageBody::BlockApproval(approval_message.approval)
-                        .into_tiered_message_body(),
+                    T1MessageBody::BlockApproval(approval_message.approval).into(),
                 );
                 NetworkResponses::NoResponse
             }
@@ -862,7 +861,7 @@ impl PeerManagerActor {
                             sync_hash,
                             addr,
                         })
-                        .into_tiered_message_body(),
+                        .into(),
                     },
                 );
 
@@ -906,7 +905,7 @@ impl PeerManagerActor {
                             part_id,
                             addr,
                         })
-                        .into_tiered_message_body(),
+                        .into(),
                     },
                 );
 
@@ -995,7 +994,7 @@ impl PeerManagerActor {
                                 &self.clock,
                                 account_id,
                                 T2MessageBody::PartialEncodedChunkRequest(request.clone())
-                                    .into_tiered_message_body(),
+                                    .into(),
                             ) {
                                 success = true;
                                 break;
@@ -1026,7 +1025,7 @@ impl PeerManagerActor {
                                         body: T2MessageBody::PartialEncodedChunkRequest(
                                             request.clone(),
                                         )
-                                        .into_tiered_message_body(),
+                                        .into(),
                                     },
                                 ),
                             ) {
@@ -1055,7 +1054,7 @@ impl PeerManagerActor {
                         RawRoutedMessage {
                             target: PeerIdOrHash::Hash(route_back),
                             body: T2MessageBody::PartialEncodedChunkResponse(response)
-                                .into_tiered_message_body(),
+                                .into(),
                         },
                     ),
                 ) {
@@ -1071,7 +1070,7 @@ impl PeerManagerActor {
                     T1MessageBody::VersionedPartialEncodedChunk(Box::new(
                         partial_encoded_chunk.into(),
                     ))
-                    .into_tiered_message_body(),
+                    .into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1082,7 +1081,7 @@ impl PeerManagerActor {
                 if self.state.send_message_to_account(
                     &self.clock,
                     &account_id,
-                    T1MessageBody::PartialEncodedChunkForward(forward).into_tiered_message_body(),
+                    T1MessageBody::PartialEncodedChunkForward(forward).into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1093,7 +1092,7 @@ impl PeerManagerActor {
                 if self.state.send_message_to_account(
                     &self.clock,
                     &account_id,
-                    T2MessageBody::ForwardTx(tx).into_tiered_message_body(),
+                    T2MessageBody::ForwardTx(tx).into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1105,7 +1104,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &account_id,
                     T2MessageBody::TxStatusRequest(signer_account_id, tx_hash)
-                        .into_tiered_message_body(),
+                        .into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1116,7 +1115,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &target,
-                    T2MessageBody::ChunkStateWitnessAck(ack).into_tiered_message_body(),
+                    T2MessageBody::ChunkStateWitnessAck(ack).into(),
                 );
                 NetworkResponses::NoResponse
             }
@@ -1124,8 +1123,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &target,
-                    T1MessageBody::VersionedChunkEndorsement(endorsement)
-                        .into_tiered_message_body(),
+                    T1MessageBody::VersionedChunkEndorsement(endorsement).into(),
                 );
                 NetworkResponses::NoResponse
             }
@@ -1134,8 +1132,7 @@ impl PeerManagerActor {
                     self.state.send_message_to_account(
                         &self.clock,
                         &chunk_validator,
-                        T1MessageBody::PartialEncodedStateWitness(partial_witness)
-                            .into_tiered_message_body(),
+                        T1MessageBody::PartialEncodedStateWitness(partial_witness).into(),
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1149,7 +1146,7 @@ impl PeerManagerActor {
                         &self.clock,
                         &chunk_validator,
                         T1MessageBody::PartialEncodedStateWitnessForward(partial_witness.clone())
-                            .into_tiered_message_body(),
+                            .into(),
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1177,8 +1174,7 @@ impl PeerManagerActor {
                     self.state.send_message_to_account(
                         &self.clock,
                         &validator,
-                        T1MessageBody::ChunkContractAccesses(accesses.clone())
-                            .into_tiered_message_body(),
+                        T1MessageBody::ChunkContractAccesses(accesses.clone()).into(),
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1187,7 +1183,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &target,
-                    T1MessageBody::ContractCodeRequest(request).into_tiered_message_body(),
+                    T1MessageBody::ContractCodeRequest(request).into(),
                 );
                 NetworkResponses::NoResponse
             }
@@ -1195,7 +1191,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &target,
-                    T1MessageBody::ContractCodeResponse(response).into_tiered_message_body(),
+                    T1MessageBody::ContractCodeResponse(response).into(),
                 );
                 NetworkResponses::NoResponse
             }
@@ -1207,14 +1203,14 @@ impl PeerManagerActor {
                         &self.clock,
                         &account,
                         T2MessageBody::PartialEncodedContractDeploys(deploys.clone())
-                            .into_tiered_message_body(),
+                            .into(),
                     );
                 }
                 self.state.send_message_to_account(
                     &self.clock,
                     &last_account,
                     T2MessageBody::PartialEncodedContractDeploys(deploys)
-                        .into_tiered_message_body(),
+                        .into(),
                 );
                 NetworkResponses::NoResponse
             }

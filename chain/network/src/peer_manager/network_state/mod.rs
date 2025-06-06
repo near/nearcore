@@ -513,7 +513,7 @@ impl NetworkState {
             nonce,
             source: self.config.node_id(),
         })
-        .into_tiered_message_body();
+        .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
@@ -523,7 +523,7 @@ impl NetworkState {
             nonce,
             source: self.config.node_id(),
         })
-        .into_tiered_message_body();
+        .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }

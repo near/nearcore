@@ -98,7 +98,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             part_ords: vec![],
             tracking_shards: Default::default(),
         })
-        .into_tiered_message_body(),
+        .into(),
     ));
     let routed_message2 = Box::new(data::make_routed_message(
         &mut rng,
@@ -107,7 +107,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             parts: data::make_chunk_parts(chain.chunks[chunk_hash].clone()),
             receipts: vec![],
         })
-        .into_tiered_message_body(),
+        .into(),
     ));
     let msgs = [
         PeerMessage::Tier2Handshake(data::make_handshake(&mut rng, &chain)),

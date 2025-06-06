@@ -564,6 +564,18 @@ impl RawTieredMessageBody {
     }
 }
 
+impl From<T1MessageBody> for RawTieredMessageBody {
+    fn from(body: T1MessageBody) -> Self {
+        RawTieredMessageBody::T1(Box::new(body))
+    }
+}
+
+impl From<T2MessageBody> for RawTieredMessageBody {
+    fn from(body: T2MessageBody) -> Self {
+        RawTieredMessageBody::T2(Box::new(body))
+    }
+}
+
 #[derive(
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
@@ -602,10 +614,6 @@ impl T1MessageBody {
             | T1MessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }
-    }
-
-    pub fn into_tiered_message_body(self) -> RawTieredMessageBody {
-        RawTieredMessageBody::T1(Box::new(self))
     }
 }
 
@@ -697,10 +705,6 @@ impl T2MessageBody {
 
     pub fn allow_sending_to_self(&self) -> bool {
         false
-    }
-
-    pub fn into_tiered_message_body(self) -> RawTieredMessageBody {
-        RawTieredMessageBody::T2(Box::new(self))
     }
 }
 

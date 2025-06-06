@@ -912,8 +912,7 @@ async fn ttl_and_num_hops() {
     pm.wait_for_routing_table(&[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
     for ttl in 0..5 {
-        let msg = T2MessageBody::Ping(Ping { nonce: rng.r#gen(), source: peer.cfg.id() })
-            .into_tiered_message_body();
+        let msg = T2MessageBody::Ping(Ping { nonce: rng.r#gen(), source: peer.cfg.id() }).into();
         let msg = Box::new(peer.routed_message(msg, peer.cfg.id(), ttl, Some(clock.now_utc())));
         peer.send(PeerMessage::Routed(msg.clone())).await;
         // If TTL is <2, then the message will be dropped (at least 2 hops are required).

@@ -189,7 +189,7 @@ async fn send_messages(
                     part_ords: vec![rng.r#gen()],
                     tracking_shards: Default::default(),
                 })
-                .into_tiered_message_body(),
+                .into(),
                 inbound.cfg.id(),
                 1,
                 None,

@@ -58,8 +58,8 @@ async fn send_tier1_message(
     let from_signer = from.cfg.validator.signer.get().unwrap();
     let to_signer = to.cfg.validator.signer.get().unwrap();
     let target = to_signer.validator_id().clone();
-    let want = T1MessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref()))
-        .into_tiered_message_body();
+    let want: RawTieredMessageBody =
+        T1MessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref())).into();
     let clock = clock.clone();
     from.with_state(move |s| async move {
         if s.send_message_to_account(&clock, &target, want.clone()) { Some(want) } else { None }

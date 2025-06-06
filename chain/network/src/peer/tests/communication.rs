@@ -118,7 +118,7 @@ async fn test_peer_communication(
                 part_ords: vec![],
                 tracking_shards: Default::default(),
             })
-            .into_tiered_message_body(),
+            .into(),
             inbound.cfg.id(),
             1,    // ttl
             None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
@@ -138,7 +138,7 @@ async fn test_peer_communication(
                 parts: want_parts.clone(),
                 receipts: vec![],
             })
-            .into_tiered_message_body(),
+            .into(),
             inbound.cfg.id(),
             1,    // ttl
             None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.

@@ -416,16 +416,16 @@ impl Connection {
         let body = match msg {
             RoutedMessage::Ping { nonce } => {
                 T2MessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() })
-                    .into_tiered_message_body()
+                    .into()
             }
             RoutedMessage::Pong { nonce, source } => {
-                T2MessageBody::Pong(Pong { nonce, source }).into_tiered_message_body()
+                T2MessageBody::Pong(Pong { nonce, source }).into()
             }
             RoutedMessage::PartialEncodedChunkRequest(request) => {
-                T2MessageBody::PartialEncodedChunkRequest(request).into_tiered_message_body()
+                T2MessageBody::PartialEncodedChunkRequest(request).into()
             }
             RoutedMessage::PartialEncodedChunkResponse(response) => {
-                T2MessageBody::PartialEncodedChunkResponse(response).into_tiered_message_body()
+                T2MessageBody::PartialEncodedChunkResponse(response).into()
             }
         };
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body }.sign(
