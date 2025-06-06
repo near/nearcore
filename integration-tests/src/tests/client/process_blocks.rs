@@ -706,10 +706,11 @@ fn test_bad_orphan() {
             let chunk = block.mut_chunks()[0].get_mut();
 
             match &mut chunk.inner {
-                ShardChunkHeaderInner::V1(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
-                ShardChunkHeaderInner::V2(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
-                ShardChunkHeaderInner::V3(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
-                ShardChunkHeaderInner::V4(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V1(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V2(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V3(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V4(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V5(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
