@@ -1134,10 +1134,13 @@ fn gc_parent_shard_after_resharding(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
 ) -> Result<(), Error> {
-    // If we are GC'ing the resharding block, i.e. the last block of the epoch, clear out state for the parent shard
-    if !epoch_manager.will_shard_layout_change(block_hash)?
-        || !epoch_manager.is_last_block_in_finished_epoch(block_hash)?
-    {
+    // Clear out state for the parent shard. Note that this function is called for every block in the epoch,
+    // but the actual cleanup only happens the first time we call
+    // `trie_store_update.delete_shard_uid_prefixed_state` while the rest of the calls are no-ops.
+    //
+    // We are unable to call `epoch_manager.will_shard_layout_change(block_hash)` here as `block_hash`
+    // has already been garbage collected.
+    if !epoch_manager.is_last_block_in_finished_epoch(block_hash)? {
         return Ok(());
     }
 
