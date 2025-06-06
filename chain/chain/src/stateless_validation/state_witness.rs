@@ -68,6 +68,7 @@ impl ChainStore {
             prev_chunk_header,
         )?;
 
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let state_witness = ChunkStateWitness::new(
             chunk_producer,
             epoch_id,
@@ -80,6 +81,7 @@ impl ChainStore {
             applied_receipts_hash,
             prev_chunk.to_transactions().to_vec(),
             implicit_transitions,
+            protocol_version,
         );
         Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })
     }
