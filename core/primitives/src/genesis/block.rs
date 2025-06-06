@@ -144,12 +144,12 @@ impl BlockHeader {
             &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
             &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
         );
-        Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
+        Self::BlockHeaderV1(BlockHeaderV1 {
             prev_hash: CryptoHash::default(),
             inner_lite,
             inner_rest,
             signature: Signature::empty(KeyType::ED25519),
             hash,
-        }))
+        })
     }
 }

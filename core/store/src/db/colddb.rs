@@ -1,8 +1,7 @@
-use near_o11y::{log_assert, log_assert_fail};
-
 use crate::db::refcount::set_refcount;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, Store};
+use near_o11y::{log_assert, log_assert_fail};
 
 /// A database which provides access to the cold storage.
 ///
