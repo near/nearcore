@@ -706,10 +706,11 @@ fn test_bad_orphan() {
             let chunk = block.mut_chunks()[0].get_mut();
 
             match &mut chunk.inner {
-                ShardChunkHeaderInner::V1(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
-                ShardChunkHeaderInner::V2(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
-                ShardChunkHeaderInner::V3(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
-                ShardChunkHeaderInner::V4(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V1(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V2(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V3(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V4(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V5(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -1205,7 +1206,7 @@ fn test_gc_execution_outcome() {
 }
 
 #[test]
-fn ultra_slow_test_gc_after_state_sync() {
+fn slow_test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -1235,7 +1236,7 @@ fn ultra_slow_test_gc_after_state_sync() {
 }
 
 #[test]
-fn ultra_slow_test_process_block_after_state_sync() {
+fn slow_test_process_block_after_state_sync() {
     let epoch_length = 1024;
     // test with shard_version > 0
     let mut genesis = Genesis::test_sharded_new_version(

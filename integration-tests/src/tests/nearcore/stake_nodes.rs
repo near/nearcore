@@ -98,7 +98,7 @@ fn init_test_staking(
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
 #[test]
-fn ultra_slow_test_stake_nodes() {
+fn slow_test_stake_nodes() {
     heavy_test(|| {
         let num_nodes = 2;
         let dirs = (0..num_nodes)
@@ -173,7 +173,7 @@ fn ultra_slow_test_stake_nodes() {
 }
 
 #[test]
-fn ultra_slow_test_validator_kickout() {
+fn slow_test_validator_kickout() {
     heavy_test(|| {
         let num_nodes = 4;
         let dirs = (0..num_nodes)
@@ -469,7 +469,7 @@ fn ultra_slow_test_validator_join() {
 /// Checks that during the first epoch, total_supply matches total_supply in genesis.
 /// Checks that during the second epoch, total_supply matches the expected inflation rate.
 #[test]
-fn ultra_slow_test_inflation() {
+fn test_inflation() {
     heavy_test(|| {
         let num_nodes = 1;
         let dirs = (0..num_nodes)

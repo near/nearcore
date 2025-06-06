@@ -279,7 +279,7 @@ fn test_catchup_random_single_part_sync_common(
 /// This test would fail if at any point validators got stuck with state sync, or block
 /// production stalled for any other reason.
 #[test]
-fn ultra_slow_test_catchup_sanity_blocks_produced() {
+fn slow_test_catchup_sanity_blocks_produced() {
     let validators: Vec<Vec<AccountId>> = [
         vec!["test1.1", "test1.2", "test1.3", "test1.4"],
         vec!["test2.1", "test2.2", "test2.3", "test2.4"],

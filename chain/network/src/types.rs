@@ -20,7 +20,7 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
-use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
+use near_primitives::sharding::{PartialEncodedChunkWithArcReceipts, ReceiptProof};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
@@ -308,6 +308,9 @@ pub enum NetworkRequests {
     /// Message originates from the chunk producer and distributed among other validators,
     /// containing the code of the newly-deployed contracts during the main state transition of the witness.
     PartialEncodedContractDeploys(Vec<AccountId>, PartialEncodedContractDeploys),
+    // TODO(spice): remove and depend on separate data distribution.
+    /// Mocked message to the chunk executor with block hash and relevant incoming receipts.
+    TestonlySpiceIncomingReceipts { block_hash: CryptoHash, receipt_proofs: Vec<ReceiptProof> },
 }
 
 #[derive(Debug, actix::Message, strum::IntoStaticStr)]

@@ -52,14 +52,24 @@ python tests/mocknet/sharded_bm.py reset
 
 ## Tweaking
 
-For now, if you want to change load schedule, it is easier to run `python tests/mocknet/sharded_bm.py init` again.
-TODO: make it faster.
+If you want to tweak some non-critical parameters, modify locally the json patches in `CASE` and then run `python tests/mocknet/sharded_bm.py tweak-config`.
 
-Changing neard binary also requires calling `init`. You can either:
+For more critical changes, like changing neard binary, you must call `init`. You can either:
 
 * give flag `--neard-binary-url URL` which takes the highest priority;
-* otherwise, value of env var `NEARD_BINARY_URL` will be taken, if set;
-* otherwise, `binary_url` from `CASE` will be taken.
+* otherwise, value of env var `NEARD_BINARY_URL` will be taken.
+
+### Critical parameters
+
+* Genesis - because it defines fundamental chain parameters, like gas limit, and changing them may break validation rules.
+* Epoch config - because it defines parameters for the epoch duration, and changing them in the middle of epoch may do the same.
+* `params.json` - because it defines the initial cluster setup and doesn't change experiment if it was already launched.
+
+### Non-critical parameters
+
+* `config.json`
+* `log_config.json`
+* Load schedule
 
 ## Other docs
 

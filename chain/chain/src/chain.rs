@@ -131,7 +131,7 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// CatchingUp is for when apply_chunks is called through catchup_blocks, this is to catch up the
 /// shard states for the next epoch
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
-enum ApplyChunksMode {
+pub enum ApplyChunksMode {
     IsCaughtUp,
     CatchingUp,
     NotCaughtUp,
@@ -356,7 +356,7 @@ impl Drop for Chain {
 
 /// UpdateShardJob is a closure that is responsible for updating a shard for a single block.
 /// Execution context (latest blocks/chunks details) are already captured within.
-type UpdateShardJob = (
+pub type UpdateShardJob = (
     ShardId,
     CachedShardUpdateKey,
     Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>,
@@ -1903,7 +1903,7 @@ impl Chain {
                 // during catchup of this block.
                 cares_about_shard
             };
-            tracing::debug!(target: "chain", ?shard_id, need_storage_update, "Updating storage");
+            tracing::debug!(target: "chain", %shard_id, need_storage_update, "Updating storage");
 
             if need_storage_update {
                 self.resharding_manager.start_resharding(
@@ -2025,7 +2025,7 @@ impl Chain {
                 Ok(result) => {
                     debug!(
                         target: "chain", ?prev_block_hash, block_height,
-                        ?shard_id, ?cached_shard_update_key,
+                        %shard_id, ?cached_shard_update_key,
                         "Caching ShardUpdate result from OptimisticBlock"
                     );
                     self.apply_chunk_results_cache.push(cached_shard_update_key, result);
@@ -2033,7 +2033,7 @@ impl Chain {
                 Err(e) => {
                     warn!(
                         target: "chain", ?e,
-                        ?prev_block_hash, block_height, ?shard_id,
+                        ?prev_block_hash, block_height, %shard_id,
                         ?cached_shard_update_key,
                         "Error applying chunk for OptimisticBlock"
                     );
@@ -3205,7 +3205,7 @@ impl Chain {
 
     /// Get a key which can uniquely define result of applying a chunk based on
     /// block execution context and other chunks.
-    fn get_cached_shard_update_key(
+    pub fn get_cached_shard_update_key(
         block_context: &ApplyChunkBlockContext,
         chunk_headers: &Chunks,
         shard_id: ShardId,
@@ -3266,7 +3266,7 @@ impl Chain {
                 shard_id,
                 matches!(block.block_type, BlockType::Normal),
             ) {
-                debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
+                debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
                 let result = result.clone();
                 return Ok(Some((
                     shard_id,
@@ -3275,7 +3275,7 @@ impl Chain {
                 )));
             }
         }
-        debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
+        debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
@@ -3298,7 +3298,7 @@ impl Chain {
                 warn!(
                     target: "chain",
                     ?err,
-                    ?shard_id,
+                    %shard_id,
                     prev_chunk_height_included,
                     ?prev_chunk_extra,
                     ?chunk_header,
@@ -3441,7 +3441,7 @@ impl Chain {
 /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
 /// that it does not guard whether the children shards are ready or not, see the
 /// comments before `need_to_reshard`
-fn get_should_apply_chunk(
+pub fn get_should_apply_chunk(
     mode: ApplyChunksMode,
     cares_about_shard_this_epoch: bool,
     cares_about_shard_next_epoch: bool,

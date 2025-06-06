@@ -208,7 +208,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         "send_chunk_endorsement",
         chunk_hash = ?chunk_header.chunk_hash(),
         height = %chunk_header.height_created(),
-        shard_id = ?chunk_header.shard_id(),
+        shard_id = %chunk_header.shard_id(),
         validator = %signer.validator_id(),
         tag_block_production = true,
     )
@@ -232,7 +232,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     tracing::debug!(
         target: "client",
         chunk_hash=?chunk_hash,
-        shard_id=?chunk_header.shard_id(),
+        shard_id=%chunk_header.shard_id(),
         ?block_producers,
         "send_chunk_endorsement",
     );
@@ -265,7 +265,7 @@ impl Client {
         tracing::debug!(
             target: "client",
             chunk_hash=?witness.chunk_header().chunk_hash(),
-            shard_id=?witness.chunk_header().shard_id(),
+            shard_id=%witness.chunk_header().shard_id(),
             "process_chunk_state_witness",
         );
 
