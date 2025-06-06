@@ -161,7 +161,7 @@ pub fn create_partial_chunk(
         target: "chunks",
         "create_partial_chunk",
         height_included = header.height_included(),
-        shard_id = ?header.shard_id(),
+        shard_id = %header.shard_id(),
         encoded_length = tracing::field::Empty,
         num_tx = tracing::field::Empty,
         me = me.map(tracing::field::debug),

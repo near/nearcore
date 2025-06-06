@@ -67,12 +67,12 @@ fn ultra_slow_test_run_nodes_1_2_1() {
 
 /// Runs 4 nodes that should produce blocks one after another.
 #[test]
-fn ultra_slow_test_run_nodes_1_4_4() {
+fn slow_test_run_nodes_1_4_4() {
     run_heavy_nodes(1, 4, 4, 8, 32);
 }
 
 /// Run 4 nodes, 4 shards, 2 validators, other two track 2 shards.
 #[test]
-fn ultra_slow_test_run_nodes_4_4_2() {
+fn slow_test_run_nodes_4_4_2() {
     run_heavy_nodes(4, 4, 2, 8, 32);
 }

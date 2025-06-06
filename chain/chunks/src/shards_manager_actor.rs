@@ -450,7 +450,7 @@ impl ShardsManagerActor {
             "request_partial_encoded_chunk",
             ?chunk_hash,
             ?height,
-            ?shard_id,
+            %shard_id,
             ?request_from_archival)
         .entered();
         let mut bp_to_parts = HashMap::<_, Vec<u64>>::new();
@@ -553,7 +553,7 @@ impl ShardsManagerActor {
                 debug!(
                     target: "chunks",
                     ?part_ords,
-                    ?shard_id,
+                    %shard_id,
                     ?target_account,
                     prefer_peer,
                     "Requesting parts",
@@ -714,18 +714,18 @@ impl ShardsManagerActor {
             target: "chunks",
             "request_chunk_single",
             ?chunk_hash,
-            ?shard_id,
+            %shard_id,
             height_created = height)
         .entered();
 
         if self.requested_partial_encoded_chunks.contains_key(&chunk_hash) {
-            debug!(target: "chunks", height, ?shard_id, ?chunk_hash, "Not requesting chunk, already being requested.");
+            debug!(target: "chunks", height, %shard_id, ?chunk_hash, "Not requesting chunk, already being requested.");
             return;
         }
 
         if let Some(entry) = self.encoded_chunks.get(&chunk_header.chunk_hash()) {
             if entry.complete {
-                debug!(target: "chunks", height, ?shard_id, ?chunk_hash, "Not requesting chunk, already complete.");
+                debug!(target: "chunks", height, %shard_id, ?chunk_hash, "Not requesting chunk, already complete.");
                 return;
             }
         } else {
@@ -733,7 +733,7 @@ impl ShardsManagerActor {
             // However, if the chunk had just been processed and marked as complete, it might have
             // been removed from the cache if it is out of horizon. So in this case, the chunk is
             // already complete and we don't need to request anything.
-            debug!(target: "chunks", height, ?shard_id, ?chunk_hash, "Not requesting chunk, already complete and GC-ed.");
+            debug!(target: "chunks", height, %shard_id, ?chunk_hash, "Not requesting chunk, already complete and GC-ed.");
             return;
         }
 
@@ -751,7 +751,7 @@ impl ShardsManagerActor {
         );
 
         if mark_only {
-            debug!(target: "chunks", height, ?shard_id, ?chunk_hash, "Marked the chunk as being requested but did not send the request yet.");
+            debug!(target: "chunks", height, %shard_id, ?chunk_hash, "Marked the chunk as being requested but did not send the request yet.");
             return;
         }
 
@@ -779,7 +779,7 @@ impl ShardsManagerActor {
         // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
         // before we send requests.
         if !should_wait_for_chunk_forwarding || fetch_from_archival || old_block {
-            debug!(target: "chunks", height, ?shard_id, ?chunk_hash, "Requesting.");
+            debug!(target: "chunks", height, %shard_id, ?chunk_hash, "Requesting.");
             let request_result = self.request_partial_encoded_chunk(
                 height,
                 &ancestor_hash,
@@ -1141,7 +1141,7 @@ impl ShardsManagerActor {
             target: "chunks",
             "check_chunk_complete",
             height_included = chunk.cloned_header().height_included(),
-            shard_id = ?chunk.cloned_header().shard_id(),
+            shard_id = %chunk.cloned_header().shard_id(),
             chunk_hash = ?chunk.chunk_hash())
         .entered();
 
@@ -1514,7 +1514,7 @@ impl ShardsManagerActor {
             target: "chunks",
             "process_partial_encoded_chunk",
             ?chunk_hash,
-            shard_id = ?partial_encoded_chunk.header.shard_id(),
+            shard_id = %partial_encoded_chunk.header.shard_id(),
             height_created = partial_encoded_chunk.header.height_created(),
             height_included = partial_encoded_chunk.header.height_included())
         .entered();
@@ -2027,7 +2027,7 @@ impl ShardsManagerActor {
             target: "client",
             "distribute_encoded_chunk",
             ?prev_block_hash,
-            ?shard_id)
+            %shard_id)
         .entered();
 
         let mut block_producer_mapping = HashMap::new();

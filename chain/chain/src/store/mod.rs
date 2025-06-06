@@ -430,7 +430,7 @@ impl ChainStore {
         shard_id: ShardId,
         receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "resharding", ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
+        tracing::debug!(target: "resharding", %shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
 
         let split_shard_ids = shard_layout.get_children_shards_ids(receipts_shard_id);
         let split_shard_ids =

@@ -8,6 +8,7 @@ use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
+use near_client::chunk_executor_actor::{ChunkExecutorActor, ExecutorIncomingReceipts};
 use near_client::client_actor::ClientActorInner;
 use near_client::{PartialWitnessActor, RpcHandler, ViewClientActorInner};
 use near_jsonrpc::ViewClientSenderForRpc;
@@ -79,6 +80,7 @@ pub struct NodeExecutionData {
     pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<StateSyncDumper>,
+    pub chunk_executor_sender: TestLoopSender<ChunkExecutorActor>,
 }
 
 impl From<&NodeExecutionData> for AccountId {
@@ -132,5 +134,11 @@ impl From<&NodeExecutionData> for TxRequestHandleSenderForTestLoopNetwork {
 impl From<&NodeExecutionData> for Sender<TestLoopNetworkBlockInfo> {
     fn from(data: &NodeExecutionData) -> Sender<TestLoopNetworkBlockInfo> {
         data.peer_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender()
+    }
+}
+
+impl From<&NodeExecutionData> for Sender<ExecutorIncomingReceipts> {
+    fn from(data: &NodeExecutionData) -> Sender<ExecutorIncomingReceipts> {
+        data.chunk_executor_sender.clone().with_delay(NETWORK_DELAY).into_sender()
     }
 }

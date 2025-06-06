@@ -6,10 +6,11 @@ use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
 use crate::reed_solomon::reed_solomon_encode;
 use crate::sharding::{
-    EncodedShardChunk, EncodedShardChunkBody, ShardChunk, ShardChunkHeaderV1, ShardChunkV1,
-    ShardChunkWithEncoding, TransactionReceipt,
+    EncodedShardChunkBody, ShardChunk, ShardChunkHeaderV1, ShardChunkV1, ShardChunkWithEncoding,
+    TransactionReceipt,
 };
 use crate::types::StateRoot;
+use crate::types::chunk_extra::ChunkExtra;
 use crate::validator_signer::EmptyValidatorSigner;
 
 type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
@@ -41,7 +42,7 @@ pub fn genesis_chunks(
         let state_root = state_roots[shard_index];
         let congestion_info = congestion_infos[shard_index];
 
-        let encoded_chunk = genesis_chunk(
+        let mut chunk = genesis_chunk(
             &rs,
             genesis_height,
             initial_gas_limit,
@@ -49,7 +50,6 @@ pub fn genesis_chunks(
             state_root,
             congestion_info,
         );
-        let mut chunk = encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk");
         chunk.set_height_included(genesis_height);
         chunks.push(chunk);
     }
@@ -66,7 +66,7 @@ fn genesis_chunk(
     shard_id: ShardId,
     state_root: CryptoHash,
     congestion_info: CongestionInfo,
-) -> EncodedShardChunk {
+) -> ShardChunk {
     let (chunk, _) = ShardChunkWithEncoding::new(
         CryptoHash::default(),
         state_root,
@@ -86,7 +86,22 @@ fn genesis_chunk(
         &EmptyValidatorSigner::default().into(),
         rs,
     );
-    chunk.into_parts().1
+    let encoded_chunk = chunk.into_parts().1;
+    let chunk = encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk");
+    if cfg!(feature = "protocol_feature_spice") {
+        chunk.into_spice_chunk_with_execution(&ChunkExtra::new(
+            &state_root,
+            CryptoHash::default(),
+            vec![],
+            0,
+            initial_gas_limit,
+            0,
+            Some(congestion_info),
+            BandwidthRequests::empty(),
+        ))
+    } else {
+        chunk
+    }
 }
 
 pub fn prod_genesis_chunks(

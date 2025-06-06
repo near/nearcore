@@ -77,6 +77,8 @@ nightly = [
     "near-primitives/nightly",
 ]
 
+protocol_feature_spice = []
+
 calimero_zero_storage = []
 
 protocol_schema = ["near-schema-checker-lib/protocol_schema"]

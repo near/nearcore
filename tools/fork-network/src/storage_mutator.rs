@@ -363,8 +363,10 @@ impl StorageMutator {
         self.set(shard_idx, TrieKey::BandwidthSchedulerState, borsh::to_vec(&state)?)
     }
 
+    /// Check if the total number of updates is greater than or equal to the batch size
     pub(crate) fn should_commit(&self, batch_size: u64) -> bool {
-        self.updates.len() >= batch_size as usize
+        let total_updates = self.updates.iter().map(|shard| shard.updates.len()).sum::<usize>();
+        total_updates >= batch_size as usize
     }
 
     /// Commits any pending trie changes for all shards

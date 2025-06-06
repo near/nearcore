@@ -55,12 +55,12 @@ macro_rules! run_testnet_test {
 }
 
 #[test]
-fn ultra_slow_test_smart_contract_simple_testnet() {
+fn slow_test_smart_contract_simple_testnet() {
     run_testnet_test!(test_smart_contract_simple);
 }
 
 #[test]
-fn ultra_slow_test_smart_contract_self_call_testnet() {
+fn slow_test_smart_contract_self_call_testnet() {
     run_testnet_test!(test_smart_contract_self_call);
 }
 
@@ -70,112 +70,112 @@ fn ultra_slow_test_smart_contract_bad_method_name_testnet() {
 }
 
 #[test]
-fn ultra_slow_test_smart_contract_empty_method_name_with_no_tokens_testnet() {
+fn slow_test_smart_contract_empty_method_name_with_no_tokens_testnet() {
     run_testnet_test!(test_smart_contract_empty_method_name_with_no_tokens);
 }
 
 #[test]
-fn ultra_slow_test_smart_contract_empty_method_name_with_tokens_testnet() {
+fn slow_test_smart_contract_empty_method_name_with_tokens_testnet() {
     run_testnet_test!(test_smart_contract_empty_method_name_with_tokens);
 }
 
 #[test]
-fn ultra_slow_test_smart_contract_with_args_testnet() {
+fn slow_test_smart_contract_with_args_testnet() {
     run_testnet_test!(test_smart_contract_with_args);
 }
 
 #[test]
-fn ultra_slow_test_nonce_update_when_deploying_contract_testnet() {
+fn slow_test_nonce_update_when_deploying_contract_testnet() {
     run_testnet_test!(test_nonce_update_when_deploying_contract);
 }
 
 #[test]
-fn ultra_slow_test_nonce_updated_when_tx_failed_testnet() {
+fn slow_test_nonce_updated_when_tx_failed_testnet() {
     run_testnet_test!(test_nonce_updated_when_tx_failed);
 }
 
 #[test]
-fn ultra_slow_test_upload_contract_testnet() {
+fn slow_test_upload_contract_testnet() {
     run_testnet_test!(test_upload_contract);
 }
 
 #[test]
-fn ultra_slow_test_redeploy_contract_testnet() {
+fn slow_test_redeploy_contract_testnet() {
     run_testnet_test!(test_redeploy_contract);
 }
 
 #[test]
-fn ultra_slow_test_send_money_testnet() {
+fn slow_test_send_money_testnet() {
     run_testnet_test!(test_send_money);
 }
 
 #[test]
-fn ultra_slow_test_send_money_over_balance_testnet() {
+fn slow_test_send_money_over_balance_testnet() {
     run_testnet_test!(test_send_money_over_balance);
 }
 
 #[test]
-fn ultra_slow_test_refund_on_send_money_to_non_existent_account_testnet() {
+fn slow_test_refund_on_send_money_to_non_existent_account_testnet() {
     run_testnet_test!(test_refund_on_send_money_to_non_existent_account);
 }
 
 #[test]
-fn ultra_slow_test_create_account_testnet() {
+fn slow_test_create_account_testnet() {
     run_testnet_test!(test_create_account);
 }
 
 #[test]
-fn ultra_slow_test_create_account_again_testnet() {
+fn slow_test_create_account_again_testnet() {
     run_testnet_test!(test_create_account_again);
 }
 
 #[test]
-fn ultra_slow_test_create_account_failure_already_exists_testnet() {
+fn slow_test_create_account_failure_already_exists_testnet() {
     run_testnet_test!(test_create_account_failure_already_exists);
 }
 
 #[test]
-fn ultra_slow_test_swap_key_testnet() {
+fn slow_test_swap_key_testnet() {
     run_testnet_test!(test_swap_key);
 }
 
 #[test]
-fn ultra_slow_test_add_access_key_function_call_testnet() {
+fn slow_test_add_access_key_function_call_testnet() {
     run_testnet_test!(test_add_access_key_function_call);
 }
 
 #[test]
-fn ultra_slow_test_add_existing_key_testnet() {
+fn slow_test_add_existing_key_testnet() {
     run_testnet_test!(test_add_existing_key);
 }
 
 #[test]
-fn ultra_slow_test_delete_key_testnet() {
+fn slow_test_delete_key_testnet() {
     run_testnet_test!(test_delete_key);
 }
 
 #[test]
-fn ultra_slow_test_delete_key_not_owned_testnet() {
+fn slow_test_delete_key_not_owned_testnet() {
     run_testnet_test!(test_delete_key_not_owned);
 }
 
 #[test]
-fn ultra_slow_test_delete_key_last_testnet() {
+fn slow_test_delete_key_last_testnet() {
     run_testnet_test!(test_delete_key_last);
 }
 
 #[test]
-fn ultra_slow_test_add_key_testnet() {
+fn slow_test_add_key_testnet() {
     run_testnet_test!(test_add_key);
 }
 
 #[test]
-fn ultra_slow_test_delete_access_key_testnet() {
+fn slow_test_delete_access_key_testnet() {
     run_testnet_test!(test_delete_access_key);
 }
 
 #[test]
-fn ultra_slow_test_add_access_key_with_allowance_testnet() {
+fn slow_test_add_access_key_with_allowance_testnet() {
     run_testnet_test!(test_add_access_key_with_allowance);
 }
 
