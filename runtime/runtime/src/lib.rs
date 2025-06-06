@@ -74,12 +74,10 @@ use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
-use rayon::ThreadPool;
 use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-use std::sync::OnceLock;
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
 
@@ -290,19 +288,6 @@ pub struct GasRefundResult {
 
 pub struct Runtime {}
 
-// Global pool, lazily initialized
-static VALIDATE_TRANSACTIONS_POOL: OnceLock<ThreadPool> = OnceLock::new();
-
-fn get_validate_transactions_pool() -> &'static ThreadPool {
-    VALIDATE_TRANSACTIONS_POOL.get_or_init(|| {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(32)
-            .thread_name(|i| format!("validate-tx-{}", i))
-            .build()
-            .expect("Failed to build custom thread pool")
-    })
-}
-
 impl Runtime {
     pub fn new() -> Self {
         Self {}
@@ -319,22 +304,6 @@ impl Runtime {
     }
 
     fn parallel_validate_transactions(
-        config: &RuntimeConfig,
-        gas_price: Balance,
-        signed_txs: impl IntoParallelIterator<Item = SignedTransaction> + Send,
-        current_protocol_version: ProtocolVersion,
-    ) -> Vec<(CryptoHash, Result<(ValidatedTransaction, TransactionCost), InvalidTxError>)> {
-        get_validate_transactions_pool().install(|| {
-            Self::parallel_validate_transactions_impl(
-                config,
-                gas_price,
-                signed_txs,
-                current_protocol_version,
-            )
-        })
-    }
-
-    fn parallel_validate_transactions_impl(
         config: &RuntimeConfig,
         gas_price: Balance,
         signed_txs: impl IntoParallelIterator<Item = SignedTransaction>,
