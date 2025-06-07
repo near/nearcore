@@ -1211,7 +1211,7 @@ fn gc_state(
     // reverse iterate over the epochs starting from epoch of latest_block_hash upto gc_epoch
     // The current_block_hash is the hash of the last block in the current iteration epoch.
     let store = chain_store_update.store();
-    let mut current_block_hash = epoch_manager.get_block_info(&latest_block_hash)?.hash().clone();
+    let mut current_block_hash = *epoch_manager.get_block_info(&latest_block_hash)?.hash();
     while &current_block_hash != last_block_hash_in_gc_epoch {
         shards_to_cleanup.retain(|shard_uid| {
             // If shard_uid exists in the TrieChanges column, it means we were tracking the shard_uid in this epoch.
@@ -1224,7 +1224,7 @@ fn gc_state(
         let epoch_block_info = epoch_manager.get_block_info(&current_block_hash)?;
         let epoch_first_block_hash = epoch_block_info.epoch_first_block();
         let epoch_first_block = store.chain_store().get_block_header(epoch_first_block_hash)?;
-        current_block_hash = epoch_first_block.prev_hash().clone();
+        current_block_hash = *epoch_first_block.prev_hash();
     }
 
     // Delete State of `shards_to_cleanup` and associated ShardUId mapping.
