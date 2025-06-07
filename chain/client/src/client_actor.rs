@@ -21,7 +21,7 @@ use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
-use crate::{StatusResponse, metrics};
+use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
 use actix::Actor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
@@ -37,7 +37,6 @@ use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
 };
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -157,6 +156,7 @@ pub fn start_client(
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
+    let multi_spawner = AsyncComputationMultiSpawner::default();
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -170,7 +170,7 @@ pub fn start_client(
         enable_doomslug,
         seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
-        Arc::new(RayonAsyncComputationSpawner),
+        multi_spawner,
         partial_witness_adapter,
         resharding_sender,
         state_sync_future_spawner,

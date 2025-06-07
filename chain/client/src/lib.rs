@@ -8,7 +8,7 @@ pub use near_client_primitives::types::{
     QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
-pub use crate::client::Client;
+pub use crate::client::{AsyncComputationMultiSpawner, Client};
 #[cfg(feature = "test_features")]
 pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{ClientActor, StartClientResult, start_client};
