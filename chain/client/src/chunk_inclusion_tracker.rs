@@ -78,9 +78,10 @@ impl ChunkInclusionTracker {
         let prev_block_hash = chunk_header.prev_block_hash();
         if let Some(entry) = self.prev_block_to_chunk_hash_ready.get_mut(prev_block_hash) {
             // If prev_block_hash entry exists, add the new chunk to the entry.
-            entry.insert(chunk_header.shard_id(), chunk_header.chunk_hash());
+            entry.insert(chunk_header.shard_id(), chunk_header.chunk_hash().clone());
         } else {
-            let new_entry = HashMap::from([(chunk_header.shard_id(), chunk_header.chunk_hash())]);
+            let new_entry =
+                HashMap::from([(chunk_header.shard_id(), chunk_header.chunk_hash().clone())]);
             // Call to prev_block_to_chunk_hash_ready.push might evict an entry from LRU cache.
             // In case of an eviction, cleanup entries in chunk_hash_to_chunk_info
             let maybe_evicted_entry =
@@ -90,7 +91,7 @@ impl ChunkInclusionTracker {
             }
         }
         // Insert chunk info in chunk_hash_to_chunk_info. This would be cleaned up later during eviction
-        let chunk_hash = chunk_header.chunk_hash();
+        let chunk_hash = chunk_header.chunk_hash().clone();
         let chunk_info = ChunkInfo {
             chunk_header,
             received_time: Utc::now_utc(),

@@ -18,7 +18,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::AccountView;
 use near_vm_runner::ContractCode;
 use nearcore::NearConfig;
-use nearcore::config::{Config, create_localnet_configs, create_localnet_configs_from_seeds};
+use nearcore::config::{Config, create_localnet_configs_from_seeds};
 use parking_lot::RwLock;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -147,19 +147,6 @@ fn near_configs_to_node_configs(
     result
 }
 
-pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (configs, validator_signers, network_signers, genesis, _) = create_localnet_configs(
-        1,
-        num_nodes as NumSeats,
-        0,
-        0,
-        0,
-        prefix,
-        TrackedShardsConfig::NoShards,
-    );
-    near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
-}
-
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let code = near_test_contracts::rs_contract();
     let (configs, validator_signers, network_signers, mut genesis) =
@@ -191,24 +178,4 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             .push(StateRecord::Contract { account_id: seed.parse().unwrap(), code: code.to_vec() });
     }
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
-}
-
-pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
-    let i = rand::random::<usize>() % num_nodes;
-    // Should be a different node.
-    let mut j = rand::random::<usize>() % (num_nodes - 1);
-    if j >= i {
-        j += 1;
-    }
-    (i, j)
-}
-
-/// Sample a node for sending a transaction/checking balance
-pub fn sample_queryable_node(nodes: &[Arc<RwLock<dyn Node>>]) -> usize {
-    let num_nodes = nodes.len();
-    let mut k = rand::random::<usize>() % num_nodes;
-    while !nodes[k].read().is_running() {
-        k = rand::random::<usize>() % num_nodes;
-    }
-    k
 }

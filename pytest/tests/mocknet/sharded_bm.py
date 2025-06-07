@@ -23,6 +23,11 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 
 # cspell:words BENCHNET
+CHAIN_ID = "mainnet"
+
+# This height should be used for forknet cluster creation as well.
+# It corresponds to the existing setup with minimal disk usage.
+START_HEIGHT = 138038232
 
 # TODO: consider moving source directory to pytest.
 SOURCE_BENCHNET_DIR = "../benchmarks/sharded-bm"
@@ -80,6 +85,19 @@ def fetch_forknet_details(forknet_name, bm_params):
     }
 
 
+def upload_json_patches(args):
+    """Upload the json patches to the benchmark directory."""
+    upload_file_args = copy.deepcopy(args)
+    upload_file_args.src = f"{SOURCE_BENCHNET_DIR}/cases"
+    upload_file_args.dst = BENCHNET_DIR
+    run_remote_upload_file(CommandContext(upload_file_args))
+
+    upload_file_args = copy.deepcopy(args)
+    upload_file_args.src = "tests/mocknet/helpers"
+    upload_file_args.dst = BENCHNET_DIR
+    run_remote_upload_file(CommandContext(upload_file_args))
+
+
 def handle_init(args):
     """Handle the init command - initialize the benchmark before running it."""
 
@@ -92,9 +110,9 @@ def handle_init(args):
         args.neard_binary_url = os.environ['NEARD_BINARY_URL']
     else:
         logger.info(
-            f"Using neard binary URL from benchmark params: {args.bm_params['forknet']['binary_url']}"
+            "Please provide neard binary URL via CLI or env var NEARD_BINARY_URL"
         )
-        args.neard_binary_url = args.bm_params['forknet']['binary_url']
+        sys.exit(1)
 
     init_args = SimpleNamespace(
         neard_upgrade_binary_url="",
@@ -111,15 +129,7 @@ def handle_init(args):
 
     # TODO: check neard binary version
 
-    upload_file_args = copy.deepcopy(args)
-    upload_file_args.src = f"{SOURCE_BENCHNET_DIR}/cases"
-    upload_file_args.dst = BENCHNET_DIR
-    run_remote_upload_file(CommandContext(upload_file_args))
-
-    upload_file_args = copy.deepcopy(args)
-    upload_file_args.src = "tests/mocknet/helpers"
-    upload_file_args.dst = BENCHNET_DIR
-    run_remote_upload_file(CommandContext(upload_file_args))
+    upload_json_patches(args)
 
     new_test_cmd_args = SimpleNamespace(
         state_source="empty",
@@ -162,7 +172,7 @@ def handle_init(args):
         )
         run_env_cmd(CommandContext(env_cmd_args))
 
-    handle_apply_json_patches(args)
+    apply_json_patches(args)
 
     start_nodes(args)
 
@@ -184,8 +194,8 @@ def handle_init(args):
     stop_nodes(args)
 
 
-def handle_apply_json_patches(args):
-    """Handle the apply-json-patches command."""
+def apply_json_patches(args):
+    """Apply the json patches to the genesis, config and log_config."""
     genesis = f"{NEAR_HOME}/genesis.json"
     base_genesis_patch = f"{BENCHNET_DIR}/{args.case}/{args.bm_params['base_genesis_patch']}"
 
@@ -227,6 +237,19 @@ def stop_nodes(args, disable_tx_generator=False):
         run_remote_cmd(CommandContext(run_cmd_args))
 
 
+def handle_tweak_config(args):
+    """
+    Handle the tweak-config command.
+
+    Used when you want to tweak non-critical parameters of the benchmark, such
+    as block production time, load schedule, log levels.
+    Note that for critical parameters like number of accounts per shard you 
+    must reinitialize the benchmark!
+    """
+    upload_json_patches(args)
+    apply_json_patches(args)
+
+
 def handle_stop(args):
     """Handle the stop command - stop the benchmark."""
     stop_nodes(args, args.disable_tx_generator)
@@ -261,18 +284,25 @@ def start_nodes(args, enable_tx_generator=False):
     if enable_tx_generator:
         logger.info("Setting tx generator parameters")
 
-        tps = int(args.bm_params['tx_generator']['tps'])
-        volume = int(args.bm_params['tx_generator']['volume'])
         accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
+        schedule_file = f"{BENCHNET_DIR}/{args.case}/load-schedule.json"
 
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
         run_cmd_args.cmd = f"\
             jq --arg accounts_path {accounts_path} \
-            '.tx_generator = {{\"tps\": {tps}, \"volume\": {volume}, \
-            \"accounts_path\": $accounts_path, \"thread_count\": 2}}' \
-            {NEAR_HOME}/config.json > tmp.$$.json && \
-            mv tmp.$$.json {NEAR_HOME}/config.json || rm tmp.$$.json \
+            '.tx_generator = {{ \"accounts_path\": $accounts_path }}' {CONFIG_PATH} > tmp.$$.json && \
+            mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
+        "
+
+        run_remote_cmd(CommandContext(run_cmd_args))
+
+        run_cmd_args = copy.deepcopy(args)
+        run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+        run_cmd_args.cmd = f"\
+            jq --slurpfile patch {schedule_file} \
+            '. as $orig | $patch[0].schedule as $sched | .[\"tx_generator\"] += {{\"schedule\": $sched }}' \
+            {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
         "
 
         run_remote_cmd(CommandContext(run_cmd_args))
@@ -367,16 +397,11 @@ def handle_start(args):
 
 
 def main():
-    chain_id = "mainnet"
     try:
-        start_height = int(os.environ['FORKNET_START_HEIGHT'])
         unique_id = os.environ['FORKNET_NAME']
         case = os.environ['CASE']
     except KeyError as e:
         logger.error(f"Error: Required environment variable {e} is not set")
-        sys.exit(1)
-    except ValueError:
-        logger.error("Error: FORKNET_START_HEIGHT must be an integer")
         sys.exit(1)
 
     try:
@@ -393,8 +418,8 @@ def main():
     parser = ArgumentParser(
         description='Forknet cluster parameters to launch a sharded benchmark')
     parser.set_defaults(
-        chain_id=chain_id,
-        start_height=start_height,
+        chain_id=CHAIN_ID,
+        start_height=START_HEIGHT,
         unique_id=unique_id,
         case=case,
         bm_params=bm_params,
@@ -417,8 +442,8 @@ def main():
     )
 
     subparsers.add_parser(
-        'apply-json-patches',
-        help='Apply the patches to genesis, config and log_config',
+        'tweak-config',
+        help='Reupload and apply the patches to genesis, config and log_config',
     )
 
     start_parser = subparsers.add_parser('start', help='Start the benchmark')
@@ -463,8 +488,8 @@ def main():
     # Route to appropriate handler based on command
     if args.command == 'init':
         handle_init(args)
-    elif args.command == 'apply-json-patches':
-        handle_apply_json_patches(args)
+    elif args.command == 'tweak-config':
+        handle_tweak_config(args)
     elif args.command == 'stop':
         handle_stop(args)
     elif args.command == 'start':

@@ -271,6 +271,14 @@ impl ChainStoreAdapter {
         )
     }
 
+    pub fn incoming_receipts_exist(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<bool, Error> {
+        Ok(self.store.exists(DBCol::IncomingReceipts, &get_block_shard_id(block_hash, shard_id))?)
+    }
+
     pub fn get_incoming_receipts(
         &self,
         block_hash: &CryptoHash,

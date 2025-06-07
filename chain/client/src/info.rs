@@ -261,7 +261,7 @@ impl InfoHelper {
                 let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();
                 let chunk_producers = chunk_producers_settlement.get(shard_index);
                 let Some(chunk_producers) = chunk_producers else {
-                    tracing::warn!(target: "stats", ?shard_id, ?chunk_producers_settlement, "invalid shard id, not found in the shard settlement");
+                    tracing::warn!(target: "stats", %shard_id, ?chunk_producers_settlement, "invalid shard id, not found in the shard settlement");
                     continue;
                 };
                 for &id in chunk_producers {

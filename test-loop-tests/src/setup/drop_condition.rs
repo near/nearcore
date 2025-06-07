@@ -58,7 +58,7 @@ impl TestLoopChunksStorage {
             self.min_chunk_height
                 .map_or(chunk_height, |current_height| current_height.min(chunk_height)),
         );
-        self.storage.insert(chunk_header.chunk_hash(), chunk_header);
+        self.storage.insert(chunk_header.chunk_hash().clone(), chunk_header);
     }
 
     pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&ShardChunkHeader> {

@@ -18,7 +18,7 @@ fn test_request_chunk_restart() {
     }
     let block1 = env.clients[0].chain.get_block_by_height(3).unwrap();
     let request = PartialEncodedChunkRequestMsg {
-        chunk_hash: block1.chunks()[0].chunk_hash(),
+        chunk_hash: block1.chunks()[0].chunk_hash().clone(),
         part_ords: vec![0],
         tracking_shards: HashSet::default(),
     };
@@ -40,7 +40,7 @@ fn test_request_chunk_restart() {
     let response = env.network_adapters[0].pop().unwrap().as_network_requests();
 
     if let NetworkRequests::PartialEncodedChunkResponse { response: response_body, .. } = response {
-        assert_eq!(response_body.chunk_hash, block1.chunks()[0].chunk_hash());
+        assert_eq!(response_body.chunk_hash, block1.chunks()[0].chunk_hash().clone());
     } else {
         println!("{:?}", response);
         assert!(false);

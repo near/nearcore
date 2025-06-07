@@ -33,7 +33,7 @@ impl Client {
                 tracing::error!(
                     target: "client",
                     ?err,
-                    shard_id = ?chunk.shard_id(),
+                    shard_id = %chunk.shard_id(),
                     ?block_hash,
                     "shadow chunk validation failed"
                 );

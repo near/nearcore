@@ -115,7 +115,7 @@ impl EpochInfoAggregator {
                         tracing::debug!(
                             target: "epoch_tracker",
                             chunk_validator = ?epoch_info.validator_account_id(chunk_producer_id),
-                            ?shard_id,
+                            %shard_id,
                             block_height = prev_block_height + 1,
                             "Missed chunk");
                     }

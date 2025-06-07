@@ -92,7 +92,7 @@ pub struct ChunkStateWitnessAck {
 
 impl ChunkStateWitnessAck {
     pub fn new(witness: &ChunkStateWitness) -> Self {
-        Self { chunk_hash: witness.chunk_header().chunk_hash() }
+        Self { chunk_hash: witness.chunk_header().chunk_hash().clone() }
     }
 }
 

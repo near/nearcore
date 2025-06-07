@@ -1704,7 +1704,7 @@ impl Client {
                 target: "client",
                 "on_block_accepted",
                 prev_block_hash = ?*block.hash(),
-                ?shard_id)
+                %shard_id)
             .entered();
             let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
                 .with_label_values(&[&shard_id.to_string()])
