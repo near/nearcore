@@ -1195,9 +1195,8 @@ fn gc_state(
 
     // Get all the shards that belong to the gc_epoch for shards_to_cleanup
     let block_info = epoch_manager.get_block_info(last_block_hash_in_gc_epoch)?;
-    let gc_epoch_id = block_info.epoch_id();
     let mut shards_to_cleanup =
-        epoch_manager.get_shard_layout(gc_epoch_id)?.shard_uids().collect_vec();
+        epoch_manager.get_shard_layout(block_info.epoch_id())?.shard_uids().collect_vec();
 
     // Remove shards that we are currently tracking from shards_to_cleanup
     shards_to_cleanup.retain(|shard_uid| {
@@ -1210,21 +1209,22 @@ fn gc_state(
     });
 
     // reverse iterate over the epochs starting from epoch of latest_block_hash upto gc_epoch
+    // The current_block_hash is the hash of the last block in the current iteration epoch.
     let store = chain_store_update.store();
-    let mut current_block_info = epoch_manager.get_block_info(&latest_block_hash)?;
-    while current_block_info.hash() != last_block_hash_in_gc_epoch {
+    let mut current_block_hash = epoch_manager.get_block_info(&latest_block_hash)?.hash().clone();
+    while &current_block_hash != last_block_hash_in_gc_epoch {
         shards_to_cleanup.retain(|shard_uid| {
             // If shard_uid exists in the TrieChanges column, it means we were tracking the shard_uid in this epoch.
             // We would like to remove shard_uid from shards_to_cleanup
-            let trie_changes_key = get_block_shard_uid(&current_block_info.hash(), shard_uid);
+            let trie_changes_key = get_block_shard_uid(&current_block_hash, shard_uid);
             !store.exists(DBCol::TrieChanges, &trie_changes_key).unwrap()
         });
 
-        // Get the block_info for prev_epoch last_block_hash to continue the iteration
-        let epoch_first_block_info =
-            epoch_manager.get_block_info(current_block_info.epoch_first_block())?;
-        let prev_epoch_last_block_hash = epoch_first_block_info.prev_hash();
-        current_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
+        // Go to the previous epoch last_block_hash
+        let epoch_block_info = epoch_manager.get_block_info(&current_block_hash)?;
+        let epoch_first_block_hash = epoch_block_info.epoch_first_block();
+        let epoch_first_block = store.chain_store().get_block_header(epoch_first_block_hash)?;
+        current_block_hash = epoch_first_block.prev_hash().clone();
     }
 
     // Delete State of `shards_to_cleanup` and associated ShardUId mapping.
