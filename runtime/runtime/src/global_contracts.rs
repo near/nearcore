@@ -8,8 +8,11 @@ use near_primitives::action::{
 };
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::errors::{ActionErrorKind, RuntimeError};
-use near_primitives::hash::hash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
+use near_primitives::transaction::{
+    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
+};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
 use near_store::trie::AccessOptions;
@@ -109,7 +112,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     epoch_info_provider: &dyn EpochInfoProvider,
     state_update: &mut TrieUpdate,
     receipt_sink: &mut ReceiptSink,
-) -> Result<(), RuntimeError> {
+) -> Result<ExecutionOutcomeWithId, RuntimeError> {
     let _span = tracing::debug_span!(
         target: "runtime",
         "apply_global_contract_distribution_receipt",
@@ -120,7 +123,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
         unreachable!("given receipt should be an global contract distribution receipt")
     };
     apply_distribution_current_shard(receipt, global_contract_data, apply_state, state_update);
-    forward_distribution_next_shard(
+    let next_receipt_id = forward_distribution_next_shard(
         receipt,
         global_contract_data,
         apply_state,
@@ -128,8 +131,20 @@ pub(crate) fn apply_global_contract_distribution_receipt(
         state_update,
         receipt_sink,
     )?;
-
-    Ok(())
+    let execution_outcome = ExecutionOutcomeWithId {
+        id: *receipt.receipt_id(),
+        outcome: ExecutionOutcome {
+            status: ExecutionStatus::SuccessValue(Vec::new()),
+            logs: Vec::new(),
+            receipt_ids: next_receipt_id.into_iter().collect(),
+            gas_burnt: 0,
+            compute_usage: Some(0),
+            tokens_burnt: 0,
+            executor_id: "system".parse().unwrap(),
+            metadata: ExecutionMetadata::V1,
+        },
+    };
+    Ok(execution_outcome)
 }
 
 fn initiate_distribution(
@@ -198,7 +213,7 @@ fn forward_distribution_next_shard(
     epoch_info_provider: &dyn EpochInfoProvider,
     state_update: &mut TrieUpdate,
     receipt_sink: &mut ReceiptSink,
-) -> Result<(), RuntimeError> {
+) -> Result<Option<CryptoHash>, RuntimeError> {
     let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
     let already_delivered_shards = BTreeSet::from_iter(
         global_contract_data
@@ -207,7 +222,7 @@ fn forward_distribution_next_shard(
             .cloned()
             .chain(std::iter::once(apply_state.shard_id)),
     );
-    if let Some(next_shard) = shard_layout
+    let next_receipt_id = if let Some(next_shard) = shard_layout
         .shard_ids()
         .filter(|shard_id| !already_delivered_shards.contains(&shard_id))
         .next()
@@ -229,6 +244,9 @@ fn forward_distribution_next_shard(
             state_update,
             epoch_info_provider,
         )?;
-    }
-    Ok(())
+        Some(receipt_id)
+    } else {
+        None
+    };
+    Ok(next_receipt_id)
 }
