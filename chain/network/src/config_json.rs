@@ -238,21 +238,12 @@ fn default_tier1_new_connections_per_attempt() -> u64 {
     50
 }
 
-/// Indicates if Tier1 is enabled
-fn default_tier1_enabled() -> bool {
-    true
-}
-
 /// Configuration for Tier1 network
 ///
 /// Tier1 network is a special network between validator nodes that provides faster
 /// consensus-related message delivery.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Tier1Config {
-    /// If false, disables Tier1 network completely
-    #[serde(default = "default_tier1_enabled")]
-    pub enabled: bool,
-
     /// Makes your node accept inbound Tier1 connections from other validator nodes.
     #[serde(default = "default_tier1_enable_inbound")]
     pub enable_inbound: bool,
@@ -274,7 +265,6 @@ pub struct Tier1Config {
 impl Default for Tier1Config {
     fn default() -> Self {
         Self {
-            enabled: default_tier1_enabled(),
             enable_inbound: default_tier1_enable_inbound(),
             enable_outbound: default_tier1_enable_outbound(),
             connect_interval: default_tier1_connect_interval(),
