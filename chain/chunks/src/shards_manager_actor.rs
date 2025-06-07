@@ -1910,34 +1910,32 @@ impl ShardsManagerActor {
         let forward =
             PartialEncodedChunkForwardMsg::from_header_and_parts(chunk_header, owned_parts);
 
-        // Here we concatenate the lists of block producers for the current epoch
-        // and for the next. The loop below performs deduplication.
+        // Here we compute the union of all block producers for the current and next epochs.
         let next_epoch_id = self.epoch_manager.get_next_epoch_id(latest_block_hash)?;
         let this_epoch_block_producers =
             self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         let next_epoch_block_producers =
             self.epoch_manager.get_epoch_block_producers_ordered(&next_epoch_id)?;
-        let block_producers: Vec<_> =
-            this_epoch_block_producers.into_iter().chain(next_epoch_block_producers).collect();
+        let block_producers: HashSet<_> = this_epoch_block_producers
+            .into_iter()
+            .chain(next_epoch_block_producers)
+            .map(|bp| bp.take_account_id())
+            .collect();
 
-        let current_chunk_height = chunk_header.height_created();
-
-        // Parts are forwarded to all block producers (of this epoch or next)
-        // which care about the shard.
         let shard_id = chunk_header.shard_id();
         let mut accounts_forwarded_to = HashSet::new();
         accounts_forwarded_to.insert(me.clone());
-        let next_chunk_producer = self
-            .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id: *epoch_id,
-                height_created: current_chunk_height + 1,
-                shard_id,
-            })?
-            .take_account_id();
-        for bp in block_producers {
-            let bp_account_id = bp.take_account_id();
 
+        // Iterating over std::collections::HashSet randomizes the order in which
+        // the chunk part is sent to the block producers, for fairness. Also, the
+        // the chunk is encoded such that any sufficiently large subset of the parts
+        // can be used to reconstruct it. By randomizing the order at each sender
+        // we spread the parts evenly so that everyone gets the minimum required
+        // parts roughly at the same time, rather than some getting all of them
+        // first while others are starved.
+        for bp_account_id in block_producers {
+            // Parts are forwarded to all block producers (of this epoch or next)
+            // which care about the shard.
             if self.shard_tracker.cares_about_shard_this_or_next_epoch(
                 Some(&bp_account_id),
                 latest_block_hash,
@@ -1955,6 +1953,16 @@ impl ShardsManagerActor {
             }
         }
 
+        // The part is also forwarded to the next chunk producer.
+        let current_chunk_height = chunk_header.height_created();
+        let next_chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: *epoch_id,
+                height_created: current_chunk_height + 1,
+                shard_id,
+            })?
+            .take_account_id();
         if accounts_forwarded_to.insert(next_chunk_producer.clone()) {
             self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedChunkForward {
@@ -2059,6 +2067,9 @@ impl ShardsManagerActor {
         .into_iter()
         .map(Arc::new)
         .collect::<Vec<_>>();
+
+        // Iterating over std::collections::HashMap randomizes the order in which
+        // the receipt proofs are sent to the block producers, for fairness.
         for (to_whom, part_ords) in block_producer_mapping {
             let part_receipt_proofs = receipt_proofs
                 .iter()
