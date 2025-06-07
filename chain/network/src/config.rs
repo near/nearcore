@@ -299,11 +299,10 @@ impl NetworkConfig {
             },
         };
 
-        let node_addr = match cfg.addr.as_str() {
-            "" => None,
-            addr => {
-                Some(tcp::ListenerAddr::new(addr.parse().context("Failed to parse SocketAddr")?))
-            }
+        let node_addr = if cfg.addr.is_empty() {
+            None
+        } else {
+            Some(tcp::ListenerAddr::new(cfg.addr.parse().context("Failed to parse SocketAddr")?))
         };
 
         // Parse blacklist from config
@@ -316,20 +315,14 @@ impl NetworkConfig {
             .into_iter()
             .collect::<blacklist::Blacklist>();
 
-        // Determine Tier1 configuration with migration support
-        let tier1 = if cfg.tier1.enabled {
-            // Use the new Tier1 config
-            Some(Tier1 {
-                connect_interval: cfg.tier1.connect_interval,
-                new_connections_per_attempt: cfg.tier1.new_connections_per_attempt,
-                advertise_proxies_interval: time::Duration::minutes(15),
-                enable_inbound: cfg.tier1.enable_inbound,
-                enable_outbound: cfg.tier1.enable_outbound,
-            })
-        } else {
-            // If tier1.enabled is false, disable Tier1 network completely
-            None
-        };
+        // Configure Tier1 network
+        let tier1 = Some(Tier1 {
+            connect_interval: cfg.tier1.connect_interval,
+            new_connections_per_attempt: cfg.tier1.new_connections_per_attempt,
+            advertise_proxies_interval: time::Duration::minutes(15),
+            enable_inbound: cfg.tier1.enable_inbound,
+            enable_outbound: cfg.tier1.enable_outbound,
+        });
 
         let mut this = Self {
             node_addr,
