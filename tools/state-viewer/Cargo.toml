@@ -32,6 +32,7 @@ thiserror.workspace = true
 tracing.workspace = true
 yansi.workspace = true
 indicatif.workspace = true
+reed-solomon-erasure.workspace = true
 
 near-time.workspace = true
 near-chain-configs.workspace = true

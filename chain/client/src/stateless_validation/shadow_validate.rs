@@ -64,6 +64,7 @@ impl Client {
             state_witness,
             self.epoch_manager.as_ref(),
             None,
+            self.chunk_validator.rs(),
         )?;
         Ok(())
     }

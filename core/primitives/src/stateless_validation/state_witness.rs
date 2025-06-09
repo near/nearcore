@@ -184,6 +184,7 @@ pub struct ChunkStateWitnessV2 {
     /// After these are applied as well, we should arrive at the pre-state-root
     /// of the chunk that this witness is for.
     pub implicit_transitions: Vec<ChunkStateTransition>,
+    pub new_transactions: Vec<SignedTransaction>,
 }
 
 impl ChunkStateWitness {
@@ -196,6 +197,7 @@ impl ChunkStateWitness {
         applied_receipts_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         implicit_transitions: Vec<ChunkStateTransition>,
+        new_transactions: Vec<SignedTransaction>,
         protocol_version: ProtocolVersion,
     ) -> Self {
         if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
@@ -207,6 +209,7 @@ impl ChunkStateWitness {
                 applied_receipts_hash,
                 transactions,
                 implicit_transitions,
+                new_transactions,
             });
         }
 
@@ -232,6 +235,7 @@ impl ChunkStateWitness {
             "alice.near".parse().unwrap(),
             EpochId::default(),
             header,
+            Default::default(),
             Default::default(),
             Default::default(),
             Default::default(),
@@ -294,6 +298,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1(witness) => &witness.implicit_transitions,
             ChunkStateWitness::V2(witness) => &witness.implicit_transitions,
+        }
+    }
+
+    pub fn new_transactions(&self) -> &Vec<SignedTransaction> {
+        match self {
+            ChunkStateWitness::V1(witness) => &witness._deprecated_new_transactions,
+            ChunkStateWitness::V2(witness) => &witness.new_transactions,
         }
     }
 }

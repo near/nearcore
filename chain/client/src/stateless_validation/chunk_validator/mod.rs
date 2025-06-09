@@ -23,6 +23,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use orphan_witness_pool::OrphanStateWitnessPool;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::sync::Arc;
 
 // After validating a chunk state witness, we ideally need to send the chunk endorsement
@@ -44,6 +45,7 @@ pub struct ChunkValidator {
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
     main_state_transition_result_cache: chunk_validation::MainStateTransitionCache,
+    rs: Arc<ReedSolomon>,
 }
 
 impl ChunkValidator {
@@ -54,6 +56,9 @@ impl ChunkValidator {
         orphan_witness_pool_size: usize,
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
+        let data_parts = epoch_manager.num_data_parts();
+        let parity_parts = epoch_manager.num_total_parts() - data_parts;
+        let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
         Self {
             epoch_manager,
             network_sender,
@@ -62,6 +67,7 @@ impl ChunkValidator {
             validation_spawner,
             main_state_transition_result_cache: chunk_validation::MainStateTransitionCache::default(
             ),
+            rs,
         }
     }
 
@@ -156,6 +162,7 @@ impl ChunkValidator {
         let runtime_adapter = self.runtime_adapter.clone();
         let cache = self.main_state_transition_result_cache.clone();
         let signer = signer.clone();
+        let rs = self.rs.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
@@ -167,6 +174,7 @@ impl ChunkValidator {
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
                 &cache,
+                rs,
             ) {
                 Ok(()) => {
                     send_chunk_endorsement_to_block_producers(
@@ -191,6 +199,10 @@ impl ChunkValidator {
             }
         });
         Ok(())
+    }
+
+    pub fn rs(&self) -> Arc<ReedSolomon> {
+        self.rs.clone()
     }
 }
 
