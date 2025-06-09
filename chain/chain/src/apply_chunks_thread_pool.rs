@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use near_async::futures::AsyncComputationSpawner;
 use parking_lot::Mutex;
-use thiserror::Error;
 use thread_priority::{
     RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadPriority, ThreadSchedulePolicy,
 };
@@ -16,7 +15,8 @@ type IdleThreadQueue = Arc<Mutex<VecDeque<oneshot::Sender<Option<Job>>>>>;
 
 /// OS thread pool for spawning latency-critical real time tasks.
 ///
-/// The pool can spawn up to `limit` threads. Idle threads are kept for
+/// The pool can spawn an unbounded number of threads, but going above the
+/// configured `limit` would raise warnings. Idle threads are kept for
 /// `idle_timeout` to be potentially reused for new tasks. All threads in the
 /// pool are spawned under round-robin realtime policy (`SCHED_RR`) with a
 /// configured `priority`. Realtime threads **always** take precedence over
@@ -25,7 +25,7 @@ type IdleThreadQueue = Arc<Mutex<VecDeque<oneshot::Sender<Option<Job>>>>>;
 pub(crate) struct ThreadPool {
     /// Name of the pool. Used for logging/debugging purposes.
     name: &'static str,
-    /// Limit of running threads.
+    /// Soft limit of running threads.
     limit: usize,
     /// Priority of spawned threads (must be in [0; 100] range)
     priority: ThreadPriority,
@@ -36,14 +36,6 @@ pub(crate) struct ThreadPool {
     /// Queue of oneshot senders which allow sending jobs to idle threads.
     /// Once a worker thread is done processing its job, it pushes a sender into this queue.
     idle_thread_queue: IdleThreadQueue,
-}
-
-#[derive(Error, Debug)]
-pub(crate) enum Error {
-    #[error("thread limit reached for pool {name}: {limit}")]
-    ThreadLimitReached { name: &'static str, limit: usize },
-    #[error("spawning thread failed: {0}")]
-    Spawn(#[from] std::io::Error),
 }
 
 impl ThreadPool {
@@ -65,28 +57,25 @@ impl ThreadPool {
     }
 
     /// Spawn a new task to be run on the pool. It will re-use existing idle threads
-    /// if possible, or spawn a new thread. Returns error when the thread limit is reached
-    /// or spawning a new thread fails.
-    pub(crate) fn spawn_boxed(&self, job: Job) -> Result<(), Error> {
+    /// if possible, or spawn a new thread. Panic when spawning a new thread fails.
+    pub(crate) fn spawn_boxed(&self, job: Job) {
         // Try to use one of the existing idle threads
         let mut job = Some(job);
         let mut queue_guard = self.idle_thread_queue.lock();
         while let Some(sender) = queue_guard.pop_front() {
             job = match sender.send(job) {
-                Ok(()) => return Ok(()),
+                Ok(()) => return,
                 Err(err) => err.into_inner(),
             }
         }
         drop(queue_guard);
-        self.try_spawn_thread(job.unwrap())
+        self.spawn_thread(job.unwrap())
     }
 
-    fn try_spawn_thread(&self, job: Job) -> Result<(), Error> {
+    fn spawn_thread(&self, job: Job) {
         let name = self.name;
         let limit = self.limit;
-        self.worker_counter
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| (v < limit).then_some(v + 1))
-            .map_err(|_| Error::ThreadLimitReached { name, limit })?;
+        let num_workers = self.worker_counter.fetch_add(1, Ordering::Relaxed);
 
         let idle_timeout = self.idle_timeout;
         let idle_queue = self.idle_thread_queue.clone();
@@ -97,22 +86,24 @@ impl ThreadPool {
             .priority(self.priority)
             .spawn(move |res| {
                 if let Err(err) = res {
-                    debug!(target: "chain", name = name, err = %err, "Setting scheduler policy failed");
+                    debug!(target: "chain::apply_chunks_thread_pool", name = name, err = %err, "Setting scheduler policy failed");
                 };
                 run_worker(job, idle_timeout, idle_queue, counter_guard)
             })
             .map_err(|err| {
                 self.worker_counter.fetch_sub(1, Ordering::Relaxed);
                 err
-            })?;
+            }).expect("Failed to spawn thread");
 
-        Ok(())
+        if num_workers > limit {
+            debug!(target: "chain_apply_chunks_thread_pool", name = name, limit = limit, num_workers = num_workers, "Thread pool limit exceeded");
+        }
     }
 }
 
 impl AsyncComputationSpawner for ThreadPool {
     fn spawn_boxed(&self, _name: &str, job: Box<dyn FnOnce() + Send>) {
-        self.spawn_boxed(job).expect("thread pool failed to spawn thread")
+        self.spawn_boxed(job)
     }
 }
 
@@ -176,7 +167,6 @@ impl ApplyChunksSpawner {
 mod tests {
     use super::*;
     use std::collections::HashSet;
-    use std::sync::Barrier;
     use std::sync::atomic::AtomicBool;
     use std::thread;
 
@@ -195,26 +185,10 @@ mod tests {
         let job = Box::new(move || {
             executed_clone.store(true, Ordering::Relaxed);
         });
-        pool.spawn_boxed(job).unwrap();
+        pool.spawn_boxed(job);
 
         thread::sleep(Duration::from_millis(50));
         assert!(executed.load(Ordering::Relaxed));
-    }
-
-    #[test]
-    fn thread_limit_reached() {
-        let pool = ThreadPool::new("test_pool", Duration::from_millis(1), 1, 50);
-        let barrier = Arc::new(Barrier::new(2));
-
-        let barrier_clone = barrier.clone();
-        let job = Box::new(move || {
-            barrier_clone.wait();
-        });
-        pool.spawn_boxed(job).unwrap();
-
-        let result = pool.spawn_boxed(Box::new(|| {}));
-        barrier.wait();
-        assert!(matches!(result.unwrap_err(), Error::ThreadLimitReached { .. }));
     }
 
     /// Helper function to create a job that will store its thread ID into the hashset
@@ -231,10 +205,10 @@ mod tests {
         let pool = ThreadPool::new("test_pool", Duration::from_millis(200), 2, 50);
         let thread_ids = Arc::new(Mutex::new(HashSet::new()));
 
-        pool.spawn_boxed(store_thread_id_job(&thread_ids)).unwrap();
+        pool.spawn_boxed(store_thread_id_job(&thread_ids));
         thread::sleep(Duration::from_millis(50));
 
-        pool.spawn_boxed(store_thread_id_job(&thread_ids)).unwrap();
+        pool.spawn_boxed(store_thread_id_job(&thread_ids));
         thread::sleep(Duration::from_millis(50));
 
         // One idle thread should be still running, and there should be only 1 thread spawned in total
@@ -247,10 +221,10 @@ mod tests {
         let pool = ThreadPool::new("test_pool", Duration::from_millis(1), 2, 50);
         let thread_ids = Arc::new(Mutex::new(HashSet::new()));
 
-        pool.spawn_boxed(store_thread_id_job(&thread_ids)).unwrap();
+        pool.spawn_boxed(store_thread_id_job(&thread_ids));
         thread::sleep(Duration::from_millis(50));
 
-        pool.spawn_boxed(store_thread_id_job(&thread_ids)).unwrap();
+        pool.spawn_boxed(store_thread_id_job(&thread_ids));
         thread::sleep(Duration::from_millis(50));
 
         // No idle threads should be running, and there should be 2 threads spawned in total
