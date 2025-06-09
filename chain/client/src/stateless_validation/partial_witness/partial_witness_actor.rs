@@ -358,7 +358,7 @@ impl PartialWitnessActor {
         // Record the witness in order to match the incoming acks for measuring round-trip times.
         // See process_chunk_state_witness_ack for the handling of the ack messages.
         self.state_witness_tracker.record_witness_sent(
-            chunk_hash,
+            chunk_hash.clone(),
             witness_size_in_bytes,
             validator_witness_tuple.len(),
         );

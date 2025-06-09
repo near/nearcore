@@ -94,7 +94,7 @@ pub fn validate_chunk_endorsements_in_block(
 
             // Block should not be produced with an invalid signature.
             if !ChunkEndorsement::validate_signature(
-                chunk_header.chunk_hash(),
+                chunk_header.chunk_hash().clone(),
                 signature,
                 validator.public_key(),
             ) {

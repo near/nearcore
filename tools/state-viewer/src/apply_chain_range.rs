@@ -120,7 +120,8 @@ fn apply_block_from_range(
             height
         );
         existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
-        let chunk_hash = block.chunks()[shard_index].chunk_hash();
+        let chunks = block.chunks();
+        let chunk_hash = chunks[shard_index].chunk_hash();
         let chunk = read_chain_store.get_chunk(&chunk_hash).unwrap_or_else(|error| {
             panic!(
                 "Can't get chunk on height: {} chunk_hash: {:?} error: {}",

@@ -113,7 +113,7 @@ async fn test_peer_communication(
     let mut events = inbound.events.from_now();
     let want = PeerMessage::Routed(Box::new(outbound.routed_message(
         RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
-            chunk_hash: chain.blocks[5].chunks()[2].chunk_hash(),
+            chunk_hash: chain.blocks[5].chunks()[2].chunk_hash().clone(),
             part_ords: vec![],
             tracking_shards: Default::default(),
         }),
@@ -126,7 +126,7 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","PartialEncodedChunkResponse");
     let mut events = inbound.events.from_now();
-    let want_hash = chain.blocks[3].chunks()[0].chunk_hash();
+    let want_hash = chain.blocks[3].chunks()[0].chunk_hash().clone();
     let want_parts = data::make_chunk_parts(chain.chunks[&want_hash].clone());
     let want = PeerMessage::Routed(Box::new(outbound.routed_message(
         RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {

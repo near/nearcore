@@ -385,6 +385,8 @@ class NeardRunner:
         config['rpc']['addr'] = f'0.0.0.0:{rpc_port}'
         config['network']['addr'] = f'0.0.0.0:{protocol_port}'
         self.data['neard_addr'] = config['rpc']['addr']
+        if 'tracked_shards_config' in config:
+            del config['tracked_shards_config']
         config['tracked_shards'] = [0, 1, 2, 3]
         config['log_summary_style'] = 'plain'
         config['network']['skip_sync_wait'] = False
