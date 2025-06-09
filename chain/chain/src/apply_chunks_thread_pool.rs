@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use crate::metrics::{THREAD_POOL_MAX_NUM_THREADS, THREAD_POOL_NUM_THREADS};
 use near_async::futures::AsyncComputationSpawner;
 use parking_lot::Mutex;
 use thread_priority::{
@@ -25,14 +26,12 @@ type IdleThreadQueue = Arc<Mutex<VecDeque<oneshot::Sender<Option<Job>>>>>;
 pub(crate) struct ThreadPool {
     /// Name of the pool. Used for logging/debugging purposes.
     name: &'static str,
-    /// Soft limit of running threads.
-    limit: usize,
     /// Priority of spawned threads (must be in [0; 100] range)
     priority: ThreadPriority,
     /// Timeout after which an idle thread terminates.
     idle_timeout: Duration,
     /// Counter of currently running worker threads (active or idle).
-    worker_counter: Arc<AtomicUsize>,
+    worker_counter: Arc<WorkerCounter>,
     /// Queue of oneshot senders which allow sending jobs to idle threads.
     /// Once a worker thread is done processing its job, it pushes a sender into this queue.
     idle_thread_queue: IdleThreadQueue,
@@ -48,10 +47,9 @@ impl ThreadPool {
     ) -> Self {
         Self {
             name,
-            limit,
             priority: priority.try_into().expect("priority out of range"),
             idle_timeout,
-            worker_counter: Default::default(),
+            worker_counter: WorkerCounter::new(name, limit),
             idle_thread_queue: Default::default(),
         }
     }
@@ -74,12 +72,9 @@ impl ThreadPool {
 
     fn spawn_thread(&self, job: Job) {
         let name = self.name;
-        let limit = self.limit;
-        let num_workers = self.worker_counter.fetch_add(1, Ordering::Relaxed);
-
         let idle_timeout = self.idle_timeout;
         let idle_queue = self.idle_thread_queue.clone();
-        let counter_guard = WorkerCounterGuard(self.worker_counter.clone());
+        let counter_guard = self.worker_counter.new_thread();
         ThreadBuilder::default()
             .name(name)
             .policy(ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin))
@@ -89,15 +84,7 @@ impl ThreadPool {
                     debug!(target: "chain::apply_chunks_thread_pool", name = name, err = %err, "Setting scheduler policy failed");
                 };
                 run_worker(job, idle_timeout, idle_queue, counter_guard)
-            })
-            .map_err(|err| {
-                self.worker_counter.fetch_sub(1, Ordering::Relaxed);
-                err
             }).expect("Failed to spawn thread");
-
-        if num_workers > limit {
-            debug!(target: "chain_apply_chunks_thread_pool", name = name, limit = limit, num_workers = num_workers, "Thread pool limit exceeded");
-        }
     }
 }
 
@@ -107,13 +94,53 @@ impl AsyncComputationSpawner for ThreadPool {
     }
 }
 
+/// This struct tracks the current number of worker threads
+/// and updates relevant metrics accordingly.
+struct WorkerCounter {
+    name: &'static str,
+    limit: usize,
+    num_threads: AtomicUsize,
+}
+
+impl WorkerCounter {
+    fn new(name: &'static str, limit: usize) -> Arc<Self> {
+        Arc::new(Self { name, limit, num_threads: Default::default() })
+    }
+
+    fn dec(&self) {
+        self.num_threads.fetch_sub(1, Ordering::SeqCst);
+        THREAD_POOL_NUM_THREADS.with_label_values(&[self.name]).dec();
+    }
+
+    fn new_thread(self: &Arc<Self>) -> WorkerCounterGuard {
+        let num_threads = self.num_threads.fetch_add(1, Ordering::SeqCst);
+        if num_threads > self.limit {
+            debug!(
+                target: "chain::apply_chunks_thread_pool",
+                name = self.name,
+                limit = self.limit,
+                num_threads = num_threads,
+                "Thread pool limit exceeded"
+            );
+        }
+        THREAD_POOL_NUM_THREADS.with_label_values(&[self.name]).inc();
+        let max_num_threads = THREAD_POOL_MAX_NUM_THREADS.with_label_values(&[self.name]);
+        // There is a possible race condition here, but we don't care
+        if num_threads > max_num_threads.get() as usize {
+            max_num_threads.set(num_threads as i64);
+        }
+
+        WorkerCounterGuard(self.clone())
+    }
+}
+
 /// This struct ensures that the thread counter decrements when a thread dies,
 /// even in case of a panic.
-struct WorkerCounterGuard(Arc<AtomicUsize>);
+struct WorkerCounterGuard(Arc<WorkerCounter>);
 
 impl Drop for WorkerCounterGuard {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::Relaxed);
+        self.0.dec();
     }
 }
 
@@ -212,7 +239,7 @@ mod tests {
         thread::sleep(Duration::from_millis(50));
 
         // One idle thread should be still running, and there should be only 1 thread spawned in total
-        assert_eq!(pool.worker_counter.load(Ordering::Relaxed), 1);
+        assert_eq!(pool.worker_counter.num_threads.load(Ordering::SeqCst), 1);
         assert_eq!(thread_ids.lock().len(), 1);
     }
 
@@ -228,7 +255,7 @@ mod tests {
         thread::sleep(Duration::from_millis(50));
 
         // No idle threads should be running, and there should be 2 threads spawned in total
-        assert_eq!(pool.worker_counter.load(Ordering::Relaxed), 0);
+        assert_eq!(pool.worker_counter.num_threads.load(Ordering::SeqCst), 0);
         assert_eq!(thread_ids.lock().len(), 2);
     }
 }
