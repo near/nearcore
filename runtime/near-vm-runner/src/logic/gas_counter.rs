@@ -196,7 +196,7 @@ impl GasCounter {
         if new_burnt_gas > self.max_gas_burnt {
             HostError::GasLimitExceeded
         } else {
-            let backtrace = backtrace::Backtrace::capture();
+            let backtrace = backtrace::Backtrace::force_capture();
             tracing::error!(
                 "GasCounter: used_gas={} burnt_gas={} promises_gas={} backtrace={:?}",
                 new_used_gas,
