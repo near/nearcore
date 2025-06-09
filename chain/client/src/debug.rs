@@ -653,7 +653,7 @@ impl ClientActorInner {
 
                             DebugChunkStatus {
                                 shard_id: chunk.shard_id().into(),
-                                chunk_hash: chunk.chunk_hash(),
+                                chunk_hash: chunk.chunk_hash().clone(),
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
@@ -870,7 +870,7 @@ impl ClientActorInner {
         {
             // Validation checks.
             if chunk_header.height_included() != block.header().height() {
-                chunk_endorsements.insert(chunk_header.chunk_hash(), 0.0);
+                chunk_endorsements.insert(chunk_header.chunk_hash().clone(), 0.0);
                 continue;
             }
             let Ok(chunk_validator_assignments) =
@@ -880,12 +880,12 @@ impl ClientActorInner {
                     chunk_header.height_created(),
                 )
             else {
-                chunk_endorsements.insert(chunk_header.chunk_hash(), f64::NAN);
+                chunk_endorsements.insert(chunk_header.chunk_hash().clone(), f64::NAN);
                 continue;
             };
             let ordered_chunk_validators = chunk_validator_assignments.ordered_chunk_validators();
             if ordered_chunk_validators.len() != signatures.len() {
-                chunk_endorsements.insert(chunk_header.chunk_hash(), f64::NAN);
+                chunk_endorsements.insert(chunk_header.chunk_hash().clone(), f64::NAN);
                 continue;
             }
             // Compute total stake and endorsed stake.
@@ -898,7 +898,7 @@ impl ClientActorInner {
                     continue;
                 };
                 if !ChunkEndorsement::validate_signature(
-                    chunk_header.chunk_hash(),
+                    chunk_header.chunk_hash().clone(),
                     signature,
                     validator.public_key(),
                 ) {
@@ -909,7 +909,7 @@ impl ClientActorInner {
             let endorsement_state =
                 chunk_validator_assignments.compute_endorsement_state(endorsed_chunk_validators);
             chunk_endorsements.insert(
-                chunk_header.chunk_hash(),
+                chunk_header.chunk_hash().clone(),
                 endorsement_state.endorsed_stake as f64 / endorsement_state.total_stake as f64,
             );
         }

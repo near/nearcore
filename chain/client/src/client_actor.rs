@@ -5,6 +5,7 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
+use crate::chunk_executor_actor::ExecutorBlock;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -20,12 +21,14 @@ use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
-use crate::{StatusResponse, metrics};
+use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
 use actix::Actor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
-use near_async::messaging::{self, CanSend, Handler, IntoMultiSender, LateBoundSender, Sender};
+use near_async::messaging::{
+    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
+};
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSenderFrom};
@@ -34,7 +37,6 @@ use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
 };
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -154,6 +156,7 @@ pub fn start_client(
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
+    let multi_spawner = AsyncComputationMultiSpawner::default();
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -167,7 +170,7 @@ pub fn start_client(
         enable_doomslug,
         seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
-        Arc::new(RayonAsyncComputationSpawner),
+        multi_spawner,
         partial_witness_adapter,
         resharding_sender,
         state_sync_future_spawner,
@@ -191,6 +194,8 @@ pub fn start_client(
         adv,
         config_updater,
         sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+        // TODO(spice): Pass in chunk_executor_sender.
+        noop().into_sender(),
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
@@ -266,6 +271,10 @@ pub struct ClientActorInner {
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
+
+    /// With spice chunk executor executes chunks asynchronously.
+    /// Should be noop sender otherwise.
+    chunk_executor_sender: Sender<ExecutorBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -339,6 +348,7 @@ impl ClientActorInner {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
+        chunk_executor_sender: Sender<ExecutorBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -377,6 +387,7 @@ impl ClientActorInner {
             shutdown_signal,
             config_updater,
             sync_jobs_sender,
+            chunk_executor_sender,
         })
     }
 }
@@ -1001,6 +1012,7 @@ impl ClientActorInner {
         Ok(Some(new_latest_known))
     }
 
+    #[allow(clippy::needless_pass_by_ref_mut)] // &mut self is needed with the sandbox feature
     fn pre_block_production(&mut self) -> Result<(), Error> {
         #[cfg(feature = "sandbox")]
         {
@@ -1015,6 +1027,7 @@ impl ClientActorInner {
         Ok(())
     }
 
+    #[allow(clippy::needless_pass_by_ref_mut)] // &mut self is needed with the sandbox feature
     fn post_block_production(&mut self) {
         #[cfg(feature = "sandbox")]
         if self.fastforward_delta > 0 {
@@ -1480,6 +1493,7 @@ impl ClientActorInner {
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block(), signer);
+            self.chunk_executor_sender.send(ExecutorBlock { block_hash: accepted_block });
         }
     }
 

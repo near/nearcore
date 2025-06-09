@@ -23,7 +23,16 @@ impl Client {
     ) -> Result<(), Error> {
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
-        let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
+        let height = chunk_header.height_created();
+        let _span = tracing::debug_span!(
+            target: "client",
+            "send_chunk_state_witness",
+            chunk_hash=?chunk_header.chunk_hash(),
+            height,
+            %shard_id,
+            tag_block_production = true
+        )
+        .entered();
 
         let my_signer = validator_signer
             .as_ref()
@@ -41,14 +50,13 @@ impl Client {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
 
-        let height = chunk_header.height_created();
         if self
             .epoch_manager
             .get_chunk_validator_assignments(epoch_id, shard_id, height)?
             .contains(my_signer.validator_id())
         {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
-            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), ?shard_id, "send_chunk_endorsement_from_chunk_producer");
+            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), %shard_id, "send_chunk_endorsement_from_chunk_producer");
             if let Some(endorsement) = send_chunk_endorsement_to_block_producers(
                 &chunk_header,
                 self.epoch_manager.as_ref(),

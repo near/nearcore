@@ -767,7 +767,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::ChallengedBlocks => "col17",
         DBCol::StateHeaders => "col18",
         DBCol::InvalidChunks => "col19",
-        DBCol::BlockExtra => "col20",
+        DBCol::_BlockExtra => "col20",
         DBCol::BlockPerHeight => "col21",
         DBCol::StateParts => "col22",
         DBCol::EpochStart => "col23",
@@ -812,12 +812,17 @@ mod tests {
 
     use super::*;
 
+    unsafe fn convert_db_to_rocksdb<'a>(db: &'a dyn Database) -> &'a RocksDB {
+        let ptr = db as *const _ as *const RocksDB;
+        unsafe { &*ptr }
+    }
+
     #[test]
     fn rocksdb_merge_sanity() {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
         let store = opener.open().unwrap().get_hot_store();
-        let ptr = (&*store.storage) as *const (dyn Database + 'static);
-        let rocksdb = unsafe { &*(ptr as *const RocksDB) };
+        let database = store.database();
+        let rocksdb = unsafe { convert_db_to_rocksdb(database) };
         assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         {
             let mut store_update = store.store_update();

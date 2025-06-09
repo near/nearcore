@@ -1,6 +1,5 @@
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, MutableConfigValue};
@@ -11,7 +10,6 @@ use near_primitives::hash::CryptoHash;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
-use std::sync::Arc;
 use tempfile::tempdir;
 
 /// Compute genesis hash from genesis.
@@ -38,7 +36,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
-        Arc::new(RayonAsyncComputationSpawner),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )
@@ -65,7 +63,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
-        Arc::new(RayonAsyncComputationSpawner),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )

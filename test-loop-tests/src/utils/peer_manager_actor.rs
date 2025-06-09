@@ -11,6 +11,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::BlockHeader;
+use near_client::chunk_executor_actor::ExecutorIncomingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
@@ -210,6 +211,7 @@ struct OneClientSenders {
     rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
+    chunk_executor_sender: Sender<ExecutorIncomingReceipts>,
     peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
 }
 
@@ -236,7 +238,8 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
         rpc_handler_sender: s.clone().into_multi_sender(),
         partial_witness_sender: s.clone().into_multi_sender(),
         shards_manager_sender: s.clone().into_sender(),
-        peer_manager_sender: s.into_sender(),
+        peer_manager_sender: s.clone().into_sender(),
+        chunk_executor_sender: s.into_sender(),
     })
 }
 
@@ -262,6 +265,7 @@ impl TestLoopNetworkSharedState {
         PartialWitnessSenderForNetwork: From<&'a D>,
         Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
         Sender<TestLoopNetworkBlockInfo>: From<&'a D>,
+        Sender<ExecutorIncomingReceipts>: From<&'a D>,
     {
         let account_id = AccountId::from(data);
         let peer_id = PeerId::from(data);
@@ -277,6 +281,7 @@ impl TestLoopNetworkSharedState {
                 partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
                 peer_manager_sender: Sender::<TestLoopNetworkBlockInfo>::from(data),
+                chunk_executor_sender: Sender::<ExecutorIncomingReceipts>::from(data),
             }),
         );
     }
@@ -662,6 +667,22 @@ fn network_message_to_shards_manager_handler(
                 .senders_for_account(&my_account_id, &account_id)
                 .shards_manager_sender
                 .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward));
+            None
+        }
+        NetworkRequests::TestonlySpiceIncomingReceipts { block_hash, receipt_proofs } => {
+            for account_id in shared_state.accounts() {
+                // TODO(spice): Exact mock here would depend on data availability layer
+                // implementation.
+                // For now it's unusual compared to other forwarding here since we send message to
+                // my_account_id here as well to make mvp implementation simpler.
+                shared_state
+                    .senders_for_account(&my_account_id, &account_id)
+                    .chunk_executor_sender
+                    .send(ExecutorIncomingReceipts {
+                        block_hash,
+                        receipt_proofs: receipt_proofs.clone(),
+                    });
+            }
             None
         }
         _ => Some(request),

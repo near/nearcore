@@ -1070,12 +1070,12 @@ impl ChunkHeaderView {
 
 impl From<ShardChunkHeader> for ChunkHeaderView {
     fn from(chunk: ShardChunkHeader) -> Self {
-        let hash = chunk.chunk_hash();
+        let hash = chunk.chunk_hash().0;
         let signature = chunk.signature().clone();
         let height_included = chunk.height_included();
         let inner = chunk.take_inner();
         ChunkHeaderView {
-            chunk_hash: hash.0,
+            chunk_hash: hash,
             prev_block_hash: *inner.prev_block_hash(),
             outcome_root: *inner.prev_outcome_root(),
             prev_state_root: *inner.prev_state_root(),
@@ -2328,6 +2328,7 @@ pub struct CurrentEpochValidatorInfo {
     #[serde(default)]
     pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
     /// Shards this validator is assigned to as chunk validator in the current epoch.
+    #[serde(default)]
     pub shards_endorsed: Vec<ShardId>,
 }
 

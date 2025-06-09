@@ -328,3 +328,30 @@ pub(crate) static STATE_TRANSITION_DATA_GC_TIME: LazyLock<Histogram> = LazyLock:
     )
     .unwrap()
 });
+
+pub(crate) static CHAIN_VALIDITY_PERIOD_CHECK_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chain_validity_period_check_delay",
+        "how far back in the past is the validity period we're checking (not 100% precise!)",
+        vec![5.0, 10.0, 20.0, 40.0, 60.0, 120.0, 180.0],
+    )
+    .unwrap()
+});
+
+pub(crate) static THREAD_POOL_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_thread_pool_num_threads",
+        "current number of threads in apply chunks thread pool",
+        &["pool_name"],
+    )
+    .unwrap()
+});
+
+pub(crate) static THREAD_POOL_MAX_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_thread_pool_max_num_threads",
+        "maximum observed number of threads in apply chunks thread pool",
+        &["pool_name"],
+    )
+    .unwrap()
+});

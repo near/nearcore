@@ -116,7 +116,7 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_hot_store(&self) -> Store {
-        Store { storage: self.hot_storage.clone() }
+        Store::new(self.hot_storage.clone())
     }
 
     /// Returns the cold store. The cold store is only available in archival
@@ -128,7 +128,7 @@ impl NodeStorage {
     /// loop should use cold store.
     pub fn get_cold_store(&self) -> Option<Store> {
         match &self.cold_storage {
-            Some(cold_storage) => Some(Store { storage: cold_storage.clone() }),
+            Some(cold_storage) => Some(Store::new(cold_storage.clone())),
             None => None,
         }
     }
@@ -140,7 +140,7 @@ impl NodeStorage {
     pub fn get_recovery_store(&self) -> Option<Store> {
         match &self.cold_storage {
             Some(cold_storage) => {
-                Some(Store { storage: Arc::new(crate::db::RecoveryDB::new(cold_storage.clone())) })
+                Some(Store::new(Arc::new(crate::db::RecoveryDB::new(cold_storage.clone()))))
             }
             None => None,
         }
@@ -154,7 +154,7 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_split_store(&self) -> Option<Store> {
-        self.get_split_db().map(|split_db| Store { storage: split_db })
+        self.get_split_db().map(|split_db| Store::new(split_db))
     }
 
     pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {

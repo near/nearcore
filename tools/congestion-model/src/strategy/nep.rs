@@ -222,7 +222,7 @@ impl NepStrategy {
 
         tracing::debug!(
             target: "model",
-            shard_id=?self.shard_id(),
+            shard_id=%self.shard_id(),
             incoming_congestion=format!("{incoming_congestion:.2}"),
             outgoing_congestion=format!("{outgoing_congestion:.2}"),
             "chunk info"

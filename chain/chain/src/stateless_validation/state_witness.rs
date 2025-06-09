@@ -1,5 +1,5 @@
 use crate::store::ChainStoreAccess;
-use crate::{BlockHeader, Chain, ChainStore, ReceiptFilter, get_incoming_receipts_for_shard};
+use crate::{BlockHeader, ChainStore, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -68,6 +68,7 @@ impl ChainStore {
             prev_chunk_header,
         )?;
 
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let state_witness = ChunkStateWitness::new(
             chunk_producer,
             epoch_id,
@@ -80,6 +81,7 @@ impl ChainStore {
             applied_receipts_hash,
             prev_chunk.to_transactions().to_vec(),
             implicit_transitions,
+            protocol_version,
         );
         Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })
     }
@@ -281,11 +283,8 @@ impl ChainStore {
         // We are interested in all incoming receipts that weren't handled by `prev_prev_chunk`.
         let prev_prev_chunk_block = self.get_block(prev_chunk_original_block.prev_hash())?;
         // Find the header of the chunk before `prev_chunk`
-        let prev_prev_chunk_header = Chain::get_prev_chunk_header(
-            epoch_manager,
-            &prev_prev_chunk_block,
-            prev_chunk_header.shard_id(),
-        )?;
+        let prev_prev_chunk_header = epoch_manager
+            .get_prev_chunk_header(&prev_prev_chunk_block, prev_chunk_header.shard_id())?;
 
         // Fetch all incoming receipts for `prev_chunk`.
         // They will be between `prev_prev_chunk.height_included` (first block containing `prev_prev_chunk`)
@@ -310,8 +309,8 @@ impl ChainStore {
             for proof in receipt_proof_response.1.iter() {
                 let from_shard_id = proof.1.from_shard_id;
                 let from_shard_index = shard_layout.get_shard_index(from_shard_id)?;
-                let from_chunk_hash = from_block
-                    .chunks()
+                let from_block_chunks = from_block.chunks();
+                let from_chunk_hash = from_block_chunks
                     .get(from_shard_index)
                     .ok_or(Error::InvalidShardId(proof.1.from_shard_id))?
                     .chunk_hash();

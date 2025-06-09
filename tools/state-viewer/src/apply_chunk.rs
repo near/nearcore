@@ -92,12 +92,12 @@ pub fn apply_chunk(
     epoch_manager: &EpochManagerHandle,
     runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
-    chunk_hash: ChunkHash,
+    chunk_hash: &ChunkHash,
     target_height: Option<u64>,
     rng: Option<StdRng>,
     storage: StorageSource,
 ) -> anyhow::Result<(ApplyChunkResult, Gas)> {
-    let chunk = chain_store.get_chunk(&chunk_hash)?;
+    let chunk = chain_store.get_chunk(chunk_hash)?;
     let chunk_header = chunk.cloned_header();
 
     // This doesn't work at resharding epoch boundary if there are missing chunks.
@@ -155,7 +155,7 @@ pub fn apply_chunk(
     let receipts = get_incoming_receipts(
         chain_store,
         epoch_manager,
-        &chunk_hash,
+        chunk_hash,
         shard_id,
         target_height,
         prev_block_hash,
@@ -215,12 +215,13 @@ fn find_tx_or_receipt(
     chain_store: &ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(block_hash)?;
-    let chunk_hashes = block.chunks().iter_deprecated().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+    let chunks = block.chunks();
 
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
 
-    for (shard_index, chunk_hash) in chunk_hashes.iter().enumerate() {
+    let chunk_hashes = chunks.iter_deprecated().map(|c| c.chunk_hash());
+    for (shard_index, chunk_hash) in chunk_hashes.enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =
             chain_store.get_chunk(chunk_hash).context("Failed looking up candidate chunk")?;
@@ -346,7 +347,7 @@ fn apply_tx_in_chunk(
             &chunk_hash.0, &chunk_hash.0
         );
         let (apply_result, gas_limit) =
-            apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None, storage)?;
+            apply_chunk(epoch_manager, runtime, chain_store, &chunk_hash, None, None, storage)?;
         println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
         results.push(apply_result);
     }
@@ -500,15 +501,8 @@ fn apply_receipt_in_chunk(
             "Applying chunk at height {} in shard {}. Equivalent command (which will run faster than apply_receipt):\nview_state apply_chunk --chunk_hash {}\n",
             height, shard_id, chunk_hash.0
         );
-        let (apply_result, gas_limit) = apply_chunk(
-            epoch_manager,
-            runtime,
-            chain_store,
-            chunk_hash.clone(),
-            None,
-            None,
-            storage,
-        )?;
+        let (apply_result, gas_limit) =
+            apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None, storage)?;
         let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit);
         println!("resulting chunk extra:\n{:?}", chunk_extra);
         results.push(apply_result);

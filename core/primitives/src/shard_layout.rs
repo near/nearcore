@@ -795,6 +795,7 @@ fn validate_and_derive_shard_parent_map_v2(
     Ord,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ShardUId {
     pub version: ShardVersion,
     pub shard_id: u32,
@@ -985,6 +986,7 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct ShardInfo {
     pub shard_index: ShardIndex,
     pub shard_uid: ShardUId,

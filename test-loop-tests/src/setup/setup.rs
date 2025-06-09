@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
@@ -12,11 +13,13 @@ use near_chain::state_snapshot_actor::{
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
+use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
-    Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig, ViewClientActorInner,
+    AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
+    ViewClientActorInner,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -60,6 +63,7 @@ pub fn setup_client(
     let partial_witness_adapter = LateBoundSender::new();
     let sync_jobs_adapter = LateBoundSender::new();
     let resharding_sender = LateBoundSender::new();
+    let chunk_executor_adapter = LateBoundSender::new();
 
     let homedir = tempdir.path().join(format!("{}", identifier));
     std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
@@ -121,6 +125,9 @@ pub fn setup_client(
     // Make sure this is the same as the account_id of the client to redirect the network messages properly.
     let peer_id = PeerId::new(create_test_signer(account_id.as_str()).public_key());
 
+    let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
+        test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
+    ));
     let client = Client::new(
         test_loop.clock(),
         client_config.clone(),
@@ -134,7 +141,7 @@ pub fn setup_client(
         true,
         [0; 32],
         Some(snapshot_callbacks),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        multi_spawner,
         partial_witness_adapter.as_multi_sender(),
         resharding_sender.as_multi_sender(),
         Arc::new(test_loop.future_spawner(identifier)),
@@ -198,6 +205,11 @@ pub fn setup_client(
         Duration::milliseconds(100),
     );
 
+    let chunk_executor_sender = if cfg!(feature = "protocol_feature_spice") {
+        chunk_executor_adapter.as_sender()
+    } else {
+        noop().into_sender()
+    };
     let client_actor = ClientActorInner::new(
         test_loop.clock(),
         client,
@@ -208,6 +220,7 @@ pub fn setup_client(
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
+        chunk_executor_sender,
     )
     .unwrap();
 
@@ -271,6 +284,25 @@ pub fn setup_client(
         client_config.resharding_config.clone(),
     );
 
+    let chunk_executor_actor = ChunkExecutorActor::new(
+        runtime_adapter.store().clone(),
+        &chain_genesis,
+        *client_actor.client.chain.genesis().hash(),
+        runtime_adapter.clone(),
+        epoch_manager.clone(),
+        validator_signer.clone(),
+        shard_tracker.clone(),
+        network_adapter.as_multi_sender(),
+        NonZeroUsize::new(1000).unwrap(),
+        NonZeroUsize::new(1000).unwrap(),
+    );
+
+    let chunk_executor_sender = test_loop.data.register_actor(
+        identifier,
+        chunk_executor_actor,
+        Some(chunk_executor_adapter),
+    );
+
     let state_sync_dumper = StateSyncDumper {
         clock: test_loop.clock(),
         client_config,
@@ -322,6 +354,7 @@ pub fn setup_client(
         peer_manager_sender,
         resharding_sender,
         state_sync_dumper_handle,
+        chunk_executor_sender,
     };
 
     // Add the client to the network shared state before returning data

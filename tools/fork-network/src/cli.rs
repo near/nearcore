@@ -177,7 +177,8 @@ pub(crate) fn make_state_roots_key(shard_uid: ShardUId) -> Vec<u8> {
 }
 
 /// The minimum set of columns that will be needed to start a node after the `finalize` command runs
-const COLUMNS_TO_KEEP: &[DBCol] = &[DBCol::DbVersion, DBCol::Misc, DBCol::State, DBCol::FlatState];
+const COLUMNS_TO_KEEP: &[DBCol] =
+    &[DBCol::DbVersion, DBCol::Misc, DBCol::State, DBCol::FlatState, DBCol::StateShardUIdMapping];
 
 /// Extra columns needed in the setup before the `finalize` command
 const SETUP_COLUMNS_TO_KEEP: &[DBCol] =

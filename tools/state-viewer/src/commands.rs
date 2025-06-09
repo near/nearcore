@@ -229,7 +229,7 @@ pub(crate) fn apply_chunk(
         epoch_manager.as_ref(),
         runtime.as_ref(),
         &mut chain_store,
-        chunk_hash,
+        &chunk_hash,
         target_height,
         None,
         storage,
@@ -240,6 +240,7 @@ pub(crate) fn apply_chunk(
 
 pub(crate) fn apply_range(
     mode: ApplyRangeMode,
+    storage: StorageSource,
     start_index: Option<BlockHeight>,
     end_index: Option<BlockHeight>,
     shard_id: ShardId,
@@ -250,7 +251,6 @@ pub(crate) fn apply_range(
     read_store: Store,
     write_store: Option<Store>,
     only_contracts: bool,
-    storage: StorageSource,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
@@ -649,7 +649,8 @@ pub(crate) fn print_chain(
                             .map(|info| info.account_id().to_string())
                             .unwrap_or_else(|_| "CP Unknown".to_owned());
                         if header.chunk_mask()[shard_index] {
-                            let chunk_hash = &block.chunks()[shard_index].chunk_hash();
+                            let chunks = block.chunks();
+                            let chunk_hash = chunks[shard_index].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
                                 chunk_debug_str.push(format!(
                                     "{}: {} {: >3} Tgas {: >10}",

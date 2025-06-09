@@ -58,7 +58,6 @@ use near_primitives::utils::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::apply::ApplyChunkReason;
-use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
@@ -2109,7 +2108,6 @@ impl Runtime {
         let epoch_info_provider = processing_state.epoch_info_provider;
         let mut stats = processing_state.stats;
         let mut state_update = processing_state.state_update;
-        let protocol_version = apply_state.current_protocol_version;
         let pending_delayed_receipts = processing_state.delayed_receipts;
         let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
         let promise_yield_result = process_receipts_result.promise_yield_result;
@@ -2131,19 +2129,12 @@ impl Runtime {
         let mut own_congestion_info = receipt_sink.own_congestion_info();
         pending_delayed_receipts.apply_congestion_changes(&mut own_congestion_info)?;
 
-        let (all_shards, shard_seed) =
-            if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
-                let shard_ids = shard_layout.shard_ids().collect_vec();
-                let shard_index = shard_layout
-                    .get_shard_index(apply_state.shard_id)
-                    .map_err(Into::<EpochError>::into)?
-                    .try_into()
-                    .expect("Shard Index must fit within u64");
-
-                (shard_ids, shard_index)
-            } else {
-                (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
-            };
+        let all_shards = shard_layout.shard_ids().collect_vec();
+        let shard_seed = shard_layout
+            .get_shard_index(apply_state.shard_id)
+            .map_err(Into::<EpochError>::into)?
+            .try_into()
+            .expect("Shard Index must fit within u64");
 
         let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
         own_congestion_info.finalize_allowed_shard(
