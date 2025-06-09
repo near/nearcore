@@ -6,7 +6,7 @@
 **No Changes**
 
 ### Non-protocol Changes
-**No Changes**
+* Moved Tier1 configuration from experimental to top level config. Validator operators should update their configurations accordingly. ([#13575](https://github.com/near/nearcore/pull/13575))
 
 ## [2.7.0]
 
@@ -347,7 +347,7 @@ to pay for the storage of their accounts.
   [#7548](https://github.com/near/nearcore/pull/7548)
 * Few changes to `view_state` JSON RPC query:
   - The request has now an optional `include_proof` argument.  When set to
-    `true`, response’s `proof` will be populated.
+    `true`, response's `proof` will be populated.
   - The `proof` within each value in `values` list of a `view_state` response is
     now deprecated and will be removed in the future.  Client code should ignore
     the field.
@@ -407,7 +407,7 @@ to pay for the storage of their accounts.
   RocksDB configurable via `config.json` file (at `store.path` path)
   rather than being hard-coded to `data` directory in neard home
   directory [#6938](https://github.com/near/nearcore/pull/6938)
-* Removed `testnet` alias for `localnet` command; it’s been deprecated
+* Removed `testnet` alias for `localnet` command; it's been deprecated
   since 1.24 [#7033](https://github.com/near/nearcore/pull/7033)
 * Removed undocumented `unsafe_reset_all` and `unsafe_reset_data`
   commands; they were deprecated since 1.25
@@ -430,7 +430,7 @@ to pay for the storage of their accounts.
 * Removed `near_<msg-type>_{total,bytes}` [#6661](https://github.com/near/nearcore/pull/6661), `near_<msg-type>_dropped`, `near_drop_message_unknown_account` and `near_dropped_messages_count` [#6678](https://github.com/near/nearcore/pull/6678) metrics.
 * Added `near_action_called_count` metric [#6679]((https://github.com/near/nearcore/pull/6679)
 * Removed `near_action_<action-type>_total` metrics [#6679]((https://github.com/near/nearcore/pull/6679)
-* Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
+* Added `near_build_info` metric which exports neard's build information [#6680](https://github.com/near/nearcore/pull/6680)
 * Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
 * Use correct cost in gas profile for adding function call key [#6749](https://github.com/near/nearcore/pull/6749)
 
@@ -485,7 +485,7 @@ to pay for the storage of their accounts.
 
 ### Non-protocol Changes
 
-* Fix a bug in chunk requesting where validator might request chunks even if parent block hasn’t been processed yet.
+* Fix a bug in chunk requesting where validator might request chunks even if parent block hasn't been processed yet.
 * Fix memory leak in near-network.
 * Change block sync to request 5 blocks at a time
 * Change NUM_ORPHAN_ANCESTORS_CHECK to 3
