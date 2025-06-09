@@ -1704,7 +1704,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
     pub fn gas(&mut self, gas: Gas) -> Result<()> {
-        self.result_state.gas_counter.burn_gas(Gas::from(gas))
+        let result = self.result_state.gas_counter.burn_gas(Gas::from(gas));
+        if result.is_err() {
+            tracing::error!(?gas, "gas");
+        }
+        result
     }
 
     pub fn gas_opcodes(&mut self, opcodes: u32) -> Result<()> {

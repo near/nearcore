@@ -155,7 +155,7 @@ impl GasCounter {
             // here…
             //
             // [CONTINUATION IN THE NEXT COMMENT]
-            tracing::error!("burn_gas");
+            tracing::error!(limit=?self.fast_counter.gas_limit, ?new_burnt_gas, ?gas_burnt, "burn_gas");
             let new_used_gas = new_burnt_gas.wrapping_add(self.promises_gas);
             Err(self.process_gas_limit(new_burnt_gas, new_used_gas).into())
         }
@@ -302,6 +302,9 @@ impl GasCounter {
         self.inc_ext_costs_counter(cost, num);
         let old_burnt_gas = self.fast_counter.burnt_gas;
         let burn_gas_result = self.burn_gas(use_gas);
+        if burn_gas_result.is_err() {
+            tracing::error!("pay_per failed: cost={:?}, num={}", cost, num);
+        }
         self.update_profile_host(cost, self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas));
         burn_gas_result
     }
@@ -312,6 +315,9 @@ impl GasCounter {
         self.inc_ext_costs_counter(cost, 1);
         let old_burnt_gas = self.fast_counter.burnt_gas;
         let burn_gas_result = self.burn_gas(base_fee);
+        if burn_gas_result.is_err() {
+            tracing::error!("pay_base failed: cost={:?}", cost);
+        }
         self.update_profile_host(cost, self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas));
         burn_gas_result
     }
