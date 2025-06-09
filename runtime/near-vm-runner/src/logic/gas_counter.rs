@@ -133,6 +133,7 @@ impl GasCounter {
             self.promises_gas = new_promises_gas;
             Ok(())
         } else {
+            tracing::error!("deduct_gas");
             Err(self.process_gas_limit(new_burnt_gas, new_used_gas).into())
         }
     }
@@ -154,6 +155,7 @@ impl GasCounter {
             // here…
             //
             // [CONTINUATION IN THE NEXT COMMENT]
+            tracing::error!("burn_gas");
             let new_used_gas = new_burnt_gas.wrapping_add(self.promises_gas);
             Err(self.process_gas_limit(new_burnt_gas, new_used_gas).into())
         }

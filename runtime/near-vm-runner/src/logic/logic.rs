@@ -3560,6 +3560,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     pub fn process_gas_limit(&mut self) -> HostError {
         let new_burn_gas = self.result_state.gas_counter.burnt_gas();
         let new_used_gas = self.result_state.gas_counter.used_gas();
+        tracing::error!("process_gas_limit");
         self.result_state.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
     }
 
