@@ -593,6 +593,9 @@ class LocalNode(BaseNode):
             skip_starting_proxy=False,
             extra_env: typing.Dict[str, str] = dict(),
     ):
+        if "RUST_BACKTRACE" not in extra_env:
+            extra_env["RUST_BACKTRACE"] = "1"
+
         logger.info(f"Starting node {self.ordinal}.")
         cmd = self._get_command_line(
             self.near_root,
@@ -892,7 +895,9 @@ def spin_up_node(
     if proxy is not None:
         proxy.proxify_node(node)
 
-    node.start(boot_node=boot_node, skip_starting_proxy=skip_starting_proxy)
+    node.start(boot_node=boot_node,
+               skip_starting_proxy=skip_starting_proxy,
+               extra_env={})
     time.sleep(sleep_after_start)
     logger.info(f"node {ordinal} started")
     return node

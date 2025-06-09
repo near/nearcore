@@ -43,9 +43,11 @@ class SlowChunkTest(unittest.TestCase):
             **rpc_client_config_changes,
         }
 
+        contract = load_test_contract('rs_contract.wasm')
+
         # Configure long epoch to not worry about full epoch without chunks.
         genesis_config_changes = [["epoch_length", 100]]
-        [node1, node2, node3, node4, rpc] = start_cluster(
+        [node0, node1, node2, node3, rpc] = start_cluster(
             n,
             1,
             1,
@@ -56,11 +58,12 @@ class SlowChunkTest(unittest.TestCase):
 
         # The chain is slow to warm up. Wait until the chain is ready otherwise
         # the missing chunks congestion will kick in due to missing blocks.
-        list(poll_blocks(rpc, __target=10))
+        block_id = list(poll_blocks(rpc, __target=10))[-1]
+        block_hash = block_id.hash_bytes
 
-        self.__deploy_contract(rpc)
+        self.__deploy_contract(rpc, block_hash, contract)
 
-        self.__call_contract(rpc)
+        self.__call_contract(rpc, block_hash)
 
         # Wait until the chain recovers and all chunks are present.
         recovered = False
@@ -75,19 +78,22 @@ class SlowChunkTest(unittest.TestCase):
 
         self.assertTrue(recovered)
 
-    def __deploy_contract(self, node):
-        logger.info("Deploying contract.")
+        # Check that all nodes are alive.
+        for (i, node) in enumerate([node0, node1, node2, node3]):
+            logger.info(f"Checking node {i} status.")
+            try:
+                node.get_status()
+            except Exception as e:
+                self.fail(f"Node {i} is not alive.")
 
-        block_hash = node.get_latest_block().hash_bytes
-        contract = load_test_contract('rs_contract.wasm')
+    def __deploy_contract(self, node, block_hash, contract):
+        logger.info("Deploying contract.")
 
         tx = sign_deploy_contract_tx(node.signer_key, contract, 10, block_hash)
         node.send_tx(tx)
 
-    def __call_contract(self, node):
+    def __call_contract(self, node, block_hash):
         logger.info("Calling contract.")
-
-        block_hash = node.get_latest_block().hash_bytes
 
         # duration is measured in nanoseconds
         second = int(1e9)
