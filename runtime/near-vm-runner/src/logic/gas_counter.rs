@@ -204,8 +204,8 @@ impl GasCounter {
                 self.promises_gas,
                 backtrace
             );
-            panic!("BOOM 1");
-            // HostError::GasExceeded
+            // panic!("BOOM 1");
+            HostError::GasExceeded
         }
     }
 
