@@ -6,7 +6,7 @@
 **No Changes**
 
 ### Non-protocol Changes
-* Moved Tier1 configuration from experimental to top level config. Validator operators should update their configurations accordingly. ([#13575](https://github.com/near/nearcore/pull/13575))
+* Moved Tier1 configuration from experimental to top level config. No action is necessary as the default values are the recommended ones. ([#13575](https://github.com/near/nearcore/pull/13575))
 
 ## [2.7.0]
 
