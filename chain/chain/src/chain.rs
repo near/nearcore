@@ -573,7 +573,7 @@ impl Chain {
         let resharding_manager =
             ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
 
-        let num_shards = shard_layout.num_shards() as usize;
+        let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         let apply_chunks_spawner = apply_chunks_spawner.into_spawner(num_shards);
         Ok(Chain {
             clock: clock.clone(),
