@@ -300,6 +300,7 @@ impl GasCounter {
             num.checked_mul(cost.gas(&self.ext_costs_config)).ok_or(HostError::IntegerOverflow)?;
 
         self.inc_ext_costs_counter(cost, num);
+        tracing::debug!("BOOM pay_per: cost={:?}, num={}, use_gas={}", cost, num, use_gas);
         let old_burnt_gas = self.fast_counter.burnt_gas;
         let burn_gas_result = self.burn_gas(use_gas);
         if burn_gas_result.is_err() {
@@ -314,6 +315,7 @@ impl GasCounter {
         let base_fee = cost.gas(&self.ext_costs_config);
         self.inc_ext_costs_counter(cost, 1);
         let old_burnt_gas = self.fast_counter.burnt_gas;
+        tracing::debug!("BOOM pay_base: cost={:?}, use_gas={}", cost, base_fee);
         let burn_gas_result = self.burn_gas(base_fee);
         if burn_gas_result.is_err() {
             tracing::error!("pay_base failed: cost={:?}", cost);
