@@ -48,7 +48,7 @@ class SlowChunkTest(unittest.TestCase):
         [node1, node2, node3, node4, rpc] = start_cluster(
             n,
             1,
-            n,
+            1,
             None,
             genesis_config_changes,
             client_config_changes,
