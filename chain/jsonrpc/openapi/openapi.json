@@ -12585,6 +12585,10 @@
             ],
             "description": "Describes limits for VM and Runtime.\n\n TODO: Consider changing this to `VMLimitConfigView` to avoid dependency\n on runtime."
           },
+          "reftypes_bulk_memory": {
+            "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
+            "type": "boolean"
+          },
           "regular_op_cost": {
             "description": "Gas cost of a regular operation.",
             "format": "uint32",
@@ -12620,6 +12624,7 @@
           "discard_custom_sections",
           "saturating_float_to_int",
           "global_contract_host_fns",
+          "reftypes_bulk_memory",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",
@@ -12655,6 +12660,13 @@
             "description": "NearVM.",
             "enum": [
               "NearVm"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "NearVM. Exists temporarily while bulk memory and reftypes are getting enabled.",
+            "enum": [
+              "NearVm2"
             ],
             "type": "string"
           }
