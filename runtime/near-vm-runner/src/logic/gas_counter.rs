@@ -193,7 +193,8 @@ impl GasCounter {
         if new_burnt_gas > self.max_gas_burnt {
             HostError::GasLimitExceeded
         } else {
-            HostError::GasExceeded
+            panic!("BOOM 1");
+            // HostError::GasExceeded
         }
     }
 
@@ -238,9 +239,10 @@ impl GasCounter {
         }
         if config.fix_contract_loading_cost {
             if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
-                let error =
-                    super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
-                return Err(error);
+                panic!("BOOM 2");
+                // let error =
+                //     super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
+                // return Err(error);
             }
         }
         Ok(())
@@ -253,11 +255,14 @@ impl GasCounter {
         config: &near_parameters::vm::Config,
         wasm_code_bytes: u64,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
+        use core::panic;
+
         if !config.fix_contract_loading_cost {
             if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
-                return Err(super::errors::FunctionCallError::HostError(
-                    super::HostError::GasExceeded,
-                ));
+                panic!("BOOM 3");
+                // return Err(super::errors::FunctionCallError::HostError(
+                // super::HostError::GasExceeded,
+                // ));
             }
         }
         Ok(())

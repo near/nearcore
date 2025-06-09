@@ -75,7 +75,10 @@ fn translate_runtime_error(
         panic!("runtime error is not a trap: {}", msg);
     });
     Ok(match trap_code {
-        TrapCode::GasExceeded => FunctionCallError::HostError(logic.process_gas_limit()),
+        TrapCode::GasExceeded => {
+            panic!("BOOM 4");
+            // FunctionCallError::HostError(logic.process_gas_limit()),
+        }
         TrapCode::StackOverflow => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
         TrapCode::HeapAccessOutOfBounds => FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
         TrapCode::HeapMisaligned => FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess),
