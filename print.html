@@ -6249,7 +6249,7 @@ launching the nodes and waiting for a particular message to occur, with a
 predefined timeout.</p>
 <p>For the most basic example of using this infrastructure see <code>produce_two_blocks</code>
 in
-<a href="https://github.com/near/nearcore/blob/master/chain/client/src/tests/process_blocks.rs"><code>tests/process_blocks.rs</code></a>.</p>
+<a href="https://github.com/near/nearcore/blob/master/integration-tests/src/tests/client/process_blocks.rs"><code>tests/process_blocks.rs</code></a>.</p>
 <ol>
 <li>The callback (<code>Box::new(move |msg, _ctx, _| { ...</code>) is what is executed
 whenever the client sends a message. The return value of the callback is sent
