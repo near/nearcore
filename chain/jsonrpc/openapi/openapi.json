@@ -4682,6 +4682,29 @@
         },
         "type": "object"
       },
+      "GasKeyView": {
+        "properties": {
+          "balance": {
+            "format": "uint128",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "num_nonces": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/AccessKeyPermissionView"
+          }
+        },
+        "required": [
+          "num_nonces",
+          "balance",
+          "permission"
+        ],
+        "type": "object"
+      },
       "GenesisConfig": {
         "properties": {
           "avg_hidden_validator_seats_per_shard": {
@@ -10236,6 +10259,27 @@
               },
               {
                 "properties": {
+                  "changes_type": {
+                    "enum": [
+                      "single_gas_key_changes"
+                    ],
+                    "type": "string"
+                  },
+                  "keys": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountWithPublicKey"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "keys"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
                   "account_ids": {
                     "items": {
                       "$ref": "#/components/schemas/AccountId"
@@ -10245,6 +10289,27 @@
                   "changes_type": {
                     "enum": [
                       "all_access_key_changes"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "all_gas_key_changes"
                     ],
                     "type": "string"
                   }
@@ -11489,6 +11554,112 @@
               "type": {
                 "enum": [
                   "access_key_deletion"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "change"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "change": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "gas_key": {
+                    "$ref": "#/components/schemas/GasKeyView"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key",
+                  "gas_key"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "enum": [
+                  "gas_key_update"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "change"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "change": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "index": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key",
+                  "index",
+                  "nonce"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "enum": [
+                  "gas_key_nonce_update"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "change"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "change": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "enum": [
+                  "gas_key_deletion"
                 ],
                 "type": "string"
               }
