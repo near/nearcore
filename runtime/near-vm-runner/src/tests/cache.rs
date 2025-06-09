@@ -23,7 +23,7 @@ fn test_caches_compilation_error() {
     with_vm_variants(&config, |vm_kind: VMKind| {
         // The cache is currently properly implemented only for NearVM
         match vm_kind {
-            VMKind::NearVm => {}
+            VMKind::NearVm | VMKind::NearVm2 => {}
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::Wasmtime => return,
         }
         let cache = MockContractRuntimeCache::default();
@@ -63,7 +63,7 @@ fn test_does_not_cache_io_error() {
     let config = Arc::new(test_vm_config());
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
-            VMKind::NearVm => {}
+            VMKind::NearVm | VMKind::NearVm2 => {}
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::Wasmtime => return,
         }
 
