@@ -4,6 +4,7 @@ use super::errors::{HostError, VMLogicError};
 use crate::ProfileDataV3;
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
 use near_primitives_core::types::Gas;
+use std::backtrace;
 use std::collections::HashMap;
 
 #[inline]
@@ -193,6 +194,14 @@ impl GasCounter {
         if new_burnt_gas > self.max_gas_burnt {
             HostError::GasLimitExceeded
         } else {
+            let backtrace = backtrace::Backtrace::capture();
+            tracing::error!(
+                "GasCounter: used_gas={} burnt_gas={} promises_gas={} backtrace={:?}",
+                new_used_gas,
+                self.fast_counter.burnt_gas,
+                self.promises_gas,
+                backtrace
+            );
             panic!("BOOM 1");
             // HostError::GasExceeded
         }
