@@ -1,5 +1,4 @@
 saturating_float_to_int: { old: false, new: true }
-reftypes_bulk_memory: { old: false, new: false }
 
 # [NEP-536](https://github.com/near/NEPs/pull/536)
 pessimistic_gas_price_inflation:
