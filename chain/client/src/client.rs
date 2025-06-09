@@ -4,6 +4,8 @@
 
 use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributionNetwork};
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
+#[cfg(feature = "test_features")]
+use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
@@ -27,13 +29,14 @@ use near_chain::chain::{
     VerifyBlockHashAndSignatureResult,
 };
 use near_chain::orphan::OrphanMissingChunks;
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
-    BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
-    DoomslugThresholdMode, Provenance,
+    ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
+    ChainStoreAccess, Doomslug, DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -73,9 +76,6 @@ use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{debug, debug_span, error, info, warn};
-
-#[cfg(feature = "test_features")]
-use crate::chunk_producer::AdvProduceChunksMode;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -203,6 +203,45 @@ impl Client {
     }
 }
 
+/// A collection of async computation spawners which will be used for various
+/// kinds of tasks run by the `Client`.
+pub struct AsyncComputationMultiSpawner {
+    /// Spawner to run 'apply chunks' tasks (see `ApplyChunksSpawner` for default)
+    apply_chunks: ApplyChunksSpawner,
+    /// Spawner to run 'epoch sync' tasks (defaults to `RayonAsyncComputationSpawner`)
+    epoch_sync: Arc<dyn AsyncComputationSpawner>,
+    /// Spawner to run 'stateless validation' tasks (defaults to `RayonAsyncComputationSpawner`)
+    stateless_validation: Arc<dyn AsyncComputationSpawner>,
+}
+
+impl Default for AsyncComputationMultiSpawner {
+    fn default() -> Self {
+        let rayon_spawner = Arc::new(RayonAsyncComputationSpawner);
+        Self {
+            apply_chunks: Default::default(),
+            epoch_sync: rayon_spawner.clone(),
+            stateless_validation: rayon_spawner,
+        }
+    }
+}
+
+impl AsyncComputationMultiSpawner {
+    /// Use a custom spawner for all kinds of tasks.
+    pub fn all_custom(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
+        Self {
+            apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
+            epoch_sync: spawner.clone(),
+            stateless_validation: spawner,
+        }
+    }
+
+    /// Use a custom spawner for 'apply chunks' tasks
+    pub fn custom_apply_chunks(mut self, spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
+        self.apply_chunks = ApplyChunksSpawner::Custom(spawner);
+        self
+    }
+}
+
 impl Client {
     pub fn new(
         clock: Clock,
@@ -217,7 +256,7 @@ impl Client {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
-        async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
+        multi_spawner: AsyncComputationMultiSpawner,
         partial_witness_adapter: PartialWitnessSenderForClient,
         resharding_sender: ReshardingSender,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
@@ -244,7 +283,7 @@ impl Client {
             doomslug_threshold_mode,
             chain_config,
             snapshot_callbacks,
-            async_computation_spawner.clone(),
+            multi_spawner.apply_chunks,
             validator_signer.clone(),
             resharding_sender.clone(),
         )?;
@@ -253,7 +292,7 @@ impl Client {
             clock.clone(),
             network_adapter.clone(),
             chain.genesis().clone(),
-            async_computation_spawner.clone(),
+            multi_spawner.epoch_sync,
             config.epoch_sync.clone(),
             &chain.chain_store.store(),
         );
@@ -320,7 +359,7 @@ impl Client {
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
             config.orphan_state_witness_pool_size,
-            async_computation_spawner,
+            multi_spawner.stateless_validation,
         );
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {

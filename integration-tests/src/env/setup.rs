@@ -26,9 +26,9 @@ use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
 use near_client::{
-    Client, ClientActor, PartialWitnessActor, PartialWitnessSenderForClient, RpcHandler,
-    RpcHandlerConfig, StartClientResult, SyncStatus, ViewClientActor, ViewClientActorInner,
-    start_client,
+    AsyncComputationMultiSpawner, Client, ClientActor, PartialWitnessActor,
+    PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
+    ViewClientActor, ViewClientActorInner, start_client,
 };
 use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
@@ -432,6 +432,8 @@ pub fn setup_client_with_runtime(
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
+    let multi_spawner = AsyncComputationMultiSpawner::default()
+        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
     let mut client = Client::new(
         clock,
         config,
@@ -445,7 +447,7 @@ pub fn setup_client_with_runtime(
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
-        Arc::new(RayonAsyncComputationSpawner),
+        multi_spawner,
         partial_witness_adapter,
         resharding_sender,
         Arc::new(ActixFutureSpawner),
@@ -490,7 +492,7 @@ pub fn setup_synchronous_shards_manager(
             ),
         }, // irrelevant
         None,
-        Arc::new(RayonAsyncComputationSpawner),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )
