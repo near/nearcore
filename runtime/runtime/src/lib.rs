@@ -901,9 +901,11 @@ impl Runtime {
             .filter_map(|(receipt_index, mut new_receipt)| {
                 let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), receipt_index);
                 new_receipt.set_receipt_id(receipt_id);
-                let is_action = matches!(
+                let should_include = matches!(
                     new_receipt.receipt(),
-                    ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
+                    ReceiptEnum::Action(_)
+                        | ReceiptEnum::PromiseYield(_)
+                        | ReceiptEnum::GlobalContractDistribution(_)
                 );
 
                 let res = receipt_sink.forward_or_buffer_receipt(
@@ -914,7 +916,7 @@ impl Runtime {
                 );
                 if let Err(e) = res {
                     Some(Err(e))
-                } else if is_action {
+                } else if should_include {
                     Some(Ok(receipt_id))
                 } else {
                     None
@@ -1354,14 +1356,14 @@ impl Runtime {
                 }
             }
             ReceiptEnum::GlobalContractDistribution(_) => {
-                apply_global_contract_distribution_receipt(
+                let execution_outcome = apply_global_contract_distribution_receipt(
                     receipt,
                     apply_state,
                     epoch_info_provider,
                     state_update,
                     receipt_sink,
                 )?;
-                return Ok(None);
+                return Ok(Some(execution_outcome));
             }
         };
         // We didn't trigger execution, so we need to commit the state.
