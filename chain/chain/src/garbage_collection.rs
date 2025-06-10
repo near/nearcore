@@ -18,7 +18,6 @@ use near_primitives::types::{
 use near_primitives::utils::{
     get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, index_to_bytes,
 };
-use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
@@ -1161,12 +1160,6 @@ fn gc_parent_shard_after_resharding(
         trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
     }
     chain_store_update.merge(trie_store_update.into());
-
-    // Assert that the shard_uid mapping doesn't exist for any of the shards in the new shard layout
-    for shard_uid in shard_layout.shard_uids() {
-        assert_eq!(get_shard_uid_mapping(&store, shard_uid), shard_uid, "Incomplete Resharding");
-    }
-
     Ok(())
 }
 
