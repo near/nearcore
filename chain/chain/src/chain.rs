@@ -573,8 +573,12 @@ impl Chain {
         let resharding_manager =
             ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
 
-        let num_shards = shard_layout.num_shards() as usize;
-        let apply_chunks_spawner = apply_chunks_spawner.into_spawner(num_shards);
+        // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit. This assumes that:
+        // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
+        // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
+        let max_num_shards =
+            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+        let apply_chunks_spawner = apply_chunks_spawner.into_spawner(max_num_shards);
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
