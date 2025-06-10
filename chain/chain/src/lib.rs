@@ -1,5 +1,6 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
+pub use apply_chunks_thread_pool::ApplyChunksSpawner;
 pub use block_processing_utils::BlockProcessingArtifact;
 pub use chain::{Chain, check_known, collect_receipts};
 pub use chain_update::ChainUpdate;
@@ -18,6 +19,7 @@ pub use store::{
 pub use store_validator::{ErrorMessage, StoreValidator};
 pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, LatestKnown, Provenance};
 
+mod apply_chunks_thread_pool;
 mod approval_verification;
 mod block_processing_utils;
 pub mod blocks_delay_tracker;
