@@ -1707,11 +1707,26 @@ impl Runtime {
         receipt_sink.forward_from_buffer(&mut processing_state.state_update, apply_state)?;
 
         // Step 2: process transactions.
-        self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
+        {
+            let _span = tracing::info_span!(
+                target: "runtime",
+                "process_transactions",
+                measure = "apply",
+            )
+            .entered();
+            self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
+        }
 
         // Step 3: process receipts.
-        let process_receipts_result =
-            self.process_receipts(&mut processing_state, &mut receipt_sink)?;
+        let process_receipts_result = {
+            let _span = tracing::info_span!(
+                target: "runtime",
+                "process_receipts",
+                measure = "apply",
+            )
+            .entered();
+            self.process_receipts(&mut processing_state, &mut receipt_sink)?
+        };
 
         // After receipt processing is done, report metrics on outgoing buffers
         // and on congestion indicators.
@@ -1722,12 +1737,20 @@ impl Runtime {
         );
 
         // Step 4: validate and apply the state update.
-        self.validate_apply_state_update(
-            processing_state,
-            process_receipts_result,
-            receipt_sink,
-            state_patch,
-        )
+        {
+            let _span = tracing::info_span!(
+                target: "runtime",
+                "validate_apply_state_update",
+                measure = "apply",
+            )
+            .entered();
+            self.validate_apply_state_update(
+                processing_state,
+                process_receipts_result,
+                receipt_sink,
+                state_patch,
+            )
+        }
     }
 
     fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
@@ -1783,19 +1806,27 @@ impl Runtime {
         let tx_vec = signed_txs.into_iter_nonexpired_transactions().collect::<Vec<_>>();
         let tx_batches = TransactionBatches::new(&tx_vec);
 
-        let batch_outputs = tx_batches
-            .par_batches()
-            .map(|batch| {
-                self.process_batched_transactions(
-                    batch,
-                    apply_state,
-                    state_update,
-                    apply_state.gas_price,
-                    apply_state.block_height,
-                    apply_state.current_protocol_version,
-                )
-            })
-            .collect_vec_list();
+        let batch_outputs = {
+            let _span = tracing::info_span!(
+                target: "runtime",
+                "process_batched_transactions",
+                measure = "apply",
+            )
+            .entered();
+            tx_batches
+                .par_batches()
+                .map(|batch| {
+                    self.process_batched_transactions(
+                        batch,
+                        apply_state,
+                        state_update,
+                        apply_state.gas_price,
+                        apply_state.block_height,
+                        apply_state.current_protocol_version,
+                    )
+                })
+                .collect_vec_list()
+        };
 
         let mut all_processed = Vec::new();
         for batch_vec in batch_outputs {
