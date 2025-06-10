@@ -1159,14 +1159,16 @@ fn gc_parent_shard_after_resharding(
         // Delete the state of the parent shard
         tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup");
         trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
+
+        // Assert that the shard_uid mapping doesn't exist for any of the new shards in the new shard layout
+        for child_shard_uid in
+            shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap()
+        {
+            let mapped_shard_uid = get_shard_uid_mapping(&store, child_shard_uid);
+            assert_eq!(mapped_shard_uid, child_shard_uid, "Incomplete Resharding");
+        }
     }
     chain_store_update.merge(trie_store_update.into());
-
-    // Assert that the shard_uid mapping doesn't exist for any of the shards in the new shard layout
-    for shard_uid in shard_layout.shard_uids() {
-        assert_eq!(get_shard_uid_mapping(&store, shard_uid), shard_uid, "Incomplete Resharding");
-    }
-
     Ok(())
 }
 
