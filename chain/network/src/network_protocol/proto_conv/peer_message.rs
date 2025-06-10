@@ -1,6 +1,5 @@
 /// Conversion functions for PeerMessage - the top-level message for the NEAR P2P protocol format.
 use super::*;
-use crate::network_protocol::RoutedMessage;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
@@ -8,6 +7,7 @@ use crate::network_protocol::{
     AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
     RoutingTableUpdate, SyncAccountsData,
 };
+use crate::network_protocol::{RoutedMessageV1, RoutedMessageV2};
 use crate::types::StateResponseInfo;
 use borsh::BorshDeserialize as _;
 use near_async::time::error::ComponentRange;
@@ -510,7 +510,17 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 SignedTransaction::try_from_slice(&t.borsh).map_err(Self::Error::Transaction)?,
             ),
             ProtoMT::Routed(r) => PeerMessage::Routed(Box::new(
-                RoutedMessage::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
+                RoutedMessageV2 {
+                    msg: RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
+                    created_at: r
+                        .created_at
+                        .as_ref()
+                        .map(utc_from_proto)
+                        .transpose()
+                        .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
+                    num_hops: r.num_hops,
+                }
+                .into(),
             )),
             ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {
                 remove_from_connection_store: d.remove_from_connection_store,
