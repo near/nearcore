@@ -24,7 +24,7 @@ borsh.workspace = true
 clap = { workspace = true, optional = true }
 
 # FIXME: this ideally should not depend on near-primitives-core...
-near-primitives-core.workspace = true
+near-primitives-core = { workspace = true, features = ["schemars"] }
 near-account-id.workspace = true
 near-schema-checker-lib.workspace = true
 
