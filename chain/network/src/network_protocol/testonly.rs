@@ -1,7 +1,7 @@
 use super::*;
 use crate::config;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+    Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RawTieredMessageBody,
 };
 use crate::tcp;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
@@ -325,7 +325,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     }
 }
 
-pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {
+pub fn make_routed_message<R: Rng>(rng: &mut R, body: RawTieredMessageBody) -> RoutedMessageV2 {
     let secret_key = make_secret_key(rng);
     let peer_id = PeerId::new(secret_key.public_key());
     RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(
