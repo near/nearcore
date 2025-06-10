@@ -87,8 +87,8 @@ async fn send_and_recv_tier1_message(
             _ => None,
         })
         .await;
-    assert_eq!(from.cfg.node_id(), got.author);
-    assert_eq!(want, got.body);
+    assert_eq!(from.cfg.node_id(), got.author().clone());
+    assert_eq!(want, got.body_owned());
 }
 
 /// Send a message over each connection.
