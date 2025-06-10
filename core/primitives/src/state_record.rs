@@ -5,15 +5,17 @@ use crate::shard_layout::ShardLayout;
 use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
-    parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
-    parse_data_key_from_contract_data_key, parse_index_from_delayed_receipt_key,
-    parse_public_key_from_access_key_key,
+    parse_account_id_from_gas_key_key, parse_account_id_from_received_data_key,
+    parse_data_id_from_received_data_key, parse_data_key_from_contract_data_key,
+    parse_index_from_delayed_receipt_key, parse_nonce_index_from_gas_key_key,
+    parse_public_key_from_access_key_key, parse_public_key_from_gas_key_key,
 };
 use crate::trie_key::{TrieKey, col};
 use crate::types::{AccountId, StoreKey, StoreValue};
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
-use near_primitives_core::types::ShardId;
+use near_primitives_core::account::GasKey;
+use near_primitives_core::types::{Nonce, NonceIndex, ShardId};
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt::{Display, Formatter};
@@ -59,6 +61,10 @@ pub enum StateRecord {
     /// Delayed Receipt.
     /// The receipt was delayed because the shard was overwhelmed.
     DelayedReceipt(DelayedReceipt),
+    /// Gas key for an account.
+    GasKey { account_id: AccountId, public_key: PublicKey, gas_key: GasKey },
+    /// Nonce for a gas key index.
+    GasKeyNonce { account_id: AccountId, public_key: PublicKey, index: NonceIndex, nonce: Nonce },
 }
 
 impl StateRecord {
@@ -98,6 +104,18 @@ impl StateRecord {
                 let public_key = parse_public_key_from_access_key_key(key, &account_id)?;
                 Some(StateRecord::AccessKey { account_id, public_key, access_key })
             }
+            col::GAS_KEY => {
+                let account_id = parse_account_id_from_gas_key_key(key)?;
+                let public_key = parse_public_key_from_gas_key_key(key, &account_id)?;
+                let index = parse_nonce_index_from_gas_key_key(key, &account_id, &public_key)?;
+                if let Some(index) = index {
+                    let nonce = u64::try_from_slice(&value)?;
+                    Some(StateRecord::GasKeyNonce { account_id, public_key, index, nonce })
+                } else {
+                    let gas_key = GasKey::try_from_slice(&value)?;
+                    Some(StateRecord::GasKey { account_id, public_key, gas_key })
+                }
+            }
             col::RECEIVED_DATA => {
                 let data = ReceivedData::try_from_slice(&value)?.data;
                 let account_id = parse_account_id_from_received_data_key(key)?;
@@ -136,6 +154,8 @@ impl StateRecord {
             StateRecord::Data { .. } => "Data",
             StateRecord::Contract { .. } => "Contract",
             StateRecord::AccessKey { .. } => "AccessKey",
+            StateRecord::GasKey { .. } => "GasKey",
+            StateRecord::GasKeyNonce { .. } => "GasKeyNonce",
             StateRecord::PostponedReceipt { .. } => "PostponedReceipt",
             StateRecord::ReceivedData { .. } => "ReceivedData",
             StateRecord::DelayedReceipt { .. } => "DelayedReceipt",
@@ -172,6 +192,12 @@ impl Display for StateRecord {
             ),
             StateRecord::PostponedReceipt(receipt) => write!(f, "Postponed receipt {:?}", receipt),
             StateRecord::DelayedReceipt(receipt) => write!(f, "Delayed receipt {:?}", receipt),
+            StateRecord::GasKey { account_id, public_key, gas_key } => {
+                write!(f, "Gas key {:?},{:?}: {:?}", account_id, public_key, gas_key)
+            }
+            StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
+                write!(f, "Gas key nonce {:?},{:?}[{}]: {}", account_id, public_key, index, nonce)
+            }
         }
     }
 }
@@ -195,6 +221,8 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &Shard
     match state_record {
         StateRecord::Account { account_id, .. }
         | StateRecord::AccessKey { account_id, .. }
+        | StateRecord::GasKey { account_id, .. }
+        | StateRecord::GasKeyNonce { account_id, .. }
         | StateRecord::Contract { account_id, .. }
         | StateRecord::ReceivedData { account_id, .. }
         | StateRecord::Data { account_id, .. } => shard_layout.account_id_to_shard_id(account_id),
@@ -209,6 +237,8 @@ pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
     match state_record {
         StateRecord::Account { account_id, .. }
         | StateRecord::AccessKey { account_id, .. }
+        | StateRecord::GasKey { account_id, .. }
+        | StateRecord::GasKeyNonce { account_id, .. }
         | StateRecord::Contract { account_id, .. }
         | StateRecord::ReceivedData { account_id, .. }
         | StateRecord::Data { account_id, .. } => account_id,
