@@ -55,13 +55,17 @@ impl ChunkValidator {
         orphan_witness_pool_size: usize,
         validation_spawner: ApplyChunksSpawner,
     ) -> Self {
-        let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+        // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit. This assumes that:
+        // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
+        // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
+        let max_num_shards =
+            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         Self {
             epoch_manager,
             network_sender,
             runtime_adapter,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
-            validation_spawner: validation_spawner.into_spawner(num_shards),
+            validation_spawner: validation_spawner.into_spawner(max_num_shards),
             main_state_transition_result_cache: chunk_validation::MainStateTransitionCache::default(
             ),
         }
