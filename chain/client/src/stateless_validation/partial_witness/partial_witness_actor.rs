@@ -101,6 +101,7 @@ impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
     fn handle(&mut self, msg: DistributeStateWitnessRequest) {
         if let Err(err) = self.handle_distribute_state_witness_request(msg) {
             tracing::error!(target: "client", ?err, "Failed to handle distribute chunk state witness request");
+            debug_assert!(false, "Error in PartialWitnessActor");
         }
     }
 }
@@ -115,6 +116,7 @@ impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessMessage) {
         if let Err(err) = self.handle_partial_encoded_state_witness(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessMessage");
+            debug_assert!(false, "Error in PartialWitnessActor");
         }
     }
 }
@@ -123,6 +125,7 @@ impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessForwardMessage) {
         if let Err(err) = self.handle_partial_encoded_state_witness_forward(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessForwardMessage");
+            debug_assert!(false, "Error in PartialWitnessActor");
         }
     }
 }
@@ -131,6 +134,7 @@ impl Handler<ChunkContractAccessesMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ChunkContractAccessesMessage) {
         if let Err(err) = self.handle_chunk_contract_accesses(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle ChunkContractAccessesMessage");
+            debug_assert!(false, "Error in PartialWitnessActor");
         }
     }
 }
@@ -139,6 +143,7 @@ impl Handler<PartialEncodedContractDeploysMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedContractDeploysMessage) {
         if let Err(err) = self.handle_partial_encoded_contract_deploys(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedContractDeploysMessage");
+            debug_assert!(false, "Error in PartialWitnessActor");
         }
     }
 }
@@ -147,6 +152,7 @@ impl Handler<ContractCodeRequestMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ContractCodeRequestMessage) {
         if let Err(err) = self.handle_contract_code_request(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle ContractCodeRequestMessage");
+            debug_assert!(false, "Error in PartialWitnessActor");
         }
     }
 }
@@ -155,6 +161,7 @@ impl Handler<ContractCodeResponseMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ContractCodeResponseMessage) {
         if let Err(err) = self.handle_contract_code_response(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle ContractCodeResponseMessage");
+            debug_assert!(false, "Error in PartialWitnessActor");
         }
     }
 }

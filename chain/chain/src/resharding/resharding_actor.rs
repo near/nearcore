@@ -200,12 +200,14 @@ impl ReshardingActor {
         // This is a long running task and would block the actor
         if let Err(err) = self.flat_storage_resharder.start_resharding_blocking(&resharding_event) {
             tracing::error!(target: "resharding", ?err, "Failed to start flat storage resharding");
+            debug_assert!(false, "Error in ReshardingActor");
             return;
         }
 
         tracing::info!(target: "resharding", "TrieStateResharder starting");
         if let Err(err) = self.trie_state_resharder.start_resharding_blocking(&resharding_event) {
             tracing::error!(target: "resharding", ?err, "Failed to start trie state resharding");
+            debug_assert!(false, "Error in ReshardingActor");
             return;
         }
     }
