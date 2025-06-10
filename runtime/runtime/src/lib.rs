@@ -301,6 +301,12 @@ impl Runtime {
         signed_txs: impl IntoParallelIterator<Item = SignedTransaction>,
         current_protocol_version: ProtocolVersion,
     ) -> Vec<(CryptoHash, Result<(ValidatedTransaction, TransactionCost), InvalidTxError>)> {
+        let _span = tracing::info_span!(
+            target: "runtime",
+            "parallel_validate_transactions",
+            measure = "apply",
+        )
+        .entered();
         signed_txs
             .into_par_iter()
             .map(|signed_tx| {
@@ -1558,11 +1564,26 @@ impl Runtime {
         )?;
 
         // Step 2: process transactions.
-        self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
+        {
+            let _span = tracing::info_span!(
+                target: "runtime",
+                "process_transactions",
+                measure = "apply",
+            )
+            .entered();
+            self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
+        }
 
         // Step 3: process receipts.
-        let process_receipts_result =
-            self.process_receipts(&mut processing_state, &mut receipt_sink)?;
+        let process_receipts_result = {
+            let _span = tracing::info_span!(
+                target: "runtime",
+                "process_receipts",
+                measure = "apply",
+            )
+            .entered();
+            self.process_receipts(&mut processing_state, &mut receipt_sink)?
+        };
 
         // After receipt processing is done, report metrics on outgoing buffers
         // and on congestion indicators.
@@ -1573,12 +1594,20 @@ impl Runtime {
         );
 
         // Step 4: validate and apply the state update.
-        self.validate_apply_state_update(
-            processing_state,
-            process_receipts_result,
-            receipt_sink,
-            state_patch,
-        )
+        {
+            let _span = tracing::info_span!(
+                target: "runtime",
+                "process_receipts",
+                measure = "apply",
+            )
+            .entered();
+            self.validate_apply_state_update(
+                processing_state,
+                process_receipts_result,
+                receipt_sink,
+                state_patch,
+            )
+        }
     }
 
     fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
