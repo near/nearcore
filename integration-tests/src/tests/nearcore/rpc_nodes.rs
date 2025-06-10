@@ -211,7 +211,7 @@ fn ultra_slow_test_get_execution_outcome_tx_success() {
 }
 
 #[test]
-fn slow_test_get_execution_outcome_tx_failure() {
+fn ultra_slow_test_get_execution_outcome_tx_failure() {
     test_get_execution_outcome(false);
 }
 
@@ -412,7 +412,7 @@ fn slow_test_tx_not_enough_balance_must_return_error() {
 }
 
 #[test]
-fn test_check_unknown_tx_must_return_error() {
+fn slow_test_check_unknown_tx_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()

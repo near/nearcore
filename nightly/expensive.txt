@@ -61,6 +61,8 @@ expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra
 
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_success
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_success --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_failure
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_failure --features nightly
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_1
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_1 --features nightly
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2

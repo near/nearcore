@@ -4226,6 +4226,7 @@ dependencies = [
  "near-vm-runner",
  "node-runtime",
  "num-rational 0.3.2",
+ "oneshot",
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand 0.8.5",
@@ -4236,6 +4237,7 @@ dependencies = [
  "strum",
  "tempfile",
  "thiserror 2.0.12",
+ "thread-priority",
  "time",
  "tokio",
  "tracing",
@@ -5990,6 +5992,12 @@ name = "once_cell"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
+
+[[package]]
+name = "oneshot"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ce411919553d3f9fa53a0880544cda985a112117a0444d5ff1e870a893d6ea"
 
 [[package]]
 name = "oorandom"
@@ -8359,6 +8367,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.87",
+]
+
+[[package]]
+name = "thread-priority"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe075d7053dae61ac5413a34ea7d4913b6e6207844fd726bdd858b37ff72bf5"
+dependencies = [
+ "bitflags 2.4.1",
+ "cfg-if",
+ "libc",
+ "log",
+ "rustversion",
+ "winapi",
 ]
 
 [[package]]
