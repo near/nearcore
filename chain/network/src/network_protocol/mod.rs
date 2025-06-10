@@ -750,20 +750,6 @@ impl BorshDeserialize for RoutedMessageV2 {
     }
 }
 
-impl std::ops::Deref for RoutedMessageV2 {
-    type Target = RoutedMessageV1;
-
-    fn deref(&self) -> &Self::Target {
-        &self.msg
-    }
-}
-
-impl std::ops::DerefMut for RoutedMessageV2 {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.msg
-    }
-}
-
 #[derive(
     borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
 )]
@@ -885,7 +871,7 @@ impl RoutedMessage {
     pub fn decrease_ttl(&mut self) -> bool {
         match self {
             RoutedMessage::V1(msg) => msg.decrease_ttl(),
-            RoutedMessage::V2(msg) => msg.decrease_ttl(),
+            RoutedMessage::V2(msg) => msg.msg.decrease_ttl(),
         }
     }
 
@@ -941,10 +927,6 @@ impl RoutedMessageV1 {
     pub fn decrease_ttl(&mut self) -> bool {
         self.ttl = self.ttl.saturating_sub(1);
         self.ttl > 0
-    }
-
-    pub fn body_variant(&self) -> &'static str {
-        (&self.body).into()
     }
 }
 
