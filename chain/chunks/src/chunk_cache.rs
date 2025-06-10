@@ -176,7 +176,7 @@ impl EncodedChunksCache {
         chunk_header: &ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
         let chunk_hash = chunk_header.chunk_hash();
-        self.encoded_chunks.entry(chunk_hash).or_insert_with_key(|chunk_hash| {
+        self.encoded_chunks.entry(chunk_hash.clone()).or_insert_with_key(|chunk_hash| {
             self.height_map
                 .entry(chunk_header.height_created())
                 .or_default()
@@ -317,12 +317,12 @@ mod tests {
         );
         assert_eq!(
             cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
-            &HashSet::from([header0.chunk_hash(), header1.chunk_hash()])
+            &HashSet::from([header0.chunk_hash().clone(), header1.chunk_hash().clone()])
         );
         cache.mark_entry_complete(&header0.chunk_hash());
         assert_eq!(
             cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
-            &[header1.chunk_hash()].into_iter().collect::<HashSet<_>>()
+            &[header1.chunk_hash().clone()].into_iter().collect::<HashSet<_>>()
         );
         cache.mark_entry_complete(&header1.chunk_hash());
         assert_eq!(cache.get_incomplete_chunks(&CryptoHash::default()), None);

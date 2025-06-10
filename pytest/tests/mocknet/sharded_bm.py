@@ -85,6 +85,19 @@ def fetch_forknet_details(forknet_name, bm_params):
     }
 
 
+def upload_json_patches(args):
+    """Upload the json patches to the benchmark directory."""
+    upload_file_args = copy.deepcopy(args)
+    upload_file_args.src = f"{SOURCE_BENCHNET_DIR}/cases"
+    upload_file_args.dst = BENCHNET_DIR
+    run_remote_upload_file(CommandContext(upload_file_args))
+
+    upload_file_args = copy.deepcopy(args)
+    upload_file_args.src = "tests/mocknet/helpers"
+    upload_file_args.dst = BENCHNET_DIR
+    run_remote_upload_file(CommandContext(upload_file_args))
+
+
 def handle_init(args):
     """Handle the init command - initialize the benchmark before running it."""
 
@@ -97,9 +110,9 @@ def handle_init(args):
         args.neard_binary_url = os.environ['NEARD_BINARY_URL']
     else:
         logger.info(
-            f"Using neard binary URL from benchmark params: {args.bm_params['forknet']['binary_url']}"
+            "Please provide neard binary URL via CLI or env var NEARD_BINARY_URL"
         )
-        args.neard_binary_url = args.bm_params['forknet']['binary_url']
+        sys.exit(1)
 
     init_args = SimpleNamespace(
         neard_upgrade_binary_url="",
@@ -116,15 +129,7 @@ def handle_init(args):
 
     # TODO: check neard binary version
 
-    upload_file_args = copy.deepcopy(args)
-    upload_file_args.src = f"{SOURCE_BENCHNET_DIR}/cases"
-    upload_file_args.dst = BENCHNET_DIR
-    run_remote_upload_file(CommandContext(upload_file_args))
-
-    upload_file_args = copy.deepcopy(args)
-    upload_file_args.src = "tests/mocknet/helpers"
-    upload_file_args.dst = BENCHNET_DIR
-    run_remote_upload_file(CommandContext(upload_file_args))
+    upload_json_patches(args)
 
     new_test_cmd_args = SimpleNamespace(
         state_source="empty",
@@ -167,7 +172,7 @@ def handle_init(args):
         )
         run_env_cmd(CommandContext(env_cmd_args))
 
-    handle_apply_json_patches(args)
+    apply_json_patches(args)
 
     start_nodes(args)
 
@@ -189,8 +194,8 @@ def handle_init(args):
     stop_nodes(args)
 
 
-def handle_apply_json_patches(args):
-    """Handle the apply-json-patches command."""
+def apply_json_patches(args):
+    """Apply the json patches to the genesis, config and log_config."""
     genesis = f"{NEAR_HOME}/genesis.json"
     base_genesis_patch = f"{BENCHNET_DIR}/{args.case}/{args.bm_params['base_genesis_patch']}"
 
@@ -230,6 +235,19 @@ def stop_nodes(args, disable_tx_generator=False):
         "
 
         run_remote_cmd(CommandContext(run_cmd_args))
+
+
+def handle_tweak_config(args):
+    """
+    Handle the tweak-config command.
+
+    Used when you want to tweak non-critical parameters of the benchmark, such
+    as block production time, load schedule, log levels.
+    Note that for critical parameters like number of accounts per shard you 
+    must reinitialize the benchmark!
+    """
+    upload_json_patches(args)
+    apply_json_patches(args)
 
 
 def handle_stop(args):
@@ -424,8 +442,8 @@ def main():
     )
 
     subparsers.add_parser(
-        'apply-json-patches',
-        help='Apply the patches to genesis, config and log_config',
+        'tweak-config',
+        help='Reupload and apply the patches to genesis, config and log_config',
     )
 
     start_parser = subparsers.add_parser('start', help='Start the benchmark')
@@ -470,8 +488,8 @@ def main():
     # Route to appropriate handler based on command
     if args.command == 'init':
         handle_init(args)
-    elif args.command == 'apply-json-patches':
-        handle_apply_json_patches(args)
+    elif args.command == 'tweak-config':
+        handle_tweak_config(args)
     elif args.command == 'stop':
         handle_stop(args)
     elif args.command == 'start':

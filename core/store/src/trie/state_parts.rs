@@ -134,7 +134,7 @@ impl Trie {
         let _span = tracing::debug_span!(
             target: "state-parts",
             "get_state_part_boundaries",
-            ?shard_id,
+            %shard_id,
             part_id = part_id.idx,
             num_parts = part_id.total)
         .entered();
@@ -189,7 +189,7 @@ impl Trie {
         let _span = tracing::debug_span!(
             target: "state-parts",
             "get_trie_nodes_for_part_with_flat_storage",
-            ?shard_id,
+            %shard_id,
             part_id = part_id.idx,
             num_parts = part_id.total)
         .entered();

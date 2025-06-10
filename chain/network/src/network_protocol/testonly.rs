@@ -201,7 +201,7 @@ impl ChunkSet {
             0,
             version::PROTOCOL_VERSION,
         );
-        self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
+        self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash().clone(), c.clone())));
         chunks
     }
 }

@@ -8,7 +8,7 @@ pub use near_client_primitives::types::{
     QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
-pub use crate::client::Client;
+pub use crate::client::{AsyncComputationMultiSpawner, Client};
 #[cfg(feature = "test_features")]
 pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{ClientActor, StartClientResult, start_client};
@@ -33,6 +33,7 @@ pub use stateless_validation::partial_witness::partial_witness_actor::{
 pub mod adapter;
 pub mod adversarial;
 mod chunk_distribution_network;
+pub mod chunk_executor_actor;
 mod chunk_inclusion_tracker;
 mod chunk_producer;
 mod client;

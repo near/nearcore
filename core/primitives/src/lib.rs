@@ -62,3 +62,21 @@ fn failing_fuzzer() {
     // is working properly, as it has silently stopped working quite a few times already.
     bolero::check!().for_each(|_| -> () { panic!("The expected-to-fail fuzzer actually failed") })
 }
+
+#[test]
+#[should_panic = "attempt to add with overflow"]
+fn test_overflow() {
+    let a = u64::MAX;
+    let b = 5u64;
+    let c = u128::from(a + b);
+    println!("{} + {} = {}", a, b, c);
+}
+
+#[test]
+#[should_panic = "attempt to subtract with overflow"]
+fn test_underflow() {
+    let a = 10u64;
+    let b = 5u64;
+    let c = u128::from(b - a);
+    println!("{} - {} = {}", b, a, c);
+}

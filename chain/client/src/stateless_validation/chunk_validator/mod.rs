@@ -9,7 +9,7 @@ use near_chain::stateless_validation::chunk_validation;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::types::RuntimeAdapter;
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{Block, Chain};
+use near_chain::{ApplyChunksSpawner, Block, Chain};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -22,6 +22,7 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::sync::Arc;
 
@@ -52,14 +53,19 @@ impl ChunkValidator {
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphan_witness_pool_size: usize,
-        validation_spawner: Arc<dyn AsyncComputationSpawner>,
+        validation_spawner: ApplyChunksSpawner,
     ) -> Self {
+        // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit. This assumes that:
+        // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
+        // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
+        let max_num_shards =
+            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         Self {
             epoch_manager,
             network_sender,
             runtime_adapter,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
-            validation_spawner,
+            validation_spawner: validation_spawner.into_spawner(max_num_shards),
             main_state_transition_result_cache: chunk_validation::MainStateTransitionCache::default(
             ),
         }
@@ -208,7 +214,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         "send_chunk_endorsement",
         chunk_hash = ?chunk_header.chunk_hash(),
         height = %chunk_header.height_created(),
-        shard_id = ?chunk_header.shard_id(),
+        shard_id = %chunk_header.shard_id(),
         validator = %signer.validator_id(),
         tag_block_production = true,
     )
@@ -232,7 +238,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     tracing::debug!(
         target: "client",
         chunk_hash=?chunk_hash,
-        shard_id=?chunk_header.shard_id(),
+        shard_id=%chunk_header.shard_id(),
         ?block_producers,
         "send_chunk_endorsement",
     );
@@ -265,7 +271,7 @@ impl Client {
         tracing::debug!(
             target: "client",
             chunk_hash=?witness.chunk_header().chunk_hash(),
-            shard_id=?witness.chunk_header().shard_id(),
+            shard_id=%witness.chunk_header().shard_id(),
             "process_chunk_state_witness",
         );
 

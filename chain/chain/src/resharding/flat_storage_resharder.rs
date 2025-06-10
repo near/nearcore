@@ -880,7 +880,6 @@ enum ShardCatchupApplyDeltasOutcome {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::sync::Arc;
 
     use assert_matches::assert_matches;
     use near_async::messaging::{IntoMultiSender, noop};
@@ -904,7 +903,6 @@ mod tests {
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
 
-    use crate::rayon_spawner::RayonAsyncComputationSpawner;
     use crate::resharding::flat_storage_resharder::FlatStorageReshardingTaskResult;
     use crate::runtime::NightshadeRuntime;
     use crate::types::{ChainConfig, RuntimeAdapter};
@@ -951,7 +949,7 @@ mod tests {
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),
             None,
-            Arc::new(RayonAsyncComputationSpawner),
+            Default::default(),
             MutableConfigValue::new(None, "validator_signer"),
             noop().into_multi_sender(),
         )

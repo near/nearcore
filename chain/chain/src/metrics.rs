@@ -337,3 +337,21 @@ pub(crate) static CHAIN_VALIDITY_PERIOD_CHECK_DELAY: LazyLock<Histogram> = LazyL
     )
     .unwrap()
 });
+
+pub(crate) static THREAD_POOL_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_thread_pool_num_threads",
+        "current number of threads in apply chunks thread pool",
+        &["pool_name"],
+    )
+    .unwrap()
+});
+
+pub(crate) static THREAD_POOL_MAX_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_thread_pool_max_num_threads",
+        "maximum observed number of threads in apply chunks thread pool",
+        &["pool_name"],
+    )
+    .unwrap()
+});

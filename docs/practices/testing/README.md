@@ -69,7 +69,7 @@ predefined timeout.
 
 For the most basic example of using this infrastructure see `produce_two_blocks`
 in
-[`tests/process_blocks.rs`](https://github.com/near/nearcore/blob/master/chain/client/src/tests/process_blocks.rs).
+[`tests/process_blocks.rs`](https://github.com/near/nearcore/blob/master/integration-tests/src/tests/client/process_blocks.rs).
 
 1. The callback (`Box::new(move |msg, _ctx, _| { ...`) is what is executed
    whenever the client sends a message. The return value of the callback is sent

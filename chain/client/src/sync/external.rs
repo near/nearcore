@@ -148,7 +148,7 @@ impl ExternalConnection {
         match self {
             ExternalConnection::S3 { bucket } => {
                 bucket.put_object(&location, data).await?;
-                tracing::debug!(target: "state_sync_dump", ?shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to S3");
+                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to S3");
                 Ok(())
             }
             ExternalConnection::Filesystem { root_dir } => {
@@ -162,14 +162,14 @@ impl ExternalConnection {
                     .truncate(true)
                     .open(&path)?;
                 file.write_all(data)?;
-                tracing::debug!(target: "state_sync_dump", ?shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to a file");
+                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to a file");
                 Ok(())
             }
             ExternalConnection::GCS { gcs_client, .. } => {
                 let path = object_store::path::Path::parse(location)
                     .with_context(|| format!("{location} isn't a valid path for GCP"))?;
                 gcs_client.put(&path, PutPayload::from_bytes(data.to_vec().into())).await?;
-                tracing::debug!(target: "state_sync_dump", ?shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to GCS");
+                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to GCS");
                 Ok(())
             }
         }
@@ -198,7 +198,7 @@ impl ExternalConnection {
             ExternalConnection::S3 { bucket } => {
                 let prefix = format!("{}/", directory_path);
                 let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
-                tracing::debug!(target: "state_sync_dump", ?shard_id, ?directory_path, "List state parts in s3");
+                tracing::debug!(target: "state_sync_dump", %shard_id, ?directory_path, "List state parts in s3");
                 let mut file_names = vec![];
                 for res in list_results {
                     for obj in res.contents {
@@ -209,7 +209,7 @@ impl ExternalConnection {
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(directory_path);
-                tracing::debug!(target: "state_sync_dump", ?shard_id, ?path, "List state parts in local directory");
+                tracing::debug!(target: "state_sync_dump", %shard_id, ?path, "List state parts in local directory");
                 std::fs::create_dir_all(&path)?;
                 let mut file_names = vec![];
                 let files = std::fs::read_dir(&path)?;
@@ -221,7 +221,7 @@ impl ExternalConnection {
             }
             ExternalConnection::GCS { gcs_client, .. } => {
                 let prefix = format!("{}/", directory_path);
-                tracing::debug!(target: "state_sync_dump", ?shard_id, ?directory_path, "List state parts in GCS");
+                tracing::debug!(target: "state_sync_dump", %shard_id, ?directory_path, "List state parts in GCS");
                 Ok(gcs_client
                     .list(Some(
                         &object_store::path::Path::parse(&prefix)
