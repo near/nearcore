@@ -254,7 +254,7 @@ pub(crate) fn chunk_hash_validity(
 ) -> Result<(), StoreValidatorError> {
     check_discrepancy!(
         shard_chunk.chunk_hash(),
-        *chunk_hash,
+        chunk_hash,
         "Invalid ShardChunk {:?} stored",
         shard_chunk
     );

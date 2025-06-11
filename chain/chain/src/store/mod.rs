@@ -437,7 +437,7 @@ impl ChainStore {
         shard_id: ShardId,
         receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "resharding", ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
+        tracing::debug!(target: "resharding", %shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
 
         let split_shard_ids = shard_layout.get_children_shards_ids(receipts_shard_id);
         let split_shard_ids =
@@ -673,6 +673,19 @@ impl ChainStore {
                 }
                 changes
             }
+            StateChangesRequest::SingleGasKeyChanges { keys } => {
+                let mut changes = StateChanges::new();
+                for key in keys {
+                    let data_key = trie_key_parsers::get_raw_prefix_for_gas_key(
+                        &key.account_id,
+                        &key.public_key,
+                    );
+                    let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
+                    let changes_per_key_prefix = storage_key.find_iter(&store);
+                    changes.extend(StateChanges::from_gas_key_changes(changes_per_key_prefix)?);
+                }
+                changes
+            }
             StateChangesRequest::AllAccessKeyChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
@@ -680,6 +693,16 @@ impl ChainStore {
                     let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
                     let changes_per_key_prefix = storage_key.find_iter(&store);
                     changes.extend(StateChanges::from_access_key_changes(changes_per_key_prefix)?);
+                }
+                changes
+            }
+            StateChangesRequest::AllGasKeyChanges { account_ids } => {
+                let mut changes = StateChanges::new();
+                for account_id in account_ids {
+                    let data_key = trie_key_parsers::get_raw_prefix_for_gas_keys(account_id);
+                    let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
+                    let changes_per_key_prefix = storage_key.find_iter(&store);
+                    changes.extend(StateChanges::from_gas_key_changes(changes_per_key_prefix)?);
                 }
                 changes
             }
@@ -1503,7 +1526,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn save_partial_chunk(&mut self, partial_chunk: Arc<PartialEncodedChunk>) {
         self.chain_store_cache_update
             .partial_chunks
-            .insert(partial_chunk.chunk_hash(), partial_chunk);
+            .insert(partial_chunk.chunk_hash().clone(), partial_chunk);
     }
 
     pub fn save_block_merkle_tree(
@@ -1638,7 +1661,9 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_invalid_chunk(&mut self, chunk: EncodedShardChunk) {
-        self.chain_store_cache_update.invalid_chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
+        self.chain_store_cache_update
+            .invalid_chunks
+            .insert(chunk.chunk_hash().clone(), Arc::new(chunk));
     }
 
     pub fn save_block_height_processed(&mut self, height: BlockHeight) {

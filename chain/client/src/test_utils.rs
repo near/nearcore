@@ -200,7 +200,7 @@ pub fn create_chunk(
         let (new_chunk, mut new_merkle_paths) = ShardChunkWithEncoding::new(
             *header.prev_block_hash(),
             header.prev_state_root(),
-            header.prev_outcome_root(),
+            *header.prev_outcome_root(),
             header.height_created(),
             header.shard_id(),
             header.prev_gas_used(),
@@ -209,7 +209,7 @@ pub fn create_chunk(
             header.prev_validator_proposals().collect(),
             validated_txs,
             decoded_chunk.prev_outgoing_receipts().to_vec(),
-            header.prev_outgoing_receipts_root(),
+            *header.prev_outgoing_receipts_root(),
             tx_root,
             header.congestion_info(),
             header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),

@@ -767,7 +767,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::ChallengedBlocks => "col17",
         DBCol::StateHeaders => "col18",
         DBCol::InvalidChunks => "col19",
-        DBCol::BlockExtra => "col20",
+        DBCol::_BlockExtra => "col20",
         DBCol::BlockPerHeight => "col21",
         DBCol::StateParts => "col22",
         DBCol::EpochStart => "col23",

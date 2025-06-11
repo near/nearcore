@@ -25,7 +25,7 @@ impl ChunkEndorsement {
         chunk_header: &ShardChunkHeader,
         signer: &ValidatorSigner,
     ) -> ChunkEndorsement {
-        let inner = ChunkEndorsementInner::new(chunk_header.chunk_hash());
+        let inner = ChunkEndorsementInner::new(chunk_header.chunk_hash().clone());
         let metadata = ChunkEndorsementMetadata {
             account_id: signer.validator_id().clone(),
             shard_id: chunk_header.shard_id(),

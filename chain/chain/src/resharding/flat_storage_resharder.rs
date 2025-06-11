@@ -19,7 +19,8 @@ use near_primitives::trie_key::col::{self};
 use near_primitives::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
-    parse_account_id_from_received_data_key, parse_account_id_from_trie_key_with_separator,
+    parse_account_id_from_gas_key_key, parse_account_id_from_received_data_key,
+    parse_account_id_from_trie_key_with_separator,
 };
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::StoreAdapter;
@@ -764,6 +765,13 @@ fn shard_split_handle_key_value(
             store_update,
             parse_account_id_from_access_key_key,
         )?,
+        col::GAS_KEY => copy_kv_to_child(
+            &split_params,
+            key,
+            value,
+            store_update,
+            parse_account_id_from_gas_key_key,
+        )?,
         col::RECEIVED_DATA => copy_kv_to_child(
             &split_params,
             key,
@@ -879,7 +887,6 @@ enum ShardCatchupApplyDeltasOutcome {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::sync::Arc;
 
     use assert_matches::assert_matches;
     use near_async::messaging::{IntoMultiSender, noop};
@@ -903,7 +910,6 @@ mod tests {
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
 
-    use crate::rayon_spawner::RayonAsyncComputationSpawner;
     use crate::resharding::flat_storage_resharder::FlatStorageReshardingTaskResult;
     use crate::runtime::NightshadeRuntime;
     use crate::types::{ChainConfig, RuntimeAdapter};
@@ -950,7 +956,7 @@ mod tests {
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),
             None,
-            Arc::new(RayonAsyncComputationSpawner),
+            Default::default(),
             MutableConfigValue::new(None, "validator_signer"),
             noop().into_multi_sender(),
         )
