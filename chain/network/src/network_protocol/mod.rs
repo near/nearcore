@@ -1156,14 +1156,18 @@ impl RoutedMessageV3 {
         RoutedMessageV3::build_hash(&self.target, &self.author, &self.body)
     }
 
+    pub fn hash_t2(&self, body: &T2MessageBody) -> CryptoHash {
+        CryptoHash::hash_borsh((&self.target, &self.author, body))
+    }
+
     pub fn verify(&self) -> bool {
-        match self.body {
-            TieredMessageBody::T1(_) => self.signature.is_none(),
-            TieredMessageBody::T2(_) => self
+        match &self.body {
+            TieredMessageBody::T1(_) => true,
+            TieredMessageBody::T2(body) => self
                 .signature
                 .as_ref()
                 .unwrap()
-                .verify(self.hash().as_ref(), self.author.public_key()),
+                .verify(self.hash_t2(&body).as_ref(), self.author.public_key()),
         }
     }
 
@@ -1272,7 +1276,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => Some(&msg.signature),
             RoutedMessage::V2(msg) => Some(&msg.msg.signature),
-            RoutedMessage::V3(_) => None, // TODO: return T2 signature
+            RoutedMessage::V3(msg) => msg.signature.as_ref(),
         }
     }
 
