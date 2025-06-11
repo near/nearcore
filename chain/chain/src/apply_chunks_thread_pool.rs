@@ -188,6 +188,19 @@ impl ApplyChunksSpawner {
             ApplyChunksSpawner::Custom(spawner) => spawner,
         }
     }
+
+    pub fn into_named_spawner(
+        self,
+        thread_limit: usize,
+        name: &'static str,
+    ) -> Arc<dyn AsyncComputationSpawner> {
+        match self {
+            ApplyChunksSpawner::Default => {
+                Arc::new(ThreadPool::new(name, Duration::from_secs(30), thread_limit, 50))
+            }
+            ApplyChunksSpawner::Custom(spawner) => spawner,
+        }
+    }
 }
 
 #[cfg(test)]
