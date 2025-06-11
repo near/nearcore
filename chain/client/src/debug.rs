@@ -494,14 +494,7 @@ impl ClientActorInner {
             .collect();
         let shards_tracked_next_epoch = shard_ids
             .into_iter()
-            .map(|shard_id| {
-                self.client.shard_tracker.will_care_about_shard(
-                    me.as_ref(),
-                    &fetch_hash,
-                    shard_id,
-                    true,
-                )
-            })
+            .map(|shard_id| self.client.shard_tracker.will_care_about_shard(&fetch_hash, shard_id))
             .collect();
         Ok(TrackedShardsView { shards_tracked_this_epoch, shards_tracked_next_epoch })
     }
