@@ -22,7 +22,7 @@ use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Chain, ChainGenesis};
+use near_chain::{ApplyChunksSpawner, Chain, ChainGenesis};
 use near_chain_configs::ReshardingHandle;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
@@ -372,6 +372,8 @@ pub fn start_with_config_and_synchronization(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
+    let partial_witness_spawner =
+        ApplyChunksSpawner::default().into_named_spawner(20, "partial_witness");
     let (partial_witness_actor, partial_witness_arbiter) =
         spawn_actix_actor(PartialWitnessActor::new(
             Clock::real(),
@@ -381,7 +383,7 @@ pub fn start_with_config_and_synchronization(
             epoch_manager.clone(),
             runtime.clone(),
             Arc::new(RayonAsyncComputationSpawner),
-            Arc::new(RayonAsyncComputationSpawner),
+            partial_witness_spawner,
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
