@@ -32,8 +32,6 @@ pub enum EpochSelection {
 /// For supported configurations, see the `TrackedShardsConfig` documentation.
 #[derive(Clone)]
 pub struct ShardTracker {
-    /// My account ID, if available.
-    #[allow(dead_code)]
     validator_signer: MutableValidatorSigner,
     tracked_shards_config: TrackedShardsConfig,
     /// Stores a bitmask of tracked shards for each epoch ID.
