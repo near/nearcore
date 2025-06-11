@@ -262,6 +262,10 @@ impl ShardTracker {
         )
     }
 
+    /// Whether the client cares about some shard in this or next epoch.
+    ///
+    /// Note that `shard_id` always refers to a shard in the current epoch. If shard layout will
+    /// change next epoch, return true if it cares about any shard that `shard_id` will split to
     pub fn cares_about_shard_this_or_next_epoch(
         &self,
         parent_hash: &CryptoHash,
@@ -272,14 +276,31 @@ impl ShardTracker {
             || self.will_care_about_shard(account_id.as_ref(), parent_hash, shard_id, true)
     }
 
+    /// Whether some client tracking account_id cares about shard_idd in this or next epoch.
+    ///
+    /// Note that `shard_id` always refers to a shard in the current epoch. If shard layout will
+    /// change next epoch, return true if it cares about any shard that `shard_id` will split to
     pub fn cares_about_shard_this_or_next_epoch_for_account_id(
         &self,
         account_id: &AccountId,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        self.cares_about_shard(Some(account_id), parent_hash, shard_id, false)
-            || self.will_care_about_shard(Some(account_id), parent_hash, shard_id, false)
+        let cares_about_shard = self.cares_about_shard_in_epoch(
+            Some(account_id),
+            parent_hash,
+            shard_id,
+            false,
+            EpochSelection::Current,
+        );
+        let will_care_about_shard = self.cares_about_shard_in_epoch(
+            Some(account_id),
+            parent_hash,
+            shard_id,
+            false,
+            EpochSelection::Next,
+        );
+        cares_about_shard || will_care_about_shard
     }
 
     /// Returns whether the node is configured for all shards tracking.
