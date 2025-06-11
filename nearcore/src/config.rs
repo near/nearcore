@@ -1219,6 +1219,11 @@ fn create_localnet_config(
         Some(tracked_shards_config.clone())
     };
 
+    // Save tx outcomes for the first validator node (for testing purposes).
+    if params.is_boot {
+        config.save_tx_outcomes = Some(true);
+    }
+
     config
 }
 
