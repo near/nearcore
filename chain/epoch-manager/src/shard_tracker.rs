@@ -516,7 +516,7 @@ mod tests {
     use crate::test_utils::hash_range;
     use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
     use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-    use near_chain_configs::{GenesisConfig, MutableConfigValue, MutableValidatorSigner};
+    use near_chain_configs::{GenesisConfig, MutableConfigValue};
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::epoch_block_info::BlockInfo;
     use near_primitives::epoch_manager::EpochConfigStore;
@@ -524,7 +524,6 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{AccountInfo, BlockHeight, EpochId, ProtocolVersion, ShardId};
-    use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::ShardUId;
     use near_store::test_utils::create_test_store;
@@ -533,13 +532,6 @@ mod tests {
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
     const EPOCH_LENGTH: usize = 5;
-
-    fn empty_signer() -> MutableValidatorSigner {
-        MutableConfigValue::new(
-            Some(Arc::new(EmptyValidatorSigner::default().into())),
-            "validator_signer",
-        )
-    }
 
     // Initializes an epoch manager, optionally including epoch configs for two reshardings.
     fn get_epoch_manager(
@@ -718,7 +710,7 @@ mod tests {
         let tracked_shards = vec![parent_shard_uid, not_parent_shard_uid];
         assert!(tracked_shards.len() < num_shards as usize);
         let tracker = ShardTracker::new(
-            empty_signer(),
+            MutableConfigValue::new(None, "validator_signer"),
             TrackedShardsConfig::Shards(tracked_shards),
             epoch_manager.clone(),
         );
@@ -789,7 +781,7 @@ mod tests {
         );
 
         let tracker = ShardTracker::new(
-            empty_signer(),
+            MutableConfigValue::new(None, "validator_signer"),
             TrackedShardsConfig::Shards(vec![parent_shard_uid, non_parent_shard_new_uid]),
             epoch_manager.clone(),
         );
@@ -801,7 +793,7 @@ mod tests {
         );
 
         let tracker = ShardTracker::new(
-            empty_signer(),
+            MutableConfigValue::new(None, "validator_signer"),
             TrackedShardsConfig::Shards(vec![left_child_shard_uid]),
             epoch_manager,
         );
@@ -835,7 +827,7 @@ mod tests {
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
         let tracker = ShardTracker::new(
-            empty_signer(),
+            MutableConfigValue::new(None, "validator_signer"),
             TrackedShardsConfig::Accounts(tracked_accounts),
             epoch_manager,
         );
@@ -858,8 +850,11 @@ mod tests {
         let num_shards = 4;
         let shard_ids: Vec<ShardId> = (0..num_shards).map(ShardId::new).collect();
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
-        let tracker =
-            ShardTracker::new(empty_signer(), TrackedShardsConfig::AllShards, epoch_manager);
+        let tracker = ShardTracker::new(
+            MutableConfigValue::new(None, "validator_signer"),
+            TrackedShardsConfig::AllShards,
+            epoch_manager,
+        );
         let total_tracked_shards: HashSet<_> = shard_ids.iter().cloned().collect();
 
         assert_eq!(
@@ -872,6 +867,7 @@ mod tests {
         );
     }
 
+    // here
     #[test]
     fn test_track_schedule() {
         // Creates a ShardTracker that changes every epoch tracked shards.
@@ -886,7 +882,7 @@ mod tests {
         let subset3: HashSet<ShardId> =
             HashSet::from([2, 3]).into_iter().map(ShardId::new).collect();
         let tracker = ShardTracker::new(
-            empty_signer(),
+            MutableConfigValue::new(None, "validator_signer"),
             TrackedShardsConfig::Schedule(vec![
                 subset1.clone().into_iter().collect(),
                 subset2.clone().into_iter().map(Into::into).collect(),
