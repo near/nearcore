@@ -286,7 +286,7 @@ pub struct Config {
     /// that transaction status queries continue to work.
     /// If set to `None`, the value will be treated as true if either
     /// - `archive` is true, or
-    /// - `rpc_addr` is set.
+    /// - All shards are tracked (i.e. node is an RPC node).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_tx_outcomes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
@@ -599,9 +599,10 @@ impl NearConfig {
                 tracked_shards_config: config.tracked_shards_config(),
                 archive: config.archive,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
-                save_tx_outcomes: config
-                    .save_tx_outcomes
-                    .unwrap_or_else(|| config.archive || config.rpc_addr().is_some()),
+                save_tx_outcomes: config.save_tx_outcomes.unwrap_or_else(|| {
+                    config.archive
+                        || config.tracked_shards_config() == TrackedShardsConfig::AllShards
+                }),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
