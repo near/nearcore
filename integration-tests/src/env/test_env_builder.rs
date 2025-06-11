@@ -352,15 +352,6 @@ impl TestEnvBuilder {
         builder.runtimes(runtimes)
     }
 
-    // /// Specifies custom ShardTracker for each client.  This allows us to
-    // /// construct [`TestEnv`] with a custom implementation.
-    // pub fn shard_trackers(mut self, shard_trackers: Vec<ShardTracker>) -> Self {
-    //     assert_eq!(shard_trackers.len(), self.clients.len());
-    //     assert!(self.shard_trackers.is_none(), "Cannot override twice");
-    //     self.shard_trackers = Some(shard_trackers);
-    //     self
-    // }
-
     /// Sets track_all_shards flag to true.
     pub fn track_all_shards(mut self) -> Self {
         self.track_all_shards = true;
@@ -372,24 +363,6 @@ impl TestEnvBuilder {
         self.track_all_shards = track_all_shards;
         self
     }
-
-    // /// Internal impl to make sure ShardTrackers are initialized.
-    // fn ensure_shard_trackers(self) -> Self {
-    //     let ret = self.ensure_epoch_managers();
-    //     if ret.shard_trackers.is_some() {
-    //         return ret;
-    //     }
-    //     let shard_trackers = ret
-    //         .epoch_managers
-    //         .as_ref()
-    //         .unwrap()
-    //         .iter()
-    //         .map(|epoch_manager| {
-    //             ShardTracker::new(TrackedShardsConfig::new_empty(), epoch_manager.clone())
-    //         })
-    //         .collect();
-    //     ret.shard_trackers(shard_trackers)
-    // }
 
     /// Specifies custom NightshadeRuntime for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
