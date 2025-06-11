@@ -171,7 +171,7 @@ pub(crate) struct PeerActor {
     /// Network bandwidth stats.
     stats: Arc<connection::Stats>,
     /// Cache of recently routed messages, this allows us to drop duplicates
-    routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), time::Instant>,
+    routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Option<Signature>), time::Instant>,
     /// Whether we detected support for protocol buffers during handshake.
     protocol_buffers_supported: bool,
     /// Whether the PeerActor should skip protobuf support detection and use
@@ -1399,7 +1399,7 @@ impl PeerActor {
                 }
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
-                let key = (msg.author().clone(), msg.target().clone(), msg.signature().clone());
+                let key = (msg.author().clone(), msg.target().clone(), msg.signature().cloned());
                 let now = self.clock.now();
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
