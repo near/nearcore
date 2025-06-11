@@ -7,13 +7,6 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::ShardId;
 use near_store::{ShardUId, Trie};
 
-/// Returns `true` if `client` is tracking the shard having the given `shard_id`.
-pub fn client_tracking_shard(client: &Client, shard_id: ShardId, parent_hash: &CryptoHash) -> bool {
-    let signer = client.validator_signer.get();
-    let account_id = signer.as_ref().map(|s| s.validator_id());
-    client.shard_tracker.cares_about_shard(account_id, parent_hash, shard_id, true)
-}
-
 // Finds the client who tracks the shard with `shard_id` among the list of `clients`.
 pub fn get_client_tracking_shard<'a>(
     clients: &'a [&Client],
@@ -21,7 +14,7 @@ pub fn get_client_tracking_shard<'a>(
     shard_id: ShardId,
 ) -> &'a Client {
     for client in clients {
-        if client_tracking_shard(client, shard_id, &tip.prev_block_hash) {
+        if client.shard_tracker.cares_about_shard(&tip.prev_block_hash, shard_id) {
             return client;
         }
     }
@@ -124,18 +117,11 @@ pub fn get_tracked_shards_from_prev_block(
     client: &Client,
     prev_block_hash: &CryptoHash,
 ) -> Vec<ShardUId> {
-    let signer = client.validator_signer.get();
-    let account_id = signer.as_ref().map(|s| s.validator_id());
     let shard_layout =
         client.epoch_manager.get_shard_layout_from_prev_block(prev_block_hash).unwrap();
     let mut tracked_shards = vec![];
     for shard_uid in shard_layout.shard_uids() {
-        if client.shard_tracker.cares_about_shard(
-            account_id,
-            prev_block_hash,
-            shard_uid.shard_id(),
-            true,
-        ) {
+        if client.shard_tracker.cares_about_shard(prev_block_hash, shard_uid.shard_id()) {
             tracked_shards.push(shard_uid);
         }
     }

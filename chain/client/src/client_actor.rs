@@ -479,7 +479,6 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                 let mut genesis = near_chain_configs::GenesisConfig::default();
                 genesis.genesis_height = self.client.chain.chain_store().get_genesis_height();
                 let mut store_validator = near_chain::store_validator::StoreValidator::new(
-                    self.client.validator_signer.get().map(|x| x.validator_id().clone()),
                     genesis,
                     self.client.epoch_manager.clone(),
                     self.client.shard_tracker.clone(),
