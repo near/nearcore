@@ -130,6 +130,7 @@ fn setup_network_node(
         network_adapter.as_multi_sender(),
         client_config.clone(),
         adv,
+        validator_signer.clone(),
     );
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: client_config.transaction_request_handler_threads,

@@ -103,6 +103,7 @@ impl StateSyncDumper {
             &self.chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
+            self.validator.clone(),
         )
         .unwrap();
         if let Some(shards) = dump_config.restart_dump_for_shards.as_ref() {

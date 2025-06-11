@@ -163,6 +163,7 @@ fn setup(
         network_adapter.clone(),
         config.clone(),
         adv.clone(),
+        signer.clone(),
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
