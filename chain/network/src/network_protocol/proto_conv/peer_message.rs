@@ -334,7 +334,14 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 }),
                 PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
                     borsh: borsh::to_vec(r.msg()).unwrap(),
-                    created_at: MF::from_option(r.created_at().as_ref().map(utc_to_proto)),
+                    created_at: MF::from_option(
+                        r.created_at()
+                            .as_ref()
+                            .map(|t| ::time::OffsetDateTime::from_unix_timestamp(*t).ok())
+                            .flatten()
+                            .as_ref()
+                            .map(utc_to_proto),
+                    ),
                     num_hops: r.num_hops(),
                     ..Default::default()
                 }),

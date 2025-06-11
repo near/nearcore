@@ -1,7 +1,7 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
-    PeersResponse, RoutedMessageBody,
+    PeersResponse, T2MessageBody,
 };
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -111,16 +111,19 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","PartialEncodedChunkRequest");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::Routed(Box::new(outbound.routed_message(
-        RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
-            chunk_hash: chain.blocks[5].chunks()[2].chunk_hash().clone(),
-            part_ords: vec![],
-            tracking_shards: Default::default(),
-        }),
-        inbound.cfg.id(),
-        1,    // ttl
-        None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
-    )));
+    let want = PeerMessage::Routed(Box::new(
+        outbound.routed_message(
+            T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+                chunk_hash: chain.blocks[5].chunks()[2].chunk_hash().clone(),
+                part_ords: vec![],
+                tracking_shards: Default::default(),
+            })
+            .into(),
+            inbound.cfg.id(),
+            1,    // ttl
+            None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
+        ),
+    ));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
@@ -128,16 +131,19 @@ async fn test_peer_communication(
     let mut events = inbound.events.from_now();
     let want_hash = chain.blocks[3].chunks()[0].chunk_hash().clone();
     let want_parts = data::make_chunk_parts(chain.chunks[&want_hash].clone());
-    let want = PeerMessage::Routed(Box::new(outbound.routed_message(
-        RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
-            chunk_hash: want_hash,
-            parts: want_parts.clone(),
-            receipts: vec![],
-        }),
-        inbound.cfg.id(),
-        1,    // ttl
-        None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
-    )));
+    let want = PeerMessage::Routed(Box::new(
+        outbound.routed_message(
+            T2MessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
+                chunk_hash: want_hash,
+                parts: want_parts.clone(),
+                receipts: vec![],
+            })
+            .into(),
+            inbound.cfg.id(),
+            1,    // ttl
+            None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
+        ),
+    ));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
