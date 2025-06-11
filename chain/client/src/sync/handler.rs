@@ -134,8 +134,6 @@ impl SyncHandler {
         let block_header = chain.get_block_header(&sync_hash);
         let block_header = unwrap_and_report_state_sync_result!(block_header);
         let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
-            me.as_ref(),
-            true,
             &block_header,
             &shard_tracker,
             chain.epoch_manager.as_ref(),

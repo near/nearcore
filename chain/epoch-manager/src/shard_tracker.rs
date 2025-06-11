@@ -204,16 +204,15 @@ impl ShardTracker {
     /// the client tracks.
     pub fn cared_about_shard_in_prev_epoch(
         &self,
-        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
-        is_me: bool,
     ) -> bool {
+        let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
         self.cares_about_shard_in_epoch(
-            account_id,
+            account_id.as_ref(),
             parent_hash,
             shard_id,
-            is_me,
+            true,
             EpochSelection::Previous,
         )
     }
@@ -265,16 +264,24 @@ impl ShardTracker {
         )
     }
 
-    // TODO(robin-near): I think we only need the shard_tracker if is_me is false.
     pub fn cares_about_shard_this_or_next_epoch(
         &self,
-        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
-        is_me: bool,
     ) -> bool {
-        self.cares_about_shard(account_id, parent_hash, shard_id, is_me)
-            || self.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
+        let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
+        self.cares_about_shard(account_id.as_ref(), parent_hash, shard_id, true)
+            || self.will_care_about_shard(account_id.as_ref(), parent_hash, shard_id, true)
+    }
+
+    pub fn cares_about_shard_this_or_next_epoch_for_account_id(
+        &self,
+        account_id: &AccountId,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> bool {
+        self.cares_about_shard(Some(account_id), parent_hash, shard_id, false)
+            || self.will_care_about_shard(Some(account_id), parent_hash, shard_id, false)
     }
 
     /// Returns whether the node is configured for all shards tracking.
@@ -341,8 +348,7 @@ impl ShardTracker {
         // Now we need to state sync it unless we were tracking the parent in the previous epoch,
         // in which case we don't need to because we already have the state, and can just continue applying chunks
 
-        let tracked_before =
-            self.cared_about_shard_in_prev_epoch(me.as_ref(), prev_hash, shard_id, true);
+        let tracked_before = self.cared_about_shard_in_prev_epoch(prev_hash, shard_id);
         Ok(!tracked_before)
     }
 
