@@ -1986,12 +1986,15 @@ impl Client {
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let Approval { inner, account_id, target_height, signature } = approval;
-        debug!(target: "client",
-            approval_inner=?inner,
-            account_id=?account_id,
-            target_height=target_height,
-            approval_type=?approval_type,
-            "collect_block_approval");
+        let _span = tracing::debug_span!(target: "client",
+            "collect_block_approval",
+                approval_inner=?inner,
+                account_id=?account_id,
+                height=target_height,
+                tag_block_production=true,
+                approval_type=?approval_type,
+        )
+        .entered();
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
