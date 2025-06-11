@@ -81,7 +81,7 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
+    Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -1061,13 +1061,8 @@ impl Chain {
         Ok(())
     }
 
-    pub fn ping_missing_chunks(
-        &self,
-        me: &Option<AccountId>,
-        parent_hash: CryptoHash,
-        block: &Block,
-    ) -> Result<(), Error> {
-        if !self.cares_about_any_shard_or_part(me, parent_hash)? {
+    pub fn ping_missing_chunks(&self, parent_hash: CryptoHash, block: &Block) -> Result<(), Error> {
+        if !self.cares_about_any_shard_or_part(parent_hash)? {
             return Ok(());
         }
         let mut missing = vec![];
@@ -1116,19 +1111,16 @@ impl Chain {
         Ok(())
     }
 
-    fn cares_about_any_shard_or_part(
-        &self,
-        me: &Option<AccountId>,
-        parent_hash: CryptoHash,
-    ) -> Result<bool, Error> {
+    fn cares_about_any_shard_or_part(&self, parent_hash: CryptoHash) -> Result<bool, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&parent_hash)?;
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if self.shard_tracker.cares_about_shard_this_or_next_epoch(&parent_hash, shard_id) {
                 return Ok(true);
             }
         }
+        let me = self.validator_signer.get().map(|v| v.validator_id().clone());
         for part_id in 0..self.epoch_manager.num_total_parts() {
-            if &Some(self.epoch_manager.get_part_owner(&epoch_id, part_id as u64)?) == me {
+            if Some(self.epoch_manager.get_part_owner(&epoch_id, part_id as u64)?) == me {
                 return Ok(true);
             }
         }
@@ -1145,12 +1137,11 @@ impl Chain {
     /// new chunks.
     pub fn collect_incoming_receipts_from_chunks(
         &self,
-        me: &Option<AccountId>,
         chunks: &Chunks,
         prev_block_hash: &CryptoHash,
         shuffle_salt: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
-        if !self.cares_about_any_shard_or_part(me, *prev_block_hash)? {
+        if !self.cares_about_any_shard_or_part(*prev_block_hash)? {
             return Ok(HashMap::new());
         }
         let mut receipt_proofs_by_shard_id = HashMap::new();
@@ -1193,7 +1184,6 @@ impl Chain {
     ///              so it can call postprocess_ready_blocks.
     pub fn start_process_block_async(
         &mut self,
-        me: &Option<AccountId>,
         block: MaybeValidated<Block>,
         provenance: Provenance,
         block_processing_artifacts: &mut BlockProcessingArtifact,
@@ -1207,7 +1197,6 @@ impl Chain {
 
         let hash = *block.hash();
         let res = self.start_process_block_impl(
-            me,
             block,
             provenance,
             block_processing_artifacts,
@@ -1233,7 +1222,6 @@ impl Chain {
     pub fn preprocess_optimistic_block(
         &mut self,
         block: OptimisticBlock,
-        me: &Option<AccountId>,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         // Validate the optimistic block.
@@ -1245,12 +1233,11 @@ impl Chain {
         }
 
         self.optimistic_block_chunks.add_block(block);
-        self.maybe_process_optimistic_block(me, apply_chunks_done_sender);
+        self.maybe_process_optimistic_block(apply_chunks_done_sender);
     }
 
     pub fn maybe_process_optimistic_block(
         &mut self,
-        me: &Option<AccountId>,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         let Some((block, chunks)) = self.optimistic_block_chunks.take_latest_ready_block() else {
@@ -1271,7 +1258,7 @@ impl Chain {
             return;
         }
 
-        match self.process_optimistic_block(me, block, chunks, apply_chunks_done_sender) {
+        match self.process_optimistic_block(block, chunks, apply_chunks_done_sender) {
             Ok(()) => {
                 debug!(
                     target: "chain", prev_block_hash = ?prev_block_hash,
@@ -1293,7 +1280,6 @@ impl Chain {
 
     pub fn process_optimistic_block(
         &mut self,
-        me: &Option<AccountId>,
         block: OptimisticBlock,
         chunk_headers: Vec<ShardChunkHeader>,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
@@ -1324,7 +1310,6 @@ impl Chain {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let chunks = Chunks::from_chunk_headers(&chunk_headers, block_height);
         let incoming_receipts = self.collect_incoming_receipts_from_chunks(
-            me,
             &chunks,
             &prev_block_hash,
             &prev_block_hash,
@@ -1412,7 +1397,6 @@ impl Chain {
     /// for these blocks to be ready.
     pub fn postprocess_ready_blocks(
         &mut self,
-        me: &Option<AccountId>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
@@ -1424,7 +1408,6 @@ impl Chain {
                 BlockToApply::Normal(block_hash) => {
                     let apply_result = apply_result.into_iter().map(|res| (res.0, res.2)).collect();
                     match self.postprocess_ready_block(
-                        me,
                         block_hash,
                         apply_result,
                         block_processing_artifacts,
@@ -1440,7 +1423,6 @@ impl Chain {
                 }
                 BlockToApply::Optimistic(block_height) => {
                     self.postprocess_optimistic_block(
-                        me,
                         block_height,
                         apply_result,
                         block_processing_artifacts,
@@ -1558,7 +1540,6 @@ impl Chain {
     /// Check for potentially unlocked orphans after this update.
     pub fn reset_heads_post_state_sync(
         &mut self,
-        me: &Option<AccountId>,
         sync_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
@@ -1599,7 +1580,7 @@ impl Chain {
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
-        self.check_orphans(me, prev_hash, block_processing_artifacts, apply_chunks_done_sender);
+        self.check_orphans(prev_hash, block_processing_artifacts, apply_chunks_done_sender);
         Ok(())
     }
 
@@ -1607,7 +1588,6 @@ impl Chain {
     // successful blocks processing.
     fn start_process_block_impl(
         &mut self,
-        me: &Option<AccountId>,
         block: MaybeValidated<Block>,
         provenance: Provenance,
         block_processing_artifact: &mut BlockProcessingArtifact,
@@ -1637,7 +1617,6 @@ impl Chain {
         let state_patch = self.pending_state_patch.take();
         let preprocess_timer = metrics::BLOCK_PREPROCESSING_TIME.start_timer();
         let preprocess_res = self.preprocess_block(
-            me,
             &block,
             &provenance,
             &mut block_processing_artifact.invalid_chunks,
@@ -1658,7 +1637,7 @@ impl Chain {
                         // we only add blocks that couldn't have been gc'ed to the orphan pool.
                         if block_height >= tail_height {
                             let requested_missing_chunks = if let Some(orphan_missing_chunks) =
-                                self.should_request_chunks_for_orphan(me, &block)
+                                self.should_request_chunks_for_orphan(&block)
                             {
                                 block_processing_artifact
                                     .orphans_missing_chunks
@@ -1785,7 +1764,6 @@ impl Chain {
     #[tracing::instrument(level = "debug", target = "chain", "postprocess_block_only", skip_all)]
     fn postprocess_block_only(
         &mut self,
-        me: &Option<AccountId>,
         block: &Block,
         block_preprocess_info: BlockPreprocessInfo,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
@@ -1793,7 +1771,7 @@ impl Chain {
         // Save state transition data to the database only if it might later be needed
         // for generating a state witness. Storage space optimization.
         let should_save_state_transition_data =
-            self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
+            self.should_produce_state_witness_for_this_or_next_epoch(block.header())?;
         let mut chain_update = self.chain_update();
         let new_head = chain_update.postprocess_block(
             block,
@@ -1810,7 +1788,6 @@ impl Chain {
     /// the processing of those blocks.
     fn postprocess_ready_block(
         &mut self,
-        me: &Option<AccountId>,
         block_hash: CryptoHash,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
@@ -1853,7 +1830,7 @@ impl Chain {
             }
         }
         let new_head =
-            match self.postprocess_block_only(me, &block, block_preprocess_info, apply_results) {
+            match self.postprocess_block_only(&block, block_preprocess_info, apply_results) {
                 Err(err) => {
                     self.maybe_mark_block_invalid(*block.hash(), &err);
                     self.blocks_delay_tracker.mark_block_errored(&block_hash, err.to_string());
@@ -1974,7 +1951,7 @@ impl Chain {
             block_start_processing_time,
         );
 
-        self.check_orphans(me, *block.hash(), block_processing_artifacts, apply_chunks_done_sender);
+        self.check_orphans(*block.hash(), block_processing_artifacts, apply_chunks_done_sender);
 
         self.check_if_upgrade_needed(&block_hash);
 
@@ -1987,7 +1964,6 @@ impl Chain {
 
     fn postprocess_optimistic_block(
         &mut self,
-        me: &Option<AccountId>,
         block_height: BlockHeight,
         apply_result: Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
@@ -2037,7 +2013,6 @@ impl Chain {
         let block_hash = *orphan.block.hash();
         self.blocks_delay_tracker.mark_block_completed_pending_execution(&block_hash);
         if let Err(err) = self.start_process_block_async(
-            me,
             orphan.block,
             orphan.provenance,
             block_processing_artifacts,
@@ -2231,7 +2206,6 @@ impl Chain {
     /// Note that this function does NOT introduce any changes to chain state.
     fn preprocess_block(
         &self,
-        me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
@@ -2370,7 +2344,7 @@ impl Chain {
             validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
         }
 
-        self.ping_missing_chunks(me, prev_hash, block)?;
+        self.ping_missing_chunks(prev_hash, block)?;
 
         let incoming_receipts = if cfg!(feature = "protocol_feature_spice") {
             // TODO(spice): move incoming receipts collection inside apply_chunks_preprocessing
@@ -2379,7 +2353,6 @@ impl Chain {
             let receipts_shuffle_salt =
                 get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
             self.collect_incoming_receipts_from_chunks(
-                me,
                 &block.chunks(),
                 &prev_hash,
                 receipts_shuffle_salt,
@@ -2461,7 +2434,6 @@ impl Chain {
     /// Check if any block with missing chunk is ready to be processed and start processing these blocks
     pub fn check_blocks_with_missing_chunks(
         &mut self,
-        me: &Option<AccountId>,
         block_processing_artifact: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
@@ -2473,7 +2445,6 @@ impl Chain {
             let block_hash = *block.block.header().hash();
             let height = block.block.header().height();
             let res = self.start_process_block_async(
-                me,
                 block.block,
                 block.provenance,
                 block_processing_artifact,
@@ -2572,7 +2543,6 @@ impl Chain {
 
     pub fn catchup_blocks_step(
         &mut self,
-        me: &Option<AccountId>,
         sync_hash: &CryptoHash,
         blocks_catch_up_state: &mut BlocksCatchUpState,
         block_catch_up_scheduler: &near_async::messaging::Sender<BlockCatchUpRequest>,
@@ -2594,7 +2564,7 @@ impl Chain {
             if self.blocks_in_processing.has_blocks_to_catch_up(&queued_block) {
                 processed_blocks.insert(queued_block, results);
             } else {
-                match self.block_catch_up_postprocess(me, &queued_block, results) {
+                match self.block_catch_up_postprocess(&queued_block, results) {
                     Ok(_) => {
                         let mut saw_one = false;
                         for next_block_hash in
@@ -2628,7 +2598,6 @@ impl Chain {
             let receipts_shuffle_salt =
                 get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
             let receipts_by_shard = self.collect_incoming_receipts_from_chunks(
-                me,
                 &block.chunks(),
                 &prev_hash,
                 receipts_shuffle_salt,
@@ -2722,7 +2691,6 @@ impl Chain {
 
     fn block_catch_up_postprocess(
         &mut self,
-        me: &Option<AccountId>,
         block_hash: &CryptoHash,
         results: Vec<Result<ShardUpdateResult, Error>>,
     ) -> Result<(), Error> {
@@ -2730,7 +2698,7 @@ impl Chain {
         // Save state transition data to the database only if it might later be needed
         // for generating a state witness. Storage space optimization.
         let should_save_state_transition_data =
-            self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
+            self.should_produce_state_witness_for_this_or_next_epoch(block.header())?;
         let mut chain_update = self.chain_update();
         let results = results.into_iter().collect::<Result<Vec<_>, Error>>()?;
         chain_update.apply_chunk_postprocessing(
@@ -2764,7 +2732,6 @@ impl Chain {
     /// Apply transactions in chunks for the next epoch in blocks that were blocked on the state sync
     pub fn finish_catchup_blocks(
         &mut self,
-        me: &Option<AccountId>,
         epoch_first_block: &CryptoHash,
         // TODO(current_epoch_state_sync): remove the ones not in affected_blocks by breadth first searching from `epoch_first_block` and adding
         // descendant blocks to the search when they're not equal to this hash, and then removing everything we see in that search
@@ -2773,10 +2740,7 @@ impl Chain {
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
         affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
-        debug!(
-            "Finishing catching up blocks after syncing pre {:?}, me: {:?}",
-            epoch_first_block, me
-        );
+        debug!("Finishing catching up blocks after syncing pre {:?}", epoch_first_block);
 
         let first_block = self.chain_store.get_block(epoch_first_block)?;
 
@@ -2790,7 +2754,7 @@ impl Chain {
             .remove_block_to_catchup(*first_block.header().prev_hash(), *epoch_first_block);
 
         for block_hash in affected_blocks {
-            debug!(target: "chain", "Catching up: removing prev={:?} from the queue. I'm {:?}", block_hash, me);
+            debug!(target: "chain", "Catching up: removing prev={:?} from the queue.", block_hash);
             chain_store_update.remove_prev_block_to_catchup(*block_hash);
         }
         chain_store_update.remove_state_sync_info(*epoch_first_block);
@@ -2798,12 +2762,7 @@ impl Chain {
         chain_store_update.commit()?;
 
         for hash in affected_blocks {
-            self.check_orphans(
-                me,
-                *hash,
-                block_processing_artifacts,
-                apply_chunks_done_sender.clone(),
-            );
+            self.check_orphans(*hash, block_processing_artifacts, apply_chunks_done_sender.clone());
         }
 
         Ok(())
@@ -2974,7 +2933,6 @@ impl Chain {
     /// chunks.
     pub fn should_produce_state_witness_for_this_or_next_epoch(
         &self,
-        me: &Option<AccountId>,
         block_header: &BlockHeader,
     ) -> Result<bool, Error> {
         if cfg!(feature = "shadow_chunk_validation") {
@@ -2984,7 +2942,10 @@ impl Chain {
         // Use epoch manager because block is not in DB yet.
         let next_epoch_id =
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
-        let Some(account_id) = me.as_ref() else { return Ok(false) };
+        let validator_signer = self.validator_signer.get();
+        let Some(account_id) = validator_signer.as_ref().map(|v| v.validator_id()) else {
+            return Ok(false);
+        };
         Ok(self.epoch_manager.is_chunk_producer_for_epoch(epoch_id, account_id)?
             || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
     }

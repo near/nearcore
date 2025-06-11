@@ -491,12 +491,10 @@ fn test_processing_chunks_sanity() {
         let mut next_blocks: Vec<_> = (3 * i..3 * i + 3).collect();
         next_blocks.shuffle(&mut rng);
         for ind in next_blocks {
-            let signer = env.clients[1].validator_signer.get();
             let _ = env.clients[1].start_process_block(
                 blocks[ind].clone().into(),
                 Provenance::NONE,
                 None,
-                &signer,
             );
             if rng.gen_bool(0.5) {
                 env.process_shards_manager_responses_and_finish_processing_blocks(1);
@@ -717,12 +715,10 @@ fn test_chunk_forwarding_optimization() {
         // The block producer of course has the complete block so we can process that.
         for i in 0..test.num_validators {
             debug!(target: "test", "Processing block {} as validator #{}", block.header().height(), i);
-            let signer = test.env.clients[i].validator_signer.get();
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
                 None,
-                &signer,
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
@@ -799,13 +795,8 @@ fn test_processing_blocks_async() {
     let mut rng = thread_rng();
     blocks.shuffle(&mut rng);
     for ind in 0..blocks.len() {
-        let signer = env.clients[1].validator_signer.get();
-        let _ = env.clients[1].start_process_block(
-            blocks[ind].clone().into(),
-            Provenance::NONE,
-            None,
-            &signer,
-        );
+        let _ =
+            env.clients[1].start_process_block(blocks[ind].clone().into(), Provenance::NONE, None);
     }
 
     env.process_shards_manager_responses_and_finish_processing_blocks(1);

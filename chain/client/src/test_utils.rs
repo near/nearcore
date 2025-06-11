@@ -46,11 +46,9 @@ impl Client {
         should_produce_chunk: bool,
         allow_errors: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        let signer = self.validator_signer.get();
-        self.start_process_block(block, provenance, None, &signer)?;
+        self.start_process_block(block, provenance, None)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) =
-            self.postprocess_ready_blocks(None, should_produce_chunk, &signer);
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk);
         if !allow_errors {
             assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         }
@@ -83,10 +81,9 @@ impl Client {
 
     /// This function finishes processing all blocks that started being processed.
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
-        let signer = self.validator_signer.get();
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(None, true, &signer).0);
+            accepted_blocks.extend(self.postprocess_ready_blocks(None, true).0);
         }
         accepted_blocks
     }
@@ -95,8 +92,7 @@ impl Client {
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
-            let signer = self.validator_signer.get();
-            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true, &signer);
+            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true);
             return accepted_blocks;
         }
         vec![]
@@ -123,7 +119,6 @@ impl Client {
             prev_block.header(),
             &prev_chunk_header,
             &shard_chunk,
-            &signer,
         )
         .unwrap();
         shard_chunk
@@ -277,8 +272,7 @@ pub fn run_catchup(
     });
     let _ = System::new();
     loop {
-        let signer = client.validator_signer.get();
-        client.run_catchup(highest_height_peers, &block_catch_up, None, &signer)?;
+        client.run_catchup(highest_height_peers, &block_catch_up, None)?;
         let mut catchup_done = true;
         for msg in block_messages.write().drain(..) {
             let results =

@@ -24,7 +24,6 @@ use near_primitives::types::BlockHeightDelta;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_primitives::unwrap_or_return;
-use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
@@ -140,8 +139,8 @@ impl RpcHandler {
         is_forwarded: bool,
         check_only: bool,
     ) -> ProcessTxResponse {
-        let signer = self.validator_signer.get();
-        unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only, &signer), {
+        unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
+            let signer = self.validator_signer.get();
             let me = signer.as_ref().map(|signer| signer.validator_id());
             tracing::debug!(target: "client", ?me, ?tx, "Dropping tx");
             ProcessTxResponse::NoResponse
@@ -154,9 +153,9 @@ impl RpcHandler {
         signed_tx: &SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
-        signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<ProcessTxResponse, near_client_primitives::types::Error> {
         let head = self.chain_store.head()?;
+        let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|vs| vs.validator_id());
         let cur_block = self.chain_store.get_block(&head.last_block_hash)?;
         let cur_block_header = cur_block.header();
@@ -212,7 +211,7 @@ impl RpcHandler {
                                     "Node has not caught up yet".to_string(),
                                 ));
                             } else {
-                                self.forward_tx(&epoch_id, signed_tx, signer)?;
+                                self.forward_tx(&epoch_id, signed_tx)?;
                                 return Ok(ProcessTxResponse::RequestRouted);
                             }
                         }
@@ -257,19 +256,19 @@ impl RpcHandler {
             // Not active validator:
             //   forward to current epoch validators,
             //   possibly forward to next epoch validators
-            if self.active_validator(shard_id, signer)? {
+            if self.active_validator(shard_id)? {
                 tracing::trace!(target: "client", account = ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), is_forwarded, "Recording a transaction.");
                 metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
                 if !is_forwarded {
-                    self.possibly_forward_tx_to_next_epoch(signed_tx, signer)?;
+                    self.possibly_forward_tx_to_next_epoch(signed_tx)?;
                 }
                 return Ok(ProcessTxResponse::ValidTx);
             }
             if !is_forwarded {
                 tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "Forwarding a transaction.");
                 metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
-                self.forward_tx(&epoch_id, signed_tx, signer)?;
+                self.forward_tx(&epoch_id, signed_tx)?;
                 return Ok(ProcessTxResponse::RequestRouted);
             }
             tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
@@ -286,7 +285,7 @@ impl RpcHandler {
             return Ok(ProcessTxResponse::NoResponse);
         }
         // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
-        self.forward_tx(&epoch_id, signed_tx, signer).map(|()| ProcessTxResponse::RequestRouted)
+        self.forward_tx(&epoch_id, signed_tx).map(|()| ProcessTxResponse::RequestRouted)
     }
 
     /// Forwards given transaction to upcoming validators.
@@ -294,7 +293,6 @@ impl RpcHandler {
         &self,
         epoch_id: &EpochId,
         tx: &SignedTransaction,
-        signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), near_client_primitives::types::Error> {
         let shard_id = account_id_to_shard_id(
             self.epoch_manager.as_ref(),
@@ -338,6 +336,7 @@ impl RpcHandler {
             }
         }
 
+        let signer = self.validator_signer.get();
         if let Some(account_id) = signer.as_ref().map(|bp| bp.validator_id()) {
             validators.remove(account_id);
         }
@@ -358,11 +357,11 @@ impl RpcHandler {
     fn active_validator(
         &self,
         shard_id: ShardId,
-        signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<bool, near_client_primitives::types::Error> {
         let head = self.chain_store.head()?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
+        let signer = self.validator_signer.get();
         let account_id = if let Some(vs) = signer.as_ref() {
             vs.validator_id()
         } else {
@@ -390,13 +389,12 @@ impl RpcHandler {
     fn possibly_forward_tx_to_next_epoch(
         &self,
         tx: &SignedTransaction,
-        signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), near_client_primitives::types::Error> {
         let head = self.chain_store.head()?;
         if let Some(next_epoch_id) = self.get_next_epoch_id_if_at_boundary(&head)? {
-            self.forward_tx(&next_epoch_id, tx, signer)?;
+            self.forward_tx(&next_epoch_id, tx)?;
         } else {
-            self.forward_tx(&head.epoch_id, tx, signer)?;
+            self.forward_tx(&head.epoch_id, tx)?;
         }
         Ok(())
     }
