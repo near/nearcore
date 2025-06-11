@@ -394,12 +394,9 @@ pub(crate) fn block_chunks_exist(
                     chunk_header.shard_id(),
                     true,
                 );
-                let will_care_about_shard = sv.shard_tracker.will_care_about_shard(
-                    Some(me),
-                    block.header().prev_hash(),
-                    chunk_header.shard_id(),
-                    true,
-                );
+                let will_care_about_shard = sv
+                    .shard_tracker
+                    .will_care_about_shard(block.header().prev_hash(), chunk_header.shard_id());
                 if cares_about_shard || will_care_about_shard {
                     unwrap_or_err_db!(
                         sv.store.get_ser::<ShardChunk>(
