@@ -1,3 +1,6 @@
+use crate::types::BlockHeader;
+use crate::{Chain, ChainStoreAccess};
+use borsh::BorshDeserialize;
 use near_chain_primitives::error::Error;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
@@ -5,11 +8,7 @@ use near_primitives::types::EpochId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store, StoreUpdate};
-
-use borsh::BorshDeserialize;
-
-use crate::types::BlockHeader;
-use crate::{Chain, ChainStoreAccess};
+use std::sync::Arc;
 
 fn get_state_sync_new_chunks(
     store: &Store,
@@ -91,7 +90,7 @@ fn remove_old_epochs(
 fn maybe_get_block_header<T: ChainStoreAccess>(
     chain_store: &T,
     block_hash: &CryptoHash,
-) -> Result<Option<BlockHeader>, Error> {
+) -> Result<Option<Arc<BlockHeader>>, Error> {
     match chain_store.get_block_header(block_hash) {
         Ok(block_header) => Ok(Some(block_header)),
         // This might happen in the case of epoch sync where we save individual headers without having all

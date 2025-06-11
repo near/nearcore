@@ -1508,7 +1508,7 @@ fn test_reject_block_headers_during_epoch_sync() {
         "Epoch sync failure"
     );
 
-    let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
+    let headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
     // actual attempt to sync headers during ongoing epoch sync
     assert_matches!(
         sync_client.sync_block_headers(headers),
@@ -1530,7 +1530,7 @@ fn test_gc_tail_update() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         blocks.push(block);
     }
-    let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
+    let headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
     env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
     let prev_prev_sync_block = blocks[blocks.len() - 4].clone();

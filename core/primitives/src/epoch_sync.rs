@@ -11,6 +11,7 @@ use near_crypto::Signature;
 use near_primitives_core::types::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 /// Versioned enum for EpochSyncProof. Because this structure is sent over the network and also
 /// persisted on disk, we want it to be deserializable even if the structure changes in the future.
@@ -100,6 +101,8 @@ pub fn should_use_versioned_bp_hash_format(protocol_version: ProtocolVersion) ->
 }
 
 /// Data needed for each epoch covered in the epoch sync proof.
+///
+/// FIXME(Clone): cloning them `Vec`s here should be pretty darn expensive, no?
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct EpochSyncProofEpochData {
     /// The block producers and their stake, for this epoch. This is verified
@@ -128,7 +131,7 @@ pub struct EpochSyncProofEpochData {
     pub use_versioned_bp_hash_format: bool,
     /// The last final block header of the epoch (i.e. third last block of the epoch).
     /// This is verified against `this_epoch_endorsements_for_last_final_block`.
-    pub last_final_block_header: BlockHeader,
+    pub last_final_block_header: Arc<BlockHeader>,
     /// Endorsements for the last final block, which comes from the second last block of the epoch.
     /// Since it has a consecutive height from the final block, the approvals included in it are
     /// guaranteed to be endorsements which directly endorse the final block.
@@ -165,11 +168,11 @@ pub struct EpochSyncProofCurrentEpochData {
     /// against `last_final_block_header` in the last entry of `all_epochs`. Note that we cannot
     /// use signatures to prove this like for the final block, because the first block header may
     /// not have a consecutive height afterwards.
-    pub first_block_header_in_epoch: BlockHeader,
+    pub first_block_header_in_epoch: Arc<BlockHeader>,
     /// The last two block headers are also needed for various purposes after epoch sync.
     /// They are proven against the `first_block_header_in_epoch`.
-    pub last_block_header_in_prev_epoch: BlockHeader,
-    pub second_last_block_header_in_prev_epoch: BlockHeader,
+    pub last_block_header_in_prev_epoch: Arc<BlockHeader>,
+    pub second_last_block_header_in_prev_epoch: Arc<BlockHeader>,
     /// Used to prove `first_block_header_in_epoch` against the `last_final_block_header` of
     /// the last entry of `all_epochs`.
     pub merkle_proof_for_first_block: Vec<MerklePathItem>,

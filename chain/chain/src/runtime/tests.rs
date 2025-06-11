@@ -1385,7 +1385,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     .unwrap();
 
     // Make sure `chain` and test `env` use the same genesis hash.
-    env.head = chain.chain_store().head().unwrap();
+    env.head = Tip::clone(&chain.chain_store().head().unwrap());
     // Produce a single block, so that `prev_block_hash` is valid.
     env.step_default(vec![]);
 

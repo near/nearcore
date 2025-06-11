@@ -48,7 +48,7 @@ pub struct EpochSync {
     /// We reuse the same proof as long as the current epoch ID is the same.
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
     // See `my_own_epoch_sync_boundary_block_header()`.
-    my_own_epoch_sync_boundary_block_header: Option<BlockHeader>,
+    my_own_epoch_sync_boundary_block_header: Option<Arc<BlockHeader>>,
 }
 
 impl EpochSync {
@@ -81,7 +81,7 @@ impl EpochSync {
     /// bootstrapped to using epoch sync, or None if this node was not bootstrapped using
     /// epoch sync.
     pub fn my_own_epoch_sync_boundary_block_header(&self) -> Option<&BlockHeader> {
-        self.my_own_epoch_sync_boundary_block_header.as_ref()
+        self.my_own_epoch_sync_boundary_block_header.as_deref()
     }
 
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
@@ -114,7 +114,7 @@ impl EpochSync {
         // is out of date, only one thread should be doing the computation.
         let proof = Self::derive_epoch_sync_proof_from_last_final_block(
             store,
-            target_epoch_second_last_block_header,
+            &target_epoch_second_last_block_header,
         );
         let (proof, _) = match CompressedEpochSyncProof::encode(&proof?) {
             Ok(proof) => proof,
@@ -184,7 +184,7 @@ impl EpochSync {
     /// (actually it's the block after that, so that we can find the approvals).
     fn derive_epoch_sync_proof_from_last_final_block(
         store: Store,
-        next_block_header_after_last_final_block_of_current_epoch: BlockHeader,
+        next_block_header_after_last_final_block_of_current_epoch: &BlockHeader,
     ) -> Result<EpochSyncProof, Error> {
         let chain_store = store.chain_store();
         let epoch_store = store.epoch_store();
@@ -280,9 +280,11 @@ impl EpochSync {
                 second_last_block_in_epoch: second_last_block_info_of_prev_epoch,
             },
             current_epoch: EpochSyncProofCurrentEpochData {
-                first_block_header_in_epoch: first_block_of_current_epoch,
-                last_block_header_in_prev_epoch: last_block_of_prev_epoch,
-                second_last_block_header_in_prev_epoch: second_last_block_of_prev_epoch,
+                first_block_header_in_epoch: <_>::clone(&first_block_of_current_epoch),
+                last_block_header_in_prev_epoch: <_>::clone(&last_block_of_prev_epoch),
+                second_last_block_header_in_prev_epoch: <_>::clone(
+                    &second_last_block_of_prev_epoch,
+                ),
                 merkle_proof_for_first_block: merkle_proof_for_first_block_of_current_epoch,
                 partial_merkle_tree_for_first_block:
                     partial_merkle_tree_for_first_block_of_current_epoch,
@@ -364,10 +366,13 @@ impl EpochSync {
                         chain_store.get_block_header(last_block_header.prev_hash())?;
                     let third_last_block_header =
                         chain_store.get_block_header(second_last_block_header.prev_hash())?;
-                    (third_last_block_header, second_last_block_header.approvals().to_vec())
+                    (
+                        Arc::clone(&third_last_block_header),
+                        second_last_block_header.approvals().to_vec(),
+                    )
                 } else {
                     (
-                        current_epoch_last_final_block_header.clone(),
+                        current_epoch_last_final_block_header.clone().into(),
                         current_epoch_second_last_block_approvals.clone(),
                     )
                 };

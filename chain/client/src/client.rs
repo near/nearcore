@@ -1246,9 +1246,11 @@ impl Client {
             apply_chunks_done_sender,
         );
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
+            let head = self.chain.head().unwrap();
+            let header_head = self.chain.header_head().unwrap();
             self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
-                head: self.chain.head().unwrap(),
-                header_head: self.chain.header_head().unwrap(),
+                head: Tip::clone(&head),
+                header_head: Tip::clone(&header_head),
             });
         }
         self.process_block_processing_artifact(block_processing_artifacts);
@@ -1388,7 +1390,7 @@ impl Client {
 
     pub fn sync_block_headers(
         &mut self,
-        headers: Vec<BlockHeader>,
+        headers: Vec<Arc<BlockHeader>>,
     ) -> Result<(), near_chain::Error> {
         if matches!(self.sync_handler.sync_status, SyncStatus::EpochSync(_)) {
             return Err(near_chain::Error::Other(
@@ -1396,9 +1398,11 @@ impl Client {
             ));
         };
         self.chain.sync_block_headers(headers)?;
+        let head = self.chain.head().unwrap();
+        let header_head = self.chain.header_head().unwrap();
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
-            head: self.chain.head().unwrap(),
-            header_head: self.chain.header_head().unwrap(),
+            head: Tip::clone(&head),
+            header_head: Tip::clone(&header_head),
         });
         Ok(())
     }
@@ -1645,7 +1649,7 @@ impl Client {
                 // If a reorg happened, reintroduce transactions from the
                 // previous chain and remove transactions from the new chain.
                 let mut reintroduce_head = self.chain.get_block_header(&prev_head).unwrap();
-                let mut remove_head = block.header().clone();
+                let mut remove_head = Arc::from(block.header().clone());
                 assert_ne!(remove_head.hash(), reintroduce_head.hash());
 
                 let mut to_remove = vec![];
@@ -1654,8 +1658,7 @@ impl Client {
                 while remove_head.hash() != reintroduce_head.hash() {
                     while remove_head.height() > reintroduce_head.height() {
                         to_remove.push(*remove_head.hash());
-                        remove_head =
-                            self.chain.get_block_header(remove_head.prev_hash()).unwrap().clone();
+                        remove_head = self.chain.get_block_header(remove_head.prev_hash()).unwrap();
                     }
                     while reintroduce_head.height() > remove_head.height()
                         || reintroduce_head.height() == remove_head.height()
@@ -1769,10 +1772,10 @@ impl Client {
                     #[cfg(features = "test_features")]
                     match self.adv_produce_chunks {
                         Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => true,
-                        _ => chain.transaction_validity_check(block.header().clone())(tx),
+                        _ => chain.transaction_validity_check(block.header().clone().into())(tx),
                     }
                     #[cfg(not(features = "test_features"))]
-                    self.chain.transaction_validity_check(block.header().clone())(tx)
+                    self.chain.transaction_validity_check(block.header().clone().into())(tx)
                 },
             );
 
