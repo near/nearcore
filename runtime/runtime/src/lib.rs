@@ -1611,7 +1611,7 @@ impl Runtime {
         {
             let _span = tracing::info_span!(
                 target: "runtime",
-                "process_receipts",
+                "validate_apply_state_update",
                 measure = "apply",
             )
             .entered();
