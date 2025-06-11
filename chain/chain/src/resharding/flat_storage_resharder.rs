@@ -942,8 +942,12 @@ mod tests {
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-        let shard_tracker =
-            ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
+        let validator_signer = MutableConfigValue::new(None, "validator_signer");
+        let shard_tracker = ShardTracker::new(
+            validator_signer.clone(),
+            TrackedShardsConfig::AllShards,
+            epoch_manager.clone(),
+        );
         let runtime =
             NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
         let chain_genesis = ChainGenesis::new(&genesis.config);
@@ -957,7 +961,7 @@ mod tests {
             ChainConfig::test(),
             None,
             Default::default(),
-            MutableConfigValue::new(None, "validator_signer"),
+            validator_signer,
             noop().into_multi_sender(),
         )
         .unwrap();
