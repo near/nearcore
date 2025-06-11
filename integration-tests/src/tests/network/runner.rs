@@ -123,7 +123,6 @@ fn setup_network_node(
     );
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         Clock::real(),
-        validator_signer.clone(),
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker.clone(),
