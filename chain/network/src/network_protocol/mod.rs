@@ -983,6 +983,79 @@ impl fmt::Debug for RoutedMessageBody {
     }
 }
 
+impl From<TieredMessageBody> for RoutedMessageBody {
+    fn from(tiered: TieredMessageBody) -> Self {
+        match tiered {
+            TieredMessageBody::T1(body) => match *body {
+                T1MessageBody::BlockApproval(approval) => {
+                    RoutedMessageBody::BlockApproval(approval)
+                }
+                T1MessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk) => {
+                    RoutedMessageBody::VersionedPartialEncodedChunk(*partial_encoded_chunk)
+                }
+                T1MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
+                    RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg)
+                }
+                T1MessageBody::PartialEncodedStateWitness(partial_encoded_state_witness) => {
+                    RoutedMessageBody::PartialEncodedStateWitness(partial_encoded_state_witness)
+                }
+                T1MessageBody::PartialEncodedStateWitnessForward(partial_encoded_state_witness) => {
+                    RoutedMessageBody::PartialEncodedStateWitnessForward(
+                        partial_encoded_state_witness,
+                    )
+                }
+                T1MessageBody::VersionedChunkEndorsement(chunk_endorsement) => {
+                    RoutedMessageBody::VersionedChunkEndorsement(chunk_endorsement)
+                }
+                T1MessageBody::ChunkContractAccesses(chunk_contract_accesses) => {
+                    RoutedMessageBody::ChunkContractAccesses(chunk_contract_accesses)
+                }
+                T1MessageBody::ContractCodeRequest(contract_code_request) => {
+                    RoutedMessageBody::ContractCodeRequest(contract_code_request)
+                }
+                T1MessageBody::ContractCodeResponse(contract_code_response) => {
+                    RoutedMessageBody::ContractCodeResponse(contract_code_response)
+                }
+            },
+            TieredMessageBody::T2(body) => match *body {
+                T2MessageBody::ForwardTx(signed_transaction) => {
+                    RoutedMessageBody::ForwardTx(signed_transaction)
+                }
+                T2MessageBody::TxStatusRequest(account_id, crypto_hash) => {
+                    RoutedMessageBody::TxStatusRequest(account_id, crypto_hash)
+                }
+                T2MessageBody::TxStatusResponse(final_execution_outcome_view) => {
+                    RoutedMessageBody::TxStatusResponse(*final_execution_outcome_view)
+                }
+                T2MessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg) => {
+                    RoutedMessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg)
+                }
+                T2MessageBody::PartialEncodedChunkResponse(partial_encoded_chunk_response_msg) => {
+                    RoutedMessageBody::PartialEncodedChunkResponse(
+                        partial_encoded_chunk_response_msg,
+                    )
+                }
+                T2MessageBody::Ping(ping) => RoutedMessageBody::Ping(ping),
+                T2MessageBody::Pong(pong) => RoutedMessageBody::Pong(pong),
+                T2MessageBody::ChunkStateWitnessAck(chunk_state_witness_ack) => {
+                    RoutedMessageBody::ChunkStateWitnessAck(chunk_state_witness_ack)
+                }
+                T2MessageBody::StatePartRequest(state_part_request) => {
+                    RoutedMessageBody::StatePartRequest(state_part_request)
+                }
+                T2MessageBody::PartialEncodedContractDeploys(partial_encoded_contract_deploys) => {
+                    RoutedMessageBody::PartialEncodedContractDeploys(
+                        partial_encoded_contract_deploys,
+                    )
+                }
+                T2MessageBody::StateHeaderRequest(state_header_request) => {
+                    RoutedMessageBody::StateHeaderRequest(state_header_request)
+                }
+            },
+        }
+    }
+}
+
 /// RoutedMessage represent a package that will travel the network towards a specific peer id.
 /// It contains the peer_id and signature from the original sender. Every intermediate peer in the
 /// route must verify that this signature is valid otherwise previous sender of this package should
@@ -1143,6 +1216,12 @@ impl From<RoutedMessageV2> for RoutedMessageV3 {
             created_at: msg.created_at.map(|t| t.unix_timestamp()),
             num_hops: msg.num_hops,
         }
+    }
+}
+
+impl From<RoutedMessageV3> for RoutedMessage {
+    fn from(msg: RoutedMessageV3) -> Self {
+        RoutedMessage::V3(msg)
     }
 }
 
