@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_chain::types::ChainConfig;
