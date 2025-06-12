@@ -212,7 +212,7 @@ impl ChunkExecutorActor {
     fn apply_chunks(
         &mut self,
         me: Option<&AccountId>,
-        block: Block,
+        block: Arc<Block>,
         mut state_patch: SandboxStatePatch,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
