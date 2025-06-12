@@ -339,7 +339,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                         author: msg.author.clone(),
                         ttl: msg.ttl,
                         body: msg.body.clone().into(),
-                        signature: msg.signature.clone().unwrap_or_default(),
+                        signature: msg.signature.clone(),
                     };
                     ProtoMT::Routed(proto::RoutedMessage {
                         borsh: borsh::to_vec(&msg_v1).unwrap(),
@@ -529,14 +529,13 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Routed(r) => {
                 let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
                 let body = TieredMessageBody::from_routed(msg.body).unwrap();
-                let signature = if body.is_t1() { None } else { Some(msg.signature) };
                 PeerMessage::Routed(Box::new(
                     RoutedMessageV3 {
                         target: msg.target,
                         author: msg.author,
                         ttl: msg.ttl,
                         body,
-                        signature,
+                        signature: msg.signature,
                         created_at: r
                             .created_at
                             .as_ref()
