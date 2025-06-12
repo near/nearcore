@@ -213,7 +213,7 @@ fn apply_state_changes(
         }
     }
 
-    tracing::info!(target: "state-changes", ?file, ?shard_id, ?state_root, "Done applying changes");
+    tracing::info!(target: "state-changes", ?file, %shard_id, ?state_root, "Done applying changes");
 }
 
 /// Determines the shard id which produced the StateChange based the row key,

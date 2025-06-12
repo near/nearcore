@@ -1,3 +1,4 @@
+use crate::apply_chunks_thread_pool::ApplyChunksSpawner;
 use crate::approval_verification::verify_approval_with_approvers_info;
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
@@ -10,7 +11,6 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::missing_chunks::{MissingChunksPool, OptimisticBlockChunksPool};
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::pending::PendingBlocksPool;
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
@@ -45,7 +45,8 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
+use near_async::futures::AsyncComputationSpawner;
+use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::MutableValidatorSigner;
@@ -131,7 +132,7 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// CatchingUp is for when apply_chunks is called through catchup_blocks, this is to catch up the
 /// shard states for the next epoch
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
-enum ApplyChunksMode {
+pub enum ApplyChunksMode {
     IsCaughtUp,
     CatchingUp,
     NotCaughtUp,
@@ -356,7 +357,7 @@ impl Drop for Chain {
 
 /// UpdateShardJob is a closure that is responsible for updating a shard for a single block.
 /// Execution context (latest blocks/chunks details) are already captured within.
-type UpdateShardJob = (
+pub type UpdateShardJob = (
     ShardId,
     CachedShardUpdateKey,
     Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>,
@@ -414,8 +415,11 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             store.clone(),
             epoch_manager.clone(),
+            shard_tracker.clone(),
+            None, // No validator id for view client
             noop().into_multi_sender(),
         );
+        let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -435,7 +439,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            apply_chunks_spawner: Arc::new(RayonAsyncComputationSpawner),
+            apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(num_shards),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
@@ -455,7 +459,7 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
-        apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+        apply_chunks_spawner: ApplyChunksSpawner,
         validator: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
     ) -> Result<Chain, Error> {
@@ -530,11 +534,12 @@ impl Chain {
         let tip = chain_store.head()?;
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id)?;
         let shard_uids = shard_layout.shard_uids().collect_vec();
+        let me = validator.get().map(|v| v.validator_id().clone());
         let tracked_shards: Vec<_> = shard_uids
             .iter()
             .filter(|shard_uid| {
                 shard_tracker.cares_about_shard(
-                    validator.get().map(|v| v.validator_id().clone()).as_ref(),
+                    me.as_ref(),
                     &tip.prev_block_hash,
                     shard_uid.shard_id(),
                     true,
@@ -568,8 +573,20 @@ impl Chain {
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
-        let resharding_manager =
-            ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
+        let resharding_manager = ReshardingManager::new(
+            chain_store.store(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            me,
+            resharding_sender,
+        );
+
+        // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit. This assumes that:
+        // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
+        // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
+        let max_num_shards =
+            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+        let apply_chunks_spawner = apply_chunks_spawner.into_spawner(max_num_shards);
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -1002,8 +1019,7 @@ impl Chain {
 
     /// Do basic validation of the information that we can get from the chunk headers in `block`
     fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
+        let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(prev_block)?;
         for (chunk_header, prev_chunk_header) in
             block.chunks().iter_deprecated().zip(prev_chunk_headers.iter())
         {
@@ -1311,7 +1327,8 @@ impl Chain {
             target: "chain",
             "process_optimistic_block",
             hash = ?block.hash(),
-            height = ?block.height()
+            height = ?block.height(),
+            tag_block_production = true
         )
         .entered();
 
@@ -1323,8 +1340,7 @@ impl Chain {
         let prev_block_hash = *block.prev_block_hash();
         let prev_block = self.get_block(&prev_block_hash)?;
         let prev_prev_hash = prev_block.header().prev_hash();
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
         let (is_caught_up, _) =
@@ -1684,8 +1700,11 @@ impl Chain {
                     }
                     Error::ChunksMissing(missing_chunks) => {
                         let block_hash = *block.hash();
-                        let missing_chunk_hashes: Vec<_> =
-                            missing_chunks.iter().map(|header| header.chunk_hash()).collect();
+                        let missing_chunk_hashes: Vec<_> = missing_chunks
+                            .iter()
+                            .map(|header| header.chunk_hash())
+                            .cloned()
+                            .collect();
                         block_processing_artifact.blocks_missing_chunks.push(BlockMissingChunks {
                             prev_hash: *block.header().prev_hash(),
                             missing_chunks: missing_chunks.clone(),
@@ -1776,7 +1795,7 @@ impl Chain {
             let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
             let res = do_apply_chunks(block.clone(), block_height, work);
-            // If we encounter error here, that means the receiver is deallocated and the client
+            // If we encounter an error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
                 (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
@@ -1836,7 +1855,9 @@ impl Chain {
         let _span = tracing::debug_span!(
             target: "chain",
             "postprocess_ready_block",
-            height = block.header().height())
+            height = block.header().height(),
+            tag_block_production = true
+        )
         .entered();
 
         let epoch_id = block.header().epoch_id();
@@ -1899,7 +1920,7 @@ impl Chain {
                 // during catchup of this block.
                 cares_about_shard
             };
-            tracing::debug!(target: "chain", ?shard_id, need_storage_update, "Updating storage");
+            tracing::debug!(target: "chain", %shard_id, need_storage_update, "Updating storage");
 
             if need_storage_update {
                 self.resharding_manager.start_resharding(
@@ -2021,7 +2042,7 @@ impl Chain {
                 Ok(result) => {
                     debug!(
                         target: "chain", ?prev_block_hash, block_height,
-                        ?shard_id, ?cached_shard_update_key,
+                        %shard_id, ?cached_shard_update_key,
                         "Caching ShardUpdate result from OptimisticBlock"
                     );
                     self.apply_chunk_results_cache.push(cached_shard_update_key, result);
@@ -2029,7 +2050,7 @@ impl Chain {
                 Err(e) => {
                     warn!(
                         target: "chain", ?e,
-                        ?prev_block_hash, block_height, ?shard_id,
+                        ?prev_block_hash, block_height, %shard_id,
                         ?cached_shard_update_key,
                         "Error applying chunk for OptimisticBlock"
                     );
@@ -2251,6 +2272,14 @@ impl Chain {
         block_received_time: Instant,
         state_patch: SandboxStatePatch,
     ) -> Result<PreprocessBlockResult, Error> {
+        let _span = tracing::debug_span!(
+            target: "chain",
+            "preprocess_block",
+            height = block.header().height(),
+            tag_block_production = true
+        )
+        .entered();
+
         let header = block.header();
 
         // see if the block is already in processing or if there are too many blocks being processed
@@ -3058,8 +3087,7 @@ impl Chain {
             return Ok(vec![]);
         }
 
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
+        let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(prev_block)?;
 
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
@@ -3194,7 +3222,7 @@ impl Chain {
 
     /// Get a key which can uniquely define result of applying a chunk based on
     /// block execution context and other chunks.
-    fn get_cached_shard_update_key(
+    pub fn get_cached_shard_update_key(
         block_context: &ApplyChunkBlockContext,
         chunk_headers: &Chunks,
         shard_id: ShardId,
@@ -3255,7 +3283,7 @@ impl Chain {
                 shard_id,
                 matches!(block.block_type, BlockType::Normal),
             ) {
-                debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
+                debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
                 let result = result.clone();
                 return Ok(Some((
                     shard_id,
@@ -3264,7 +3292,7 @@ impl Chain {
                 )));
             }
         }
-        debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
+        debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
@@ -3287,7 +3315,7 @@ impl Chain {
                 warn!(
                     target: "chain",
                     ?err,
-                    ?shard_id,
+                    %shard_id,
                     prev_chunk_height_included,
                     ?prev_chunk_extra,
                     ?chunk_header,
@@ -3430,7 +3458,7 @@ impl Chain {
 /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
 /// that it does not guard whether the children shards are ready or not, see the
 /// comments before `need_to_reshard`
-fn get_should_apply_chunk(
+pub fn get_should_apply_chunk(
     mode: ApplyChunksMode,
     cares_about_shard_this_epoch: bool,
     cares_about_shard_next_epoch: bool,
@@ -3708,45 +3736,6 @@ impl Chain {
                 Err(_) => false,
             })
             .ok_or_else(|| Error::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)))
-    }
-
-    /// Returns a vector of chunk headers, each of which corresponds to the chunk in the `prev_block`
-    /// This function is important when the block after `prev_block` has different number of chunks
-    /// from `prev_block` in cases of resharding.
-    /// In block production and processing, often we need to get the previous chunks of chunks
-    /// in the current block, this function provides a way to do so while handling sharding changes
-    /// correctly.
-    /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
-    /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
-    /// `get_prev_chunk_headers(epoch_manager, prev_block)` will return
-    /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
-    pub fn get_prev_chunk_headers(
-        epoch_manager: &dyn EpochManagerAdapter,
-        prev_block: &Block,
-    ) -> Result<Vec<ShardChunkHeader>, Error> {
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block.hash())?;
-        let shard_ids = epoch_manager.shard_ids(&epoch_id)?;
-
-        let prev_shard_ids = epoch_manager.get_prev_shard_ids(prev_block.hash(), shard_ids)?;
-        let prev_chunks = prev_block.chunks();
-        Ok(prev_shard_ids
-            .into_iter()
-            .map(|(_, shard_index)| prev_chunks.get(shard_index).unwrap().clone())
-            .collect())
-    }
-
-    pub fn get_prev_chunk_header(
-        epoch_manager: &dyn EpochManagerAdapter,
-        prev_block: &Block,
-        shard_id: ShardId,
-    ) -> Result<ShardChunkHeader, Error> {
-        let (_, prev_shard_id, prev_shard_index) =
-            epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
-        Ok(prev_block
-            .chunks()
-            .get(prev_shard_index)
-            .ok_or(Error::InvalidShardId(prev_shard_id))?
-            .clone())
     }
 
     pub fn group_receipts_by_shard(

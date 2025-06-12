@@ -1,16 +1,14 @@
-use std::io;
-use std::num::NonZero;
-use std::sync::Arc;
-
+use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use crate::db::DBSlice;
+use crate::{DBCol, KeyForStateChanges, STATE_SNAPSHOT_KEY, Store, StoreUpdate, TrieChanges};
 use borsh::BorshDeserialize;
-use near_primitives::errors::{MissingTrieValueContext, StorageError};
+use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::types::RawStateChangesWithTrieKey;
-
-use crate::{DBCol, KeyForStateChanges, STATE_SNAPSHOT_KEY, Store, StoreUpdate, TrieChanges};
-
-use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use std::io;
+use std::num::NonZero;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct TrieStoreAdapter {
@@ -32,18 +30,24 @@ impl TrieStoreAdapter {
         TrieStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
+    fn get_ref(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<DBSlice<'_>, StorageError> {
+        let mapped_shard_uid = get_shard_uid_mapping(&self.store, shard_uid);
+        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
+        self.store
+            .get(DBCol::State, key.as_ref())
+            .map_err(|_| StorageError::StorageInternalError)?
+            .ok_or(StorageError::MissingTrieValue(MissingTrieValue {
+                context: MissingTrieValueContext::TrieStorage,
+                hash: *hash,
+            }))
+    }
+
     /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.
     /// For this, it does extra read from `DBCol::StateShardUIdMapping`.
     ///
     /// For more details, see `get_shard_uid_mapping()`.
     pub fn get(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let mapped_shard_uid = get_shard_uid_mapping(&self.store, shard_uid);
-        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
-        let val = self
-            .store
-            .get(DBCol::State, key.as_ref())
-            .map_err(|_| StorageError::StorageInternalError)?
-            .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash))?;
+        let val = self.get_ref(shard_uid, hash)?;
         Ok(val.into())
     }
 
@@ -52,8 +56,8 @@ impl TrieStoreAdapter {
         shard_uid: ShardUId,
         hash: &CryptoHash,
     ) -> Result<T, StorageError> {
-        let bytes = self.get(shard_uid, hash)?;
-        T::try_from_slice(&bytes).map_err(|e| StorageError::StorageInconsistentState(e.to_string()))
+        let val = self.get_ref(shard_uid, hash)?;
+        T::try_from_slice(&val).map_err(|e| StorageError::StorageInconsistentState(e.to_string()))
     }
 
     pub fn get_state_snapshot_hash(&self) -> Result<CryptoHash, StorageError> {
@@ -222,7 +226,7 @@ fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use near_primitives::errors::StorageError;
+    use near_primitives::errors::{MissingTrieValue, StorageError};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
 
@@ -244,7 +248,7 @@ mod tests {
 
         assert_matches!(
             store.get(shard_uids[0], &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(MissingTrieValue { context: _, hash: _ }))
         );
         {
             let mut store_update = store.store_update();
@@ -261,7 +265,7 @@ mod tests {
         }
         assert_matches!(
             store.get(shard_uids[0], &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(_))
         );
     }
 
@@ -281,7 +285,7 @@ mod tests {
         // The data is not yet visible to child shard, because the mapping has not been set yet.
         assert_matches!(
             store.get(child_shard, &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(_))
         );
         // Set the shard_uid mapping from `child_shard` to `parent_shard`.
         {
@@ -301,11 +305,11 @@ mod tests {
         // The data is now not visible to any shard.
         assert_matches!(
             store.get(child_shard, &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(_))
         );
         assert_matches!(
             store.get(parent_shard, &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(_))
         );
         // Restore the data now using the `child_shard` UId.
         {
@@ -325,7 +329,7 @@ mod tests {
         // The data is not visible to any shard again.
         assert_matches!(
             store.get(child_shard, &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(_))
         );
     }
 }

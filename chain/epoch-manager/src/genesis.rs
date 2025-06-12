@@ -42,7 +42,7 @@ impl EpochManager {
         validators: Vec<ValidatorStake>,
     ) -> Result<EpochInfo, EpochError> {
         // Missing genesis epoch, means that there is no validator initialize yet.
-        let genesis_protocol_version = self.reward_calculator.genesis_protocol_version;
+        let genesis_protocol_version = self.config.genesis_protocol_version();
         let genesis_epoch_config = self.config.for_protocol_version(genesis_protocol_version);
         let validator_reward =
             HashMap::from([(self.reward_calculator.protocol_treasury_account.clone(), 0u128)]);

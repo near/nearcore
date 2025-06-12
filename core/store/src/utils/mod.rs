@@ -6,7 +6,7 @@ use crate::trie::AccessOptions;
 use crate::{DBCol, GENESIS_STATE_ROOTS_KEY, Store, StoreUpdate, TrieAccess, TrieUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, GasKey};
 use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::StorageError;
@@ -16,7 +16,7 @@ use near_primitives::receipt::{
     Receipt, ReceiptEnum, ReceivedData,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
-use near_primitives::types::{AccountId, BlockHeight, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StateRoot};
 use std::io;
 
 /// Reads an object from Trie.
@@ -245,6 +245,25 @@ pub fn set_access_key(
     access_key: &AccessKey,
 ) {
     set(state_update, TrieKey::AccessKey { account_id, public_key }, access_key);
+}
+
+pub fn set_gas_key(
+    state_update: &mut TrieUpdate,
+    account_id: AccountId,
+    public_key: PublicKey,
+    gas_key: &GasKey,
+) {
+    set(state_update, TrieKey::GasKey { account_id, public_key, index: None }, gas_key);
+}
+
+pub fn set_gas_key_nonce(
+    state_update: &mut TrieUpdate,
+    account_id: AccountId,
+    public_key: PublicKey,
+    index: NonceIndex,
+    nonce: Nonce,
+) {
+    set(state_update, TrieKey::GasKey { account_id, public_key, index: Some(index) }, &nonce);
 }
 
 pub fn remove_access_key(

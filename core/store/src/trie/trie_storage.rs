@@ -1,7 +1,7 @@
 use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
-use crate::{MissingTrieValueContext, PrefetchApi, StorageError, metrics};
+use crate::{MissingTrieValue, MissingTrieValueContext, PrefetchApi, StorageError, metrics};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -324,10 +324,10 @@ impl TrieStorage for TrieMemoryPartialStorage {
             Ok(value)
         } else {
             metrics::TRIE_MEMORY_PARTIAL_STORAGE_MISSING_VALUES_COUNT.inc();
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                *hash,
-            ))
+            Err(StorageError::MissingTrieValue(MissingTrieValue {
+                context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                hash: *hash,
+            }))
         }
     }
 

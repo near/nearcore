@@ -316,7 +316,7 @@ fn run_loop_all_shards(
         };
         for shard_info in dump_check_iter_info.shard_layout.shard_infos() {
             let shard_id = shard_info.shard_id();
-            tracing::info!(?shard_id, "started check");
+            tracing::info!(%shard_id, "started check");
             let dump_check_iter_info = dump_check_iter_info.clone();
             let status = last_check_status.get(&shard_id).unwrap_or(&Ok(
                 StatePartsDumpCheckStatus::Waiting {
@@ -426,7 +426,7 @@ fn run_loop_all_shards(
 }
 
 fn reset_num_parts_metrics(chain_id: &str, shard_id: ShardId) -> () {
-    tracing::info!(?shard_id, "Resetting num of parts metrics to 0.");
+    tracing::info!(%shard_id, "Resetting num of parts metrics to 0.");
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
         .with_label_values(&[&shard_id.to_string(), chain_id])
         .set(0);
@@ -476,17 +476,17 @@ async fn run_single_check_with_3_retries(
         .await;
         match res {
             Ok(_) => {
-                tracing::info!(?shard_id, epoch_height, "run_single_check returned OK.",);
+                tracing::info!(%shard_id, epoch_height, "run_single_check returned OK.",);
                 break;
             }
             Err(_) if retries < MAX_RETRIES => {
-                tracing::info!(?shard_id, epoch_height, "run_single_check failure. Will retry.",);
+                tracing::info!(%shard_id, epoch_height, "run_single_check failure. Will retry.",);
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(60)).await;
             }
             Err(_) => {
                 tracing::info!(
-                    ?shard_id,
+                    %shard_id,
                     epoch_height,
                     "run_single_check failure. No more retries."
                 );
@@ -546,7 +546,7 @@ async fn check_parts(
     if num_parts < total_required_parts {
         tracing::info!(
             epoch_height,
-            ?shard_id,
+            %shard_id,
             total_required_parts,
             num_parts,
             "Waiting for all parts to be dumped."
@@ -555,7 +555,7 @@ async fn check_parts(
     } else if num_parts > total_required_parts {
         tracing::info!(
             epoch_height,
-            ?shard_id,
+            %shard_id,
             total_required_parts,
             num_parts,
             "There are more dumped parts than total required, something is seriously wrong."
@@ -564,7 +564,7 @@ async fn check_parts(
     }
 
     tracing::info!(
-        ?shard_id,
+        %shard_id,
         epoch_height,
         num_parts,
         "Spawning threads to download and validate state parts."
@@ -621,7 +621,7 @@ async fn check_headers(
         .is_state_sync_header_stored_for_epoch(shard_id, chain_id, epoch_id, epoch_height)
         .await?
     {
-        tracing::info!(epoch_height, ?shard_id, "Waiting for header to be dumped.");
+        tracing::info!(epoch_height, %shard_id, "Waiting for header to be dumped.");
         return Ok(false);
     }
 
@@ -629,7 +629,7 @@ async fn check_headers(
         .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(1 as i64);
 
-    tracing::info!(?shard_id, epoch_height, "Download and validate state header.");
+    tracing::info!(%shard_id, epoch_height, "Download and validate state header.");
 
     let start = Instant::now();
     let chain_id = chain_id.clone();
@@ -743,12 +743,12 @@ async fn process_part_with_3_retries(
         .await;
         match res {
             Ok(Ok(_)) => {
-                tracing::info!(?shard_id, epoch_height, part_id, "process_part success.",);
+                tracing::info!(%shard_id, epoch_height, part_id, "process_part success.",);
                 break;
             }
             _ if retries < MAX_RETRIES => {
                 tracing::info!(
-                    ?shard_id,
+                    %shard_id,
                     epoch_height,
                     part_id,
                     "process_part failed. Will retry.",
@@ -758,7 +758,7 @@ async fn process_part_with_3_retries(
             }
             _ => {
                 tracing::info!(
-                    ?shard_id,
+                    %shard_id,
                     epoch_height,
                     part_id,
                     "process_part failed. No more retries.",
@@ -790,17 +790,17 @@ async fn process_header_with_3_retries(
         .await;
         match res {
             Ok(Ok(_)) => {
-                tracing::info!(?shard_id, epoch_height, "process_header success.",);
+                tracing::info!(%shard_id, epoch_height, "process_header success.",);
                 break;
             }
             _ if retries < MAX_RETRIES => {
-                tracing::info!(?shard_id, epoch_height, ?res, "process_header failed. Will retry.",);
+                tracing::info!(%shard_id, epoch_height, ?res, "process_header failed. Will retry.",);
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
             _ => {
                 tracing::info!(
-                    ?shard_id,
+                    %shard_id,
                     epoch_height,
                     ?res,
                     "process_header failed. No more retries.",

@@ -15,6 +15,7 @@ workspace = true
 arbitrary.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+schemars = { workspace = true, optional = true }
 thiserror.workspace = true
 time.workspace = true
 
@@ -23,6 +24,7 @@ near-primitives = { workspace = true, features = ["rand"] }
 near-chain-configs.workspace = true
 near-client-primitives = { workspace = true, optional = true }
 near-schema-checker-lib.workspace = true
+near-time.workspace = true
 
 [features]
 nightly = [
@@ -38,3 +40,4 @@ protocol_schema = [
   "near-primitives/protocol_schema",
   "near-schema-checker-lib/protocol_schema",
 ]
+schemars = ["dep:schemars", "near-primitives/schemars", "near-time/schemars", "near-crypto/schemars", "near-chain-configs/schemars"]

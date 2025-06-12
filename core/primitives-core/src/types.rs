@@ -18,6 +18,8 @@ pub type StorageUsage = u64;
 pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
+/// Nonce index for gas keys.
+pub type NonceIndex = u32;
 /// Height of the block.
 pub type BlockHeight = u64;
 /// Height of the epoch.
@@ -75,6 +77,7 @@ pub type ShardIndex = usize;
     PartialOrd,
     Ord,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ShardId(u64);
 
 impl ShardId {

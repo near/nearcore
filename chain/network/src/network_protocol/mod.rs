@@ -849,9 +849,9 @@ impl PartialEncodedChunkForwardMsg {
         parts: Vec<PartialEncodedChunkPart>,
     ) -> Self {
         Self {
-            chunk_hash: header.chunk_hash(),
+            chunk_hash: header.chunk_hash().clone(),
             inner_header_hash: header.inner_header_hash(),
-            merkle_root: header.encoded_merkle_root(),
+            merkle_root: *header.encoded_merkle_root(),
             signature: header.signature().clone(),
             prev_block_hash: *header.prev_block_hash(),
             height_created: header.height_created(),

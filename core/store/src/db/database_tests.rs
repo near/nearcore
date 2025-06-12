@@ -2,21 +2,16 @@
 //! Set of tests over the 'Database' interface, that we can run over multiple implementations
 //! to make sure that they are working correctly.
 
-use crate::db::{DBTransaction, Database, TestDB};
+use crate::db::{DBTransaction, TestDB};
 use crate::{DBCol, NodeStorage};
-use std::sync::Arc;
-
-// Returns test & rocksDB databases.
-fn test_and_rocksdb() -> Vec<Arc<dyn Database>> {
-    let (_tmp_dir, opener) = NodeStorage::test_opener();
-    let store = opener.open().unwrap().get_hot_store();
-    vec![TestDB::new(), store.storage.clone()]
-}
 
 /// Tests the behavior of the iterators. Iterators don't really work over cold storage, so we're not testing it here.
 #[test]
 fn test_db_iter() {
-    for db in test_and_rocksdb() {
+    let (_tmp_dir, opener) = NodeStorage::test_opener();
+    let store = opener.open().unwrap().get_hot_store();
+    let test_db = TestDB::new();
+    for db in [&*test_db as _, store.database()] {
         let mut transaction = DBTransaction::new();
         transaction.insert(DBCol::Block, "a".into(), "val_a".into());
         transaction.insert(DBCol::Block, "aa".into(), "val_aa".into());

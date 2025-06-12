@@ -122,8 +122,13 @@ pub fn apply_new_chunk(
         target: "chain",
         parent: parent_span,
         "apply_new_chunk",
-        ?shard_id,
-        ?apply_reason)
+        height = block.height,
+        %shard_id,
+        chunk_hash = ?chunk_header.chunk_hash(),
+        block_hash = ?block.block_hash,
+        block_type = ?block.block_type,
+        ?apply_reason,
+        tag_block_production = true)
     .entered();
     let gas_limit = chunk_header.gas_limit();
 
@@ -170,8 +175,12 @@ pub fn apply_old_chunk(
         target: "chain",
         parent: parent_span,
         "apply_old_chunk",
-        ?shard_id,
-        ?apply_reason)
+        height = block.height,
+        %shard_id,
+        block_hash = ?block.block_hash,
+        block_type = ?block.block_type,
+        ?apply_reason,
+        tag_block_production = true)
     .entered();
 
     let storage_config = RuntimeStorageConfig {

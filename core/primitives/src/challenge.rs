@@ -96,6 +96,7 @@ impl Challenge {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SlashedValidator {
     pub account_id: AccountId,
     pub is_double_sign: bool,
