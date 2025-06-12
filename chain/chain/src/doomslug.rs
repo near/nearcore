@@ -562,7 +562,7 @@ impl Doomslug {
 
     /// Determines whether a block has enough approvals to be produced.
     /// In production (with `mode == TwoThirds`) we require the total stake of all the approvals to
-    /// be strictly more than half of the total stake. For many non-doomslug specific tests
+    /// be strictly more than two-thirds of the total stake. For many non-doomslug specific tests
     /// (with `mode == NoApprovals`) no approvals are needed.
     ///
     /// # Arguments
