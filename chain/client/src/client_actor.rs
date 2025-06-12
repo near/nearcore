@@ -1104,6 +1104,7 @@ impl ClientActorInner {
         }
 
         let prev_block_hash = &head.last_block_hash;
+        let chunks_readiness = self.client.prepare_chunk_headers(prev_block_hash, &epoch_id)?;
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -1114,24 +1115,12 @@ impl ClientActorInner {
                 continue;
             }
 
-            {
-                self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                    prev_block_hash,
-                    &self.client.chunk_endorsement_tracker,
-                )?;
-            }
-            let num_chunks = self
-                .client
-                .chunk_inclusion_tracker
-                .num_chunk_headers_ready_for_inclusion(&epoch_id, prev_block_hash);
-            let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
-            let have_all_chunks = head.height == 0 || num_chunks == shard_ids.len();
-
             if self.client.doomslug.ready_to_produce_block(
                 height,
-                have_all_chunks,
+                chunks_readiness,
                 log_block_production_info,
             ) {
+                let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id)?;
                 self.client
                     .chunk_inclusion_tracker
                     .record_endorsement_metrics(prev_block_hash, &shard_ids);

@@ -27,6 +27,12 @@ const MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS: BlockHeight = 10_000;
 // Number of blocks (before head) for which to keep the history of approvals (for debugging).
 const MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS: u64 = 20;
 
+/// Returns true if the height should be retained in the trackers.
+fn should_retain_height(height: BlockHeight, head_height: BlockHeight) -> bool {
+    height > head_height.saturating_sub(MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS)
+        && height <= head_height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS
+}
+
 // Maximum amount of historical approvals that we'd keep for debugging purposes.
 const MAX_HISTORY_SIZE: usize = 1000;
 
@@ -74,6 +80,14 @@ struct DoomslugApprovalsTracker {
     approved_stake_next_epoch: Balance,
     time_passed_threshold: Option<Instant>,
     threshold_mode: DoomslugThresholdMode,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Defines whether chunks are ready to be included in a block.
+pub enum ChunksReadiness {
+    /// Includes timestamp when chunks became ready.
+    Ready(Instant),
+    NotReady,
 }
 
 mod trackable {
@@ -124,7 +138,8 @@ struct DoomslugApprovalsTrackersAtHeight {
 /// from the chain.
 pub struct Doomslug {
     clock: Clock,
-    approval_tracking: HashMap<BlockHeight, DoomslugApprovalsTrackersAtHeight>,
+    /// Tracks block approvals for each height.
+    approval_trackers: HashMap<BlockHeight, DoomslugApprovalsTrackersAtHeight>,
     /// Largest target height for which we issued an approval
     largest_target_height: TrackableBlockHeightValue,
     /// Largest height for which we saw a block containing 1/2 endorsements in it
@@ -361,7 +376,7 @@ impl Doomslug {
     ) -> Self {
         Doomslug {
             clock: clock.clone(),
-            approval_tracking: HashMap::new(),
+            approval_trackers: HashMap::new(),
             largest_target_height: TrackableBlockHeightValue::new(
                 largest_target_height,
                 &metrics::LARGEST_TARGET_HEIGHT,
@@ -589,7 +604,7 @@ impl Doomslug {
         target_height: BlockHeight,
     ) -> HashMap<AccountId, (Approval, Utc)> {
         let hash_or_height = ApprovalInner::new(prev_hash, parent_height, target_height);
-        if let Some(approval_trackers_at_height) = self.approval_tracking.get(&target_height) {
+        if let Some(approval_trackers_at_height) = self.approval_trackers.get(&target_height) {
             let approvals_tracker =
                 approval_trackers_at_height.approval_trackers.get(&hash_or_height);
             match approvals_tracker {
@@ -620,11 +635,7 @@ impl Doomslug {
         self.timer.height = height + 1;
         self.timer.started = self.clock.now();
 
-        self.approval_tracking.retain(|h, _| {
-            *h > height.saturating_sub(MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS)
-                && *h <= height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS
-        });
-
+        self.approval_trackers.retain(|h, _| should_retain_height(*h, height));
         self.endorsement_pending = true;
     }
 
@@ -639,7 +650,7 @@ impl Doomslug {
     ) -> DoomslugBlockProductionReadiness {
         let threshold_mode = self.threshold_mode;
         let ret = self
-            .approval_tracking
+            .approval_trackers
             .entry(approval.target_height)
             .or_insert_with(|| DoomslugApprovalsTrackersAtHeight::new(self.clock.clone()))
             .process_approval(approval, stakes, threshold_mode);
@@ -672,7 +683,7 @@ impl Doomslug {
     /// It will only work for heights that we have in memory, that is that are not older than MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS
     /// blocks from the head.
     pub fn approval_status_at_height(&self, height: &BlockHeight) -> ApprovalAtHeightStatus {
-        self.approval_tracking.get(height).map(|it| it.status()).unwrap_or_default()
+        self.approval_trackers.get(height).map(|it| it.status()).unwrap_or_default()
     }
 
     /// Returns whether we can produce a block for this height. The check for whether `me` is the
@@ -688,20 +699,20 @@ impl Doomslug {
     /// # Arguments:
     /// * `now`               - current timestamp
     /// * `target_height`     - the height for which the readiness is checked
-    /// * `has_enough_chunks` - if not, we will wait for T(h' / 6) even if we have 2/3 approvals &
-    ///                         have the previous block ds-final.
+    /// * `chunks_readiness`  - if chunks are not ready, we will wait for T(h' / 6) even if we
+    ///                         have 2/3 approvals & the previous block ds-final.
     #[must_use]
     pub fn ready_to_produce_block(
         &mut self,
         target_height: BlockHeight,
-        has_enough_chunks: bool,
+        chunks_readiness: ChunksReadiness,
         log_block_production_info: bool,
     ) -> bool {
         let span = debug_span!(
             target: "doomslug",
             "ready_to_produce_block",
-            has_enough_chunks,
             target_height,
+            ?chunks_readiness,
             enough_approvals_for = field::Empty,
             ready_to_produce_block = field::Empty,
             need_to_wait = field::Empty)
@@ -709,7 +720,7 @@ impl Doomslug {
         let now = self.clock.now();
         let hash_or_height =
             ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
-        let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height)
+        let Some(approval_trackers_at_height) = self.approval_trackers.get_mut(&target_height)
         else {
             debug!(target: "doomslug", target_height, "No approval trackers at height");
             return false;
@@ -732,10 +743,12 @@ impl Doomslug {
         let enough_approvals_for = now - when;
         span.record("enough_approvals_for", enough_approvals_for.as_secs_f64());
         span.record("ready_to_produce_block", true);
-        if has_enough_chunks {
+        if let ChunksReadiness::Ready(chunks_ready_time) = chunks_readiness {
+            let enough_chunks_for = now.signed_duration_since(chunks_ready_time);
+            metrics::BLOCK_APPROVAL_DELAY.observe(enough_chunks_for.as_seconds_f64());
             if log_block_production_info {
                 info!(
-                    target: "doomslug", target_height, ?enough_approvals_for,
+                    target: "doomslug", target_height, ?enough_approvals_for, ?enough_chunks_for,
                     "ready to produce block, has enough approvals, has enough chunks"
                 );
             }
