@@ -154,7 +154,7 @@ pub struct Doomslug {
     endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
-    /// How many approvals to have before producing a block. In production should be always `HalfStake`,
+    /// How many approvals to have before producing a block. In production should be always `TwoThirds`,
     ///    but for many tests we use `NoApprovals` to invoke more forks
     threshold_mode: DoomslugThresholdMode,
 
@@ -561,7 +561,7 @@ impl Doomslug {
     }
 
     /// Determines whether a block has enough approvals to be produced.
-    /// In production (with `mode == HalfStake`) we require the total stake of all the approvals to
+    /// In production (with `mode == TwoThirds`) we require the total stake of all the approvals to
     /// be strictly more than half of the total stake. For many non-doomslug specific tests
     /// (with `mode == NoApprovals`) no approvals are needed.
     ///
