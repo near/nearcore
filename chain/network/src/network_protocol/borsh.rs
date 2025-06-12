@@ -147,7 +147,7 @@ pub(super) enum PeerMessage {
     BlockHeaders(Vec<Arc<BlockHeader>>),
 
     BlockRequest(CryptoHash),
-    Block(Block),
+    Block(Arc<Block>),
 
     Transaction(SignedTransaction),
     Routed(Box<RoutedMessage>),

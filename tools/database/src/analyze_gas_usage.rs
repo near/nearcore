@@ -1,22 +1,19 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
-use std::rc::Rc;
-
+use crate::block_iterators::{
+    CommandArgs, LastNBlocksIterator, make_block_iterator_from_command_args,
+};
 use clap::Parser;
 use near_chain::{Block, ChainStore};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use nearcore::config::load_config;
-
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{AccountId, BlockHeight};
-
+use nearcore::config::load_config;
 use nearcore::open_storage;
-
-use crate::block_iterators::{
-    CommandArgs, LastNBlocksIterator, make_block_iterator_from_command_args,
-};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
 
 /// `Gas` is an u64, but it still might overflow when analyzing a large amount of blocks.
 /// 1ms of compute is about 1TGas = 10^12 gas. One epoch takes 43200 seconds (43200000ms).
@@ -320,7 +317,7 @@ fn display_shard_split_stats<'a>(
 }
 
 fn analyze_gas_usage(
-    blocks_iter: impl Iterator<Item = Block>,
+    blocks_iter: impl Iterator<Item = Arc<Block>>,
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
 ) {

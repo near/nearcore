@@ -138,7 +138,7 @@ impl From<&Block> for proto::Block {
 
 pub type ParseBlockError = std::io::Error;
 
-impl TryFrom<&proto::Block> for Block {
+impl TryFrom<&proto::Block> for Arc<Block> {
     type Error = ParseBlockError;
     fn try_from(x: &proto::Block) -> Result<Self, Self::Error> {
         Self::try_from_slice(&x.borsh)
@@ -324,7 +324,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Block(b) => ProtoMT::BlockResponse(proto::BlockResponse {
-                    block: MF::some(b.into()),
+                    block: MF::some(b.as_ref().into()),
                     ..Default::default()
                 }),
                 PeerMessage::OptimisticBlock(ob) => ProtoMT::OptimisticBlock(ob.into()),

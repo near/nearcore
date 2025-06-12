@@ -783,7 +783,7 @@ mod test {
             } else {
                 (*last_block.header().epoch_id(), *last_block.header().next_epoch_id())
             };
-            let block = Block::produce(
+            let block = Arc::new(Block::produce(
                 PROTOCOL_VERSION,
                 last_block.header(),
                 this_height,
@@ -817,7 +817,7 @@ mod test {
                 clock.clock(),
                 None,
                 None,
-            );
+            ));
             block_merkle_tree.insert(*block.hash());
             chain2.process_block_header(block.header()).unwrap(); // just to validate
             process_block_sync(

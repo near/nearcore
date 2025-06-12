@@ -45,7 +45,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
 }
 
 /// Utility to generate genesis header from config for testing purposes.
-pub fn genesis_block(genesis: &Genesis) -> Block {
+pub fn genesis_block(genesis: &Genesis) -> Arc<Block> {
     let dir = tempdir().unwrap();
     let store = create_test_store();
     initialize_genesis_state(store.clone(), genesis, None);
