@@ -4,7 +4,9 @@ pub use apply_chunks_thread_pool::ApplyChunksSpawner;
 pub use block_processing_utils::BlockProcessingArtifact;
 pub use chain::{Chain, check_known, collect_receipts};
 pub use chain_update::ChainUpdate;
-pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
+pub use doomslug::{
+    ChunksReadiness, Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
+};
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
 pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;

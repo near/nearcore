@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::time::Utc;
+use near_async::time::{Instant, Utc};
+use near_chain::ChunksReadiness;
 use near_chain_primitives::Error;
 use near_o11y::log_assert_fail;
 use near_primitives::block_body::ChunkEndorsementSignatures;
@@ -33,6 +34,9 @@ pub struct ChunkInclusionTracker {
     // We store the map of chunks from [shard_id] to chunk_hash
     prev_block_to_chunk_hash_ready: LruCache<CryptoHash, HashMap<ShardId, ChunkHash>>,
 
+    /// Timestamp when chunks became ready for inclusion.
+    prev_block_chunks_ready_timestamp: LruCache<CryptoHash, Instant>,
+
     // Map from chunk_hash to chunk_info.
     // ChunkInfo stores the chunk_header, received_time, chunk_producer and chunk endorsements.
     // Cleaning up of chunk_hash_to_chunk_info is handled during cache eviction from prev_block_to_chunk_hash_ready.
@@ -60,6 +64,9 @@ impl ChunkInclusionTracker {
     pub fn new() -> Self {
         Self {
             prev_block_to_chunk_hash_ready: LruCache::new(
+                NonZeroUsize::new(CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE).unwrap(),
+            ),
+            prev_block_chunks_ready_timestamp: LruCache::new(
                 NonZeroUsize::new(CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE).unwrap(),
             ),
             chunk_hash_to_chunk_info: HashMap::new(),
@@ -182,12 +189,25 @@ impl ChunkInclusionTracker {
         chunk_headers_ready_for_inclusion
     }
 
-    pub fn num_chunk_headers_ready_for_inclusion(
-        &self,
+    /// Get readiness of chunks to be included in a block.
+    pub fn get_chunks_readiness(
+        &mut self,
+        now: Instant,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
-    ) -> usize {
-        self.get_chunk_headers_ready_for_inclusion(epoch_id, prev_block_hash).len()
+        num_shards: usize,
+    ) -> ChunksReadiness {
+        if let Some(timestamp) = self.prev_block_chunks_ready_timestamp.get(prev_block_hash) {
+            return ChunksReadiness::Ready(*timestamp);
+        }
+        let num_chunk_headers =
+            self.get_chunk_headers_ready_for_inclusion(epoch_id, prev_block_hash).len();
+        if num_chunk_headers == num_shards {
+            self.prev_block_chunks_ready_timestamp.push(*prev_block_hash, now);
+            ChunksReadiness::Ready(now)
+        } else {
+            ChunksReadiness::NotReady
+        }
     }
 
     pub fn get_banned_chunk_producers(&self) -> Vec<(EpochId, Vec<AccountId>)> {
