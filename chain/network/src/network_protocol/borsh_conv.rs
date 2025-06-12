@@ -254,7 +254,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                     author: msg.author.clone(),
                     ttl: msg.ttl,
                     body: msg.body.clone().into(),
-                    signature: msg.signature.clone().unwrap_or_default(),
+                    signature: msg.signature.clone(),
                 };
                 net::PeerMessage::Routed(Box::new(msg_v1))
             }

@@ -1095,42 +1095,42 @@ pub struct RoutedMessageV2 {
 
 impl BorshSerialize for RoutedMessageV2 {
     fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        // self.msg.serialize(writer)?;
-        // let timestamp = self.created_at.map(|t| t.unix_timestamp());
-        // timestamp.serialize(writer)?;
-        // self.num_hops.serialize(writer)
+        self.msg.serialize(writer)?;
+        let timestamp = self.created_at.map(|t| t.unix_timestamp());
+        timestamp.serialize(writer)?;
+        self.num_hops.serialize(writer)
 
-        self.msg.serialize(writer)
+        // self.msg.serialize(writer)
     }
 }
 
 impl BorshDeserialize for RoutedMessageV2 {
     fn deserialize(reader: &mut &[u8]) -> std::io::Result<Self> {
-        // let msg = RoutedMessageV1::deserialize(reader)?;
-        // let timestamp = Option::deserialize(reader)?;
-        // let created_at = timestamp.map(|t| time::Utc::from_unix_timestamp(t).ok()).flatten();
-        // let num_hops = u32::deserialize(reader)?;
-        // Ok(RoutedMessageV2 { msg, created_at, num_hops })
+        let msg = RoutedMessageV1::deserialize(reader)?;
+        let timestamp = Option::deserialize(reader)?;
+        let created_at = timestamp.map(|t| time::Utc::from_unix_timestamp(t).ok()).flatten();
+        let num_hops = u32::deserialize(reader)?;
+        Ok(RoutedMessageV2 { msg, created_at, num_hops })
 
-        Ok(RoutedMessageV2 {
-            msg: RoutedMessageV1::deserialize(reader)?,
-            created_at: None,
-            num_hops: 0,
-        })
+        // Ok(RoutedMessageV2 {
+        //     msg: RoutedMessageV1::deserialize(reader)?,
+        //     created_at: None,
+        //     num_hops: 0,
+        // })
     }
 
     fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        // let msg = RoutedMessageV1::deserialize_reader(reader)?;
-        // let timestamp = Option::deserialize_reader(reader)?;
-        // let created_at = timestamp.map(|t| time::Utc::from_unix_timestamp(t).ok()).flatten();
-        // let num_hops = u32::deserialize_reader(reader)?;
-        // Ok(RoutedMessageV2 { msg, created_at, num_hops })
+        let msg = RoutedMessageV1::deserialize_reader(reader)?;
+        let timestamp = Option::deserialize_reader(reader)?;
+        let created_at = timestamp.map(|t| time::Utc::from_unix_timestamp(t).ok()).flatten();
+        let num_hops = u32::deserialize_reader(reader)?;
+        Ok(RoutedMessageV2 { msg, created_at, num_hops })
 
-        Ok(RoutedMessageV2 {
-            msg: RoutedMessageV1::deserialize_reader(reader)?,
-            created_at: None,
-            num_hops: 0,
-        })
+        // Ok(RoutedMessageV2 {
+        //     msg: RoutedMessageV1::deserialize_reader(reader)?,
+        //     created_at: None,
+        //     num_hops: 0,
+        // })
     }
 }
 
@@ -1148,8 +1148,8 @@ pub struct RoutedMessageV3 {
     pub ttl: u8,
     /// Message
     pub body: TieredMessageBody,
-    /// Signature only for T2 messages.
-    pub signature: Option<Signature>,
+    /// Signature.
+    pub signature: Signature,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<i64>,
     /// Number of peers this routed message traveled through.
@@ -1170,9 +1170,8 @@ impl RoutedMessageV3 {
         RoutedMessageV3::build_hash(&self.target, &self.author, &self.body)
     }
 
-    pub fn hash_t2(&self, body: &T2MessageBody) -> CryptoHash {
-        // CryptoHash::hash_borsh((&self.target, &self.author, body))
-        let routed = RoutedMessageBody::from(TieredMessageBody::T2(Box::new(body.clone())));
+    pub fn hash_tiered(&self) -> CryptoHash {
+        let routed = RoutedMessageBody::from(self.body.clone());
         CryptoHash::hash_borsh(RoutedMessageNoSignature {
             target: &self.target,
             author: &self.author,
@@ -1181,14 +1180,7 @@ impl RoutedMessageV3 {
     }
 
     pub fn verify(&self) -> bool {
-        match &self.body {
-            TieredMessageBody::T1(_) => true,
-            TieredMessageBody::T2(body) => self
-                .signature
-                .as_ref()
-                .unwrap()
-                .verify(self.hash_t2(&body).as_ref(), self.author.public_key()),
-        }
+        self.signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
     }
 
     pub fn expect_response(&self) -> bool {
@@ -1214,13 +1206,13 @@ impl RoutedMessageV3 {
 impl From<RoutedMessageV1> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV1) -> Self {
         let body = TieredMessageBody::from_routed(msg.body).unwrap();
-        let signature = if body.is_t1() { None } else { Some(msg.signature) };
+        // let signature = if body.is_t1() { None } else { Some(msg.signature) };
         Self {
             target: msg.target,
             author: msg.author,
             ttl: msg.ttl,
             body,
-            signature,
+            signature: msg.signature,
             created_at: None,
             num_hops: 0,
         }
@@ -1230,13 +1222,13 @@ impl From<RoutedMessageV1> for RoutedMessageV3 {
 impl From<RoutedMessageV2> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV2) -> Self {
         let body = TieredMessageBody::from_routed(msg.msg.body).unwrap();
-        let signature = if body.is_t1() { None } else { Some(msg.msg.signature) };
+        // let signature = if body.is_t1() { None } else { Some(msg.msg.signature) };
         Self {
             target: msg.msg.target,
             author: msg.msg.author,
             ttl: msg.msg.ttl,
             body,
-            signature,
+            signature: msg.msg.signature,
             created_at: msg.created_at.map(|t| t.unix_timestamp()),
             num_hops: msg.num_hops,
         }
@@ -1296,11 +1288,11 @@ impl RoutedMessage {
         }
     }
 
-    pub fn signature(&self) -> Option<&Signature> {
+    pub fn signature(&self) -> &Signature {
         match self {
-            RoutedMessage::V1(msg) => Some(&msg.signature),
-            RoutedMessage::V2(msg) => Some(&msg.msg.signature),
-            RoutedMessage::V3(msg) => msg.signature.as_ref(),
+            RoutedMessage::V1(msg) => &msg.signature,
+            RoutedMessage::V2(msg) => &msg.msg.signature,
+            RoutedMessage::V3(msg) => &msg.signature,
         }
     }
 
@@ -1601,15 +1593,19 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessage {
         let author = PeerId::new(node_key.public_key());
-        let signature = match &self.body {
-            TieredMessageBody::T1(_) => None,
-            TieredMessageBody::T2(_body) => {
-                let body = RoutedMessageBody::from(self.body.clone());
-                let hash = RoutedMessage::build_hash(&self.target, &author, &body);
-                let signature = node_key.sign(hash.as_ref());
-                Some(signature)
-            }
-        };
+        // let signature = match &self.body {
+        //     TieredMessageBody::T1(_) => None,
+        //     TieredMessageBody::T2(_body) => {
+        //         let body = RoutedMessageBody::from(self.body.clone());
+        //         let hash = RoutedMessage::build_hash(&self.target, &author, &body);
+        //         let signature = node_key.sign(hash.as_ref());
+        //         Some(signature)
+        //     }
+        // };
+
+        let body = RoutedMessageBody::from(self.body.clone());
+        let hash = RoutedMessage::build_hash(&self.target, &author, &body);
+        let signature = node_key.sign(hash.as_ref());
         RoutedMessage::V3(RoutedMessageV3 {
             target: self.target,
             author,
