@@ -712,7 +712,7 @@ impl Doomslug {
             target: "doomslug",
             "ready_to_produce_block",
             target_height,
-            ?chunks_readiness,
+            enough_chunks_for = field::Empty,
             enough_approvals_for = field::Empty,
             ready_to_produce_block = field::Empty,
             need_to_wait = field::Empty)
@@ -745,6 +745,7 @@ impl Doomslug {
         span.record("ready_to_produce_block", true);
         if let ChunksReadiness::Ready(chunks_ready_time) = chunks_readiness {
             let enough_chunks_for = now.signed_duration_since(chunks_ready_time);
+            span.record("enough_chunks_for", enough_chunks_for.as_seconds_f64());
             metrics::BLOCK_APPROVAL_DELAY.observe(enough_chunks_for.as_seconds_f64());
             if log_block_production_info {
                 info!(
