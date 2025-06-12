@@ -9283,8 +9283,12 @@
             "nullable": true,
             "type": "string"
           },
+          "save_invalid_witnesses": {
+            "description": "Save observed instances of invalid ChunkStateWitness to the database in DBCol::InvalidChunkStateWitnesses.\n Saving invalid witnesses is useful for analysis and debugging.\n This option can cause extra load on the database and is not recommended for production use.",
+            "type": "boolean"
+          },
           "save_latest_witnesses": {
-            "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\n Saving the latest witnesses is useful for analysis and debugging.\n When this option is enabled, the node will save ALL witnesses it observes, even invalid ones,\n which can cause extra load on the database. This option is not recommended for production use,\n as a large number of incoming witnesses could cause denial of service.",
+            "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\n Saving the latest witnesses is useful for analysis and debugging.\n This option can cause extra load on the database and is not recommended for production use.",
             "type": "boolean"
           },
           "save_trie_changes": {
@@ -9502,6 +9506,7 @@
           "orphan_state_witness_pool_size",
           "orphan_state_witness_max_size",
           "save_latest_witnesses",
+          "save_invalid_witnesses",
           "transaction_request_handler_threads"
         ],
         "type": "object"
