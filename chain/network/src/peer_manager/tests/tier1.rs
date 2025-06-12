@@ -173,9 +173,19 @@ async fn direct_connections() {
         pm.set_chain_info(chain_info.clone()).await;
     }
     tracing::info!(target:"test", "Establish connections.");
-    establish_connections(&clock.clock(), &pms[..]).await;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        establish_connections(&clock.clock(), &pms[..]),
+    )
+    .await
+    .expect("establish_connections timed out after 5 seconds");
     tracing::info!(target:"test", "Test clique.");
-    test_clique(rng, &clock.clock(), &pms[..]).await;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        test_clique(rng, &clock.clock(), &pms[..]),
+    )
+    .await
+    .expect("test_clique timed out after 5 seconds");
 }
 
 /// Test which spawns N validators, each with 1 proxy.

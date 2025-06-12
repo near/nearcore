@@ -66,7 +66,10 @@ impl tcp::Tier {
     }
 
     pub(crate) fn is_allowed_routed(self, body: &TieredMessageBody) -> bool {
-        !body.is_t1()
+        match body {
+            TieredMessageBody::T1(_) => true,
+            TieredMessageBody::T2(_) => self == tcp::Tier::T2,
+        }
     }
 }
 
