@@ -1099,6 +1099,8 @@ impl BorshSerialize for RoutedMessageV2 {
         let timestamp = self.created_at.map(|t| t.unix_timestamp());
         timestamp.serialize(writer)?;
         self.num_hops.serialize(writer)
+
+        // self.msg.serialize(writer)
     }
 }
 
@@ -1109,6 +1111,12 @@ impl BorshDeserialize for RoutedMessageV2 {
         let created_at = timestamp.map(|t| time::Utc::from_unix_timestamp(t).ok()).flatten();
         let num_hops = u32::deserialize(reader)?;
         Ok(RoutedMessageV2 { msg, created_at, num_hops })
+
+        // Ok(RoutedMessageV2 {
+        //     msg: RoutedMessageV1::deserialize(reader)?,
+        //     created_at: None,
+        //     num_hops: 0,
+        // })
     }
 
     fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
@@ -1117,6 +1125,12 @@ impl BorshDeserialize for RoutedMessageV2 {
         let created_at = timestamp.map(|t| time::Utc::from_unix_timestamp(t).ok()).flatten();
         let num_hops = u32::deserialize_reader(reader)?;
         Ok(RoutedMessageV2 { msg, created_at, num_hops })
+
+        // Ok(RoutedMessageV2 {
+        //     msg: RoutedMessageV1::deserialize_reader(reader)?,
+        //     created_at: None,
+        //     num_hops: 0,
+        // })
     }
 }
 
@@ -1251,7 +1265,11 @@ impl From<RoutedMessageV2> for RoutedMessage {
 }
 
 impl RoutedMessage {
-    pub fn build_hash(target: &PeerIdOrHash, source: &PeerId, body: &T2MessageBody) -> CryptoHash {
+    pub fn build_hash(
+        target: &PeerIdOrHash,
+        source: &PeerId,
+        body: &RoutedMessageBody,
+    ) -> CryptoHash {
         CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
     }
 
@@ -1387,15 +1405,12 @@ impl RoutedMessage {
 struct RoutedMessageNoSignature<'a> {
     target: &'a PeerIdOrHash,
     author: &'a PeerId,
-    body: &'a T2MessageBody,
+    body: &'a RoutedMessageBody,
 }
 
 impl RoutedMessageV1 {
     pub fn hash(&self) -> CryptoHash {
-        let body = self.body.clone(); // TODO: remove clone
-        let Some(body) = TieredMessageBody::from_routed(body) else { unreachable!() };
-        let Some(body) = body.as_t2() else { unreachable!() };
-        RoutedMessage::build_hash(&self.target, &self.author, &body)
+        RoutedMessage::build_hash(&self.target, &self.author, &self.body)
     }
 
     pub fn verify(&self) -> bool {
@@ -1589,8 +1604,9 @@ impl RawRoutedMessage {
         let author = PeerId::new(node_key.public_key());
         let signature = match &self.body {
             TieredMessageBody::T1(_) => None,
-            TieredMessageBody::T2(body) => {
-                let hash = RoutedMessage::build_hash(&self.target, &author, body);
+            TieredMessageBody::T2(_body) => {
+                let body = RoutedMessageBody::from(self.body.clone());
+                let hash = RoutedMessage::build_hash(&self.target, &author, &body);
                 let signature = node_key.sign(hash.as_ref());
                 Some(signature)
             }
