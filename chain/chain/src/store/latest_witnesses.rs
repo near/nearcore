@@ -306,10 +306,17 @@ impl ChainStore {
     }
 }
 
+static INVALID_WITNESSES_STORE_UPDATE_LOCK: parking_lot::Mutex<()> = parking_lot::const_mutex(());
+
 /// Saves an observed `ChunkStateWitness` to the database for later analysis and debugging.
 /// The witness is stored in `DBCol::InvalidChunkStateWitnesses`.
+///
 /// This function does a read-before-write. Don't call it in parallel on the same database,
 /// or there will be race conditions.
+///
+/// Unlike the save_latest version, there is a risk of this one being called in parallel
+/// because the witness processing is spawned async and we don't know if a witness is invalid
+/// until we process it. Hence a mutex is used to guard the store update.
 pub fn save_invalid_chunk_state_witness(
     store: Store,
     witness: &ChunkStateWitness,
@@ -348,54 +355,63 @@ pub fn save_invalid_chunk_state_witness(
     info.total_size += serialized_witness.len() as u64;
     info.next_witness_index += 1;
 
-    let mut store_update = store.store_update();
+    let (store_update_time, store_commit_time) = {
+        let _guard = INVALID_WITNESSES_STORE_UPDATE_LOCK.lock();
 
-    // Go over witnesses with increasing indexes and remove them until the limits are satisfied.
-    while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
-        let key_to_delete = store
-            .get(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes())?
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    ErrorKind::NotFound,
-                    format!("Cannot find witness key to delete with index {}", info.lowest_index),
-                )
-            })?;
-        // cspell:words deser
-        let key_deser = StoredWitnessesKey::deserialize(&key_to_delete)?;
+        let mut store_update = store.store_update();
 
-        store_update.delete(DBCol::InvalidChunkStateWitnesses, &key_to_delete);
-        store_update.delete(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes());
-        info.lowest_index += 1;
-        info.count -= 1;
-        info.total_size -= key_deser.witness_size;
-    }
+        // Go over witnesses with increasing indexes and remove them until the limits are satisfied.
+        while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
+            let key_to_delete = store
+                .get(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes())?
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        ErrorKind::NotFound,
+                        format!(
+                            "Cannot find witness key to delete with index {}",
+                            info.lowest_index
+                        ),
+                    )
+                })?;
+            // cspell:words deser
+            let key_deser = StoredWitnessesKey::deserialize(&key_to_delete)?;
 
-    // Limits are ok, insert the new witness.
-    let mut random_uuid = [0u8; 16];
-    OsRng.fill_bytes(&mut random_uuid);
-    let key = StoredWitnessesKey {
-        height_created: witness.chunk_header().height_created(),
-        shard_id: witness.chunk_header().shard_id().into(),
-        epoch_id: *witness.epoch_id(),
-        witness_size: serialized_witness_size,
-        random_uuid,
+            store_update.delete(DBCol::InvalidChunkStateWitnesses, &key_to_delete);
+            store_update.delete(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes());
+            info.lowest_index += 1;
+            info.count -= 1;
+            info.total_size -= key_deser.witness_size;
+        }
+
+        // Limits are ok, insert the new witness.
+        let mut random_uuid = [0u8; 16];
+        OsRng.fill_bytes(&mut random_uuid);
+        let key = StoredWitnessesKey {
+            height_created: witness.chunk_header().height_created(),
+            shard_id: witness.chunk_header().shard_id().into(),
+            epoch_id: *witness.epoch_id(),
+            witness_size: serialized_witness_size,
+            random_uuid,
+        };
+        store_update.set(DBCol::InvalidChunkStateWitnesses, &key.serialized(), &serialized_witness);
+        store_update.set(
+            DBCol::InvalidWitnessesByIndex,
+            &new_witness_index.to_be_bytes(),
+            &key.serialized(),
+        );
+
+        // Update InvalidWitnessesInfo
+        store_update.set(DBCol::Misc, &INVALID_WITNESSES_INFO, &borsh::to_vec(&info)?);
+
+        let store_update_time = start_time.elapsed();
+
+        // Commit the transaction
+        store_update.commit()?;
+
+        let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
+
+        (store_update_time, store_commit_time)
     };
-    store_update.set(DBCol::InvalidChunkStateWitnesses, &key.serialized(), &serialized_witness);
-    store_update.set(
-        DBCol::InvalidWitnessesByIndex,
-        &new_witness_index.to_be_bytes(),
-        &key.serialized(),
-    );
-
-    // Update InvalidWitnessesInfo
-    store_update.set(DBCol::Misc, &INVALID_WITNESSES_INFO, &borsh::to_vec(&info)?);
-
-    let store_update_time = start_time.elapsed();
-
-    // Commit the transaction
-    store_update.commit()?;
-
-    let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
 
     let shard_id_str = witness.chunk_header().shard_id().to_string();
     stateless_validation::metrics::SAVE_INVALID_WITNESS_GENERATE_UPDATE_TIME
