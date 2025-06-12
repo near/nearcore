@@ -65,6 +65,7 @@ impl Cache {
                 | DBCol::ChunkExtra => ColumnCache::new(1024),
                 // Used in "get_partial_chunks" and "collect_incoming_receipts_from_chunks" in "start_process_block_impl".
                 | DBCol::PartialChunks => ColumnCache::new(1024),
+                | DBCol::Chunks => ColumnCache::new(1024),
                 _ => ColumnCache::disabled(),
             },
         }

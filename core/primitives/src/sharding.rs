@@ -1580,6 +1580,15 @@ impl From<ShardChunk> for ArcedShardChunk {
     }
 }
 
+impl From<Arc<ShardChunk>> for ArcedShardChunk {
+    fn from(chunk: Arc<ShardChunk>) -> Self {
+        match &*chunk {
+            ShardChunk::V1(chunk) => ArcedShardChunk::V1(ArcedShardChunkV1::from(chunk.clone())),
+            ShardChunk::V2(chunk) => ArcedShardChunk::V2(ArcedShardChunkV2::from(chunk.clone())),
+        }
+    }
+}
+
 impl From<&ArcedShardChunk> for ShardChunk {
     fn from(chunk: &ArcedShardChunk) -> Self {
         match chunk {

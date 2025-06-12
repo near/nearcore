@@ -875,7 +875,7 @@ pub(crate) fn view_genesis(
 fn read_genesis_from_store(
     chain_store: &ChainStore,
     genesis_height: u64,
-) -> Result<(Arc<Block>, Vec<ShardChunk>), Error> {
+) -> Result<(Arc<Block>, Vec<Arc<ShardChunk>>), Error> {
     let genesis_hash = chain_store.get_block_hash_by_height(genesis_height)?;
     let genesis_block = chain_store.get_block(&genesis_hash)?;
     let mut genesis_chunks = vec![];
