@@ -361,10 +361,12 @@ pub struct Config {
     pub max_loaded_contracts: usize,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
-    /// When this option is enabled, the node will save ALL witnesses it observes, even invalid ones,
-    /// which can cause extra load on the database. This option is not recommended for production use,
-    /// as a large number of incoming witnesses could cause denial of service.
+    /// This option can cause extra load on the database and is not recommended for production use.
     pub save_latest_witnesses: bool,
+    /// Save observed instances of invalid ChunkStateWitness to the database in DBCol::InvalidChunkStateWitnesses.
+    /// Saving invalid witnesses is useful for analysis and debugging.
+    /// This option can cause extra load on the database and is not recommended for production use.
+    pub save_invalid_witnesses: bool,
     pub transaction_request_handler_threads: usize,
 }
 
@@ -420,6 +422,7 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             save_latest_witnesses: false,
+            save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
         }
     }
@@ -615,6 +618,7 @@ impl NearConfig {
                 orphan_state_witness_pool_size: config.orphan_state_witness_pool_size,
                 orphan_state_witness_max_size: config.orphan_state_witness_max_size,
                 save_latest_witnesses: config.save_latest_witnesses,
+                save_invalid_witnesses: config.save_invalid_witnesses,
                 transaction_request_handler_threads: config.transaction_request_handler_threads,
             },
             #[cfg(feature = "tx_generator")]

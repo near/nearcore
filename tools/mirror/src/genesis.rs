@@ -208,6 +208,35 @@ pub(crate) fn map_records<P: AsRef<Path>>(
                 // we dont have to unwrap here
                 records_seq.serialize_element(&new_record).unwrap();
             }
+            StateRecord::GasKey { account_id, public_key, gas_key } => {
+                let replacement = crate::key_mapping::map_key(&public_key, secret.as_ref());
+                let new_record = StateRecord::GasKey {
+                    account_id: crate::key_mapping::map_account(&account_id, secret.as_ref()),
+                    public_key: replacement.public_key(),
+                    gas_key: gas_key.clone(),
+                };
+                // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                if account_id.get_account_type() != AccountType::NearImplicitAccount
+                    && gas_key.permission == AccessKeyPermission::FullAccess
+                {
+                    has_full_key.insert(account_id.clone());
+                }
+                records_seq.serialize_element(&new_record).unwrap();
+            }
+            StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
+                let replacement = crate::key_mapping::map_key(&public_key, secret.as_ref());
+                let new_record = StateRecord::GasKeyNonce {
+                    account_id: crate::key_mapping::map_account(&account_id, secret.as_ref()),
+                    public_key: replacement.public_key(),
+                    index: *index,
+                    nonce: *nonce,
+                };
+                // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                if account_id.get_account_type() != AccountType::NearImplicitAccount {
+                    has_full_key.insert(account_id.clone());
+                }
+                records_seq.serialize_element(&new_record).unwrap();
+            }
             StateRecord::Account { account_id, .. } => {
                 // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                 if account_id.get_account_type() == AccountType::NearImplicitAccount {

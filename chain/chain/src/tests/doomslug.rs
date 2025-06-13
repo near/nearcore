@@ -1,3 +1,4 @@
+use crate::doomslug::ChunksReadiness;
 use crate::{Doomslug, DoomslugThresholdMode};
 use near_async::time::{Duration, FakeClock, Instant, Utc};
 use near_crypto::{KeyType, SecretKey};
@@ -157,7 +158,11 @@ fn one_iter(
         // 4. Produce blocks
         'outer: for (bp_ord, ds) in doomslugs.iter_mut().enumerate() {
             for target_height in (ds.get_tip().1 + 1)..=ds.get_largest_height_crossing_threshold() {
-                if ds.ready_to_produce_block(target_height, true, false) {
+                if ds.ready_to_produce_block(
+                    target_height,
+                    ChunksReadiness::Ready(clock.now()),
+                    false,
+                ) {
                     let num_blocks_to_produce = if bp_ord < 3 { 2 } else { 1 };
 
                     for block_ord in 0..num_blocks_to_produce {

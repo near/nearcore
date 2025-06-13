@@ -179,6 +179,9 @@ pub struct Config {
     /// Whether to enable global contract related host functions.
     pub global_contract_host_fns: bool,
 
+    /// Whether to enable saturating reference types and bulk memory wasm extensions.
+    pub reftypes_bulk_memory: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }

@@ -18,13 +18,22 @@ use near_time::Clock;
 use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
 
+pub enum DumpWitnessesSource {
+    /// Dumps latest saved witnesses.
+    Latest,
+    /// Dumps saved invalid witnesses.
+    Invalid,
+}
+
 #[derive(clap::Subcommand)]
 pub enum StateWitnessCmd {
     /// Generates and validates resulting state witnesses for the given range
     /// of blocks.
     Generate(GenerateWitnessesCmd),
-    /// Dumps some of the latest stored state witnesses.
-    Dump(DumpWitnessesCmd),
+    /// Dumps some of the stored latest state witnesses.
+    DumpLatest(DumpWitnessesCmd),
+    /// Dumps some of the stored invalid state witnesses.
+    DumpInvalid(DumpWitnessesCmd),
     /// Validates given state witness.
     Validate(ValidateWitnessCmd),
 }
@@ -33,7 +42,12 @@ impl StateWitnessCmd {
     pub(crate) fn run(&self, home_dir: &Path, near_config: NearConfig, store: Store) {
         match self {
             StateWitnessCmd::Generate(cmd) => cmd.run(home_dir, near_config, store),
-            StateWitnessCmd::Dump(cmd) => cmd.run(near_config, store),
+            StateWitnessCmd::DumpLatest(cmd) => {
+                cmd.run(near_config, store, DumpWitnessesSource::Latest)
+            }
+            StateWitnessCmd::DumpInvalid(cmd) => {
+                cmd.run(near_config, store, DumpWitnessesSource::Invalid)
+            }
             StateWitnessCmd::Validate(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
@@ -192,15 +206,21 @@ enum DumpWitnessesMode {
 }
 
 impl DumpWitnessesCmd {
-    pub(crate) fn run(&self, near_config: NearConfig, store: Store) {
+    pub(crate) fn run(&self, near_config: NearConfig, store: Store, source: DumpWitnessesSource) {
         let chain_store = Rc::new(ChainStore::new(
             store,
             false,
             near_config.genesis.config.transaction_validity_period,
         ));
 
-        let witnesses =
-            chain_store.get_latest_witnesses(self.height, self.shard_id, self.epoch_id).unwrap();
+        let witnesses = match source {
+            DumpWitnessesSource::Latest => {
+                chain_store.get_latest_witnesses(self.height, self.shard_id, self.epoch_id).unwrap()
+            }
+            DumpWitnessesSource::Invalid => chain_store
+                .get_invalid_witnesses(self.height, self.shard_id, self.epoch_id)
+                .unwrap(),
+        };
         println!("Found {} witnesses:", witnesses.len());
         if let DumpWitnessesMode::Binary { ref output_dir } = self.mode {
             if !output_dir.exists() {

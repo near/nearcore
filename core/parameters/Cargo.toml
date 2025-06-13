@@ -41,3 +41,8 @@ calimero_zero_storage = []
 protocol_schema = [
   "near-schema-checker-lib/protocol_schema",
 ]
+
+schemars = [
+  "dep:schemars",
+  "near-primitives-core/schemars",
+]
