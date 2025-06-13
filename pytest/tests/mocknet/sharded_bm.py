@@ -97,7 +97,12 @@ def fetch_forknet_details(forknet_name, bm_params):
 
 
 def upload_local_neard(args):
-    """ uploads the local neard binary to every node to the ${BENCHNET_DIR}. """
+    """ 
+    uploads the local `neard` binary to every node to the ${BENCHNET_DIR}. 
+    @return the absolute path (local to the remote node) to the uploaded `neard`
+
+    """
+    logger.info("uploading the neard ")
     upload_file_args = copy.deepcopy(args)
     upload_file_args.src = args.neard_binary_url
     upload_file_args.dst = BENCHNET_DIR
@@ -147,6 +152,7 @@ def handle_init(args):
     
     # if neard_binary_url is a local path - upload the file to each node
     if os.path.isfile(args.neard_binary_url):
+        logger.info("handling local `neard` at {args.neard_binary_url}")
         local_path_on_remote = upload_local_neard(args)
         args.neard_binary_url = f"file://{local_path_on_remote}"
     
@@ -154,7 +160,6 @@ def handle_init(args):
     update_binaries_args = copy.deepcopy(args)
     update_binaries_cmd(CommandContext(update_binaries_args))
     print("works till here (2)")
-
 
     # TODO: check neard binary version
 
