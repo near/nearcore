@@ -204,6 +204,8 @@ pub enum Parameter {
     VmKind,
     EthImplicitAccounts,
     DiscardCustomSections,
+    SaturatingFloatToInt,
+    ReftypesBulkMemory,
 
     // Congestion Control
     MaxCongestionIncomingGas,
@@ -234,7 +236,6 @@ pub enum Parameter {
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
-    SaturatingFloatToInt,
     GlobalContractHostFns,
 }
 

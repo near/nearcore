@@ -32,8 +32,9 @@ pub enum EpochSelection {
 /// For supported configurations, see the `TrackedShardsConfig` documentation.
 #[derive(Clone)]
 pub struct ShardTracker {
-    validator_signer: MutableValidatorSigner,
     tracked_shards_config: TrackedShardsConfig,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    validator_signer: MutableValidatorSigner,
     /// Stores a bitmask of tracked shards for each epoch ID.
     /// This cache is used to avoid recomputing the set of tracked shards.
     /// Only relevant when `TrackedShardsConfig` is set to `Accounts`.
@@ -44,24 +45,23 @@ pub struct ShardTracker {
     /// The result is cached to avoid recomputing descendant relationships repeatedly.
     /// Only relevant when `TrackedShardsConfig` is set to `Shards(tracked_shards)`.
     descendant_of_tracked_shard_cache: Arc<Mutex<HashMap<ShardId, bool>>>,
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
 }
 
 impl ShardTracker {
     pub fn new(
-        validator_signer: MutableValidatorSigner,
         tracked_shards_config: TrackedShardsConfig,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        validator_signer: MutableValidatorSigner,
     ) -> Self {
         ShardTracker {
-            validator_signer,
             tracked_shards_config,
+            epoch_manager,
+            validator_signer,
             // 1024 epochs on mainnet is about 512 days which is more than enough,
             // and this is a cache anyway. The data size is pretty small as well,
             // only one bit per shard per epoch.
             tracked_accounts_shard_cache: Arc::new(SyncLruCache::new(1024)),
             descendant_of_tracked_shard_cache: Arc::new(Mutex::new(HashMap::new())),
-            epoch_manager,
         }
     }
 
@@ -70,7 +70,7 @@ impl ShardTracker {
             Some(Arc::new(EmptyValidatorSigner::default().into())),
             "validator_signer",
         );
-        Self::new(empty_validator_signer, TrackedShardsConfig::NoShards, epoch_manager)
+        Self::new(TrackedShardsConfig::NoShards, epoch_manager, empty_validator_signer)
     }
 
     fn tracks_shard_at_epoch(
@@ -132,10 +132,10 @@ impl ShardTracker {
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client tracks.
-    fn cares_about_shard_in_epoch(
+    fn cares_about_shard_in_epoch_from_prev_hash(
         &self,
         account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         shard_id: ShardId,
         is_me: bool,
         epoch_selection: EpochSelection,
@@ -146,15 +146,15 @@ impl ShardTracker {
             let account_cares_about_shard = match epoch_selection {
                 EpochSelection::Previous => self
                     .epoch_manager
-                    .cared_about_shard_prev_epoch_from_prev_block(parent_hash, account_id, shard_id)
+                    .cared_about_shard_prev_epoch_from_prev_block(prev_hash, account_id, shard_id)
                     .unwrap_or(false),
                 EpochSelection::Current => self
                     .epoch_manager
-                    .cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
+                    .cares_about_shard_from_prev_block(prev_hash, account_id, shard_id)
                     .unwrap_or(false),
                 EpochSelection::Next => self
                     .epoch_manager
-                    .cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
+                    .cares_about_shard_next_epoch_from_prev_block(prev_hash, account_id, shard_id)
                     .unwrap_or(false),
             };
 
@@ -182,13 +182,11 @@ impl ShardTracker {
             }
             _ => match epoch_selection {
                 EpochSelection::Previous => self
-                    .tracks_shard_prev_epoch_from_prev_block(shard_id, parent_hash)
+                    .tracks_shard_prev_epoch_from_prev_block(shard_id, prev_hash)
                     .unwrap_or(false),
-                EpochSelection::Current => {
-                    self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
-                }
+                EpochSelection::Current => self.tracks_shard(shard_id, prev_hash).unwrap_or(false),
                 EpochSelection::Next => self
-                    .tracks_shard_next_epoch_from_prev_block(shard_id, parent_hash)
+                    .tracks_shard_next_epoch_from_prev_block(shard_id, prev_hash)
                     .unwrap_or(false),
             },
         }
@@ -206,7 +204,7 @@ impl ShardTracker {
         shard_id: ShardId,
     ) -> bool {
         let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
-        self.cares_about_shard_in_epoch(
+        self.cares_about_shard_in_epoch_from_prev_hash(
             account_id.as_ref(),
             parent_hash,
             shard_id,
@@ -228,7 +226,7 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        self.cares_about_shard_in_epoch(
+        self.cares_about_shard_in_epoch_from_prev_hash(
             account_id,
             parent_hash,
             shard_id,
@@ -253,7 +251,7 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        self.cares_about_shard_in_epoch(
+        self.cares_about_shard_in_epoch_from_prev_hash(
             account_id,
             parent_hash,
             shard_id,
@@ -286,14 +284,14 @@ impl ShardTracker {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        let cares_about_shard = self.cares_about_shard_in_epoch(
+        let cares_about_shard = self.cares_about_shard_in_epoch_from_prev_hash(
             Some(account_id),
             parent_hash,
             shard_id,
             false,
             EpochSelection::Current,
         );
-        let will_care_about_shard = self.cares_about_shard_in_epoch(
+        let will_care_about_shard = self.cares_about_shard_in_epoch_from_prev_hash(
             Some(account_id),
             parent_hash,
             shard_id,
@@ -526,7 +524,7 @@ mod tests {
     use crate::test_utils::hash_range;
     use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
     use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-    use near_chain_configs::{GenesisConfig, MutableConfigValue, MutableValidatorSigner};
+    use near_chain_configs::{GenesisConfig, MutableConfigValue};
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::epoch_block_info::BlockInfo;
     use near_primitives::epoch_manager::EpochConfigStore;
@@ -534,7 +532,6 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{AccountInfo, BlockHeight, EpochId, ProtocolVersion, ShardId};
-    use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::ShardUId;
     use near_store::test_utils::create_test_store;
@@ -543,13 +540,6 @@ mod tests {
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
     const EPOCH_LENGTH: usize = 5;
-
-    fn empty_signer() -> MutableValidatorSigner {
-        MutableConfigValue::new(
-            Some(Arc::new(EmptyValidatorSigner::default().into())),
-            "validator_signer",
-        )
-    }
 
     // Initializes an epoch manager, optionally including epoch configs for two reshardings.
     fn get_epoch_manager(
@@ -728,9 +718,9 @@ mod tests {
         let tracked_shards = vec![parent_shard_uid, not_parent_shard_uid];
         assert!(tracked_shards.len() < num_shards as usize);
         let tracker = ShardTracker::new(
-            empty_signer(),
             TrackedShardsConfig::Shards(tracked_shards),
             epoch_manager.clone(),
+            MutableConfigValue::new(None, "validator_signer"),
         );
 
         let children_shards =
@@ -799,9 +789,9 @@ mod tests {
         );
 
         let tracker = ShardTracker::new(
-            empty_signer(),
             TrackedShardsConfig::Shards(vec![parent_shard_uid, non_parent_shard_new_uid]),
             epoch_manager.clone(),
+            MutableConfigValue::new(None, "validator_signer"),
         );
         // Thanks to unique shard identifiers, we won't track the ancestor of "non_parent_shard",
         // even if the ShardId is the same.
@@ -811,9 +801,9 @@ mod tests {
         );
 
         let tracker = ShardTracker::new(
-            empty_signer(),
             TrackedShardsConfig::Shards(vec![left_child_shard_uid]),
             epoch_manager,
+            MutableConfigValue::new(None, "validator_signer"),
         );
         // We won't track the parent or sibling shards if we are only configured to track the child shard.
         assert!(
@@ -845,9 +835,9 @@ mod tests {
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
         let tracker = ShardTracker::new(
-            empty_signer(),
             TrackedShardsConfig::Accounts(tracked_accounts),
             epoch_manager,
+            MutableConfigValue::new(None, "validator_signer"),
         );
         let mut total_tracked_shards = HashSet::new();
         total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test1".parse().unwrap()));
@@ -868,8 +858,11 @@ mod tests {
         let num_shards = 4;
         let shard_ids: Vec<ShardId> = (0..num_shards).map(ShardId::new).collect();
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
-        let tracker =
-            ShardTracker::new(empty_signer(), TrackedShardsConfig::AllShards, epoch_manager);
+        let tracker = ShardTracker::new(
+            TrackedShardsConfig::AllShards,
+            epoch_manager,
+            MutableConfigValue::new(None, "validator_signer"),
+        );
         let total_tracked_shards: HashSet<_> = shard_ids.iter().cloned().collect();
 
         assert_eq!(
@@ -896,13 +889,13 @@ mod tests {
         let subset3: HashSet<ShardId> =
             HashSet::from([2, 3]).into_iter().map(ShardId::new).collect();
         let tracker = ShardTracker::new(
-            empty_signer(),
             TrackedShardsConfig::Schedule(vec![
                 subset1.clone().into_iter().collect(),
                 subset2.clone().into_iter().map(Into::into).collect(),
                 subset3.clone().into_iter().map(Into::into).collect(),
             ]),
             epoch_manager.clone(),
+            MutableConfigValue::new(None, "validator_signer"),
         );
 
         let h = hash_range(8);
