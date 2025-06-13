@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use near_async::messaging::CanSend as _;
+use near_async::messaging::{CanSend as _, SpanWrappedMsg};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::BlockResponse;
@@ -232,11 +232,11 @@ fn test_produce_block_with_approvals_arrived_early() {
                             {
                                 continue;
                             }
-                            sender.send(BlockResponse {
+                            sender.send(SpanWrappedMsg::from(BlockResponse {
                                 block: block.clone(),
                                 peer_id: peer_id.clone(),
                                 was_requested: false,
-                            });
+                            }));
                         }
                         *block_holder.write() = Some(BlockResponse {
                             block: block.clone(),
@@ -255,7 +255,8 @@ fn test_produce_block_with_approvals_arrived_early() {
                     }
                     if *approval_counter == 3 {
                         let block_response = block_holder.read().clone().unwrap();
-                        client_senders[&block_producer_for_next_height].send(block_response);
+                        client_senders[&block_producer_for_next_height]
+                            .send(SpanWrappedMsg::from(block_response));
                     }
                     Some(request)
                 }

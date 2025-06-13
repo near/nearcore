@@ -1,4 +1,4 @@
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, WrappedSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainGenesis;
@@ -120,7 +120,7 @@ fn test_client_with_simple_test_loop() {
         epoch_manager,
         shard_tracker,
         noop().into_sender(),
-        client_adapter.as_sender(),
+        WrappedSender::from_sender(client_adapter.as_sender()).into_sender(),
         store.chunk_store(),
         client.chain.head().unwrap(),
         client.chain.header_head().unwrap(),

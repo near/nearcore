@@ -13,7 +13,7 @@ use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::futures::TokioRuntimeFutureSpawner;
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, WrappedSender};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
@@ -441,7 +441,7 @@ pub fn start_with_config_and_synchronization(
         view_epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.as_sender(),
-        client_adapter_for_shards_manager.as_sender(),
+        WrappedSender::from_sender(client_adapter_for_shards_manager.as_sender()).into_sender(),
         config.validator_signer.clone(),
         split_store.unwrap_or_else(|| storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,

@@ -4,12 +4,12 @@ use std::collections::HashMap;
 
 use actix::Addr;
 use futures::stream::StreamExt;
-use tracing::warn;
-
+use near_async::messaging::SpanWrappedMsg;
 use near_indexer_primitives::IndexerExecutionOutcomeWithOptionalReceipt;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::{types, views};
+use tracing::warn;
 
 use super::INDEXER;
 use super::errors::FailedToFetchData;
@@ -20,7 +20,10 @@ pub(crate) async fn fetch_status(
 ) -> Result<near_primitives::views::StatusResponse, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching status");
     client
-        .send(near_client::Status { is_health_check: false, detailed: false }.with_span_context())
+        .send(
+            SpanWrappedMsg::from(near_client::Status { is_health_check: false, detailed: false })
+                .with_span_context(),
+        )
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }

@@ -1,11 +1,15 @@
 use crate::break_apart::BreakApart;
 use crate::functional::{SendAsyncFunction, SendFunction};
 use crate::futures::DelayedActionRunner;
+use actix::Message;
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use near_o11y::macros::type_name_of;
 use std::fmt::{Debug, Display};
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot;
+use tracing::{Span, debug_span};
 
 /// Trait for an actor. An actor is a struct that can handle messages and implements the Handler or
 /// HandlerWithContext trait. We can optionally implement the start_actor trait which is executed in
@@ -203,6 +207,115 @@ pub struct MessageWithCallback<T, R> {
 impl<T: Debug, R> Debug for MessageWithCallback<T, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("MessageWithCallback").field(&self.message).finish()
+    }
+}
+
+pub struct SpanWrappedMsg<T> {
+    _span: Span,
+    message: T,
+}
+
+impl<T> Deref for SpanWrappedMsg<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.message
+    }
+}
+
+impl<T> DerefMut for SpanWrappedMsg<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.message
+    }
+}
+
+impl<T> From<T> for SpanWrappedMsg<T> {
+    fn from(message: T) -> Self {
+        Self {
+            _span: debug_span!("pending_message", message_type = type_name_of(&message)),
+            message,
+        }
+    }
+}
+
+impl<T> SpanWrappedMsg<T> {
+    pub fn into_inner(self) -> T {
+        self.message
+    }
+}
+
+impl<T: Message> Message for SpanWrappedMsg<T> {
+    type Result = <T as Message>::Result;
+}
+
+impl<T: Debug> Debug for SpanWrappedMsg<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.message.fmt(f)
+    }
+}
+
+impl<T: Clone> Clone for SpanWrappedMsg<T> {
+    fn clone(&self) -> Self {
+        Self { _span: self._span.clone(), message: self.message.clone() }
+    }
+}
+
+impl<T: PartialEq> PartialEq for SpanWrappedMsg<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.message == other.message
+    }
+}
+
+impl<T: Eq> Eq for SpanWrappedMsg<T> {}
+
+pub struct WrappedSender<M> {
+    sender: Arc<dyn CanSend<SpanWrappedMsg<M>>>,
+}
+
+impl<M> WrappedSender<M> {
+    pub fn from_impl(sender: impl CanSend<SpanWrappedMsg<M>> + 'static) -> Self {
+        Self { sender: Arc::new(sender) }
+    }
+
+    pub fn from_sender(sender: Sender<SpanWrappedMsg<M>>) -> Self {
+        Self { sender: sender.sender }
+    }
+}
+
+impl<M: 'static> CanSend<M> for WrappedSender<M> {
+    fn send(&self, message: M) {
+        self.sender.send(message.into())
+    }
+}
+
+pub struct WrappedAsyncSender<M, R> {
+    sender: Arc<dyn CanSend<MessageWithCallback<SpanWrappedMsg<M>, R>>>,
+}
+
+impl<M, R: Send + 'static> WrappedAsyncSender<M, R> {
+    pub fn from_impl(
+        sender: impl CanSend<MessageWithCallback<SpanWrappedMsg<M>, R>> + 'static,
+    ) -> Self {
+        Self { sender: Arc::new(sender) }
+    }
+
+    pub fn from_sender(sender: AsyncSender<SpanWrappedMsg<M>, R>) -> Self {
+        Self { sender: sender.sender }
+    }
+}
+
+// impl<M: 'static, R: Send + 'static> SendAsync<M, R> for WrappedAsyncSender<M, R> {
+//     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+//         self.sender.send_async(message.into())
+//     }
+// }
+
+impl<M: 'static, R: Send + 'static> CanSend<MessageWithCallback<M, R>>
+    for WrappedAsyncSender<M, R>
+{
+    fn send(&self, message: MessageWithCallback<M, R>) {
+        let message =
+            MessageWithCallback { message: message.message.into(), callback: message.callback };
+        self.sender.send(message)
     }
 }
 

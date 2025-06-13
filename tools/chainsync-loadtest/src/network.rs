@@ -1,9 +1,9 @@
 use crate::concurrency::{Once, RateLimiter, WeakMap};
 use log::info;
-use near_async::messaging::CanSend;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_async::messaging::noop;
+use near_async::messaging::{CanSend, SpanWrappedMsg};
 use near_async::time;
 use near_network::client::{
     AnnounceAccountRequest, BlockHeadersResponse, BlockResponse, ClientSenderForNetwork,
@@ -239,17 +239,22 @@ impl Network {
             block_approval: noop().into_sender(),
             block_request: Sender::from_async_fn(|_| None),
             block_headers_request: Sender::from_async_fn(|_| None),
-            block: Sender::from_async_fn(move |block: BlockResponse| {
+            block: Sender::from_async_fn(move |block: SpanWrappedMsg<BlockResponse>| {
+                let block = block.into_inner();
                 blocks.get(&block.block.hash().clone()).map(|p| p.set(block.block));
             }),
-            block_headers: Sender::from_async_fn(move |headers: BlockHeadersResponse| {
-                if let Some(h) = headers.0.iter().min_by_key(|h| h.height()) {
-                    let hash = *h.prev_hash();
-                    block_headers.get(&hash).map(|p| p.set(headers.0));
-                }
-                Ok(())
-            }),
-            network_info: Sender::from_async_fn(move |info: SetNetworkInfo| {
+            block_headers: Sender::from_async_fn(
+                move |headers: SpanWrappedMsg<BlockHeadersResponse>| {
+                    let headers = headers.into_inner();
+                    if let Some(h) = headers.0.iter().min_by_key(|h| h.height()) {
+                        let hash = *h.prev_hash();
+                        block_headers.get(&hash).map(|p| p.set(headers.0));
+                    }
+                    Ok(())
+                },
+            ),
+            network_info: Sender::from_async_fn(move |info: SpanWrappedMsg<SetNetworkInfo>| {
+                let info = info.into_inner();
                 let mut n = data.lock();
                 n.info_ = Arc::new(info.0);
                 if n.info_.num_connected_peers < min_peers {

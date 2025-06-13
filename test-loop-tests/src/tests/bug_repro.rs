@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use near_async::messaging::CanSend as _;
+use near_async::messaging::{CanSend as _, SpanWrappedMsg};
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain_configs::TrackedShardsConfig;
@@ -75,11 +75,11 @@ fn slow_test_repro_1183() {
 
                 if let Some(last_block) = last_block.clone() {
                     for node in &node_datas {
-                        node.client_sender.send(BlockResponse {
+                        node.client_sender.send(SpanWrappedMsg::from(BlockResponse {
                             block: last_block.clone(),
                             peer_id: peer_id.clone(),
                             was_requested: false,
-                        })
+                        }))
                     }
                 }
                 for delayed_message in delayed_one_parts.iter() {
@@ -220,11 +220,11 @@ fn slow_test_sync_from_archival_node() {
                     NetworkRequests::Block { block } => {
                         for (i, sender) in client_senders.iter().enumerate() {
                             if i != 3 {
-                                sender.send(BlockResponse {
+                                sender.send(SpanWrappedMsg::from(BlockResponse {
                                     block: block.clone(),
                                     peer_id: peer_id.clone(),
                                     was_requested: false,
-                                })
+                                }))
                             }
                         }
                         if block.header().height() <= 10 {
@@ -235,10 +235,10 @@ fn slow_test_sync_from_archival_node() {
                     NetworkRequests::Approval { approval_message } => {
                         for (i, sender) in client_senders.iter().enumerate() {
                             if i != 3 {
-                                sender.send(BlockApproval(
+                                sender.send(SpanWrappedMsg::from(BlockApproval(
                                     approval_message.approval.clone(),
                                     peer_id.clone(),
-                                ))
+                                )))
                             }
                         }
                         None
@@ -250,11 +250,11 @@ fn slow_test_sync_from_archival_node() {
                     panic!("incorrect rebroadcasting of blocks");
                 }
                 for (_, block) in blocks.write().drain() {
-                    client_senders[3].send(BlockResponse {
+                    client_senders[3].send(SpanWrappedMsg::from(BlockResponse {
                         block,
                         peer_id: peer_id.clone(),
                         was_requested: false,
-                    });
+                    }));
                 }
                 match &request {
                     NetworkRequests::Block { block } => {

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use near_async::messaging::CanSend as _;
+use near_async::messaging::{CanSend as _, SpanWrappedMsg};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Block;
@@ -150,11 +150,11 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         }
                         if delayed_block.header().height() <= block.header().height() + 2 {
                             for (_, sender) in &handler.client_senders {
-                                sender.send(BlockResponse {
+                                sender.send(SpanWrappedMsg::from(BlockResponse {
                                     block: delayed_block.clone(),
                                     peer_id: peer_id.clone(),
                                     was_requested: true,
-                                });
+                                }));
                             }
                         } else {
                             new_delayed_blocks.push(delayed_block.clone())
@@ -259,7 +259,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                             .get_block_producer(&handler.current_epoch, target_height)
                             .unwrap();
                         let sender = handler.client_senders.get(&recipient).unwrap();
-                        sender.send(BlockApproval(approval, peer_id.clone()));
+                        sender.send(SpanWrappedMsg::from(BlockApproval(approval, peer_id.clone())));
 
                         // Do not send the endorsement for couple block producers in each epoch
                         // This is needed because otherwise the block with enough endorsements

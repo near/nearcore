@@ -49,6 +49,7 @@ mod online;
 pub mod secret;
 
 pub use cli::MirrorCommand;
+use near_async::messaging::SpanWrappedMsg;
 
 #[derive(strum::EnumIter)]
 enum DBCol {
@@ -1887,7 +1888,10 @@ impl<T: ChainAccess> TxMirror<T> {
 
     async fn target_chain_syncing(target_client: &Addr<ClientActor>) -> bool {
         target_client
-            .send(Status { is_health_check: false, detailed: false }.with_span_context())
+            .send(
+                SpanWrappedMsg::from(Status { is_health_check: false, detailed: false })
+                    .with_span_context(),
+            )
             .await
             .unwrap()
             .map(|s| s.sync_info.syncing)

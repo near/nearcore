@@ -1,6 +1,6 @@
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
-use near_async::messaging::{self, CanSend, Handler, Sender};
+use near_async::messaging::{self, CanSend, Handler, Sender, SpanWrappedMsg};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::{BlockCatchUpRequest, BlockCatchUpResponse, do_apply_chunks};
 use near_performance_metrics_macros::perf;
@@ -11,7 +11,7 @@ const MAILBOX_CAPACITY: usize = 100;
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForSyncJobs {
-    block_catch_up_response: Sender<BlockCatchUpResponse>,
+    block_catch_up_response: Sender<SpanWrappedMsg<BlockCatchUpResponse>>,
 }
 
 pub struct SyncJobsActor {
@@ -50,10 +50,9 @@ impl SyncJobsActor {
                 .map(|res| (res.0, res.2))
                 .collect();
 
-        self.client_sender.send(BlockCatchUpResponse {
-            sync_hash: msg.sync_hash,
-            block_hash: msg.block_hash,
-            results,
-        });
+        self.client_sender.send(
+            BlockCatchUpResponse { sync_hash: msg.sync_hash, block_hash: msg.block_hash, results }
+                .into(),
+        );
     }
 }
