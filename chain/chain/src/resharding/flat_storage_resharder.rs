@@ -130,7 +130,12 @@ impl FlatStorageResharder {
             FlatStorageReshardingTaskResult::Failed => {
                 panic!("impossible to recover from a flat storage shard catchup failure!")
             }
-            _ => {}
+            FlatStorageReshardingTaskResult::Successful { .. } => {
+                // Success: All good!
+            }
+            FlatStorageReshardingTaskResult::Cancelled => {
+                // The task has been cancelled. Nothing else to do.
+            }
         }
     }
 
@@ -518,14 +523,14 @@ impl FlatStorageResharder {
         let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
 
         // Create state trackers to track catchup progress of all shards.
-        let mut shard_states: Vec<ShardCatchupState> =
-            shard_uids.iter().map(|&shard_uid| ShardCatchupState::new(shard_uid)).collect();
+        let mut shard_states =
+            shard_uids.iter().map(|&shard_uid| ShardCatchupState::new(shard_uid)).collect_vec();
 
         // Create metrics for each shard
-        let metrics: Vec<FlatStorageReshardingShardCatchUpMetrics> = shard_uids
+        let metrics = shard_uids
             .iter()
             .map(|&shard_uid| FlatStorageReshardingShardCatchUpMetrics::new(&shard_uid))
-            .collect();
+            .collect_vec();
 
         // We want to process all shards in round-robin and for this we use a queue.
         let mut shard_queue: VecDeque<usize> = (0..shard_states.len()).collect();

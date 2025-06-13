@@ -104,7 +104,7 @@ impl StateSnapshotActor {
                     }
                 })
                 .collect();
-            tracing::info!(target: "state_snapshot", ?not_ready_shards, "Waiting for resharding: shards not in catchup phase");
+            tracing::debug!(target: "state_snapshot", ?not_ready_shards, "Waiting for resharding: shards not in catchup phase");
             return Ok(true);
         };
         // Proceed if the catchup code is already reasonably close to being finished. This is not a correctness issue,
