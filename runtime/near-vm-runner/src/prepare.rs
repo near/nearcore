@@ -5,6 +5,7 @@ use crate::logic::errors::PrepareError;
 use near_parameters::vm::{Config, VMKind};
 
 mod prepare_v2;
+mod prepare_v3;
 
 /// Loads the given module given in `original_code`, performs some checks on it and
 /// does some preprocessing.
@@ -23,7 +24,11 @@ pub fn prepare_contract(
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
     let features = crate::features::WasmFeatures::new(config);
-    prepare_v2::prepare_contract(original_code, features, config, kind)
+    if config.reftypes_bulk_memory {
+        prepare_v3::prepare_contract(original_code, features, config, kind)
+    } else {
+        prepare_v2::prepare_contract(original_code, features, config, kind)
+    }
 }
 
 #[cfg(test)]

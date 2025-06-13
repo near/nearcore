@@ -229,6 +229,8 @@ pub struct VMConfigView {
     pub saturating_float_to_int: bool,
     /// See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).
     pub global_contract_host_fns: bool,
+    /// See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).
+    pub reftypes_bulk_memory: bool,
 
     /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
@@ -261,6 +263,7 @@ impl From<crate::vm::Config> for VMConfigView {
             eth_implicit_accounts: config.eth_implicit_accounts,
             saturating_float_to_int: config.saturating_float_to_int,
             global_contract_host_fns: config.global_contract_host_fns,
+            reftypes_bulk_memory: config.reftypes_bulk_memory,
         }
     }
 }
@@ -280,6 +283,7 @@ impl From<VMConfigView> for crate::vm::Config {
             eth_implicit_accounts: view.eth_implicit_accounts,
             saturating_float_to_int: view.saturating_float_to_int,
             global_contract_host_fns: view.global_contract_host_fns,
+            reftypes_bulk_memory: view.reftypes_bulk_memory,
         }
     }
 }
