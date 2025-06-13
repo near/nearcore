@@ -3203,7 +3203,7 @@ impl Chain {
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cared_about_shard_prev_epoch =
-            self.shard_tracker.cared_about_shard_in_prev_epoch(prev_hash, shard_id);
+            self.shard_tracker.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
         let should_apply_chunk = get_should_apply_chunk(
             mode,
             cares_about_shard_this_epoch,

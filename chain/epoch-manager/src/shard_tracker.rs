@@ -198,15 +198,15 @@ impl ShardTracker {
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client tracks.
-    pub fn cared_about_shard_in_prev_epoch(
+    pub fn cared_about_shard_in_prev_epoch_from_prev_hash(
         &self,
-        parent_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
         let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
         self.cares_about_shard_in_epoch_from_prev_hash(
             account_id.as_ref(),
-            parent_hash,
+            prev_hash,
             shard_id,
             true,
             EpochSelection::Previous,
@@ -365,7 +365,8 @@ impl ShardTracker {
         // Now we need to state sync it unless we were tracking the parent in the previous epoch,
         // in which case we don't need to because we already have the state, and can just continue applying chunks
 
-        let tracked_before = self.cared_about_shard_in_prev_epoch(prev_hash, shard_id);
+        let tracked_before =
+            self.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
         Ok(!tracked_before)
     }
 
