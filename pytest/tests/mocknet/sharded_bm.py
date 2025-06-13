@@ -539,6 +539,10 @@ def main():
         default='.',
         help='Directory to save the profile files (default: current directory)')
     get_profiles_parser.add_argument(
+        '--host-filter',
+        default=None,
+        help='Filter to select specific hosts (default: first alphabetical cp instance)')
+    get_profiles_parser.add_argument(
         '--record-secs',
         type=int,
         default=10,
