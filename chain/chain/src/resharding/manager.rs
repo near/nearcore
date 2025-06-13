@@ -10,7 +10,6 @@ use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::AccountId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
@@ -25,7 +24,6 @@ pub struct ReshardingManager {
     store: Store,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    my_account_id: Option<AccountId>,
     resharding_sender: ReshardingSender,
 }
 
@@ -34,10 +32,9 @@ impl ReshardingManager {
         store: Store,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        my_account_id: Option<AccountId>,
         resharding_sender: ReshardingSender,
     ) -> Self {
-        Self { store, epoch_manager, shard_tracker, my_account_id, resharding_sender }
+        Self { store, epoch_manager, shard_tracker, resharding_sender }
     }
 
     /// Trigger resharding if shard layout changes after the given block.

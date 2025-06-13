@@ -416,7 +416,6 @@ impl Chain {
             store.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            None, // No validator id for view client
             noop().into_multi_sender(),
         );
         let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
@@ -577,7 +576,6 @@ impl Chain {
             chain_store.store(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            me,
             resharding_sender,
         );
 
