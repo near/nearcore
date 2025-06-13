@@ -398,7 +398,7 @@ def handle_get_profiles(args):
     if args.host_filter is None:
         machines = sorted(args.forknet_details['cp_instance_names'])
         machine = machines[0]
-        logger.info(f"Targetting {machine}")
+        logger.info(f"Targeting {machine}")
         args.host_filter = machine
 
     upload_args = copy.deepcopy(args)
