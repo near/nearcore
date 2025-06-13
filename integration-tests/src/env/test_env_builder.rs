@@ -458,25 +458,49 @@ impl TestEnvBuilder {
             .collect_vec();
         let partial_witness_adapters =
             (0..num_clients).map(|_| MockPartialWitnessAdapter::default()).collect_vec();
-        let validator_signers = client_accounts
-            .iter()
-            .map(|account_id| {
-                MutableConfigValue::new(
-                    Some(Arc::new(create_test_signer(account_id.as_str()))),
-                    "validator_signer",
-                )
-            })
-            .collect_vec();
-        let shard_trackers = (0..num_clients)
-            .map(|i| {
-                let config = if self.track_all_shards {
-                    TrackedShardsConfig::AllShards
-                } else {
-                    TrackedShardsConfig::new_empty()
-                };
-                ShardTracker::new(validator_signers[i].clone(), config, epoch_managers[i].clone())
-            })
-            .collect_vec();
+
+        // setup validator signers and shard trackers
+        let mut validator_signers = vec![];
+        let mut shard_trackers = vec![];
+        let tracked_shards_config = if self.track_all_shards {
+            TrackedShardsConfig::AllShards
+        } else {
+            TrackedShardsConfig::new_empty()
+        };
+
+        for (i, account_id) in client_accounts.iter().enumerate() {
+            let signer = create_test_signer(account_id.as_str());
+            let validator_signer =
+                MutableConfigValue::new(Some(Arc::new(signer)), "validator_signer");
+            validator_signers.push(validator_signer.clone());
+
+            let shard_tracker = ShardTracker::new(
+                tracked_shards_config.clone(),
+                epoch_managers[i].clone(),
+                validator_signer,
+            );
+            shard_trackers.push(shard_tracker);
+        }
+
+        // let validator_signers = client_accounts
+        //     .iter()
+        //     .map(|account_id| {
+        //         MutableConfigValue::new(
+        //             Some(Arc::new(create_test_signer(account_id.as_str()))),
+        //             "validator_signer",
+        //         )
+        //     })
+        //     .collect_vec();
+        // let shard_trackers = (0..num_clients)
+        //     .map(|i| {
+        //         let config = if self.track_all_shards {
+        //             TrackedShardsConfig::AllShards
+        //         } else {
+        //             TrackedShardsConfig::new_empty()
+        //         };
+        //         ShardTracker::new(validator_signers[i].clone(), config, epoch_managers[i].clone())
+        //     })
+        //     .collect_vec();
 
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {

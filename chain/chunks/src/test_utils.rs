@@ -86,13 +86,13 @@ impl ChunkTestFixture {
         let epoch_manager = epoch_manager.into_handle();
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let shard_tracker = ShardTracker::new(
-            MutableConfigValue::new(None, "validator_signer"),
             if track_all_shards {
                 TrackedShardsConfig::AllShards
             } else {
                 TrackedShardsConfig::NoShards
             },
             Arc::new(epoch_manager.clone()),
+            MutableConfigValue::new(None, "validator_signer"),
         );
         let mock_network = Arc::new(MockPeerManagerAdapter::default());
         let mock_client_adapter = Arc::new(MockClientAdapterForShardsManager::default());

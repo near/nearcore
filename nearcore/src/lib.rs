@@ -280,9 +280,9 @@ pub fn start_with_config_and_synchronization(
     );
 
     let shard_tracker = ShardTracker::new(
-        config.validator_signer.clone(),
         config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
+        config.validator_signer.clone(),
     );
     let runtime = NightshadeRuntime::from_config(
         home_dir,
@@ -303,9 +303,9 @@ pub fn start_with_config_and_synchronization(
                 Some(home_dir),
             );
             let view_shard_tracker = ShardTracker::new(
-                config.validator_signer.clone(),
                 config.client_config.tracked_shards_config.clone(),
                 epoch_manager.clone(),
+                config.validator_signer.clone(),
             );
             let view_runtime = NightshadeRuntime::from_config(
                 home_dir,
