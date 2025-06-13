@@ -7,7 +7,6 @@ mod peer;
 mod proto_conv;
 mod state_sync;
 use borsh::BorshDeserialize;
-use borsh::BorshSerialize;
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
@@ -63,7 +62,6 @@ use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
-use std::io::Write;
 use std::sync::Arc;
 use tracing::Span;
 
@@ -723,36 +721,7 @@ pub struct RoutedMessageV2 {
     pub num_hops: u32,
 }
 
-impl BorshSerialize for RoutedMessageV2 {
-    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.msg.serialize(writer)?;
-        let timestamp = self.created_at.map(|t| t.unix_timestamp());
-        timestamp.serialize(writer)?;
-        self.num_hops.serialize(writer)
-    }
-}
-
-impl BorshDeserialize for RoutedMessageV2 {
-    fn deserialize(reader: &mut &[u8]) -> std::io::Result<Self> {
-        let msg = RoutedMessageV1::deserialize(reader)?;
-        let timestamp = Option::deserialize(reader)?;
-        let created_at = timestamp.map(|t| time::Utc::from_unix_timestamp(t).ok()).flatten();
-        let num_hops = u32::deserialize(reader)?;
-        Ok(RoutedMessageV2 { msg, created_at, num_hops })
-    }
-
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let msg = RoutedMessageV1::deserialize_reader(reader)?;
-        let timestamp = Option::deserialize_reader(reader)?;
-        let created_at = timestamp.map(|t| time::Utc::from_unix_timestamp(t).ok()).flatten();
-        let num_hops = u32::deserialize_reader(reader)?;
-        Ok(RoutedMessageV2 { msg, created_at, num_hops })
-    }
-}
-
-#[derive(
-    borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
-)]
+#[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub enum RoutedMessage {
     V1(RoutedMessageV1),
     V2(RoutedMessageV2),
