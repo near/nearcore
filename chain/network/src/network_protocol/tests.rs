@@ -122,7 +122,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             direct_peers: vec![], // TODO: populate this field once borsh support is dropped
         }),
         PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect()),
-        PeerMessage::BlockHeaders(chain.get_block_headers()),
+        PeerMessage::BlockHeaders(chain.get_block_headers().map(Into::into).collect()),
         PeerMessage::BlockRequest(*chain.blocks[5].hash()),
         PeerMessage::Block(chain.blocks[5].clone()),
         PeerMessage::Transaction(data::make_signed_transaction(&mut rng)),

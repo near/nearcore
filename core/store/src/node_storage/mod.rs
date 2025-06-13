@@ -1,14 +1,12 @@
 pub(super) mod opener;
 
-use std::io;
-use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
-
-use opener::StoreOpener;
-
 use crate::config::ArchivalConfig;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
+use opener::StoreOpener;
+use std::io;
+use std::str::FromStr;
+use std::sync::{Arc, LazyLock};
 
 /// Specifies temperature of a storage.
 ///
@@ -55,6 +53,21 @@ impl NodeStorage {
         StoreOpener::new(home_dir, store_config, archival_config)
     }
 
+    /// Initializes an opener for a new temporary test store.
+    ///
+    /// As per the name, this is meant for tests only.  The created store will
+    /// use test configuration (which may differ slightly from default config).
+    /// The function **panics** if a temporary directory cannot be created.
+    ///
+    /// Note that the caller must hold the temporary directory returned as first
+    /// element of the tuple while the store is open.
+    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+        static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
+        let dir = tempfile::tempdir().unwrap();
+        let opener = NodeStorage::opener(dir.path(), &CONFIG, None);
+        (dir, opener)
+    }
+
     /// Constructs new object backed by given database.
     fn from_rocksdb(
         hot_storage: crate::db::RocksDB,
@@ -70,21 +83,6 @@ impl NodeStorage {
         };
 
         Self { hot_storage, cold_storage: cold_db }
-    }
-
-    /// Initializes an opener for a new temporary test store.
-    ///
-    /// As per the name, this is meant for tests only.  The created store will
-    /// use test configuration (which may differ slightly from default config).
-    /// The function **panics** if a temporary directory cannot be created.
-    ///
-    /// Note that the caller must hold the temporary directory returned as first
-    /// element of the tuple while the store is open.
-    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
-        static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
-        let dir = tempfile::tempdir().unwrap();
-        let opener = NodeStorage::opener(dir.path(), &CONFIG, None);
-        (dir, opener)
     }
 
     /// Constructs new object backed by given database.

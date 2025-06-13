@@ -1047,7 +1047,7 @@ impl PeerActor {
                     .await
                     .ok()
                     .flatten()
-                    .map(|block| PeerMessage::Block(*block)),
+                    .map(|block| PeerMessage::Block(block)),
                 PeerMessage::BlockHeadersRequest(hashes) => network_state
                     .client
                     .send_async(BlockHeadersRequest(hashes))

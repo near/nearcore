@@ -1,7 +1,6 @@
 #![cfg(test)]
 //! Set of tests over the 'Database' interface, that we can run over multiple implementations
 //! to make sure that they are working correctly.
-
 use crate::db::{DBTransaction, TestDB};
 use crate::{DBCol, NodeStorage};
 

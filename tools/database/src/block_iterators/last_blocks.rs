@@ -1,7 +1,7 @@
-use std::rc::Rc;
-
 use near_chain::{Block, ChainStore, ChainStoreAccess};
 use near_primitives::hash::CryptoHash;
+use std::rc::Rc;
+use std::sync::Arc;
 
 /// Iterate over the last N blocks in the blockchain
 pub struct LastNBlocksIterator {
@@ -19,9 +19,9 @@ impl LastNBlocksIterator {
 }
 
 impl Iterator for LastNBlocksIterator {
-    type Item = Block;
+    type Item = Arc<Block>;
 
-    fn next(&mut self) -> Option<Block> {
+    fn next(&mut self) -> Option<Arc<Block>> {
         // Decrease the amount of blocks left to produce
         match self.blocks_left.checked_sub(1) {
             Some(new_blocks_left) => self.blocks_left = new_blocks_left,

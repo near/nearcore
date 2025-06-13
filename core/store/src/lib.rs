@@ -32,6 +32,7 @@ mod columns;
 pub mod config;
 pub mod contract;
 pub mod db;
+mod deserialized_column;
 pub mod flat;
 pub mod genesis;
 pub mod metrics;

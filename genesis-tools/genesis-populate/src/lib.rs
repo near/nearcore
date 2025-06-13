@@ -269,7 +269,8 @@ impl GenesisBuilder {
         store_update
             .save_block_header(genesis.header().clone())
             .expect("save genesis block header shouldn't fail");
-        store_update.save_block(genesis.clone());
+        let genesis = Arc::new(genesis);
+        store_update.save_block(Arc::clone(&genesis));
 
         for (chunk_header, &state_root) in
             genesis.chunks().iter_deprecated().zip(self.roots.values())
@@ -280,23 +281,17 @@ impl GenesisBuilder {
 
             let congestion_info = self.get_congestion_info(&genesis, shard_id, state_root)?;
 
-            store_update.save_chunk_extra(
-                genesis.hash(),
-                &shard_uid,
-                ChunkExtra::new(
-                    &state_root,
-                    CryptoHash::default(),
-                    vec![],
-                    0,
-                    self.genesis.config.gas_limit,
-                    0,
-                    Some(congestion_info),
-                    chunk_header
-                        .bandwidth_requests()
-                        .cloned()
-                        .unwrap_or_else(BandwidthRequests::empty),
-                ),
+            let chunk_extra = ChunkExtra::new(
+                &state_root,
+                CryptoHash::default(),
+                vec![],
+                0,
+                self.genesis.config.gas_limit,
+                0,
+                Some(congestion_info),
+                chunk_header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
             );
+            store_update.save_chunk_extra(genesis.hash(), &shard_uid, chunk_extra.into());
         }
 
         let head = Tip::from_header(genesis.header());

@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
-
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
@@ -15,9 +15,8 @@ use near_primitives::sharding::{
 };
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::{AccountId, ShardId};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 trait ChunkStateWitnessExt {
     fn mut_source_receipt_proofs(&mut self) -> &mut HashMap<ChunkHash, ReceiptProof>;
@@ -42,8 +41,8 @@ impl ChunkStateWitnessExt for ChunkStateWitness {
 
 struct OrphanWitnessTestEnv {
     env: TestEnv,
-    block1: Block,
-    block2: Block,
+    block1: Arc<Block>,
+    block2: Arc<Block>,
     witness: ChunkStateWitness,
     excluded_validator: AccountId,
     excluded_validator_idx: usize,

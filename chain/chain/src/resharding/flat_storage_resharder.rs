@@ -599,9 +599,10 @@ impl FlatStorageResharder {
 
             // If we reached the desired new flat head, we can terminate the delta application step.
             if is_flat_head_on_par_with_chain(&flat_head.hash, &chain_final_head) {
+                let header = chain_store.get_block_header(&flat_head.hash)?;
                 return Ok(ShardCatchupApplyDeltasOutcome::Succeeded(
                     num_batches_done,
-                    Tip::from_header(&chain_store.get_block_header(&flat_head.hash)?),
+                    Tip::from_header(&header),
                 ));
             }
 

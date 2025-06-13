@@ -54,7 +54,7 @@ fn slow_test_repro_1183() {
         .build()
         .warmup();
 
-    let last_block: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
+    let last_block: Arc<RwLock<Option<Arc<Block>>>> = Arc::new(RwLock::new(None));
     let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
 
     for node in &env.node_datas {
