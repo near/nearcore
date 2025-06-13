@@ -23,6 +23,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::adapter::StoreAdapter;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::sync::Arc;
 
@@ -82,6 +83,7 @@ impl ChunkValidator {
         chain: &Chain,
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
+        save_witness_if_invalid: bool,
     ) -> Result<(), Error> {
         let prev_block_hash = state_witness.chunk_header().prev_block_hash();
         let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
@@ -159,6 +161,7 @@ impl ChunkValidator {
         }
 
         let runtime_adapter = self.runtime_adapter.clone();
+        let store = chain.chain_store.store();
         let cache = self.main_state_transition_result_cache.clone();
         let signer = signer.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
@@ -172,6 +175,8 @@ impl ChunkValidator {
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
                 &cache,
+                store,
+                save_witness_if_invalid,
             ) {
                 Ok(()) => {
                     send_chunk_endorsement_to_block_producers(
@@ -298,6 +303,7 @@ impl Client {
                 &block,
                 processing_done_tracker,
                 &signer,
+                self.config.save_invalid_witnesses,
             ),
             Err(Error::DBNotFoundErr(_)) => {
                 // Previous block isn't available at the moment, add this witness to the orphan pool.
@@ -329,6 +335,7 @@ impl Client {
         prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
+        save_witness_if_invalid: bool,
     ) -> Result<(), Error> {
         if witness.chunk_header().prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(
@@ -343,6 +350,7 @@ impl Client {
             &self.chain,
             processing_done_tracker,
             signer,
+            save_witness_if_invalid,
         )
     }
 }

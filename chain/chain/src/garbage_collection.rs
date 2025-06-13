@@ -1075,6 +1075,12 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::LatestWitnessesByIndex => {
                 store_update.delete(col, key);
             }
+            DBCol::InvalidChunkStateWitnesses => {
+                store_update.delete(col, key);
+            }
+            DBCol::InvalidWitnessesByIndex => {
+                store_update.delete(col, key);
+            }
             DBCol::StateSyncNewChunks => {
                 store_update.delete(col, key);
             }
