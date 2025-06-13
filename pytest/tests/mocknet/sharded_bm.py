@@ -402,11 +402,12 @@ def handle_get_profiles(args):
         logger.info(f"Targeting {machine}")
         args.host_filter = machine
 
-    upload_args = copy.deepcopy(args)
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    upload_args.src = f"{script_dir}/get-profile.sh"
-    upload_args.dst = f"{REMOTE_HOME}/get-profile.sh"
-    run_remote_upload_file(CommandContext(upload_args))
+    if not args.skip_setup:
+        upload_args = copy.deepcopy(args)
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        upload_args.src = f"{script_dir}/get-profile.sh"
+        upload_args.dst = f"{REMOTE_HOME}/get-profile.sh"
+        run_remote_upload_file(CommandContext(upload_args))
 
     for host in CommandContext(args).get_targeted():
         host_name = host.name()
@@ -549,6 +550,11 @@ def main():
         type=int,
         default=10,
         help='Number of seconds to record the profile (default: 10)')
+    get_profiles_parser.add_argument(
+        '--skip-setup',
+        action='store_true',
+        default=False,
+        help='Skip the setup of the profile script on the nodes')
 
     args = parser.parse_args()
 
