@@ -482,26 +482,6 @@ impl TestEnvBuilder {
             shard_trackers.push(shard_tracker);
         }
 
-        // let validator_signers = client_accounts
-        //     .iter()
-        //     .map(|account_id| {
-        //         MutableConfigValue::new(
-        //             Some(Arc::new(create_test_signer(account_id.as_str()))),
-        //             "validator_signer",
-        //         )
-        //     })
-        //     .collect_vec();
-        // let shard_trackers = (0..num_clients)
-        //     .map(|i| {
-        //         let config = if self.track_all_shards {
-        //             TrackedShardsConfig::AllShards
-        //         } else {
-        //             TrackedShardsConfig::new_empty()
-        //         };
-        //         ShardTracker::new(validator_signers[i].clone(), config, epoch_managers[i].clone())
-        //     })
-        //     .collect_vec();
-
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {
                 let clock = clock.clone();
