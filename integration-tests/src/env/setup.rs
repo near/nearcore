@@ -17,8 +17,8 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{
-    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue, ReshardingConfig,
-    ReshardingHandle, TrackedShardsConfig,
+    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
+    MutableValidatorSigner, ReshardingConfig, ReshardingHandle, TrackedShardsConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -44,7 +44,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats};
-use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
+use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_store::adapter::StoreAdapter;
 use near_store::genesis::initialize_genesis_state;
@@ -117,7 +117,6 @@ fn setup(
         epoch_manager.clone(),
     );
 
-    let shard_tracker = ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -136,6 +135,8 @@ fn setup(
         Some(Arc::new(create_test_signer(account_id.as_str()))),
         "validator_signer",
     );
+    let shard_tracker =
+        ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
     let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
     let config = {
         let mut base = ClientConfig::test(
@@ -425,7 +426,7 @@ pub fn setup_client_with_runtime(
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
-    validator_signer: Arc<ValidatorSigner>,
+    validator_signer: MutableValidatorSigner,
     resharding_sender: ReshardingSender,
 ) -> Client {
     let mut config =
@@ -443,7 +444,7 @@ pub fn setup_client_with_runtime(
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),
-        MutableConfigValue::new(Some(validator_signer), "validator_signer"),
+        validator_signer,
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,

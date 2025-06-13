@@ -5,7 +5,7 @@ use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
-use near_chain_configs::{Genesis, GenesisConfig, TrackedShardsConfig};
+use near_chain_configs::{Genesis, GenesisConfig, MutableConfigValue, TrackedShardsConfig};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client::Client;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -45,7 +45,6 @@ pub struct TestEnvBuilder {
     stores: Option<Vec<Store>>,
     contract_caches: Option<Vec<Box<dyn ContractRuntimeCache>>>,
     epoch_managers: Option<Vec<Arc<EpochManagerHandle>>>,
-    shard_trackers: Option<Vec<ShardTracker>>,
     runtimes: Option<Vec<Arc<NightshadeRuntime>>>,
     network_adapters: Option<Vec<Arc<MockPeerManagerAdapter>>>,
     // random seed to be inject in each client according to AccountId
@@ -54,6 +53,7 @@ pub struct TestEnvBuilder {
     archive: bool,
     save_trie_changes: bool,
     state_snapshot_enabled: bool,
+    track_all_shards: bool,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -77,13 +77,13 @@ impl TestEnvBuilder {
             stores: None,
             contract_caches: None,
             epoch_managers: None,
-            shard_trackers: None,
             runtimes: None,
             network_adapters: None,
             seeds,
             archive: false,
             save_trie_changes: true,
             state_snapshot_enabled: false,
+            track_all_shards: false,
         }
     }
 
@@ -105,7 +105,6 @@ impl TestEnvBuilder {
         assert!(!clients.is_empty());
         assert!(self.stores.is_none(), "Cannot set clients after stores");
         assert!(self.epoch_managers.is_none(), "Cannot set clients after epoch_managers");
-        assert!(self.shard_trackers.is_none(), "Cannot set clients after shard_trackers");
         assert!(self.runtimes.is_none(), "Cannot set clients after runtimes");
         assert!(self.network_adapters.is_none(), "Cannot set clients after network_adapters");
         self.clients = clients;
@@ -243,10 +242,6 @@ impl TestEnvBuilder {
     pub fn epoch_managers(mut self, epoch_managers: Vec<Arc<EpochManagerHandle>>) -> Self {
         assert_eq!(epoch_managers.len(), self.clients.len());
         assert!(self.epoch_managers.is_none(), "Cannot override twice");
-        assert!(
-            self.shard_trackers.is_none(),
-            "Cannot override epoch_managers after shard_trackers"
-        );
         assert!(self.runtimes.is_none(), "Cannot override epoch_managers after runtimes");
         self.epoch_managers = Some(epoch_managers);
         self
@@ -357,53 +352,16 @@ impl TestEnvBuilder {
         builder.runtimes(runtimes)
     }
 
-    /// Specifies custom ShardTracker for each client.  This allows us to
-    /// construct [`TestEnv`] with a custom implementation.
-    pub fn shard_trackers(mut self, shard_trackers: Vec<ShardTracker>) -> Self {
-        assert_eq!(shard_trackers.len(), self.clients.len());
-        assert!(self.shard_trackers.is_none(), "Cannot override twice");
-        self.shard_trackers = Some(shard_trackers);
+    /// Sets track_all_shards flag to true.
+    pub fn track_all_shards(mut self) -> Self {
+        self.track_all_shards = true;
         self
     }
 
-    /// Constructs ShardTracker that tracks all shards for each instance.
-    ///
-    /// Note that in order to track *NO* shards, just don't override shard_trackers.
-    pub fn track_all_shards(self) -> Self {
-        let ret = self.ensure_epoch_managers();
-        let shard_trackers = ret
-            .epoch_managers
-            .as_ref()
-            .unwrap()
-            .iter()
-            .map(|epoch_manager| {
-                ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone())
-            })
-            .collect();
-        ret.shard_trackers(shard_trackers)
-    }
-
-    /// Calls track_all_shards only if the given boolean is true.
-    pub fn maybe_track_all_shards(self, track_all_shards: bool) -> Self {
-        if track_all_shards { self.track_all_shards() } else { self }
-    }
-
-    /// Internal impl to make sure ShardTrackers are initialized.
-    fn ensure_shard_trackers(self) -> Self {
-        let ret = self.ensure_epoch_managers();
-        if ret.shard_trackers.is_some() {
-            return ret;
-        }
-        let shard_trackers = ret
-            .epoch_managers
-            .as_ref()
-            .unwrap()
-            .iter()
-            .map(|epoch_manager| {
-                ShardTracker::new(TrackedShardsConfig::new_empty(), epoch_manager.clone())
-            })
-            .collect();
-        ret.shard_trackers(shard_trackers)
+    /// Sets track_all_shards flag to true or false.
+    pub fn maybe_track_all_shards(mut self, track_all_shards: bool) -> Self {
+        self.track_all_shards = track_all_shards;
+        self
     }
 
     /// Specifies custom NightshadeRuntime for each client.  This allows us to
@@ -481,7 +439,7 @@ impl TestEnvBuilder {
     /// the length of the vectors passed to them did not equal number of
     /// configured clients.
     pub fn build(self) -> TestEnv {
-        self.ensure_shard_trackers().ensure_runtimes().ensure_network_adapters().build_impl()
+        self.ensure_runtimes().ensure_network_adapters().build_impl()
     }
 
     fn build_impl(self) -> TestEnv {
@@ -493,7 +451,6 @@ impl TestEnvBuilder {
         let num_validators = validators.len();
         let seeds = self.seeds;
         let epoch_managers = self.epoch_managers.unwrap();
-        let shard_trackers = self.shard_trackers.unwrap();
         let runtimes = self.runtimes.unwrap();
         let network_adapters = self.network_adapters.unwrap();
         let client_adapters = (0..num_clients)
@@ -501,6 +458,30 @@ impl TestEnvBuilder {
             .collect_vec();
         let partial_witness_adapters =
             (0..num_clients).map(|_| MockPartialWitnessAdapter::default()).collect_vec();
+
+        // setup validator signers and shard trackers
+        let mut validator_signers = vec![];
+        let mut shard_trackers = vec![];
+        let tracked_shards_config = if self.track_all_shards {
+            TrackedShardsConfig::AllShards
+        } else {
+            TrackedShardsConfig::new_empty()
+        };
+
+        for (i, account_id) in client_accounts.iter().enumerate() {
+            let signer = create_test_signer(account_id.as_str());
+            let validator_signer =
+                MutableConfigValue::new(Some(Arc::new(signer)), "validator_signer");
+            validator_signers.push(validator_signer.clone());
+
+            let shard_tracker = ShardTracker::new(
+                tracked_shards_config.clone(),
+                epoch_managers[i].clone(),
+                validator_signer,
+            );
+            shard_trackers.push(shard_tracker);
+        }
+
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {
                 let clock = clock.clone();
@@ -550,7 +531,6 @@ impl TestEnvBuilder {
                         make_snapshot_callback,
                         delete_snapshot_callback,
                     };
-                    let validator_signer = Arc::new(create_test_signer(client_accounts[i].as_str()));
                     setup_client_with_runtime(
                         clock.clone(),
                         u64::try_from(num_validators).unwrap(),
@@ -566,7 +546,7 @@ impl TestEnvBuilder {
                         self.save_trie_changes,
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
-                        validator_signer,
+                        validator_signers[i].clone(),
                         noop().into_multi_sender(),
                     )
                 })

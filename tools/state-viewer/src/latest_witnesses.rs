@@ -62,8 +62,11 @@ fn setup_chain(home_dir: &Path, near_config: NearConfig, store: Store) -> Chain 
     let runtime_adapter =
         NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
             .expect("could not create the transaction runtime");
-    let shard_tracker =
-        ShardTracker::new(near_config.client_config.tracked_shards_config, epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(
+        near_config.client_config.tracked_shards_config,
+        epoch_manager.clone(),
+        near_config.validator_signer,
+    );
     Chain::new_for_view_client(
         Clock::real(),
         epoch_manager,
