@@ -615,7 +615,7 @@ impl Doomslug {
     /// # Arguments
     /// * `block_hash`     - the hash of the new tip
     /// * `height`         - the height of the tip
-    /// * `last_ds_final_height` - last height at which a block in this chain has doomslug finality
+    /// * `last_final_height` - the height of the last final block
     pub fn set_tip(
         &mut self,
         block_hash: CryptoHash,
@@ -686,7 +686,7 @@ impl Doomslug {
     /// block, and
     ///  - we have enough chunks, or
     ///  - T(h') * chunk_wait_mult has passed since the block got 2/3 of approvals, where h' is
-    ///    time since the last ds-final block.
+    ///    the height difference between the given block and the last final block.
     /// Only the height is passed into the function, we use the tip known to `Doomslug` as the
     /// parent hash.
     ///
