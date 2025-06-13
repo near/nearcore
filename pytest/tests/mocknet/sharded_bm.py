@@ -32,6 +32,7 @@ START_HEIGHT = 138038232
 # TODO: consider moving source directory to pytest.
 SOURCE_BENCHNET_DIR = "../benchmarks/sharded-bm"
 
+REMOTE_HOME = "/home/ubuntu"
 BENCHNET_DIR = "/home/ubuntu/bench"
 NEAR_HOME = "/home/ubuntu/.near"
 CONFIG_PATH = f"{NEAR_HOME}/config.json"
@@ -390,6 +391,50 @@ def handle_get_traces(args):
         logger.error(
             f"Failed to fetch traces: {response.status_code} {response.text}")
 
+def handle_get_profiles(args):
+    args = copy.deepcopy(args)
+
+    # If no host filter is provided, target the first alphabetical cp instance.
+    if args.host_filter is None:
+        machines = sorted(args.forknet_details['cp_instance_names'])
+        machine = machines[0]
+        logger.info(f"Targetting {machine}")
+        args.host_filter = machine
+
+    upload_args = copy.deepcopy(args)
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    upload_args.src = f"{script_dir}/get-profile.sh"
+    upload_args.dst = f"{REMOTE_HOME}/get-profile.sh"
+    run_remote_upload_file(CommandContext(upload_args))
+
+    for host in CommandContext(args).get_targeted():
+        host_name = host.name()
+        logger.info(f"Running profile script on {host_name}")
+        ssh_cmd = [
+            "gcloud", "compute", "ssh", "--project=nearone-mocknet",
+            f"ubuntu@{host_name}", "--command",
+            f"bash {REMOTE_HOME}/get-profile.sh {args.record_secs}"
+        ]
+        subprocess.run(
+            ssh_cmd,
+            check=True,
+            text=True,
+        )
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    for host in CommandContext(args).get_targeted():
+        host_name = host.name()
+        print(f"Downloading profile from {host_name}")
+        scp_cmd = [
+            "gcloud", "compute", "scp", "--project=nearone-mocknet",
+            f"ubuntu@{host_name}:{REMOTE_HOME}/perf.script.gz",
+            f"{args.output_dir}/perf-{host_name}.gz",
+        ]
+        subprocess.run(
+            scp_cmd,
+            check=True,
+        )
+
 
 def handle_start(args):
     """Handle the start command - start the benchmark."""
@@ -483,6 +528,19 @@ def main():
         default=10,
         help='Length of the trace window in seconds (default: 10)')
 
+    get_profiles_parser = subparsers.add_parser(
+        'get-profiles', help='Fetch profiles from the benchmark nodes')
+    get_profiles_parser.add_argument(
+        '--output-dir',
+        default='.',
+        help='Directory to save the profile files (default: current directory)'
+    )
+    get_profiles_parser.add_argument(
+        '--record-secs',
+        type=int,
+        default=10,
+        help='Number of seconds to record the profile (default: 10)')
+
     args = parser.parse_args()
 
     # Route to appropriate handler based on command
@@ -498,6 +556,8 @@ def main():
         handle_reset(args)
     elif args.command == 'get-traces':
         handle_get_traces(args)
+    elif args.command == 'get-profiles':
+        handle_get_profiles(args)
     else:
         parser.print_help()
 
