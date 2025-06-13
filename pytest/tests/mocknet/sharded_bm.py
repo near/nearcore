@@ -391,6 +391,7 @@ def handle_get_traces(args):
         logger.error(
             f"Failed to fetch traces: {response.status_code} {response.text}")
 
+
 def handle_get_profiles(args):
     args = copy.deepcopy(args)
 
@@ -426,7 +427,10 @@ def handle_get_profiles(args):
         host_name = host.name()
         print(f"Downloading profile from {host_name}")
         scp_cmd = [
-            "gcloud", "compute", "scp", "--project=nearone-mocknet",
+            "gcloud",
+            "compute",
+            "scp",
+            "--project=nearone-mocknet",
             f"ubuntu@{host_name}:{REMOTE_HOME}/perf.script.gz",
             f"{args.output_dir}/perf-{host_name}.gz",
         ]
@@ -533,8 +537,7 @@ def main():
     get_profiles_parser.add_argument(
         '--output-dir',
         default='.',
-        help='Directory to save the profile files (default: current directory)'
-    )
+        help='Directory to save the profile files (default: current directory)')
     get_profiles_parser.add_argument(
         '--record-secs',
         type=int,
