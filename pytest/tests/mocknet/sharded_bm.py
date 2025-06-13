@@ -425,7 +425,7 @@ def handle_get_profiles(args):
     os.makedirs(args.output_dir, exist_ok=True)
     for host in CommandContext(args).get_targeted():
         host_name = host.name()
-        print(f"Downloading profile from {host_name}")
+        logger.info(f"Downloading profile from {host_name}")
         scp_cmd = [
             "gcloud",
             "compute",
