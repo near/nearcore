@@ -25,6 +25,7 @@ parking_lot.workspace = true
 prefix-sum-vec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+wasmtime.workspace = true
 
 # - Optional shared dependencies.
 wat = { workspace = true, optional = true }
