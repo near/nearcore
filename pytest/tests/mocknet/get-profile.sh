@@ -8,6 +8,7 @@ record_secs="${1:-10}"
 rm -f "$HOME/perf."*
 
 # 2. Allow perf to access necessary data
+# cspell:ignore kptr
 sudo sysctl -w kernel.perf_event_paranoid=0
 sudo sysctl -w kernel.kptr_restrict=0
 
