@@ -274,6 +274,7 @@ impl Default for Tier1Config {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(Default)]
 pub struct ExperimentalConfig {
     // If true - don't allow any inbound connections.
     #[serde(default)]
@@ -314,16 +315,6 @@ pub struct NetworkConfigOverrides {
     pub received_messages_rate_limits: Option<messages_limits::OverrideConfig>,
 }
 
-impl Default for ExperimentalConfig {
-    fn default() -> Self {
-        ExperimentalConfig {
-            inbound_disabled: false,
-            connect_only_to_boot_nodes: false,
-            skip_sending_tombstones_seconds: 0,
-            network_config_overrides: NetworkConfigOverrides::default(),
-        }
-    }
-}
 
 impl Default for Config {
     fn default() -> Self {
