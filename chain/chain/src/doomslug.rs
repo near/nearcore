@@ -138,11 +138,15 @@ struct DoomslugApprovalsTrackersAtHeight {
 /// from the chain.
 pub struct Doomslug {
     clock: Clock,
+    /// How many approvals to have before producing a block. In production should be always
+    /// `TwoThirds`, but for many tests we use `NoApprovals` to invoke more forks.
+    threshold_mode: DoomslugThresholdMode,
     /// Tracks block approvals for each height.
     approval_trackers: HashMap<BlockHeight, DoomslugApprovalsTrackersAtHeight>,
     /// Largest target height for which we issued an approval
     largest_target_height: TrackableBlockHeightValue,
-    /// Largest height for which we saw a block containing 1/2 endorsements in it
+    /// Largest height for which we saw a block containing more endorsements than
+    /// doomslug threshold in it.
     largest_final_height: TrackableBlockHeightValue,
     /// Largest height for which we saw threshold approvals (and thus can potentially create a block)
     largest_threshold_height: TrackableBlockHeightValue,
@@ -154,9 +158,6 @@ pub struct Doomslug {
     endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
-    /// How many approvals to have before producing a block. In production should be always `TwoThirds`,
-    ///    but for many tests we use `NoApprovals` to invoke more forks
-    threshold_mode: DoomslugThresholdMode,
 
     /// Approvals that were created by this doomslug instance (for debugging only).
     /// Keeps up to MAX_HISTORY_SIZE entries.
@@ -205,7 +206,6 @@ impl DoomslugApprovalsTracker {
     /// produced.
     ///
     /// # Arguments
-    /// * now      - the current timestamp
     /// * approval - the approval to process
     ///
     /// # Returns
@@ -243,9 +243,6 @@ impl DoomslugApprovalsTracker {
     }
 
     /// Returns whether the block has enough approvals, and if yes, since what moment it does.
-    ///
-    /// # Arguments
-    /// * now - the current timestamp
     ///
     /// # Returns
     /// `NotReady` if the block doesn't have enough approvals yet to cross the threshold
@@ -376,6 +373,7 @@ impl Doomslug {
     ) -> Self {
         Doomslug {
             clock: clock.clone(),
+            threshold_mode,
             approval_trackers: HashMap::new(),
             largest_target_height: TrackableBlockHeightValue::new(
                 largest_target_height,
@@ -402,7 +400,6 @@ impl Doomslug {
                 max_delay,
                 chunk_wait_mult,
             },
-            threshold_mode,
             history: VecDeque::new(),
         }
     }
@@ -466,9 +463,6 @@ impl Doomslug {
     /// not at the time of receiving a block. It is done to stagger blocks if the network is way
     /// too fast (e.g. during tests, or if a large set of validators have connection significantly
     /// better between themselves than with the rest of the validators)
-    ///
-    /// # Arguments
-    /// * `cur_time` - is expected to receive `now`. Doesn't directly use `now` to simplify testing
     ///
     /// # Returns
     /// A vector of approvals that need to be sent to other block producers as a result of processing
@@ -688,25 +682,24 @@ impl Doomslug {
 
     /// Returns whether we can produce a block for this height. The check for whether `me` is the
     /// block producer for the height needs to be done by the caller.
-    /// We can produce a block if:
-    ///  - The block has 2/3 of approvals, doomslug-finalizing the previous block, and we have
-    ///    enough chunks, or
-    ///  - The block has 1/2 of approvals, and T(h' / 6) has passed since the block has had 1/2 of
-    ///    approvals for the first time, where h' is time since the last ds-final block.
+    /// We can produce a block if the block has 2/3 of approvals, doomslug-finalizing the previous
+    /// block, and
+    ///  - we have enough chunks, or
+    ///  - T(h') * chunk_wait_mult has passed since the block got 2/3 of approvals, where h' is
+    ///    time since the last ds-final block.
     /// Only the height is passed into the function, we use the tip known to `Doomslug` as the
     /// parent hash.
     ///
     /// # Arguments:
-    /// * `now`               - current timestamp
     /// * `target_height`     - the height for which the readiness is checked
-    /// * `chunks_readiness`  - if chunks are not ready, we will wait for T(h' / 6) even if we
-    ///                         have 2/3 approvals & the previous block ds-final.
+    /// * `chunks_readiness`  - whether we have enough chunks to produce a block.
+    /// * `verbose`           - whether to print verbose logs.
     #[must_use]
     pub fn ready_to_produce_block(
         &mut self,
         target_height: BlockHeight,
         chunks_readiness: ChunksReadiness,
-        log_block_production_info: bool,
+        verbose: bool,
     ) -> bool {
         let span = debug_span!(
             target: "doomslug",
@@ -747,7 +740,7 @@ impl Doomslug {
             let enough_chunks_for = now.signed_duration_since(chunks_ready_time);
             span.record("enough_chunks_for", enough_chunks_for.as_seconds_f64());
             metrics::BLOCK_APPROVAL_DELAY.observe(enough_chunks_for.as_seconds_f64());
-            if log_block_production_info {
+            if verbose {
                 info!(
                     target: "doomslug", target_height, ?enough_approvals_for, ?enough_chunks_for,
                     "ready to produce block, has enough approvals, has enough chunks"
@@ -763,7 +756,7 @@ impl Doomslug {
 
         let ready = now > when + delay;
         span.record("need_to_wait", !ready);
-        if log_block_production_info {
+        if verbose {
             if ready {
                 info!(
                     target: "doomslug", target_height, ?enough_approvals_for,
