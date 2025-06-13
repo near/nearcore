@@ -541,7 +541,9 @@ def main():
     get_profiles_parser.add_argument(
         '--host-filter',
         default=None,
-        help='Filter to select specific hosts (default: first alphabetical cp instance)')
+        help=
+        'Filter to select specific hosts (default: first alphabetical cp instance)'
+    )
     get_profiles_parser.add_argument(
         '--record-secs',
         type=int,
