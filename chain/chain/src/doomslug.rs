@@ -27,6 +27,12 @@ const MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS: BlockHeight = 10_000;
 // Number of blocks (before head) for which to keep the history of approvals (for debugging).
 const MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS: u64 = 20;
 
+/// Returns true if the height should be retained in the trackers.
+fn should_retain_height(height: BlockHeight, head_height: BlockHeight) -> bool {
+    height > head_height.saturating_sub(MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS)
+        && height <= head_height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS
+}
+
 // Maximum amount of historical approvals that we'd keep for debugging purposes.
 const MAX_HISTORY_SIZE: usize = 1000;
 
@@ -74,6 +80,14 @@ struct DoomslugApprovalsTracker {
     approved_stake_next_epoch: Balance,
     time_passed_threshold: Option<Instant>,
     threshold_mode: DoomslugThresholdMode,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Defines whether chunks are ready to be included in a block.
+pub enum ChunksReadiness {
+    /// Includes timestamp when chunks became ready.
+    Ready(Instant),
+    NotReady,
 }
 
 mod trackable {
@@ -124,10 +138,15 @@ struct DoomslugApprovalsTrackersAtHeight {
 /// from the chain.
 pub struct Doomslug {
     clock: Clock,
-    approval_tracking: HashMap<BlockHeight, DoomslugApprovalsTrackersAtHeight>,
+    /// How many approvals to have before producing a block. In production should be always
+    /// `TwoThirds`, but for many tests we use `NoApprovals` to invoke more forks.
+    threshold_mode: DoomslugThresholdMode,
+    /// Tracks block approvals for each height.
+    approval_trackers: HashMap<BlockHeight, DoomslugApprovalsTrackersAtHeight>,
     /// Largest target height for which we issued an approval
     largest_target_height: TrackableBlockHeightValue,
-    /// Largest height for which we saw a block containing 1/2 endorsements in it
+    /// Largest height for which we saw a block containing more endorsements than
+    /// doomslug threshold in it.
     largest_final_height: TrackableBlockHeightValue,
     /// Largest height for which we saw threshold approvals (and thus can potentially create a block)
     largest_threshold_height: TrackableBlockHeightValue,
@@ -139,9 +158,6 @@ pub struct Doomslug {
     endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
-    /// How many approvals to have before producing a block. In production should be always `HalfStake`,
-    ///    but for many tests we use `NoApprovals` to invoke more forks
-    threshold_mode: DoomslugThresholdMode,
 
     /// Approvals that were created by this doomslug instance (for debugging only).
     /// Keeps up to MAX_HISTORY_SIZE entries.
@@ -190,7 +206,6 @@ impl DoomslugApprovalsTracker {
     /// produced.
     ///
     /// # Arguments
-    /// * now      - the current timestamp
     /// * approval - the approval to process
     ///
     /// # Returns
@@ -228,9 +243,6 @@ impl DoomslugApprovalsTracker {
     }
 
     /// Returns whether the block has enough approvals, and if yes, since what moment it does.
-    ///
-    /// # Arguments
-    /// * now - the current timestamp
     ///
     /// # Returns
     /// `NotReady` if the block doesn't have enough approvals yet to cross the threshold
@@ -361,7 +373,8 @@ impl Doomslug {
     ) -> Self {
         Doomslug {
             clock: clock.clone(),
-            approval_tracking: HashMap::new(),
+            threshold_mode,
+            approval_trackers: HashMap::new(),
             largest_target_height: TrackableBlockHeightValue::new(
                 largest_target_height,
                 &metrics::LARGEST_TARGET_HEIGHT,
@@ -387,7 +400,6 @@ impl Doomslug {
                 max_delay,
                 chunk_wait_mult,
             },
-            threshold_mode,
             history: VecDeque::new(),
         }
     }
@@ -451,9 +463,6 @@ impl Doomslug {
     /// not at the time of receiving a block. It is done to stagger blocks if the network is way
     /// too fast (e.g. during tests, or if a large set of validators have connection significantly
     /// better between themselves than with the rest of the validators)
-    ///
-    /// # Arguments
-    /// * `cur_time` - is expected to receive `now`. Doesn't directly use `now` to simplify testing
     ///
     /// # Returns
     /// A vector of approvals that need to be sent to other block producers as a result of processing
@@ -546,8 +555,8 @@ impl Doomslug {
     }
 
     /// Determines whether a block has enough approvals to be produced.
-    /// In production (with `mode == HalfStake`) we require the total stake of all the approvals to
-    /// be strictly more than half of the total stake. For many non-doomslug specific tests
+    /// In production (with `mode == TwoThirds`) we require the total stake of all the approvals to
+    /// be strictly more than two-thirds of the total stake. For many non-doomslug specific tests
     /// (with `mode == NoApprovals`) no approvals are needed.
     ///
     /// # Arguments
@@ -589,7 +598,7 @@ impl Doomslug {
         target_height: BlockHeight,
     ) -> HashMap<AccountId, (Approval, Utc)> {
         let hash_or_height = ApprovalInner::new(prev_hash, parent_height, target_height);
-        if let Some(approval_trackers_at_height) = self.approval_tracking.get(&target_height) {
+        if let Some(approval_trackers_at_height) = self.approval_trackers.get(&target_height) {
             let approvals_tracker =
                 approval_trackers_at_height.approval_trackers.get(&hash_or_height);
             match approvals_tracker {
@@ -606,7 +615,7 @@ impl Doomslug {
     /// # Arguments
     /// * `block_hash`     - the hash of the new tip
     /// * `height`         - the height of the tip
-    /// * `last_ds_final_height` - last height at which a block in this chain has doomslug finality
+    /// * `last_final_height` - the height of the last final block
     pub fn set_tip(
         &mut self,
         block_hash: CryptoHash,
@@ -620,11 +629,7 @@ impl Doomslug {
         self.timer.height = height + 1;
         self.timer.started = self.clock.now();
 
-        self.approval_tracking.retain(|h, _| {
-            *h > height.saturating_sub(MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS)
-                && *h <= height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS
-        });
-
+        self.approval_trackers.retain(|h, _| should_retain_height(*h, height));
         self.endorsement_pending = true;
     }
 
@@ -639,7 +644,7 @@ impl Doomslug {
     ) -> DoomslugBlockProductionReadiness {
         let threshold_mode = self.threshold_mode;
         let ret = self
-            .approval_tracking
+            .approval_trackers
             .entry(approval.target_height)
             .or_insert_with(|| DoomslugApprovalsTrackersAtHeight::new(self.clock.clone()))
             .process_approval(approval, stakes, threshold_mode);
@@ -672,36 +677,35 @@ impl Doomslug {
     /// It will only work for heights that we have in memory, that is that are not older than MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS
     /// blocks from the head.
     pub fn approval_status_at_height(&self, height: &BlockHeight) -> ApprovalAtHeightStatus {
-        self.approval_tracking.get(height).map(|it| it.status()).unwrap_or_default()
+        self.approval_trackers.get(height).map(|it| it.status()).unwrap_or_default()
     }
 
     /// Returns whether we can produce a block for this height. The check for whether `me` is the
     /// block producer for the height needs to be done by the caller.
-    /// We can produce a block if:
-    ///  - The block has 2/3 of approvals, doomslug-finalizing the previous block, and we have
-    ///    enough chunks, or
-    ///  - The block has 1/2 of approvals, and T(h' / 6) has passed since the block has had 1/2 of
-    ///    approvals for the first time, where h' is time since the last ds-final block.
+    /// We can produce a block if the block has 2/3 of approvals, doomslug-finalizing the previous
+    /// block, and
+    ///  - we have enough chunks, or
+    ///  - T(h') * chunk_wait_mult has passed since the block got 2/3 of approvals, where h' is
+    ///    the height difference between the given block and the last final block.
     /// Only the height is passed into the function, we use the tip known to `Doomslug` as the
     /// parent hash.
     ///
     /// # Arguments:
-    /// * `now`               - current timestamp
     /// * `target_height`     - the height for which the readiness is checked
-    /// * `has_enough_chunks` - if not, we will wait for T(h' / 6) even if we have 2/3 approvals &
-    ///                         have the previous block ds-final.
+    /// * `chunks_readiness`  - whether we have enough chunks to produce a block.
+    /// * `verbose`           - whether to print verbose logs.
     #[must_use]
     pub fn ready_to_produce_block(
         &mut self,
         target_height: BlockHeight,
-        has_enough_chunks: bool,
-        log_block_production_info: bool,
+        chunks_readiness: ChunksReadiness,
+        verbose: bool,
     ) -> bool {
         let span = debug_span!(
             target: "doomslug",
             "ready_to_produce_block",
-            has_enough_chunks,
             target_height,
+            enough_chunks_for = field::Empty,
             enough_approvals_for = field::Empty,
             ready_to_produce_block = field::Empty,
             need_to_wait = field::Empty)
@@ -709,7 +713,7 @@ impl Doomslug {
         let now = self.clock.now();
         let hash_or_height =
             ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
-        let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height)
+        let Some(approval_trackers_at_height) = self.approval_trackers.get_mut(&target_height)
         else {
             debug!(target: "doomslug", target_height, "No approval trackers at height");
             return false;
@@ -732,10 +736,13 @@ impl Doomslug {
         let enough_approvals_for = now - when;
         span.record("enough_approvals_for", enough_approvals_for.as_secs_f64());
         span.record("ready_to_produce_block", true);
-        if has_enough_chunks {
-            if log_block_production_info {
+        if let ChunksReadiness::Ready(chunks_ready_time) = chunks_readiness {
+            let enough_chunks_for = now.signed_duration_since(chunks_ready_time);
+            span.record("enough_chunks_for", enough_chunks_for.as_seconds_f64());
+            metrics::BLOCK_APPROVAL_DELAY.observe(enough_chunks_for.as_seconds_f64());
+            if verbose {
                 info!(
-                    target: "doomslug", target_height, ?enough_approvals_for,
+                    target: "doomslug", target_height, ?enough_approvals_for, ?enough_chunks_for,
                     "ready to produce block, has enough approvals, has enough chunks"
                 );
             }
@@ -749,7 +756,7 @@ impl Doomslug {
 
         let ready = now > when + delay;
         span.record("need_to_wait", !ready);
-        if log_block_production_info {
+        if verbose {
             if ready {
                 info!(
                     target: "doomslug", target_height, ?enough_approvals_for,

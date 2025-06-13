@@ -7,6 +7,7 @@ use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
 use near_crypto::PublicKey;
+use near_primitives_core::account::GasKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
 use near_schema_checker_lib::ProtocolSchema;
@@ -247,7 +248,9 @@ pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesWi
 pub enum StateChangesRequest {
     AccountChanges { account_ids: Vec<AccountId> },
     SingleAccessKeyChanges { keys: Vec<AccountWithPublicKey> },
+    SingleGasKeyChanges { keys: Vec<AccountWithPublicKey> },
     AllAccessKeyChanges { account_ids: Vec<AccountId> },
+    AllGasKeyChanges { account_ids: Vec<AccountId> },
     ContractCodeChanges { account_ids: Vec<AccountId> },
     DataChanges { account_ids: Vec<AccountId>, key_prefix: StoreKey },
 }
@@ -258,6 +261,9 @@ pub enum StateChangeValue {
     AccountDeletion { account_id: AccountId },
     AccessKeyUpdate { account_id: AccountId, public_key: PublicKey, access_key: AccessKey },
     AccessKeyDeletion { account_id: AccountId, public_key: PublicKey },
+    GasKeyUpdate { account_id: AccountId, public_key: PublicKey, gas_key: GasKey },
+    GasKeyNonceUpdate { account_id: AccountId, public_key: PublicKey, index: u32, nonce: u64 },
+    GasKeyDeletion { account_id: AccountId, public_key: PublicKey },
     DataUpdate { account_id: AccountId, key: StoreKey, value: StoreValue },
     DataDeletion { account_id: AccountId, key: StoreKey },
     ContractCodeUpdate { account_id: AccountId, code: Vec<u8> },
@@ -271,6 +277,9 @@ impl StateChangeValue {
             | StateChangeValue::AccountDeletion { account_id }
             | StateChangeValue::AccessKeyUpdate { account_id, .. }
             | StateChangeValue::AccessKeyDeletion { account_id, .. }
+            | StateChangeValue::GasKeyUpdate { account_id, .. }
+            | StateChangeValue::GasKeyNonceUpdate { account_id, .. }
+            | StateChangeValue::GasKeyDeletion { account_id, .. }
             | StateChangeValue::DataUpdate { account_id, .. }
             | StateChangeValue::DataDeletion { account_id, .. }
             | StateChangeValue::ContractCodeUpdate { account_id, .. }
@@ -332,6 +341,50 @@ impl StateChanges {
                             },
                         },
                     ))
+                }
+                TrieKey::GasKey { account_id, public_key, index } => {
+                    if let Some(index) = index {
+                        state_changes.extend(changes.into_iter().filter_map(
+                            |RawStateChange { cause, data }| {
+                                if let Some(change_data) = data {
+                                    Some(StateChangeWithCause {
+                                        cause,
+                                        value: StateChangeValue::GasKeyNonceUpdate {
+                                            account_id: account_id.clone(),
+                                            public_key: public_key.clone(),
+                                            index,
+                                            nonce: <_>::try_from_slice(&change_data).expect(
+                                                "Failed to parse internally stored gas key nonce",
+                                            ),
+                                        },
+                                    })
+                                } else {
+                                    // Deletion of a nonce can only be done with a corresponding
+                                    // deletion of the gas key, so we don't need to report these.
+                                    None
+                                }
+                            },
+                        ));
+                    } else {
+                        state_changes.extend(changes.into_iter().map(
+                            |RawStateChange { cause, data }| StateChangeWithCause {
+                                cause,
+                                value: if let Some(change_data) = data {
+                                    StateChangeValue::GasKeyUpdate {
+                                        account_id: account_id.clone(),
+                                        public_key: public_key.clone(),
+                                        gas_key: <_>::try_from_slice(&change_data)
+                                            .expect("Failed to parse internally stored gas key"),
+                                    }
+                                } else {
+                                    StateChangeValue::GasKeyDeletion {
+                                        account_id: account_id.clone(),
+                                        public_key: public_key.clone(),
+                                    }
+                                },
+                            },
+                        ));
+                    }
                 }
                 TrieKey::ContractCode { account_id } => {
                     state_changes.extend(changes.into_iter().map(
@@ -419,6 +472,24 @@ impl StateChanges {
                     state_change.value,
                     StateChangeValue::AccessKeyUpdate { .. }
                         | StateChangeValue::AccessKeyDeletion { .. }
+                )
+            })
+            .collect())
+    }
+
+    pub fn from_gas_key_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
+    ) -> Result<StateChanges, std::io::Error> {
+        let state_changes = Self::from_changes(raw_changes)?;
+
+        Ok(state_changes
+            .into_iter()
+            .filter(|state_change| {
+                matches!(
+                    state_change.value,
+                    StateChangeValue::GasKeyUpdate { .. }
+                        | StateChangeValue::GasKeyNonceUpdate { .. }
+                        | StateChangeValue::GasKeyDeletion { .. }
                 )
             })
             .collect())

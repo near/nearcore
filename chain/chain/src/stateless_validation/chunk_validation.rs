@@ -8,6 +8,7 @@ use crate::resharding::manager::ReshardingManager;
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
+use crate::store::latest_witnesses::save_invalid_chunk_state_witness;
 use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource};
 use crate::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use crate::{Chain, ChainStore, ChainStoreAccess};
@@ -33,7 +34,7 @@ use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
-use near_store::{PartialStorage, Trie};
+use near_store::{PartialStorage, Store, Trie};
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -516,7 +517,7 @@ fn validate_receipt_proof(
     Ok(())
 }
 
-pub fn validate_chunk_state_witness(
+pub fn validate_chunk_state_witness_impl(
     state_witness: ChunkStateWitness,
     pre_validation_output: PreValidationOutput,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -707,6 +708,45 @@ pub fn validate_chunk_state_witness(
     Ok(())
 }
 
+pub fn validate_chunk_state_witness(
+    state_witness: ChunkStateWitness,
+    pre_validation_output: PreValidationOutput,
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
+    main_state_transition_cache: &MainStateTransitionCache,
+    store: Store,
+    save_witness_if_invalid: bool,
+) -> Result<(), Error> {
+    // Avoid cloning the witness if possible
+    if !save_witness_if_invalid {
+        return validate_chunk_state_witness_impl(
+            state_witness,
+            pre_validation_output,
+            epoch_manager,
+            runtime_adapter,
+            main_state_transition_cache,
+        );
+    }
+
+    let result = validate_chunk_state_witness_impl(
+        state_witness.clone(),
+        pre_validation_output,
+        epoch_manager,
+        runtime_adapter,
+        main_state_transition_cache,
+    );
+    if result.is_err() {
+        if let Err(storage_err) = save_invalid_chunk_state_witness(store, &state_witness) {
+            tracing::error!(
+                target: "stateless_validation",
+                ?storage_err,
+                "Failed to store invalid state witness"
+            );
+        }
+    }
+    result
+}
+
 pub fn apply_result_to_chunk_extra(
     apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,
@@ -779,6 +819,7 @@ impl Chain {
         );
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
+        let store = self.chain_store.store();
         Arc::new(RayonAsyncComputationSpawner).spawn("shadow_validate", move || {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
@@ -792,6 +833,8 @@ impl Chain {
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
                 &MainStateTransitionCache::default(),
+                store,
+                false,
             ) {
                 Ok(()) => {
                     tracing::debug!(

@@ -1,6 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
-use crate::types::{Balance, Nonce, StorageUsage};
+use crate::types::{Balance, Nonce, NonceIndex, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
 use near_account_id::AccountId;
@@ -479,6 +479,31 @@ impl AccessKey {
     pub fn full_access() -> Self {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
+}
+
+/// Gas key is like an access key, except it stores a balance separately, and transactions signed
+/// with it deduct their cost from the gas key balance instead of the account balance.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKey {
+    /// The number of nonces this gas key has.
+    pub num_nonces: NonceIndex,
+    /// The balance of the gas key.
+    pub balance: Balance,
+    /// Defines the permissions for this gas key.
+    /// If this is a `FunctionCallPermission`, the allowance must be None (unlimited).
+    pub permission: AccessKeyPermission,
 }
 
 /// Defines permissions for AccessKey
