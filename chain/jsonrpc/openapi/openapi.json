@@ -4826,6 +4826,29 @@
         },
         "type": "object"
       },
+      "GasKeyView": {
+        "properties": {
+          "balance": {
+            "format": "uint128",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "num_nonces": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/AccessKeyPermissionView"
+          }
+        },
+        "required": [
+          "num_nonces",
+          "balance",
+          "permission"
+        ],
+        "type": "object"
+      },
       "GenesisConfig": {
         "properties": {
           "avg_hidden_validator_seats_per_shard": {
@@ -9260,8 +9283,12 @@
             "nullable": true,
             "type": "string"
           },
+          "save_invalid_witnesses": {
+            "description": "Save observed instances of invalid ChunkStateWitness to the database in DBCol::InvalidChunkStateWitnesses.\n Saving invalid witnesses is useful for analysis and debugging.\n This option can cause extra load on the database and is not recommended for production use.",
+            "type": "boolean"
+          },
           "save_latest_witnesses": {
-            "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\n Saving the latest witnesses is useful for analysis and debugging.\n When this option is enabled, the node will save ALL witnesses it observes, even invalid ones,\n which can cause extra load on the database. This option is not recommended for production use,\n as a large number of incoming witnesses could cause denial of service.",
+            "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\n Saving the latest witnesses is useful for analysis and debugging.\n This option can cause extra load on the database and is not recommended for production use.",
             "type": "boolean"
           },
           "save_trie_changes": {
@@ -9479,6 +9506,7 @@
           "orphan_state_witness_pool_size",
           "orphan_state_witness_max_size",
           "save_latest_witnesses",
+          "save_invalid_witnesses",
           "transaction_request_handler_threads"
         ],
         "type": "object"
@@ -10696,6 +10724,27 @@
               },
               {
                 "properties": {
+                  "changes_type": {
+                    "enum": [
+                      "single_gas_key_changes"
+                    ],
+                    "type": "string"
+                  },
+                  "keys": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountWithPublicKey"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "keys"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
                   "account_ids": {
                     "items": {
                       "$ref": "#/components/schemas/AccountId"
@@ -10705,6 +10754,27 @@
                   "changes_type": {
                     "enum": [
                       "all_access_key_changes"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "all_gas_key_changes"
                     ],
                     "type": "string"
                   }
@@ -11986,6 +12056,112 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "gas_key": {
+                    "$ref": "#/components/schemas/GasKeyView"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key",
+                  "gas_key"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "enum": [
+                  "gas_key_update"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "change"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "change": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "index": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key",
+                  "index",
+                  "nonce"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "enum": [
+                  "gas_key_nonce_update"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "change"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "change": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "enum": [
+                  "gas_key_deletion"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "change"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "change": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
                   "key_base64": {
                     "format": "bytes",
                     "type": "string"
@@ -12585,6 +12761,10 @@
             ],
             "description": "Describes limits for VM and Runtime.\n\n TODO: Consider changing this to `VMLimitConfigView` to avoid dependency\n on runtime."
           },
+          "reftypes_bulk_memory": {
+            "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
+            "type": "boolean"
+          },
           "regular_op_cost": {
             "description": "Gas cost of a regular operation.",
             "format": "uint32",
@@ -12620,6 +12800,7 @@
           "discard_custom_sections",
           "saturating_float_to_int",
           "global_contract_host_fns",
+          "reftypes_bulk_memory",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",
@@ -12655,6 +12836,13 @@
             "description": "NearVM.",
             "enum": [
               "NearVm"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "NearVM. Exists temporarily while bulk memory and reftypes are getting enabled.",
+            "enum": [
+              "NearVm2"
             ],
             "type": "string"
           }

@@ -5,10 +5,12 @@ use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::AccountId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
@@ -22,6 +24,8 @@ use std::sync::Arc;
 pub struct ReshardingManager {
     store: Store,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    my_account_id: Option<AccountId>,
     resharding_sender: ReshardingSender,
 }
 
@@ -29,9 +33,11 @@ impl ReshardingManager {
     pub fn new(
         store: Store,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
+        my_account_id: Option<AccountId>,
         resharding_sender: ReshardingSender,
     ) -> Self {
-        Self { store, epoch_manager, resharding_sender }
+        Self { store, epoch_manager, shard_tracker, my_account_id, resharding_sender }
     }
 
     /// Trigger resharding if shard layout changes after the given block.
@@ -131,7 +137,15 @@ impl ReshardingManager {
         let parent_shard_uid = split_shard_event.parent_shard;
         let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
         for child_shard_uid in split_shard_event.children_shards() {
-            store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
+            // Set the mapping only if we are tracking the child shard.
+            if self.shard_tracker.cares_about_shard_this_or_next_epoch(
+                self.my_account_id.as_ref(),
+                &split_shard_event.resharding_block.hash,
+                child_shard_uid.shard_id(),
+                true,
+            ) {
+                store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
+            }
         }
         store_update.commit()
     }
@@ -163,7 +177,6 @@ impl ReshardingManager {
             self.store.chain_store().get_chunk_extra(block_hash, parent_shard_uid)?;
         let mut store_update = self.store.trie_store().store_update();
 
-        // TODO(resharding): leave only tracked shards.
         for (new_shard_uid, retain_mode) in
             [(left_child_shard, RetainMode::Left), (right_child_shard, RetainMode::Right)]
         {

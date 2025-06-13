@@ -2,4 +2,4 @@
 
 * @near/nearcore-codeowners
 
-chain/jsonrpc/openapi/openapi.json @frol
+chain/jsonrpc/openapi/openapi.json @near/nearcore-codeowners @frol
