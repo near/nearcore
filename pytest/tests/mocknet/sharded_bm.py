@@ -152,9 +152,9 @@ def handle_init(args):
     
     # if neard_binary_url is a local path - upload the file to each node
     if os.path.isfile(args.neard_binary_url):
-        logger.info("handling local `neard` at {args.neard_binary_url}")
         local_path_on_remote = upload_local_neard(args)
         args.neard_binary_url = f"file://{local_path_on_remote}"
+        logger.info("handling local `neard` at {args.neard_binary_url}, on remote: {args.neard_binary_url}")
     else:
         logger.info("no local `neard` found, continue assuming the remote url")
     
