@@ -18,7 +18,10 @@ pub(crate) static SPAN_BUSY_DURATIONS: LazyLock<HistogramVec> = LazyLock::new(||
         &["name", "level", "target", "measure"],
         // Cover the range from 0.01s to 10s.
         // Keep the number of buckets small to limit the memory usage.
-        Some(vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        Some(vec![
+            0.01, 0.025, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9,
+            1.0, 10.0,
+        ]),
     )
     .unwrap()
 });
