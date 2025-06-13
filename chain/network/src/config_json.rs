@@ -273,8 +273,7 @@ impl Default for Tier1Config {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-#[derive(Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ExperimentalConfig {
     // If true - don't allow any inbound connections.
     #[serde(default)]
@@ -314,7 +313,6 @@ pub struct NetworkConfigOverrides {
     pub routing_table_update_rate_limit_qps: Option<f64>,
     pub received_messages_rate_limits: Option<messages_limits::OverrideConfig>,
 }
-
 
 impl Default for Config {
     fn default() -> Self {
