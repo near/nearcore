@@ -155,6 +155,8 @@ def handle_init(args):
         logger.info("handling local `neard` at {args.neard_binary_url}")
         local_path_on_remote = upload_local_neard(args)
         args.neard_binary_url = f"file://{local_path_on_remote}"
+    else:
+        logger.info("no local `neard` found, continue assuming the remote url")
     
     print("works till here (1)")
     update_binaries_args = copy.deepcopy(args)
