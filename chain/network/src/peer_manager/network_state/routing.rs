@@ -2,7 +2,7 @@ use super::NetworkState;
 #[cfg(feature = "distance_vector_routing")]
 use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
-    Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessageV2, RoutingTableUpdate,
+    Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessage, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::PeerIdOrHash;
@@ -212,7 +212,7 @@ impl NetworkState {
         &self,
         clock: &time::Clock,
         conn: &connection::Connection,
-        msg: &RoutedMessageV2,
+        msg: &RoutedMessage,
     ) {
         if !msg.expect_response() {
             return;

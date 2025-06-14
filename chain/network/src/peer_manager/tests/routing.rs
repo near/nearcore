@@ -933,9 +933,9 @@ async fn ttl_and_num_hops() {
                     _ => None,
                 })
                 .await;
-            assert_eq!(msg.body, got.body);
-            assert_eq!(msg.ttl - 1, got.ttl);
-            assert_eq!(msg.num_hops + 1, got.num_hops);
+            assert_eq!(msg.ttl() - 1, got.ttl());
+            assert_eq!(msg.num_hops() + 1, got.num_hops());
+            assert_eq!(msg.body_owned(), got.body_owned());
         }
     }
 }
