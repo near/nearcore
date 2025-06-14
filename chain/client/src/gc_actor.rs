@@ -11,7 +11,6 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_store::Store;
 use near_store::db::metadata::DbKind;
 use std::sync::Arc;
-use tracing::warn;
 
 /// An actor for garbage collection that runs in its own thread
 /// The actor runs periodically, as determined by `gc_step_period`,
@@ -95,7 +94,8 @@ impl GCActor {
         if !self.no_gc {
             let timer = metrics::GC_TIME.start_timer();
             if let Err(e) = self.clear_data() {
-                warn!(target: "garbage collection", "Error in gc: {}", e);
+                tracing::error!(target: "garbage collection", "Error in gc: {}", e);
+                debug_assert!(false, "Error in GCActor");
             }
             timer.observe_duration();
         }
