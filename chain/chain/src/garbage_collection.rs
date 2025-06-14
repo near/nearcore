@@ -1161,10 +1161,22 @@ fn gc_parent_shard_after_resharding(
     let shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
     let mut trie_store_update = store.trie_store().store_update();
     for parent_shard_uid in shard_layout.get_split_parent_shard_uids() {
-        // Delete the state of the parent shard
-        tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup");
-        trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
+        // Check if any child shard still map to this parent shard
+        let has_active_mapping = shard_layout.shard_uids().any(|child_shard_uid| {
+            let mapped_shard_uid =
+                near_store::adapter::trie_store::get_shard_uid_mapping(&store, child_shard_uid);
+            mapped_shard_uid == parent_shard_uid && mapped_shard_uid != child_shard_uid
+        });
+
+        if !has_active_mapping {
+            // Delete the state of the parent shard
+            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup");
+            trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
+        } else {
+            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "skipping parent shard cleanup - active mappings exist");
+        }
     }
+
     chain_store_update.merge(trie_store_update.into());
     Ok(())
 }
