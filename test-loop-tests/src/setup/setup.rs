@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, WrappedSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainGenesis;
@@ -203,7 +203,7 @@ pub fn setup_client(
         view_epoch_manager,
         shard_tracker.clone(),
         network_adapter.as_sender(),
-        client_adapter.as_sender(),
+        WrappedSender::from_sender(client_adapter.as_sender()).into_sender(),
         store.chunk_store(),
         client.chain.head().unwrap(),
         client.chain.header_head().unwrap(),

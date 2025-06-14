@@ -1058,7 +1058,7 @@ impl PeerActor {
                 PeerMessage::Block(block) => {
                     network_state
                         .client
-                        .send_async(BlockResponse { block, peer_id, was_requested })
+                        .send_wrapped_async(BlockResponse { block, peer_id, was_requested })
                         .await
                         .ok();
                     None
@@ -1078,7 +1078,7 @@ impl PeerActor {
                 PeerMessage::BlockHeaders(headers) => {
                     if let Ok(Err(ban_reason)) = network_state
                         .client
-                        .send_async(BlockHeadersResponse(headers, peer_id))
+                        .send_wrapped_async(BlockHeadersResponse(headers, peer_id))
                         .await
                     {
                         return Err(ban_reason);
@@ -1104,7 +1104,7 @@ impl PeerActor {
                     //TODO: Route to state sync actor.
                     network_state
                         .client
-                        .send_async(StateResponseReceived {
+                        .send_wrapped_async(StateResponseReceived {
                             peer_id,
                             state_response_info: info.into(),
                         })
@@ -1123,9 +1123,10 @@ impl PeerActor {
                     None
                 }
                 PeerMessage::OptimisticBlock(ob) => {
-                    network_state
-                        .client
-                        .send(OptimisticBlockMessage { from_peer: peer_id, optimistic_block: ob });
+                    network_state.client.send_wrapped(OptimisticBlockMessage {
+                        from_peer: peer_id,
+                        optimistic_block: ob,
+                    });
                     None
                 }
                 msg => {

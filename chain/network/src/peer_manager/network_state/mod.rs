@@ -726,7 +726,7 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
-                self.client.send_async(BlockApproval(approval, prev_hop)).await.ok();
+                self.client.send_wrapped_async(BlockApproval(approval, prev_hop)).await.ok();
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {

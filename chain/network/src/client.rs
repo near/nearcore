@@ -1,6 +1,9 @@
 use crate::network_protocol::StateResponseInfo;
 use crate::types::{NetworkInfo, ReasonForBan};
-use near_async::messaging::{AsyncSender, Sender};
+use near_async::futures::BoxFuture;
+use near_async::messaging::{
+    AsyncSendError, AsyncSender, CanSend, SendAsync, Sender, SpanWrappedMsg,
+};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
@@ -150,17 +153,34 @@ pub struct ClientSenderForNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
     pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
-    pub state_response: AsyncSender<StateResponseReceived, ()>,
-    pub block_approval: AsyncSender<BlockApproval, ()>,
+    pub state_response: AsyncSender<SpanWrappedMsg<StateResponseReceived>, ()>,
+    pub block_approval: AsyncSender<SpanWrappedMsg<BlockApproval>, ()>,
     pub block_request: AsyncSender<BlockRequest, Option<Box<Block>>>,
     pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<BlockHeader>>>,
-    pub block: AsyncSender<BlockResponse, ()>,
-    pub block_headers: AsyncSender<BlockHeadersResponse, Result<(), ReasonForBan>>,
-    pub network_info: AsyncSender<SetNetworkInfo, ()>,
+    pub block: AsyncSender<SpanWrappedMsg<BlockResponse>, ()>,
+    pub block_headers: AsyncSender<SpanWrappedMsg<BlockHeadersResponse>, Result<(), ReasonForBan>>,
+    pub network_info: AsyncSender<SpanWrappedMsg<SetNetworkInfo>, ()>,
     pub announce_account:
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
-    pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
+    pub optimistic_block_receiver: Sender<SpanWrappedMsg<OptimisticBlockMessage>>,
+}
+
+impl ClientSenderForNetwork {
+    pub fn send_wrapped<T>(&self, msg: T)
+    where
+        Self: CanSend<SpanWrappedMsg<T>>,
+    {
+        self.send(msg.into())
+    }
+
+    pub fn send_wrapped_async<M, R>(&self, msg: M) -> BoxFuture<'static, Result<R, AsyncSendError>>
+    where
+        R: Send + 'static,
+        Self: SendAsync<SpanWrappedMsg<M>, R>,
+    {
+        self.send_async(msg.into())
+    }
 }

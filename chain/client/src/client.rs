@@ -22,7 +22,7 @@ use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoSender;
-use near_async::messaging::{CanSend, Sender};
+use near_async::messaging::{CanSend, Sender, WrappedSender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -1123,7 +1123,10 @@ impl Client {
         self.chain.preprocess_optimistic_block(
             block,
             &me,
-            Some(self.myself_sender.apply_chunks_done.clone()),
+            Some(
+                WrappedSender::from_sender(self.myself_sender.apply_chunks_done.clone())
+                    .into_sender(),
+            ),
         );
     }
 
@@ -1396,7 +1399,10 @@ impl Client {
         let me = signer.as_ref().map(|signer| signer.validator_id().clone());
         self.chain.maybe_process_optimistic_block(
             &me,
-            Some(self.myself_sender.apply_chunks_done.clone()),
+            Some(
+                WrappedSender::from_sender(self.myself_sender.apply_chunks_done.clone())
+                    .into_sender(),
+            ),
         );
     }
 

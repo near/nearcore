@@ -10,6 +10,7 @@ use assert_matches::assert_matches;
 use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
+use near_async::messaging::SpanWrappedMsg;
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -164,8 +165,12 @@ fn receive_network_block() {
                 None,
             );
             actor_handles.client_actor.do_send(
-                BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
-                    .with_span_context(),
+                SpanWrappedMsg::from(BlockResponse {
+                    block,
+                    peer_id: PeerInfo::random().id,
+                    was_requested: false,
+                })
+                .with_span_context(),
             );
             future::ready(())
         });
@@ -252,11 +257,11 @@ fn produce_block_with_approvals() {
                 None,
             );
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                SpanWrappedMsg::from(BlockResponse {
                     block: block.clone(),
                     peer_id: PeerInfo::random().id,
                     was_requested: false,
-                }
+                })
                 .with_span_context(),
             );
 
@@ -274,9 +279,10 @@ fn produce_block_with_approvals() {
                     10, // the height at which "test1" is producing
                     &signer,
                 );
-                actor_handles
-                    .client_actor
-                    .do_send(BlockApproval(approval, PeerInfo::random().id).with_span_context());
+                actor_handles.client_actor.do_send(
+                    SpanWrappedMsg::from(BlockApproval(approval, PeerInfo::random().id))
+                        .with_span_context(),
+                );
             }
 
             future::ready(())
@@ -364,11 +370,11 @@ fn invalid_blocks_common(is_requested: bool) {
             block.mut_header().set_chunk_mask(vec![]);
             block.mut_header().init();
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                SpanWrappedMsg::from(BlockResponse {
                     block: block.clone(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
-                }
+                })
                 .with_span_context(),
             );
 
@@ -377,11 +383,11 @@ fn invalid_blocks_common(is_requested: bool) {
             block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
             block.mut_header().init();
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                SpanWrappedMsg::from(BlockResponse {
                     block: block.clone(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
-                }
+                })
                 .with_span_context(),
             );
 
@@ -402,22 +408,22 @@ fn invalid_blocks_common(is_requested: bool) {
             };
             block.set_chunks(chunks);
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                SpanWrappedMsg::from(BlockResponse {
                     block: block.clone(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
-                }
+                })
                 .with_span_context(),
             );
 
             // Send proper block.
             let block2 = valid_block;
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                SpanWrappedMsg::from(BlockResponse {
                     block: block2.clone(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
-                }
+                })
                 .with_span_context(),
             );
             if is_requested {
@@ -425,11 +431,11 @@ fn invalid_blocks_common(is_requested: bool) {
                 block3.mut_header().set_chunk_headers_root(hash(&[1]));
                 block3.mut_header().init();
                 actor_handles.client_actor.do_send(
-                    BlockResponse {
+                    SpanWrappedMsg::from(BlockResponse {
                         block: block3.clone(),
                         peer_id: PeerInfo::random().id,
                         was_requested: is_requested,
-                    }
+                    })
                     .with_span_context(),
                 );
             }
@@ -506,7 +512,7 @@ fn client_sync_headers() {
             }),
         );
         actor_handles.client_actor.do_send(
-            SetNetworkInfo(NetworkInfo {
+            SpanWrappedMsg::from(SetNetworkInfo(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo {
                     full_peer_info: FullPeerInfo {
                         peer_info: peer_info2.clone(),
@@ -541,7 +547,7 @@ fn client_sync_headers() {
                 tier1_connections: vec![],
                 tier1_accounts_keys: vec![],
                 tier1_accounts_data: vec![],
-            })
+            }))
             .with_span_context(),
         );
         wait_or_panic(2000);

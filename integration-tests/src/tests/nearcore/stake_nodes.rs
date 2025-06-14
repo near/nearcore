@@ -25,6 +25,7 @@ use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSea
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
+use near_async::messaging::SpanWrappedMsg;
 use near_o11y::WithSpanContextExt;
 use {near_primitives::types::BlockId, primitive_types::U256};
 
@@ -143,7 +144,8 @@ fn slow_test_stake_nodes() {
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let actor = test_nodes[0].client.send(
-                        Status { is_health_check: false, detailed: false }.with_span_context(),
+                        SpanWrappedMsg::from(Status { is_health_check: false, detailed: false })
+                            .with_span_context(),
                     );
                     let actor = actor.then(|res| {
                         let res = res.unwrap();
@@ -236,7 +238,8 @@ fn slow_test_validator_kickout() {
                     let finalized_mark1 = finalized_mark.clone();
 
                     let actor = test_node1.client.send(
-                        Status { is_health_check: false, detailed: false }.with_span_context(),
+                        SpanWrappedMsg::from(Status { is_health_check: false, detailed: false })
+                            .with_span_context(),
                     );
                     let actor = actor.then(move |res| {
                         let expected: Vec<_> = (num_nodes / 2..num_nodes)
@@ -398,7 +401,8 @@ fn ultra_slow_test_validator_join() {
                     let test_node1 = test_nodes[0].clone();
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                     let actor = test_node1.client.send(
-                        Status { is_health_check: false, detailed: false }.with_span_context(),
+                        SpanWrappedMsg::from(Status { is_health_check: false, detailed: false })
+                            .with_span_context(),
                     );
                     let actor = actor.then(move |res| {
                         let expected = vec![

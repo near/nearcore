@@ -3,7 +3,7 @@ use anyhow::{Context, anyhow, bail};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::futures::ActixFutureSpawner;
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, WrappedSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
@@ -153,7 +153,7 @@ fn setup_network_node(
         epoch_manager.clone(),
         shard_tracker,
         network_adapter.as_sender(),
-        client_actor.clone().with_auto_span_context().into_sender(),
+        WrappedSender::from_impl(client_actor.clone().with_auto_span_context()).into_sender(),
         validator_signer.clone(),
         runtime.store().clone(),
         client_config.chunk_request_retry_period,

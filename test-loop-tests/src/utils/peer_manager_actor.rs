@@ -6,6 +6,7 @@ use near_async::actix::ActixResult;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
     Actor, AsyncSender, CanSend, Handler, IntoMultiSender as _, IntoSender as _, SendAsync, Sender,
+    SpanWrappedMsg,
 };
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
@@ -40,13 +41,14 @@ use parking_lot::{Mutex, MutexGuard};
 /// We skip over the message handlers from view client.
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForTestLoopNetwork {
-    pub block: AsyncSender<BlockResponse, ()>,
-    pub block_headers: AsyncSender<BlockHeadersResponse, ActixResult<BlockHeadersResponse>>,
-    pub block_approval: AsyncSender<BlockApproval, ()>,
+    pub block: AsyncSender<SpanWrappedMsg<BlockResponse>, ()>,
+    pub block_headers:
+        AsyncSender<SpanWrappedMsg<BlockHeadersResponse>, ActixResult<BlockHeadersResponse>>,
+    pub block_approval: AsyncSender<SpanWrappedMsg<BlockApproval>, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
-    pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
-    pub network_info: AsyncSender<SetNetworkInfo, ()>,
+    pub optimistic_block_receiver: Sender<SpanWrappedMsg<OptimisticBlockMessage>>,
+    pub network_info: AsyncSender<SpanWrappedMsg<SetNetworkInfo>, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -166,21 +168,22 @@ impl TestLoopPeerManagerActor {
     ) {
         // Some tests (especially the ones having to do with sync) need NetworkInfo to be up to
         // date to work properly. That's why we're sending it periodically here.
-        let future = self.client_sender.send_async(SetNetworkInfo(NetworkInfo {
-            highest_height_peers: self
-                .last_block_headers
-                .iter()
-                .map(|(peer_info, header)| HighestHeightPeerInfo {
-                    archival: false,
-                    genesis_id: self.genesis_id.clone(),
-                    highest_block_hash: *header.hash(),
-                    highest_block_height: header.height(),
-                    tracked_shards: vec![],
-                    peer_info: peer_info.clone(),
-                })
-                .collect(),
-            ..NetworkInfo::default()
-        }));
+        let future =
+            self.client_sender.send_async(SpanWrappedMsg::from(SetNetworkInfo(NetworkInfo {
+                highest_height_peers: self
+                    .last_block_headers
+                    .iter()
+                    .map(|(peer_info, header)| HighestHeightPeerInfo {
+                        archival: false,
+                        genesis_id: self.genesis_id.clone(),
+                        highest_block_hash: *header.hash(),
+                        highest_block_height: header.height(),
+                        tracked_shards: vec![],
+                        peer_info: peer_info.clone(),
+                    })
+                    .collect(),
+                ..NetworkInfo::default()
+            })));
         drop(future);
 
         ctx.run_later("TestLoopPeerManagerActor::push_network_info", interval, move |act, ctx| {
@@ -408,11 +411,12 @@ fn network_message_to_client_handler(
 
                 let senders = shared_state.senders_for_account(&my_account_id, &account_id);
 
-                let future = senders.client_sender.send_async(BlockResponse {
-                    block: block.clone(),
-                    peer_id: my_peer_id.clone(),
-                    was_requested: false,
-                });
+                let future =
+                    senders.client_sender.send_async(SpanWrappedMsg::from(BlockResponse {
+                        block: block.clone(),
+                        peer_id: my_peer_id.clone(),
+                        was_requested: false,
+                    }));
                 drop(future);
 
                 senders.peer_manager_sender.send(TestLoopNetworkBlockInfo {
@@ -432,10 +436,10 @@ fn network_message_to_client_handler(
                 if !chunk_producers.contains(&account_id) {
                     continue;
                 }
-                let msg = OptimisticBlockMessage {
+                let msg = SpanWrappedMsg::from(OptimisticBlockMessage {
                     optimistic_block: optimistic_block.clone(),
                     from_peer: my_peer_id.clone(),
-                };
+                });
                 let _ = shared_state
                     .senders_for_account(&my_account_id, &account_id)
                     .client_sender
@@ -451,7 +455,10 @@ fn network_message_to_client_handler(
             let future = shared_state
                 .senders_for_account(&my_account_id, &approval_message.target)
                 .client_sender
-                .send_async(BlockApproval(approval_message.approval, PeerId::random()));
+                .send_async(SpanWrappedMsg::from(BlockApproval(
+                    approval_message.approval,
+                    PeerId::random(),
+                )));
             drop(future);
             None
         }
@@ -514,7 +521,8 @@ fn network_message_to_view_client_handler(
                 .send_async(BlockHeadersRequest(hashes));
             future_spawner.spawn("wait for ViewClient to handle BlockHeadersRequest", async move {
                 let response = future.await.unwrap().unwrap();
-                let future = responder.send_async(BlockHeadersResponse(response, peer_id));
+                let future = responder
+                    .send_async(SpanWrappedMsg::from(BlockHeadersResponse(response, peer_id)));
                 drop(future);
             });
             None
@@ -531,11 +539,11 @@ fn network_message_to_view_client_handler(
                 let response = *future.await.unwrap().unwrap_or_else(|| {
                     panic!("Expect block with {hash} to be available on {peer_id}")
                 });
-                let future = responder.send_async(BlockResponse {
+                let future = responder.send_async(SpanWrappedMsg::from(BlockResponse {
                     block: response,
                     peer_id,
                     was_requested: true,
-                });
+                }));
                 drop(future);
             });
             None

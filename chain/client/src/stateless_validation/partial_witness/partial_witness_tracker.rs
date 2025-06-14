@@ -447,7 +447,7 @@ impl PartialEncodedStateWitnessTracker {
             values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
-            self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
+            self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size }.into());
 
             total_size
         } else {

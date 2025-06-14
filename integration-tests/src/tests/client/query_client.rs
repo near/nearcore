@@ -1,6 +1,8 @@
+use crate::env::setup::setup_no_network;
 use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
+use near_async::messaging::SpanWrappedMsg;
 use near_async::time::{Clock, Duration};
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
@@ -18,8 +20,6 @@ use near_primitives::types::{BlockReference, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;
-
-use crate::env::setup::setup_no_network;
 
 /// Query account from view client
 #[test]
@@ -106,11 +106,11 @@ fn query_status_not_crash() {
                 actor_handles
                     .client_actor
                     .send(
-                        BlockResponse {
+                        SpanWrappedMsg::from(BlockResponse {
                             block: next_block,
                             peer_id: PeerInfo::random().id,
                             was_requested: false,
-                        }
+                        })
                         .with_span_context(),
                     )
                     .then(move |_| {
@@ -118,8 +118,11 @@ fn query_status_not_crash() {
                             actor_handles
                                 .client_actor
                                 .send(
-                                    Status { is_health_check: true, detailed: false }
-                                        .with_span_context(),
+                                    SpanWrappedMsg::from(Status {
+                                        is_health_check: true,
+                                        detailed: false,
+                                    })
+                                    .with_span_context(),
                                 )
                                 .then(move |_| {
                                     System::current().stop();
