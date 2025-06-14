@@ -1080,7 +1080,7 @@ pub struct RoutedMessageV1 {
     pub body: RoutedMessageBody,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct RoutedMessageV2 {
     /// Message
     pub msg: RoutedMessageV1,
@@ -1290,6 +1290,7 @@ impl RoutedMessage {
             RoutedMessage::V3(msg) => msg.num_hops,
         }
     }
+
     pub fn num_hops_mut(&mut self) -> &mut u32 {
         let RoutedMessage::V3(msg) = self else { unreachable!() }; // TODO: upgrade to V3 if needed
         &mut msg.num_hops
