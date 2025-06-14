@@ -1,11 +1,10 @@
 use crate::broadcast;
 use crate::client::{ClientSenderForNetworkInput, ClientSenderForNetworkMessage};
 use crate::config::NetworkConfig;
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, RoutedMessageBody,
-    RoutedMessageV2,
+    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, TieredMessageBody,
 };
+use crate::network_protocol::{RoutedMessage, testonly as data};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
@@ -85,11 +84,11 @@ impl PeerHandle {
 
     pub fn routed_message(
         &self,
-        body: RoutedMessageBody,
+        body: TieredMessageBody,
         peer_id: PeerId,
         ttl: u8,
         utc: Option<time::Utc>,
-    ) -> RoutedMessageV2 {
+    ) -> RoutedMessage {
         RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(
             &self.cfg.network.node_key,
             ttl,

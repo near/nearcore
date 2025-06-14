@@ -1,8 +1,9 @@
 use crate::blacklist;
 use crate::broadcast;
 use crate::config::{NetworkConfig, SocketOptions};
+use crate::network_protocol::T2MessageBody;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
+use crate::network_protocol::{Encoding, Ping, Pong, RoutingTableUpdate};
 use crate::peer;
 use crate::peer::peer_actor::{
     ClosingReason, ConnectionClosedEvent, DROP_DUPLICATED_MESSAGES_PERIOD,
@@ -911,31 +912,42 @@ async fn ttl_and_num_hops() {
     pm.wait_for_routing_table(&[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
     for ttl in 0..5 {
-        let msg = RoutedMessageBody::Ping(Ping { nonce: rng.r#gen(), source: peer.cfg.id() });
+        let msg = T2MessageBody::Ping(Ping { nonce: rng.r#gen(), source: peer.cfg.id() }).into();
         let msg = Box::new(peer.routed_message(msg, peer.cfg.id(), ttl, Some(clock.now_utc())));
         peer.send(PeerMessage::Routed(msg.clone())).await;
         // If TTL is <2, then the message will be dropped (at least 2 hops are required).
         if ttl < 2 {
-            pm.events
-                .recv_until(|ev| match ev {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                pm.events.recv_until(|ev| match ev {
                     Event::PeerManager(PME::RoutedMessageDropped) => Some(()),
-                    _ => None,
-                })
-                .await;
+                    thing => {
+                        tracing::warn!("qqp thing 1: {:?}", thing);
+                        None
+                    }
+                }),
+            )
+            .await
+            .expect("recv_until timed out after 5 seconds");
         } else {
-            let got = peer
-                .events
-                .recv_until(|ev| match ev {
+            let got = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                peer.events.recv_until(|ev| match ev {
                     peer::testonly::Event::Network(PME::MessageProcessed(
                         tcp::Tier::T2,
                         PeerMessage::Routed(msg),
                     )) => Some(msg),
-                    _ => None,
-                })
-                .await;
-            assert_eq!(msg.body, got.body);
-            assert_eq!(msg.ttl - 1, got.ttl);
-            assert_eq!(msg.num_hops + 1, got.num_hops);
+                    thing => {
+                        tracing::warn!("qqp thing 2: {:?}", thing);
+                        None
+                    }
+                }),
+            )
+            .await
+            .expect("recv_until timed out after 5 seconds");
+            assert_eq!(msg.ttl() - 1, got.ttl());
+            assert_eq!(msg.num_hops() + 1, got.num_hops());
+            assert_eq!(msg.body_owned(), got.body_owned());
         }
     }
 }
