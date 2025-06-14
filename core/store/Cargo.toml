@@ -20,21 +20,22 @@ bytesize.workspace = true
 crossbeam.workspace = true
 derive_more = { workspace = true, features = ["as_ref", "into"] }
 derive-where.workspace = true
-smallvec.workspace = true
 enum-map.workspace = true
 hex.workspace = true
-itoa.workspace = true
 itertools.workspace = true
+itoa.workspace = true
 lru.workspace = true
 num_cpus.workspace = true
 parking_lot.workspace = true
+quick_cache.workspace = true
 rand.workspace = true
 rayon.workspace = true
 reed-solomon-erasure.workspace = true
 rlimit.workspace = true
 rocksdb.workspace = true
-serde.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+smallvec.workspace = true
 static_assertions.workspace = true
 stdx.workspace = true
 strum.workspace = true
@@ -43,7 +44,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-time.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-chain-primitives.workspace = true
 near-crypto.workspace = true
@@ -51,8 +51,9 @@ near-fmt.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
-near-vm-runner.workspace = true
 near-schema-checker-lib.workspace = true
+near-time.workspace = true
+near-vm-runner.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
