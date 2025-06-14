@@ -405,23 +405,13 @@ def handle_get_profiles(args):
     if not args.skip_setup:
         upload_args = copy.deepcopy(args)
         script_dir = os.path.dirname(os.path.realpath(__file__))
-        upload_args.src = f"{script_dir}/get-profile.sh"
+        upload_args.src = f"{script_dir}/helpers/get-profile.sh"
         upload_args.dst = f"{REMOTE_HOME}/get-profile.sh"
         run_remote_upload_file(CommandContext(upload_args))
 
-    for host in CommandContext(args).get_targeted():
-        host_name = host.name()
-        logger.info(f"Running profile script on {host_name}")
-        ssh_cmd = [
-            "gcloud", "compute", "ssh", "--project=nearone-mocknet",
-            f"ubuntu@{host_name}", "--command",
-            f"bash {REMOTE_HOME}/get-profile.sh {args.record_secs}"
-        ]
-        subprocess.run(
-            ssh_cmd,
-            check=True,
-            text=True,
-        )
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.cmd = f"bash {REMOTE_HOME}/get-profile.sh {args.record_secs}"
+    run_remote_cmd(CommandContext(run_cmd_args))
 
     os.makedirs(args.output_dir, exist_ok=True)
     for host in CommandContext(args).get_targeted():
