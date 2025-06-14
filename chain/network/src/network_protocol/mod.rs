@@ -710,7 +710,7 @@ pub struct RoutedMessageV1 {
     pub body: RoutedMessageBody,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct RoutedMessageV2 {
     /// Message
     pub msg: RoutedMessageV1,
@@ -803,6 +803,7 @@ impl RoutedMessage {
             RoutedMessage::V2(msg) => msg.num_hops,
         }
     }
+
     pub fn num_hops_mut(&mut self) -> &mut u32 {
         if let RoutedMessage::V1(msg) = self {
             *self = RoutedMessage::V2(RoutedMessageV2 {
