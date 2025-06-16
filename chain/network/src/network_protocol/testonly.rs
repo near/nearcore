@@ -275,8 +275,8 @@ impl Chain {
         }
     }
 
-    pub fn get_block_headers(&self) -> Vec<BlockHeader> {
-        self.blocks.iter().map(|b| b.header().clone()).collect()
+    pub fn get_block_headers(&self) -> impl Iterator<Item = BlockHeader> {
+        self.blocks.iter().map(|b| b.header().clone())
     }
 
     pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {

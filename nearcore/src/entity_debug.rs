@@ -95,7 +95,7 @@ impl EntityDebugHandlerImpl {
                         &borsh::to_vec(&block_hash).unwrap(),
                     )?
                     .ok_or_else(|| anyhow!("Block header not found"))?;
-                Ok(serialize_entity(&BlockHeaderView::from(block_header)))
+                Ok(serialize_entity(&BlockHeaderView::from(&block_header)))
             }
             EntityQuery::BlockInfoByHash { block_hash } => {
                 let block_info = store

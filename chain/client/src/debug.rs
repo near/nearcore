@@ -597,7 +597,7 @@ impl ClientActorInner {
                     continue;
                 }
                 let block_header = if block_hash == CryptoHash::default() {
-                    self.client.chain.genesis().clone()
+                    self.client.chain.genesis().clone().into()
                 } else {
                     self.client.chain.get_block_header(&block_hash)?
                 };

@@ -55,8 +55,8 @@ impl ChainStoreAdapter {
     }
 
     /// The chain head.
-    pub fn head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(DBCol::BlockMisc, HEAD_KEY), "HEAD")
+    pub fn head(&self) -> Result<Arc<Tip>, Error> {
+        option_to_not_found(self.store.caching_get_ser(DBCol::BlockMisc, HEAD_KEY), "HEAD")
     }
 
     /// The chain Blocks Tail height.
@@ -84,22 +84,28 @@ impl ChainStoreAdapter {
     }
 
     /// Head of the header chain (not the same thing as head_header).
-    pub fn header_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY), "HEADER_HEAD")
+    pub fn header_head(&self) -> Result<Arc<Tip>, Error> {
+        option_to_not_found(
+            self.store.caching_get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY),
+            "HEADER_HEAD",
+        )
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
-    pub fn head_header(&self) -> Result<BlockHeader, Error> {
+    pub fn head_header(&self) -> Result<Arc<BlockHeader>, Error> {
         let last_block_hash = self.head()?.last_block_hash;
         option_to_not_found(
-            self.store.get_ser(DBCol::BlockHeader, last_block_hash.as_ref()),
+            self.store.caching_get_ser(DBCol::BlockHeader, last_block_hash.as_ref()),
             format_args!("BLOCK HEADER: {}", last_block_hash),
         )
     }
 
     /// The chain final head. It is guaranteed to be monotonically increasing.
-    pub fn final_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY), "FINAL HEAD")
+    pub fn final_head(&self) -> Result<Arc<Tip>, Error> {
+        option_to_not_found(
+            self.store.caching_get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY),
+            "FINAL HEAD",
+        )
     }
 
     /// Largest approval target height sent by us
@@ -133,9 +139,9 @@ impl ChainStoreAdapter {
     }
 
     /// Get block header.
-    pub fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
+    pub fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::BlockHeader, h.as_ref()),
+            self.store.caching_get_ser(DBCol::BlockHeader, h.as_ref()),
             format_args!("BLOCK HEADER: {}", h),
         )
     }
@@ -150,16 +156,17 @@ impl ChainStoreAdapter {
     }
 
     /// Get previous header.
-    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
+    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         self.get_block_header(header.prev_hash())
     }
 
     /// Returns hash of the block on the main chain for given height.
     pub fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::BlockHeight, &index_to_bytes(height)),
+            self.store.caching_get_ser(DBCol::BlockHeight, &index_to_bytes(height)),
             format_args!("BLOCK HEIGHT: {}", height),
         )
+        .map(|v| *v)
     }
 
     /// Returns a hashmap of epoch id -> set of all blocks got for current (height, epoch_id)
@@ -193,7 +200,10 @@ impl ChainStoreAdapter {
     }
 
     /// Returns block header from the current chain for given height if present.
-    pub fn get_block_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
+    pub fn get_block_header_by_height(
+        &self,
+        height: BlockHeight,
+    ) -> Result<Arc<BlockHeader>, Error> {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }

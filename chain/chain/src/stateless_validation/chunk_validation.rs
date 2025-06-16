@@ -195,12 +195,9 @@ fn get_state_witness_block_range(
             // If we have seen 0 chunks, the block contributes to implicit
             // state transition.
             0 => {
-                let block_context = Chain::get_apply_chunk_block_context(
-                    &position.prev_block,
-                    &store.get_block_header(&prev_prev_hash)?,
-                    false,
-                )?;
-
+                let header = store.get_block_header(&prev_prev_hash)?;
+                let block_context =
+                    Chain::get_apply_chunk_block_context(&position.prev_block, &header, false)?;
                 implicit_transition_params
                     .push(ImplicitTransitionParams::ApplyOldChunk(block_context, shard_uid));
             }
@@ -354,7 +351,7 @@ pub fn pre_validate_chunk_state_witness(
         } else {
             let prev_block_header =
                 store.get_block_header(last_chunk_block.header().prev_hash())?;
-            let check = chain.transaction_validity_check(prev_block_header);
+            let check = chain.transaction_validity_check(BlockHeader::clone(&prev_block_header));
             state_witness.transactions().iter().map(|t| check(t)).collect::<Vec<_>>()
         }
     };
@@ -378,15 +375,12 @@ pub fn pre_validate_chunk_state_witness(
             state_witness.transactions().clone(),
             transaction_validity_check_results,
         );
+        let header = store.get_block_header(last_chunk_block.header().prev_hash())?;
         MainTransition::NewChunk(NewChunkData {
             chunk_header: last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().clone(),
             transactions,
             receipts: receipts_to_apply,
-            block: Chain::get_apply_chunk_block_context(
-                last_chunk_block,
-                &store.get_block_header(last_chunk_block.header().prev_hash())?,
-                true,
-            )?,
+            block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true)?,
             storage_context: StorageContext {
                 storage_data_source: StorageDataSource::Recorded(PartialStorage {
                     nodes: state_witness.main_state_transition().base_state.clone(),
@@ -604,7 +598,7 @@ pub fn validate_chunk_state_witness_impl(
             block_hash,
             ChunkStateWitnessValidationResult {
                 chunk_extra: chunk_extra.clone(),
-                outgoing_receipts: outgoing_receipts,
+                outgoing_receipts,
             },
         );
     }
