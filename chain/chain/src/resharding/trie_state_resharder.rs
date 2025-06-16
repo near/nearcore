@@ -96,7 +96,7 @@ impl TrieStateResharder {
             // Load the status to check if resharding is in progress
             if let Some(status) = resharder.load_status().unwrap() {
                 panic!(
-                    "TrieStateReshardingStatus already exists for shard {}, cannot start a new resharding operation. Run resume_resharding to continue.",
+                    "TrieStateReshardingStatus already exists for shard {}, must run resume_resharding to continue interrupted resharding operation before starting node.",
                     status.parent_shard_uid
                 )
             }
