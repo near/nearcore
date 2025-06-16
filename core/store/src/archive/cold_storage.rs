@@ -257,7 +257,7 @@ fn copy_state_from_store(
     let read_duration = instant.elapsed();
 
     let instant = std::time::Instant::now();
-    cold_store.write(transaction)?;
+    cold_db.write(transaction)?;
     let write_duration = instant.elapsed();
 
     tracing::trace!(target: "cold_store", ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_state_from_store finished");
