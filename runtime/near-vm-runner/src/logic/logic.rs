@@ -294,27 +294,57 @@ impl<'a> VMLogic<'a> {
         Ok(count)
     }
 
-    pub fn finite_wasm_memory_copy(&mut self, count: u32, linear: u64, constant: u64) -> Result<u32> {
+    pub fn finite_wasm_memory_copy(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
         self.linear_gas(count, linear, constant)
     }
 
-    pub fn finite_wasm_memory_fill(&mut self, count: u32, linear: u64, constant: u64) -> Result<u32> {
+    pub fn finite_wasm_memory_fill(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
         self.linear_gas(count, linear, constant)
     }
 
-    pub fn finite_wasm_memory_init(&mut self, count: u32, linear: u64, constant: u64) -> Result<u32> {
+    pub fn finite_wasm_memory_init(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
         self.linear_gas(count, linear, constant)
     }
 
-    pub fn finite_wasm_table_copy(&mut self, count: u32, linear: u64, constant: u64) -> Result<u32> {
+    pub fn finite_wasm_table_copy(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
         self.linear_gas(count, linear, constant)
     }
 
-    pub fn finite_wasm_table_fill(&mut self, count: u32, linear: u64, constant: u64) -> Result<u32> {
+    pub fn finite_wasm_table_fill(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
         self.linear_gas(count, linear, constant)
     }
 
-    pub fn finite_wasm_table_init(&mut self, count: u32, linear: u64, constant: u64) -> Result<u32> {
+    pub fn finite_wasm_table_init(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
         self.linear_gas(count, linear, constant)
     }
 
