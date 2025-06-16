@@ -176,7 +176,7 @@ declare the `hello` export:
 
 #![no_std]
 
-extern "C" {
+unsafe extern "C" {
     fn value_return(len: u64, ptr: u64);
 }
 
