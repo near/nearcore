@@ -275,7 +275,7 @@ declare the <code>hello</code> export:</p>
 
 #![no_std]
 
-extern &quot;C&quot; {
+unsafe extern &quot;C&quot; {
     fn value_return(len: u64, ptr: u64);
 }
 
@@ -331,7 +331,7 @@ http://localhost:9001/transactions/GDbTLUGeVaddhcdrQScVauYvgGXxSssEPGUSUVAhMWw8
 Done deploying to alice.test.near
 </code></pre>
 <p>And, finally, let's call our contract:</p>
-<pre><code class="language-console">$ NEAR_ENV=local $near call alice.test.near hello --accountId alice.test.near
+<pre><code class="language-console">$ NEAR_ENV=local near call alice.test.near hello --accountId alice.test.near
 Scheduling a call: alice.test.near.hello()
 Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL
 Doing account.functionCall()
@@ -344,7 +344,7 @@ http://localhost:9001/transactions/9WMwmTf6pnFMtj1KBqjJtkKvdFXS4kt3DHnYRnbFpJ9e
 we are calling, the second time to determine who calls the contract. That is,
 the second account is the one that spends tokens. In the following example <code>bob</code>
 spends NEAR to call the contact deployed to the <code>alice</code> account:</p>
-<pre><code class="language-console">$ NEAR_ENV=local $near call alice.test.near hello --accountId bob.test.near
+<pre><code class="language-console">$ NEAR_ENV=local near call alice.test.near hello --accountId bob.test.near
 Scheduling a call: alice.test.near.hello()
 Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL
 Doing account.functionCall()
