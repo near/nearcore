@@ -509,7 +509,7 @@ impl Chain {
 
                 // TODO: perform validation that latest state in runtime matches the stored chain.
 
-                (block_head, header_head)
+                (Tip::clone(&block_head), Tip::clone(&header_head))
             }
             Err(Error::DBNotFoundErr(_)) => {
                 Self::save_genesis_block_and_chunks(
@@ -813,7 +813,8 @@ impl Chain {
             }
             // Otherwise go to parent block.
             header = match self.get_previous_header(&header) {
-                Ok(header) => header,
+                // FIXME: this clone can be pretty expensive!
+                Ok(header) => <_>::clone(&header),
                 Err(_) => {
                     // We couldn't find previous header. Return Ok because it can be an orphaned block which can be
                     // connected to canonical chain later.
@@ -1488,7 +1489,7 @@ impl Chain {
     }
 
     /// Processes headers and adds them to store for syncing.
-    pub fn sync_block_headers(&mut self, mut headers: Vec<BlockHeader>) -> Result<(), Error> {
+    pub fn sync_block_headers(&mut self, mut headers: Vec<Arc<BlockHeader>>) -> Result<(), Error> {
         // Sort headers by heights.
         headers.sort_by_key(|left| left.height());
 
@@ -1528,7 +1529,7 @@ impl Chain {
 
             self.validate_header(header, &Provenance::SYNC)?;
             let mut chain_store_update = self.chain_store.store_update();
-            chain_store_update.save_block_header(header.clone())?;
+            chain_store_update.save_block_header(BlockHeader::clone(&header))?;
 
             // Add validator proposals for given header.
             let last_finalized_height =
@@ -1558,7 +1559,7 @@ impl Chain {
         Ok(chain_header.hash() == header.hash())
     }
 
-    fn determine_status(&self, head: Option<Tip>, prev_head: Tip) -> BlockStatus {
+    fn determine_status(&self, head: Option<&Tip>, prev_head: &Tip) -> BlockStatus {
         let has_head = head.is_some();
         let mut is_next_block = false;
 
@@ -2015,7 +2016,7 @@ impl Chain {
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
         // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
         // decide to how to update the tx pool.
-        let block_status = self.determine_status(new_head, prev_head);
+        let block_status = self.determine_status(new_head.as_ref(), &prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
     }
 
@@ -3001,14 +3002,14 @@ impl Chain {
         Ok(FinalExecutionOutcomeWithReceiptView { final_outcome: outcome, receipts })
     }
 
-    pub fn check_blocks_final_and_canonical(
+    pub fn check_blocks_final_and_canonical<'a>(
         &self,
-        block_headers: &[BlockHeader],
+        block_headers: impl IntoIterator<Item = &'a BlockHeader>,
     ) -> Result<(), Error> {
         let last_final_block_hash = *self.head_header()?.last_final_block();
         let last_final_height = self.get_block_header(&last_final_block_hash)?.height();
         for hdr in block_headers {
-            if hdr.height() > last_final_height || !self.is_on_current_chain(&hdr)? {
+            if hdr.height() > last_final_height || !self.is_on_current_chain(hdr)? {
                 return Err(Error::Other(format!("{} not on current chain", hdr.hash())));
             }
         }
@@ -3501,7 +3502,7 @@ impl MerkleProofAccess for Chain {
 impl Chain {
     /// Gets chain head.
     #[inline]
-    pub fn head(&self) -> Result<Tip, Error> {
+    pub fn head(&self) -> Result<Arc<Tip>, Error> {
         self.chain_store.head()
     }
 
@@ -3513,19 +3514,19 @@ impl Chain {
 
     /// Gets chain header head.
     #[inline]
-    pub fn header_head(&self) -> Result<Tip, Error> {
+    pub fn header_head(&self) -> Result<Arc<Tip>, Error> {
         self.chain_store.header_head()
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     #[inline]
-    pub fn head_header(&self) -> Result<BlockHeader, Error> {
+    pub fn head_header(&self) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.head_header()
     }
 
     /// Get final head of the chain.
     #[inline]
-    pub fn final_head(&self) -> Result<Tip, Error> {
+    pub fn final_head(&self) -> Result<Arc<Tip>, Error> {
         self.chain_store.final_head()
     }
 
@@ -3560,19 +3561,22 @@ impl Chain {
 
     /// Gets a block header by hash.
     #[inline]
-    pub fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error> {
+    pub fn get_block_header(&self, hash: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.get_block_header(hash)
     }
 
     /// Returns block header from the canonical chain for given height if present.
     #[inline]
-    pub fn get_block_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
+    pub fn get_block_header_by_height(
+        &self,
+        height: BlockHeight,
+    ) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.get_block_header_by_height(height)
     }
 
     /// Get previous block header.
     #[inline]
-    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
+    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.get_previous_header(header).map_err(|e: Error| match e {
             Error::DBNotFoundErr(_) => Error::Orphan,
             other => other,

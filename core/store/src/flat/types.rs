@@ -26,6 +26,12 @@ impl From<Tip> for BlockInfo {
     }
 }
 
+impl From<&Tip> for BlockInfo {
+    fn from(tip: &Tip) -> Self {
+        Self { hash: tip.last_block_hash, height: tip.height, prev_hash: tip.prev_block_hash }
+    }
+}
+
 #[derive(strum::AsRefStr, strum::Display, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FlatStorageError {
     /// This means we can't find a path from `flat_head` to the block. Includes

@@ -740,6 +740,8 @@ impl Handler<Status> for ClientActorInner {
         // Provide more detailed information about the current state of chain.
         // For now - provide info about last 50 blocks.
         let detailed_debug_status = if msg.detailed {
+            let head = self.client.chain.head()?;
+            let header_head = self.client.chain.header_head()?;
             Some(DetailedDebugStatus {
                 network_info: new_network_info_view(&self.client.chain, &self.network_info),
                 sync_status: format!(
@@ -747,13 +749,13 @@ impl Handler<Status> for ClientActorInner {
                     self.client.sync_handler.sync_status.as_variant_name(),
                     display_sync_status(
                         &self.client.sync_handler.sync_status,
-                        &self.client.chain.head()?,
+                        &head,
                         &self.client.config.state_sync.sync,
                     ),
                 ),
                 catchup_status: self.client.get_catchup_status()?,
-                current_head_status: head.clone().into(),
-                current_header_head_status: self.client.chain.header_head()?.into(),
+                current_head_status: head.as_ref().into(),
+                current_header_head_status: header_head.as_ref().into(),
                 block_production_delay_millis: self
                     .client
                     .config
@@ -1486,7 +1488,7 @@ impl ClientActorInner {
         }
     }
 
-    fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
+    fn receive_headers(&mut self, headers: Vec<Arc<BlockHeader>>, peer_id: PeerId) -> bool {
         let _span =
             debug_span!(target: "client", "receive_headers", num_headers = headers.len(), ?peer_id)
                 .entered();
@@ -1536,6 +1538,7 @@ impl ClientActorInner {
         let peer_id = peer_info.peer_info.id.clone();
         let shutdown_height = self.client.config.expected_shutdown.get().unwrap_or(u64::MAX);
         let highest_height = peer_info.highest_block_height.min(shutdown_height);
+        let head = Tip::clone(&head);
 
         if is_syncing {
             if highest_height <= head.height {

@@ -644,6 +644,12 @@ impl From<Tip> for BlockStatusView {
     }
 }
 
+impl From<&Tip> for BlockStatusView {
+    fn from(tip: &Tip) -> Self {
+        Self { height: tip.height, hash: tip.last_block_hash }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PartElapsedTimeView {
@@ -891,8 +897,8 @@ pub struct BlockHeaderView {
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
 }
 
-impl From<BlockHeader> for BlockHeaderView {
-    fn from(header: BlockHeader) -> Self {
+impl From<&BlockHeader> for BlockHeaderView {
+    fn from(header: &BlockHeader) -> Self {
         Self {
             height: header.height(),
             prev_height: header.prev_height(),
@@ -1205,7 +1211,7 @@ impl BlockView {
     pub fn from_author_block(author: AccountId, block: Block) -> Self {
         BlockView {
             author,
-            header: block.header().clone().into(),
+            header: block.header().into(),
             chunks: block.chunks().iter_deprecated().cloned().map(Into::into).collect(),
         }
     }

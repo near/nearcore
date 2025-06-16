@@ -431,23 +431,18 @@ impl BlockHeader {
     pub fn set_latest_protocol_version(&mut self, latest_protocol_version: ProtocolVersion) {
         match self {
             BlockHeader::BlockHeaderV1(header) => {
-                let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV2(header) => {
-                let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV3(header) => {
-                let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV4(header) => {
-                let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV5(header) => {
-                let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
         }
@@ -462,27 +457,22 @@ impl BlockHeader {
         let signature = signer.sign_bytes(hash.as_ref());
         match self {
             BlockHeader::BlockHeaderV1(header) => {
-                let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV2(header) => {
-                let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV3(header) => {
-                let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV4(header) => {
-                let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV5(header) => {
-                let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
             }
@@ -496,8 +486,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).init(),
-            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).init(),
+            BlockHeader::BlockHeaderV4(header) => header.init(),
+            BlockHeader::BlockHeaderV5(header) => header.init(),
         }
     }
 
@@ -508,8 +498,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).prev_hash = value,
-            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).prev_hash = value,
+            BlockHeader::BlockHeaderV4(header) => header.prev_hash = value,
+            BlockHeader::BlockHeaderV5(header) => header.prev_hash = value,
         }
     }
 
@@ -520,8 +510,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).inner_lite.height = value,
-            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).inner_lite.height = value,
+            BlockHeader::BlockHeaderV4(header) => header.inner_lite.height = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_lite.height = value,
         }
     }
 
@@ -532,8 +522,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).inner_lite.epoch_id = value,
-            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).inner_lite.epoch_id = value,
+            BlockHeader::BlockHeaderV4(header) => header.inner_lite.epoch_id = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_lite.epoch_id = value,
         }
     }
 
@@ -544,12 +534,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_lite.prev_state_root = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_lite.prev_state_root = value
-            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_lite.prev_state_root = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_lite.prev_state_root = value,
         }
     }
 
@@ -561,10 +547,10 @@ impl BlockHeader {
                 unreachable!("old header should not appear in tests")
             }
             BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_rest.prev_chunk_outgoing_receipts_root = value
+                header.inner_rest.prev_chunk_outgoing_receipts_root = value
             }
             BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.prev_chunk_outgoing_receipts_root = value
+                header.inner_rest.prev_chunk_outgoing_receipts_root = value
             }
         }
     }
@@ -576,12 +562,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_rest.chunk_headers_root = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.chunk_headers_root = value
-            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_headers_root = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_headers_root = value,
         }
     }
 
@@ -592,12 +574,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_rest.chunk_tx_root = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.chunk_tx_root = value
-            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_tx_root = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_tx_root = value,
         }
     }
 
@@ -608,12 +586,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_rest.chunk_mask = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.chunk_mask = value
-            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_mask = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_mask = value,
         }
     }
 
@@ -627,9 +601,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(_) => {
                 // BlockHeaderV4 can appear in tests but setting chunk endorsements will be no-op.
             }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.chunk_endorsements = value
-            }
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_endorsements = value,
         }
     }
 
@@ -640,12 +612,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_lite.prev_outcome_root = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_lite.prev_outcome_root = value
-            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_lite.prev_outcome_root = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_lite.prev_outcome_root = value,
         }
     }
 
@@ -656,12 +624,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_lite.timestamp = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_lite.timestamp = value
-            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_lite.timestamp = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_lite.timestamp = value,
         }
     }
 
@@ -673,10 +637,10 @@ impl BlockHeader {
                 unreachable!("old header should not appear in tests")
             }
             BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_rest.prev_validator_proposals = value
+                header.inner_rest.prev_validator_proposals = value
             }
             BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.prev_validator_proposals = value
+                header.inner_rest.prev_validator_proposals = value
             }
         }
     }
@@ -688,12 +652,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_rest.next_gas_price = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.next_gas_price = value
-            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.next_gas_price = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.next_gas_price = value,
         }
     }
 
@@ -704,12 +664,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_lite.block_merkle_root = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_lite.block_merkle_root = value
-            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_lite.block_merkle_root = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_lite.block_merkle_root = value,
         }
     }
 
@@ -720,12 +676,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_rest.approvals = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.approvals = value
-            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.approvals = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.approvals = value,
         }
     }
 
@@ -736,12 +688,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_rest.block_body_hash = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.block_body_hash = value
-            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.block_body_hash = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.block_body_hash = value,
         }
     }
 
@@ -752,8 +700,8 @@ impl BlockHeader {
             | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).signature = value,
-            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).signature = value,
+            BlockHeader::BlockHeaderV4(header) => header.signature = value,
+            BlockHeader::BlockHeaderV5(header) => header.signature = value,
         }
     }
 }
