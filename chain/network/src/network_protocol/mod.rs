@@ -1227,8 +1227,8 @@ impl RoutedMessage {
     pub fn msg(&self) -> &RoutedMessageV3 {
         // Old versions should be upgraded to V3.
         match self {
-            RoutedMessage::V1(_) => unreachable!(),
-            RoutedMessage::V2(_) => unreachable!(),
+            RoutedMessage::V1(_) => panic!("QQP Should be upgraded to V3"),
+            RoutedMessage::V2(_) => panic!("QQP Should be upgraded to V3"),
             RoutedMessage::V3(msg) => msg,
         }
     }
@@ -1260,24 +1260,21 @@ impl RoutedMessage {
     pub fn body(&self) -> &TieredMessageBody {
         // Old versions should be upgraded to V3.
         match self {
-            RoutedMessage::V1(_) => unreachable!(),
-            RoutedMessage::V2(_) => unreachable!(),
+            RoutedMessage::V1(_) => panic!("QQP Should be upgraded to V3"),
+            RoutedMessage::V2(_) => panic!("QQP Should be upgraded to V3"),
             RoutedMessage::V3(msg) => &msg.body,
         }
     }
 
-    pub fn body_owned(self) -> TieredMessageBody {
-        // Old versions should be upgraded to V3.
-        match self {
-            RoutedMessage::V1(_) => unreachable!(),
-            RoutedMessage::V2(_) => unreachable!(),
-            RoutedMessage::V3(msg) => msg.body,
-        }
+    pub fn body_owned(mut self) -> TieredMessageBody {
+        self.upgrade_to_v3();
+        let RoutedMessage::V3(msg) = self else { unreachable!() };
+        msg.body
     }
 
     pub fn created_at(&self) -> Option<i64> {
         match self {
-            RoutedMessage::V1(_) => unreachable!(),
+            RoutedMessage::V1(_) => None,
             RoutedMessage::V2(msg) => msg.created_at.map(|t| t.unix_timestamp()),
             RoutedMessage::V3(msg) => msg.created_at,
         }
@@ -1292,8 +1289,33 @@ impl RoutedMessage {
     }
 
     pub fn num_hops_mut(&mut self) -> &mut u32 {
-        let RoutedMessage::V3(msg) = self else { unreachable!() }; // TODO: upgrade to V3 if needed
+        self.upgrade_to_v3();
+        let RoutedMessage::V3(msg) = self else { unreachable!() };
         &mut msg.num_hops
+    }
+
+    fn upgrade_to_v3(&mut self) {
+        if let RoutedMessage::V1(msg) = self {
+            *self = RoutedMessage::V3(RoutedMessageV3 {
+                target: msg.target.clone(),
+                author: msg.author.clone(),
+                ttl: msg.ttl,
+                body: TieredMessageBody::from_routed(msg.body.clone()).unwrap(),
+                signature: msg.signature.clone(),
+                created_at: None,
+                num_hops: 0,
+            });
+        } else if let RoutedMessage::V2(msg) = self {
+            *self = RoutedMessage::V3(RoutedMessageV3 {
+                target: msg.msg.target.clone(),
+                author: msg.msg.author.clone(),
+                ttl: msg.msg.ttl,
+                body: TieredMessageBody::from_routed(msg.msg.body.clone()).unwrap(),
+                signature: msg.msg.signature.clone(),
+                created_at: msg.created_at.map(|t| t.unix_timestamp()),
+                num_hops: msg.num_hops,
+            });
+        }
     }
 
     pub fn hash(&self) -> CryptoHash {
