@@ -1224,6 +1224,20 @@ impl RoutedMessage {
         CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
     }
 
+    pub fn msg_v1(self) -> RoutedMessageV1 {
+        match self {
+            RoutedMessage::V1(msg) => msg,
+            RoutedMessage::V2(msg) => msg.msg,
+            RoutedMessage::V3(msg) => RoutedMessageV1 {
+                target: msg.target,
+                author: msg.author,
+                ttl: msg.ttl,
+                body: msg.body.into(),
+                signature: msg.signature,
+            },
+        }
+    }
+
     pub fn msg(&self) -> &RoutedMessageV3 {
         // Old versions should be upgraded to V3.
         match self {

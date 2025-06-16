@@ -1,7 +1,7 @@
+use crate::network_protocol::borsh_ as net;
 /// Contains borsh <-> network_protocol conversions.
 use crate::network_protocol::{self as mem, RoutedMessageV3};
 use crate::network_protocol::{PeersRequest, PeersResponse};
-use crate::network_protocol::{RoutedMessageV1, borsh_ as net};
 
 impl From<&net::Handshake> for mem::Handshake {
     fn from(x: &net::Handshake) -> Self {
@@ -248,15 +248,8 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::OptimisticBlock(ob) => net::PeerMessage::OptimisticBlock(ob),
             mem::PeerMessage::Transaction(t) => net::PeerMessage::Transaction(t),
             mem::PeerMessage::Routed(r) => {
-                let msg = r.msg();
-                let msg_v1 = RoutedMessageV1 {
-                    target: msg.target.clone(),
-                    author: msg.author.clone(),
-                    ttl: msg.ttl,
-                    body: msg.body.clone().into(),
-                    signature: msg.signature.clone(),
-                };
-                net::PeerMessage::Routed(Box::new(msg_v1))
+                let msg = r.msg_v1();
+                net::PeerMessage::Routed(Box::new(msg))
             }
             mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),

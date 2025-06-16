@@ -333,16 +333,9 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Routed(r) => {
-                    let msg = r.msg();
-                    let msg_v1 = RoutedMessageV1 {
-                        target: msg.target.clone(),
-                        author: msg.author.clone(),
-                        ttl: msg.ttl,
-                        body: msg.body.clone().into(),
-                        signature: msg.signature.clone(),
-                    };
+                    let msg = r.clone().msg_v1();
                     ProtoMT::Routed(proto::RoutedMessage {
-                        borsh: borsh::to_vec(&msg_v1).unwrap(),
+                        borsh: borsh::to_vec(&msg).unwrap(),
                         created_at: MF::from_option(
                             r.created_at()
                                 .as_ref()
