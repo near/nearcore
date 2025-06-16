@@ -596,7 +596,7 @@ pub(crate) static CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME: LazyLock<Histogram
             "near_chunk_state_witness_network_roundtrip_time",
             "Time in seconds between sending state witness through the network to chunk producer and receiving the corresponding ack message",
             &["witness_size_bucket"],
-            Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+            Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
         )
         .unwrap()
     });
@@ -672,7 +672,7 @@ pub(crate) static PARTIAL_WITNESS_TIME_TO_LAST_PART: LazyLock<HistogramVec> = La
         "near_partial_witness_time_to_last_part",
         "Time taken from receiving first partial witness part to receiving enough parts to decode the state witness",
         &["shard_id"],
-        Some(exponential_buckets(0.001, 2.0, 13).unwrap()),
+        Some(exponential_buckets(0.001, 1.6, 13).unwrap()),
     )
     .unwrap()
 });
