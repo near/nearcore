@@ -36,7 +36,7 @@ use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
     ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
-    ChainStoreAccess, Doomslug, DoomslugThresholdMode, Provenance,
+    ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -708,6 +708,31 @@ impl Client {
         metrics::OPTIMISTIC_BLOCK_PRODUCED_TOTAL.inc();
 
         Ok(Some(optimistic_block))
+    }
+
+    /// Prepare chunk headers for inclusion in a block.
+    /// Returns readiness of chunks to be included in a block.
+    pub fn prepare_chunk_headers(
+        &mut self,
+        prev_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+    ) -> Result<ChunksReadiness, Error> {
+        let head = self.chain.head()?;
+        if head.height == 0 {
+            return Ok(ChunksReadiness::Ready(self.clock.now()));
+        }
+
+        self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+            prev_block_hash,
+            &self.chunk_endorsement_tracker,
+        )?;
+        let shard_ids = self.epoch_manager.shard_ids(&epoch_id)?;
+        Ok(self.chunk_inclusion_tracker.get_chunks_readiness(
+            self.clock.now(),
+            &epoch_id,
+            prev_block_hash,
+            shard_ids.len(),
+        ))
     }
 
     /// Produce block if we are block producer for given block `height`.
