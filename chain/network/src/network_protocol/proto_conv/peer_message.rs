@@ -521,7 +521,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ),
             ProtoMT::Routed(r) => {
                 let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
-                let body = TieredMessageBody::from_routed(msg.body).unwrap();
+                let body = TieredMessageBody::from_routed(msg.body);
                 PeerMessage::Routed(Box::new(
                     RoutedMessageV3 {
                         target: msg.target,

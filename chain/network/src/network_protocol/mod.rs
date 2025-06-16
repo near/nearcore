@@ -574,92 +574,80 @@ impl TieredMessageBody {
         }
     }
 
-    pub fn from_routed(routed: RoutedMessageBody) -> Option<Self> {
+    pub fn from_routed(routed: RoutedMessageBody) -> Self {
         match routed {
             RoutedMessageBody::BlockApproval(approval) => {
-                Some(T1MessageBody::BlockApproval(approval).into())
+                T1MessageBody::BlockApproval(approval).into()
             }
             RoutedMessageBody::ForwardTx(signed_transaction) => {
-                Some(T2MessageBody::ForwardTx(signed_transaction).into())
+                T2MessageBody::ForwardTx(signed_transaction).into()
             }
             RoutedMessageBody::TxStatusRequest(account_id, crypto_hash) => {
-                Some(T2MessageBody::TxStatusRequest(account_id, crypto_hash).into())
+                T2MessageBody::TxStatusRequest(account_id, crypto_hash).into()
             }
             RoutedMessageBody::TxStatusResponse(final_execution_outcome_view) => {
-                Some(T2MessageBody::TxStatusResponse(Box::new(final_execution_outcome_view)).into())
+                T2MessageBody::TxStatusResponse(Box::new(final_execution_outcome_view)).into()
             }
-            RoutedMessageBody::_UnusedQueryRequest => None,
-            RoutedMessageBody::_UnusedQueryResponse => None,
-            RoutedMessageBody::_UnusedReceiptOutcomeRequest(_) => None,
-            RoutedMessageBody::_UnusedReceiptOutcomeResponse => None,
-            RoutedMessageBody::_UnusedStateRequestHeader => None,
-            RoutedMessageBody::_UnusedStateRequestPart => None,
-            RoutedMessageBody::_UnusedStateResponse => None,
             RoutedMessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg) => {
-                Some(
-                    T2MessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg)
-                        .into(),
-                )
+                T2MessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg).into()
             }
             RoutedMessageBody::PartialEncodedChunkResponse(partial_encoded_chunk_response_msg) => {
-                Some(
-                    T2MessageBody::PartialEncodedChunkResponse(partial_encoded_chunk_response_msg)
-                        .into(),
-                )
+                T2MessageBody::PartialEncodedChunkResponse(partial_encoded_chunk_response_msg)
+                    .into()
             }
-            RoutedMessageBody::_UnusedPartialEncodedChunk => None,
-            RoutedMessageBody::Ping(ping) => Some(T2MessageBody::Ping(ping).into()),
-            RoutedMessageBody::Pong(pong) => Some(T2MessageBody::Pong(pong).into()),
-            RoutedMessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk) => Some(
-                T1MessageBody::VersionedPartialEncodedChunk(Box::new(partial_encoded_chunk)).into(),
-            ),
-            RoutedMessageBody::_UnusedVersionedStateResponse => None,
+            RoutedMessageBody::Ping(ping) => T2MessageBody::Ping(ping).into(),
+            RoutedMessageBody::Pong(pong) => T2MessageBody::Pong(pong).into(),
+            RoutedMessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk) => {
+                T1MessageBody::VersionedPartialEncodedChunk(Box::new(partial_encoded_chunk)).into()
+            }
             RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
-                Some(
-                    T1MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg)
-                        .into(),
-                )
+                T1MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg).into()
             }
-            RoutedMessageBody::_UnusedChunkStateWitness => None,
-            RoutedMessageBody::_UnusedChunkEndorsement => None,
             RoutedMessageBody::ChunkStateWitnessAck(chunk_state_witness_ack) => {
-                Some(T2MessageBody::ChunkStateWitnessAck(chunk_state_witness_ack).into())
+                T2MessageBody::ChunkStateWitnessAck(chunk_state_witness_ack).into()
             }
-            RoutedMessageBody::PartialEncodedStateWitness(partial_encoded_state_witness) => Some(
-                T1MessageBody::PartialEncodedStateWitness(partial_encoded_state_witness).into(),
-            ),
+            RoutedMessageBody::PartialEncodedStateWitness(partial_encoded_state_witness) => {
+                T1MessageBody::PartialEncodedStateWitness(partial_encoded_state_witness).into()
+            }
             RoutedMessageBody::PartialEncodedStateWitnessForward(partial_encoded_state_witness) => {
-                Some(
-                    T1MessageBody::PartialEncodedStateWitnessForward(partial_encoded_state_witness)
-                        .into(),
-                )
+                T1MessageBody::PartialEncodedStateWitnessForward(partial_encoded_state_witness)
+                    .into()
             }
             RoutedMessageBody::VersionedChunkEndorsement(chunk_endorsement) => {
-                Some(T1MessageBody::VersionedChunkEndorsement(chunk_endorsement).into())
+                T1MessageBody::VersionedChunkEndorsement(chunk_endorsement).into()
             }
-            RoutedMessageBody::_UnusedEpochSyncRequest => None,
-            RoutedMessageBody::_UnusedEpochSyncResponse(_) => None,
             RoutedMessageBody::StatePartRequest(state_part_request) => {
-                Some(T2MessageBody::StatePartRequest(state_part_request).into())
+                T2MessageBody::StatePartRequest(state_part_request).into()
             }
             RoutedMessageBody::ChunkContractAccesses(chunk_contract_accesses) => {
-                Some(T1MessageBody::ChunkContractAccesses(chunk_contract_accesses).into())
+                T1MessageBody::ChunkContractAccesses(chunk_contract_accesses).into()
             }
             RoutedMessageBody::ContractCodeRequest(contract_code_request) => {
-                Some(T1MessageBody::ContractCodeRequest(contract_code_request).into())
+                T1MessageBody::ContractCodeRequest(contract_code_request).into()
             }
             RoutedMessageBody::ContractCodeResponse(contract_code_response) => {
-                Some(T1MessageBody::ContractCodeResponse(contract_code_response).into())
+                T1MessageBody::ContractCodeResponse(contract_code_response).into()
             }
             RoutedMessageBody::PartialEncodedContractDeploys(partial_encoded_contract_deploys) => {
-                Some(
-                    T2MessageBody::PartialEncodedContractDeploys(partial_encoded_contract_deploys)
-                        .into(),
-                )
+                T2MessageBody::PartialEncodedContractDeploys(partial_encoded_contract_deploys)
+                    .into()
             }
             RoutedMessageBody::StateHeaderRequest(state_header_request) => {
-                Some(T2MessageBody::StateHeaderRequest(state_header_request).into())
+                T2MessageBody::StateHeaderRequest(state_header_request).into()
             }
+            RoutedMessageBody::_UnusedQueryRequest
+            | RoutedMessageBody::_UnusedQueryResponse
+            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
+            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
+            | RoutedMessageBody::_UnusedStateRequestHeader
+            | RoutedMessageBody::_UnusedStateRequestPart
+            | RoutedMessageBody::_UnusedStateResponse
+            | RoutedMessageBody::_UnusedPartialEncodedChunk
+            | RoutedMessageBody::_UnusedVersionedStateResponse
+            | RoutedMessageBody::_UnusedChunkStateWitness
+            | RoutedMessageBody::_UnusedChunkEndorsement
+            | RoutedMessageBody::_UnusedEpochSyncRequest
+            | RoutedMessageBody::_UnusedEpochSyncResponse(_) => unreachable!(),
         }
     }
 }
@@ -1160,7 +1148,7 @@ impl RoutedMessageV3 {
 
 impl From<RoutedMessageV1> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV1) -> Self {
-        let body = TieredMessageBody::from_routed(msg.body).unwrap();
+        let body = TieredMessageBody::from_routed(msg.body);
         // let signature = if body.is_t1() { None } else { Some(msg.signature) };
         Self {
             target: msg.target,
@@ -1176,7 +1164,7 @@ impl From<RoutedMessageV1> for RoutedMessageV3 {
 
 impl From<RoutedMessageV2> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV2) -> Self {
-        let body = TieredMessageBody::from_routed(msg.msg.body).unwrap();
+        let body = TieredMessageBody::from_routed(msg.msg.body);
         // let signature = if body.is_t1() { None } else { Some(msg.msg.signature) };
         Self {
             target: msg.msg.target,
@@ -1314,7 +1302,7 @@ impl RoutedMessage {
                 target: msg.target.clone(),
                 author: msg.author.clone(),
                 ttl: msg.ttl,
-                body: TieredMessageBody::from_routed(msg.body.clone()).unwrap(),
+                body: TieredMessageBody::from_routed(msg.body.clone()),
                 signature: msg.signature.clone(),
                 created_at: None,
                 num_hops: 0,
@@ -1324,7 +1312,7 @@ impl RoutedMessage {
                 target: msg.msg.target.clone(),
                 author: msg.msg.author.clone(),
                 ttl: msg.msg.ttl,
-                body: TieredMessageBody::from_routed(msg.msg.body.clone()).unwrap(),
+                body: TieredMessageBody::from_routed(msg.msg.body.clone()),
                 signature: msg.msg.signature.clone(),
                 created_at: msg.created_at.map(|t| t.unix_timestamp()),
                 num_hops: msg.num_hops,
