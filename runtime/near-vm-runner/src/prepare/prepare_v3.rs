@@ -448,7 +448,7 @@ mod test {
     }
 
     #[test]
-    fn v2_preparation_wasmtime_generates_valid_contract_fuzzer() {
+    fn v3_preparation_wasmtime_generates_valid_contract_fuzzer() {
         let config = test_vm_config();
         let features = crate::features::WasmFeatures::new(&config);
         bolero::check!().for_each(|input: &[u8]| {
@@ -480,7 +480,7 @@ mod test {
             // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they
             // pass our validation step!
             if let Ok(_) = validate_contract(input, features, &config) {
-                match super::prepare_contract(input, features, &config, VMKind::NearVm) {
+                match super::prepare_contract(input, features, &config, VMKind::NearVm2) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
                         let mut validator = wp::Validator::new_with_features(features.into());

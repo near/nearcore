@@ -171,7 +171,8 @@ fn test_near_vm_artifact_output_stability() {
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
-        let config = Arc::new(test_vm_config());
+        let mut config = test_vm_config();
+        config.reftypes_bulk_memory = false; // FIXME: ProtocolFeature::RefTypesBulkMemory
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
         let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
@@ -184,7 +185,7 @@ fn test_near_vm_artifact_output_stability() {
         features.insert(CpuFeature::AVX);
         let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
         let target = Target::new(triple, features);
-        let vm = NearVM::new_for_target(config, target);
+        let vm = NearVM::new_for_target(config.into(), target);
         let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
         let this_hash = crate::utils::stable_hash(&serialized);
