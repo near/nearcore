@@ -391,50 +391,6 @@ def handle_get_traces(args):
         logger.error(
             f"Failed to fetch traces: {response.status_code} {response.text}")
 
-def handle_get_profiles(args):
-    args = copy.deepcopy(args)
-
-    # If no host filter is provided, target the first alphabetical cp instance.
-    if args.host_filter is None:
-        machines = sorted(args.forknet_details['cp_instance_names'])
-        machine = machines[0]
-        logger.info(f"Targetting {machine}")
-        args.host_filter = machine
-
-    upload_args = copy.deepcopy(args)
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    upload_args.src = f"{script_dir}/get-profile.sh"
-    upload_args.dst = f"{REMOTE_HOME}/get-profile.sh"
-    run_remote_upload_file(CommandContext(upload_args))
-
-    for host in CommandContext(args).get_targeted():
-        host_name = host.name()
-        logger.info(f"Running profile script on {host_name}")
-        ssh_cmd = [
-            "gcloud", "compute", "ssh", "--project=nearone-mocknet",
-            f"ubuntu@{host_name}", "--command",
-            f"bash {REMOTE_HOME}/get-profile.sh {args.record_secs}"
-        ]
-        subprocess.run(
-            ssh_cmd,
-            check=True,
-            text=True,
-        )
-
-    os.makedirs(args.output_dir, exist_ok=True)
-    for host in CommandContext(args).get_targeted():
-        host_name = host.name()
-        print(f"Downloading profile from {host_name}")
-        scp_cmd = [
-            "gcloud", "compute", "scp", "--project=nearone-mocknet",
-            f"ubuntu@{host_name}:{REMOTE_HOME}/perf.script.gz",
-            f"{args.output_dir}/perf-{host_name}.gz",
-        ]
-        subprocess.run(
-            scp_cmd,
-            check=True,
-        )
-
 
 def handle_get_profiles(args):
     args = copy.deepcopy(args)
