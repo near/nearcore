@@ -199,7 +199,7 @@ impl SplitShardTrieCommand {
             left_child_shard,
             right_child_shard,
             boundary_account: self.boundary_account.clone(),
-            resharding_block: final_head.into(),
+            resharding_block: final_head.as_ref().into(),
         };
 
         println!("Splitting shard {} at account {}...", self.shard_uid, self.boundary_account);
