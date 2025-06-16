@@ -3,10 +3,12 @@ use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::logic::types::Gas;
 use crate::logic::{HostError, VMLogicError};
+use crate::tests::test_builder::test_builder;
 use crate::tests::test_vm_config;
 use expect_test::expect;
 use near_parameters::{ActionCosts, ExtCosts, Fee};
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::version::ProtocolFeature;
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -845,4 +847,51 @@ fn test_pk() -> Vec<u8> {
 
 fn write_test_pk(logic: &mut TestVMLogic) -> MemSlice {
     logic.internal_mem_write(&test_pk())
+}
+
+#[test]
+#[allow(deprecated)]
+fn test_aggregate_accounting() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (memory 0 100)
+              (func (export "main")
+                (memory.copy (i32.const 50) (i32.const 100) (i32.const 25))
+              )
+            )"#,
+        )
+        .gas(10u64.pow(10))
+        .skip_near_vm()
+        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .expects(&[expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 91000008 used gas 91000008
+            Err: PrepareError: Error happened while deserializing the module.
+        "#]],
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 121441980 used gas 121441980
+        "#]]]);
+
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (memory 0 100)
+              (func (export "main")
+                (memory.copy (i32.const 50) (i32.const 100) (i32.const 50))
+              )
+            )"#,
+        )
+        .gas(10u64.pow(10))
+        .skip_near_vm()
+        .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
+        .expects(&[expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 91000008 used gas 91000008
+            Err: PrepareError: Error happened while deserializing the module.
+        "#]],
+        // Gas use here should be roughly double that of the test above!
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 142010880 used gas 142010880
+        "#]]]);
 }
