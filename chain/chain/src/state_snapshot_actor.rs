@@ -8,7 +8,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, EpochHeight, ShardIndex};
-use near_store::flat::FlatStorageManager;
+use near_store::flat::{FlatStorageManager, FlatStorageReshardingStatus, FlatStorageStatus};
 use near_store::{ShardTries, StateSnapshotConfig};
 use std::sync::Arc;
 
@@ -92,6 +92,19 @@ impl StateSnapshotActor {
         };
         let Some(min_height) = min_height else {
             // storage split + catchup is in progress and not all shards have reached the catchup phase yet. Can't proceed
+            let not_ready_shards: Vec<ShardUId> = shard_indexes_and_uids
+                .iter()
+                .filter_map(|(_idx, shard_uid)| {
+                    match self.flat_storage_manager.get_flat_storage_status(*shard_uid) {
+                        FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
+                            _,
+                        )) => None,
+                        FlatStorageStatus::Resharding(_) => Some(*shard_uid),
+                        _ => None,
+                    }
+                })
+                .collect();
+            tracing::debug!(target: "state_snapshot", ?not_ready_shards, "Waiting for resharding: shards not in catchup phase");
             return Ok(true);
         };
         // Proceed if the catchup code is already reasonably close to being finished. This is not a correctness issue,
@@ -99,7 +112,11 @@ impl StateSnapshotActor {
         // some reason lots of deltas to apply (e.g. the sync hash is 1000s of blocks past the start of the epoch because of missed
         // chunks), then we'll duplicate a lot of work that's being done by the resharding catchup code. So we might as well just
         // come back later after most of that work has already been done.
-        Ok(min_height + 10 < min_chunk_prev_height)
+        let should_wait = min_height + 10 < min_chunk_prev_height;
+        if should_wait {
+            tracing::debug!(target: "state_snapshot", min_height, min_chunk_prev_height, "Waiting for resharding catchup");
+        }
+        Ok(should_wait)
     }
 
     pub fn handle_create_snapshot_request(

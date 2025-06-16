@@ -685,7 +685,7 @@ impl TestEnv {
             self.save_tx_outcomes,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
-            self.clients[idx].validator_signer.get().unwrap(),
+            self.clients[idx].validator_signer.clone(),
             self.clients[idx].resharding_sender.clone(),
         )
     }

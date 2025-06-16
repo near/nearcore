@@ -248,6 +248,13 @@ impl ChunkStateWitness {
         }
     }
 
+    pub fn epoch_id(&self) -> &EpochId {
+        match self {
+            ChunkStateWitness::V1(witness) => &witness.epoch_id,
+            ChunkStateWitness::V2(witness) => &witness.epoch_id,
+        }
+    }
+
     pub fn chunk_header(&self) -> &ShardChunkHeader {
         match self {
             ChunkStateWitness::V1(witness) => &witness.chunk_header,

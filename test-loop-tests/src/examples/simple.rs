@@ -68,7 +68,6 @@ fn test_client_with_simple_test_loop() {
 
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let shard_tracker = ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
     let runtime_adapter = NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
@@ -78,6 +77,11 @@ fn test_client_with_simple_test_loop() {
     let validator_signer = MutableConfigValue::new(
         Some(Arc::new(create_test_signer(accounts[0].as_str()))),
         "validator_signer",
+    );
+    let shard_tracker = ShardTracker::new(
+        TrackedShardsConfig::AllShards,
+        epoch_manager.clone(),
+        validator_signer.clone(),
     );
 
     let shards_manager_adapter = LateBoundSender::new();

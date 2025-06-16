@@ -176,7 +176,7 @@ declare the `hello` export:
 
 #![no_std]
 
-extern "C" {
+unsafe extern "C" {
     fn value_return(len: u64, ptr: u64);
 }
 
@@ -241,7 +241,7 @@ Done deploying to alice.test.near
 And, finally, let's call our contract:
 
 ```console
-$ NEAR_ENV=local $near call alice.test.near hello --accountId alice.test.near
+$ NEAR_ENV=local near call alice.test.near hello --accountId alice.test.near
 Scheduling a call: alice.test.near.hello()
 Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL
 Doing account.functionCall()
@@ -257,7 +257,7 @@ the second account is the one that spends tokens. In the following example `bob`
 spends NEAR to call the contact deployed to the `alice` account:
 
 ```console
-$ NEAR_ENV=local $near call alice.test.near hello --accountId bob.test.near
+$ NEAR_ENV=local near call alice.test.near hello --accountId bob.test.near
 Scheduling a call: alice.test.near.hello()
 Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL
 Doing account.functionCall()

@@ -51,7 +51,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use utils::check_transaction_validity_period;
 
-mod latest_witnesses;
+pub mod latest_witnesses;
 mod merkle_proof;
 pub mod utils;
 

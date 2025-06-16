@@ -187,7 +187,8 @@
     "vmtable",
     "winapi",
     "wptype",
-    "xmms"
+    "xmms",
+    "stackful"
   ],
   "import": [
     "../cspell.json"

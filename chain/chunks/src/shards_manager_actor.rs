@@ -2323,14 +2323,18 @@ mod test {
         let epoch_manager = Arc::new(epoch_manager.into_handle());
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_id = shard_layout.shard_ids().next().unwrap();
-        let shard_tracker =
-            ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
+        let validator_signer = mutable_validator_signer(&"test".parse().unwrap());
+        let shard_tracker = ShardTracker::new(
+            TrackedShardsConfig::AllShards,
+            epoch_manager.clone(),
+            validator_signer.clone(),
+        );
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
-            mutable_validator_signer(&"test".parse().unwrap()),
+            validator_signer,
             epoch_manager.clone(),
             epoch_manager,
             shard_tracker,

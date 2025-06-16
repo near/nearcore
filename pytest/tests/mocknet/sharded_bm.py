@@ -436,6 +436,45 @@ def handle_get_profiles(args):
         )
 
 
+def handle_get_profiles(args):
+    args = copy.deepcopy(args)
+
+    # If no host filter is provided, target the first alphabetical cp instance.
+    if args.host_filter is None:
+        machines = sorted(args.forknet_details['cp_instance_names'])
+        machine = machines[0]
+        logger.info(f"Targeting {machine}")
+        args.host_filter = machine
+
+    if not args.skip_setup:
+        upload_args = copy.deepcopy(args)
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        upload_args.src = f"{script_dir}/helpers/get-profile.sh"
+        upload_args.dst = f"{REMOTE_HOME}/get-profile.sh"
+        run_remote_upload_file(CommandContext(upload_args))
+
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.cmd = f"bash {REMOTE_HOME}/get-profile.sh {args.record_secs}"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    for host in CommandContext(args).get_targeted():
+        host_name = host.name()
+        logger.info(f"Downloading profile from {host_name}")
+        scp_cmd = [
+            "gcloud",
+            "compute",
+            "scp",
+            "--project=nearone-mocknet",
+            f"ubuntu@{host_name}:{REMOTE_HOME}/perf.script.gz",
+            f"{args.output_dir}/perf-{host_name}.gz",
+        ]
+        subprocess.run(
+            scp_cmd,
+            check=True,
+        )
+
+
 def handle_start(args):
     """Handle the start command - start the benchmark."""
     start_nodes(args, args.enable_tx_generator)
@@ -533,13 +572,23 @@ def main():
     get_profiles_parser.add_argument(
         '--output-dir',
         default='.',
-        help='Directory to save the profile files (default: current directory)'
+        help='Directory to save the profile files (default: current directory)')
+    get_profiles_parser.add_argument(
+        '--host-filter',
+        default=None,
+        help=
+        'Filter to select specific hosts (default: first alphabetical cp instance)'
     )
     get_profiles_parser.add_argument(
         '--record-secs',
         type=int,
         default=10,
         help='Number of seconds to record the profile (default: 10)')
+    get_profiles_parser.add_argument(
+        '--skip-setup',
+        action='store_true',
+        default=False,
+        help='Skip the setup of the profile script on the nodes')
 
     args = parser.parse_args()
 

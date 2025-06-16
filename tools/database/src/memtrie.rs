@@ -188,6 +188,7 @@ impl SplitShardTrieCommand {
         let shard_tracker = ShardTracker::new(
             near_config.client_config.tracked_shards_config.clone(),
             epoch_manager.clone(),
+            near_config.validator_signer.clone(),
         );
         let my_account_id = near_config.validator_signer.get().map(|v| v.validator_id().clone());
         let resharding_manager =
