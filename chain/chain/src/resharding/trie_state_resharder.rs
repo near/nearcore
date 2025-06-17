@@ -162,29 +162,32 @@ impl TrieStateResharder {
             child_shard_uid
         );
 
-        // If the child shard does not have memtries, we cannot proceed with resharding.
-        let locked = trie.lock_for_iter();
-        let mut iter = locked.iter()?;
-        if let Some(seek_key) = seek_key {
-            // If seek_key is provided, this will prepare the iterator to continue from where it left off.
-            // Note this will not record any trie nodes to the recorder.
-            iter.seek(Bound::Excluded(seek_key))?;
-        }
-
-        // During iteration, the trie nodes will be recorded to the recorder, so we
-        // don't need to care about the value explicitly. If we reach the batch
-        // size, we stop iterating, and remember the key to continue from in the
-        // next batch.
-        let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
-        let mut next_key: Option<Vec<u8>> = None;
-        for item in iter {
-            let (key, _val) = item?; // Handle StorageError
-            let stats = trie.recorder_stats().expect("trie recorder stats should be available");
-            if stats.total_size >= batch_size {
-                next_key = Some(key);
-                break;
+        let next_key = {
+            // If the child shard does not have memtries, we cannot proceed with resharding.
+            let locked = trie.lock_for_iter();
+            let mut iter = locked.iter()?;
+            if let Some(seek_key) = seek_key {
+                // If seek_key is provided, this will prepare the iterator to continue from where
+                // it left off. Note this will not record any trie nodes to the recorder.
+                iter.seek(Bound::Excluded(seek_key))?;
             }
-        }
+
+            // During iteration, the trie nodes will be recorded to the recorder, so we
+            // don't need to care about the value explicitly. If we reach the batch
+            // size, we stop iterating, and remember the key to continue from in the
+            // next batch.
+            let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
+            let mut next_key: Option<Vec<u8>> = None;
+            for item in iter {
+                let (key, _val) = item?; // Handle StorageError
+                let stats = trie.recorder_stats().expect("trie recorder stats should be available");
+                if stats.total_size >= batch_size {
+                    next_key = Some(key);
+                    break;
+                }
+            }
+            next_key
+        };
 
         // Take the recorded trie changes and apply them to the State column of the child shard.
         let trie_changes =
