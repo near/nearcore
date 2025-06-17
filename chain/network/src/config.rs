@@ -430,7 +430,6 @@ impl NetworkConfig {
                 peer_id: PeerId::new(node_key.public_key()),
             }]),
         };
-        let tier1 = Tier1Config::default().into();
 
         NetworkConfig {
             node_addr: Some(node_addr),
@@ -473,7 +472,7 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             routing_table_update_rate_limit: rate::Limit { qps: 10., burst: 1 },
-            tier1: Some(Tier1 {
+            tier1: Tier1 {
                 // Interval is very large, so that it doesn't happen spontaneously in tests.
                 // It should rather be triggered manually in tests.
                 connect_interval: time::Duration::hours(1000),
@@ -481,7 +480,7 @@ impl NetworkConfig {
                 advertise_proxies_interval: time::Duration::hours(1000),
                 enable_inbound: true,
                 enable_outbound: true,
-            }),
+            },
             skip_tombstones: None,
             received_messages_rate_limits: messages_limits::Config::default(),
             #[cfg(test)]
