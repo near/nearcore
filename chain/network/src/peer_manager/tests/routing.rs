@@ -920,12 +920,9 @@ async fn ttl_and_num_hops() {
             pm.events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::RoutedMessageDropped) => Some(()),
-                    thing => {
-                        tracing::warn!("qqp thing 1: {:?}", thing);
-                        None
-                    }
+                    _ => None,
                 })
-                .await
+                .await;
         } else {
             let got = peer
                 .events
