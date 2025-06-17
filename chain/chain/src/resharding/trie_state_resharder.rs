@@ -111,6 +111,12 @@ impl TrieStateResharder {
             child_shard_uid = ?child.shard_uid,
         )
         .entered();
+        tracing::trace!(
+            target: "resharding",
+            "Processing batch for child shard {} with state root {}",
+            child.shard_uid,
+            child.state_root
+        );
 
         let mut store_update = self.runtime.store().store_update();
         let next_key = self.next_batch(
