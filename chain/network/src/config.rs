@@ -389,15 +389,7 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             routing_table_update_rate_limit: rate::Limit { qps: 1., burst: 1 },
-            tier1: Tier1 {
-                // Interval is very large, so that it doesn't happen spontaneously in tests.
-                // It should rather be triggered manually in tests.
-                connect_interval: time::Duration::hours(1000),
-                new_connections_per_attempt: 10000,
-                advertise_proxies_interval: time::Duration::hours(1000),
-                enable_inbound: true,
-                enable_outbound: true,
-            },
+            tier1,
             inbound_disabled: cfg.experimental.inbound_disabled,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
                 Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
@@ -472,7 +464,15 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             routing_table_update_rate_limit: rate::Limit { qps: 10., burst: 1 },
-            tier1: None,
+            tier1: Some(Tier1 {
+                // Interval is very large, so that it doesn't happen spontaneously in tests.
+                // It should rather be triggered manually in tests.
+                connect_interval: time::Duration::hours(1000),
+                new_connections_per_attempt: 10000,
+                advertise_proxies_interval: time::Duration::hours(1000),
+                enable_inbound: true,
+                enable_outbound: true,
+            }),
             skip_tombstones: None,
             received_messages_rate_limits: messages_limits::Config::default(),
             #[cfg(test)]
