@@ -712,6 +712,29 @@ def clear_scheduled_cmds(ctx: CommandContext):
     cmd = f'systemctl --user stop "{filter}"'
     _run_remote(targeted, cmd)
 
+def create_snapshot(ctx: CommandContext):
+    dev = ctx.nodes[0]
+    cmd = f'sudo mkdir -p /mnt/btrfs-root; mountpoint -q /mnt/btrfs-root || sudo mount -o subvol=/ /dev/sdb /mnt/btrfs-root; sudo btrfs subvolume snapshot -r /mnt/btrfs-root/old /mnt/btrfs-root/$BACKUP"
+'
+
+def restore_snapshot(ctx: CommandContext):
+    pass
+
+def list_snapshots(ctx: CommandContext):
+    pass
+
+def delete_snapshot(ctx: CommandContext):
+    pass
+
+def snapshot_cmd(ctx: CommandContext):
+    if ctx.args.create:
+        create_snapshot(ctx)
+    elif ctx.args.restore:
+        restore_snapshot(ctx)
+    elif ctx.args.list:
+        list_snapshots(ctx)
+    elif ctx.args.delete:
+        delete_snapshot(ctx)
 
 class ParseFraction(Action):
 
@@ -883,6 +906,18 @@ def register_base_commands(subparsers):
     upload_file_parser.add_argument('--dst', type=str)
     upload_file_parser.set_defaults(func=run_remote_upload_file)
 
+def add_snapshot_parser(subparsers):
+    snapshot_parser = subparsers.add_parser('snapshot', help='Manage snapshots')
+    snapshot_parser.add_argument('--snapshot-id', type=str, help='Name of the snapshot')
+    
+    snapshot_group = snapshot_parser.add_mutually_exclusive_group()
+    snapshot_group.add_argument('--create', action='store_true', help='Create a snapshot')
+    snapshot_group.add_argument('--restore', action='store_true', help='Restore a snapshot')
+    snapshot_group.add_argument('--list', action='store_true', help='List all snapshots')
+    snapshot_group.add_argument('--delete', action='store_true', help='Delete a snapshot')
+  
+    snapshot_parser.set_defaults(func=snapshot_cmd)
+
 
 def register_subcommands(subparsers):
     """
@@ -1006,6 +1041,8 @@ def register_subcommands(subparsers):
     env_cmd_parser.add_argument('--clear-all', action='store_true')
     env_cmd_parser.add_argument('--key-value', type=str, nargs='+')
     env_cmd_parser.set_defaults(func=run_env_cmd)
+
+    add_snapshot_parser(subparsers)
 
 
 if __name__ == '__main__':
