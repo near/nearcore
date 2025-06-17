@@ -28,7 +28,8 @@ jobs:
           - name: Intel Linux Ubuntu
             os: warp-ubuntu-2204-x64-16x
           - name: ARM Linux Ubuntu
-            os: warp-ubuntu-2204-arm64-16x
+            # os: warp-ubuntu-2204-arm64-16x
+            os: ubuntu-22.04-arm
           
     environment: deploy
     permissions:
@@ -53,9 +54,6 @@ jobs:
         # In case of master branch we want to checkout with depth 1
         if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
         uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: hecrj/setup-rust-action@v2
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
