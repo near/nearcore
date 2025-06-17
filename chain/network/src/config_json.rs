@@ -238,6 +238,10 @@ fn default_tier1_new_connections_per_attempt() -> u64 {
     50
 }
 
+fn default_tier1_advertise_proxies_interval() -> time::Duration {
+    time::Duration::minutes(15)
+}
+
 /// Configuration for Tier1 network
 ///
 /// Tier1 network is a special network between validator nodes that provides faster
@@ -260,15 +264,23 @@ pub struct Tier1Config {
     /// Maximal number of new connections established every connect_interval
     #[serde(default = "default_tier1_new_connections_per_attempt")]
     pub new_connections_per_attempt: u64,
+
+    /// Interval between broadcasts of the list of validator's proxies. Before
+    /// the broadcast, validator tries to establish all the missing connections
+    /// to proxies.
+    #[serde(default = "default_tier1_advertise_proxies_interval")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
+    pub advertise_proxies_interval: time::Duration,
 }
 
 impl Default for Tier1Config {
     fn default() -> Self {
-        Self {
+        Tier1Config {
             enable_inbound: default_tier1_enable_inbound(),
             enable_outbound: default_tier1_enable_outbound(),
             connect_interval: default_tier1_connect_interval(),
             new_connections_per_attempt: default_tier1_new_connections_per_attempt(),
+            advertise_proxies_interval: default_tier1_advertise_proxies_interval(),
         }
     }
 }
