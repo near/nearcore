@@ -473,9 +473,9 @@ class BaseNode(object):
     def get_changes_in_block(self, changes_in_block_request):
         return self.json_rpc('EXPERIMENTAL_changes_in_block',
                              changes_in_block_request)
-
+    
     def get_changes(self, changes_request):
-        return self.json_rpc('EXPERIMENTAL_changes', changes_request)
+        return self.json_rpc('changes', changes_request)
 
     def validators(self):
         return set(
