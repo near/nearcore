@@ -530,7 +530,7 @@ impl Handler<BlockResponse> for ClientActorInner {
             || blocks_at_height.as_ref().unwrap().is_empty()
         {
             // This is a very sneaky piece of logic.
-            if self.maybe_receive_state_sync_blocks(&block) {
+            if self.maybe_receive_state_sync_blocks(Arc::clone(&block)) {
                 // A node is syncing its state. Don't consider receiving
                 // blocks other than the few special ones that State Sync expects.
                 return;
@@ -1339,7 +1339,7 @@ impl ClientActorInner {
         // If we produced the block, send it out before we apply the block.
         self.client.chain.blocks_delay_tracker.mark_block_received(&block);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::Block { block: block.clone() },
+            NetworkRequests::Block { block: Arc::clone(&block) },
         ));
         // We’ve produced the block so that counts as validated block.
         let block = MaybeValidated::from_validated(block);
@@ -1740,7 +1740,7 @@ impl ClientActorInner {
     /// - Extra blocks before the prev block needed for incoming receipts
     ///
     /// Returns whether the node is syncing its state.
-    fn maybe_receive_state_sync_blocks(&mut self, block: &Block) -> bool {
+    fn maybe_receive_state_sync_blocks(&mut self, block: Arc<Block>) -> bool {
         let SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) =
             self.client.sync_handler.sync_status
         else {
@@ -1751,7 +1751,7 @@ impl ClientActorInner {
             return true;
         };
 
-        let block: MaybeValidated<Block> = (*block).clone().into();
+        let block: MaybeValidated<Arc<Block>> = Arc::clone(&block).into();
         let block_hash = *block.hash();
 
         // Notice that the blocks are saved differently:
@@ -1860,7 +1860,7 @@ impl ClientActorInner {
         let signer = self.client.validator_signer.get();
         let mut blocks_produced = 0;
         for height in start_height.. {
-            let block: Option<Block> = if is_based_on_current_head {
+            let block = if is_based_on_current_head {
                 self.client.produce_block(height).expect("block should be produced")
             } else {
                 let prev_block_hash = self

@@ -104,7 +104,7 @@ struct StateWitnessBlockRange {
     /// Blocks from the last last new chunk (exclusive) to the last new chunk
     /// (inclusive). Note they are in **reverse** order, from the newest to the
     /// oldest. They are needed to validate the chunk's source receipt proofs.
-    blocks_after_last_last_chunk: Vec<Block>,
+    blocks_after_last_last_chunk: Vec<Arc<Block>>,
     /// Shard layout for the last chunk before the chunk being validated.
     last_chunk_shard_layout: ShardLayout,
     /// Shard id of the last chunk before the chunk being validated.
@@ -142,7 +142,7 @@ fn get_state_witness_block_range(
         /// currently observed block.
         shard_id: ShardId,
         /// Previous block.
-        prev_block: Block,
+        prev_block: Arc<Block>,
         /// Number of new chunks seen during traversal.
         num_new_chunks_seen: u32,
         /// Current candidate shard layout of last chunk before the chunk being
@@ -399,7 +399,7 @@ pub fn pre_validate_chunk_state_witness(
 fn validate_source_receipt_proofs(
     epoch_manager: &dyn EpochManagerAdapter,
     source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
-    receipt_source_blocks: &[Block],
+    receipt_source_blocks: &[Arc<Block>],
     target_shard_layout: ShardLayout,
     target_chunk_shard_id: ShardId,
 ) -> Result<Vec<Receipt>, Error> {

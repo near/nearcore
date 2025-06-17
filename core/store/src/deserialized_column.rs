@@ -56,6 +56,13 @@ impl Cache {
                 | DBCol::BlockHeader
                 | DBCol::BlockHeight
                 | DBCol::BlockMisc => ColumnCache::new(512),
+                // Block cache is mostly beneficial for the RPC node which needs to check the block
+                // for each transaction it receives.
+                //
+                // The cache isn't particularly large – it is expected that the block referenced in
+                // the transaction isn't going to be very old most of the time.
+                | DBCol::Block => ColumnCache::new(32),
+                | DBCol::ChunkExtra => ColumnCache::new(1024),
                 _ => ColumnCache::disabled(),
             },
         }

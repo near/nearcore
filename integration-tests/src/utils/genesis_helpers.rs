@@ -10,6 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
+use std::sync::Arc;
 use tempfile::tempdir;
 
 /// Compute genesis hash from genesis.
@@ -45,7 +46,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
 }
 
 /// Utility to generate genesis header from config for testing purposes.
-pub fn genesis_block(genesis: &Genesis) -> Block {
+pub fn genesis_block(genesis: &Genesis) -> Arc<Block> {
     let dir = tempdir().unwrap();
     let store = create_test_store();
     initialize_genesis_state(store.clone(), genesis, None);

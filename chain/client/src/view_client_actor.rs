@@ -268,7 +268,7 @@ impl ViewClientActorInner {
     fn get_block_by_reference(
         &self,
         reference: &BlockReference,
-    ) -> Result<Option<Block>, near_chain::Error> {
+    ) -> Result<Option<Arc<Block>>, near_chain::Error> {
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_block_by_height(*block_height).map(Some)
@@ -281,7 +281,7 @@ impl ViewClientActorInner {
                 .and_then(|block_hash| self.chain.get_block(&block_hash))
                 .map(Some),
             BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis) => {
-                Ok(Some(self.chain.genesis_block().clone()))
+                Ok(Some(self.chain.genesis_block().into()))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
                 let block_hash = match self.chain.get_earliest_block_hash()? {
@@ -725,7 +725,7 @@ impl Handler<GetBlock> for ViewClientActorInner {
             .epoch_manager
             .get_block_producer(block.header().epoch_id(), block.header().height())
             .into_chain_error()?;
-        Ok(BlockView::from_author_block(block_author, block))
+        Ok(BlockView::from_author_block(block_author, &block))
     }
 }
 
@@ -749,7 +749,7 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActorInner {
 }
 
 fn get_chunk_from_block(
-    block: Block,
+    block: &Block,
     shard_id: ShardId,
     chain: &Chain,
 ) -> Result<ShardChunk, near_chain::Error> {
@@ -784,11 +784,11 @@ impl Handler<GetShardChunk> for ViewClientActorInner {
             }
             GetShardChunk::BlockHash(block_hash, shard_id) => {
                 let block = self.chain.get_block(&block_hash)?;
-                Ok(get_chunk_from_block(block, shard_id, &self.chain)?)
+                Ok(get_chunk_from_block(&block, shard_id, &self.chain)?)
             }
             GetShardChunk::Height(height, shard_id) => {
                 let block = self.chain.get_block_by_height(height)?;
-                Ok(get_chunk_from_block(block, shard_id, &self.chain)?)
+                Ok(get_chunk_from_block(&block, shard_id, &self.chain)?)
             }
         }
     }
@@ -808,11 +808,11 @@ impl Handler<GetChunk> for ViewClientActorInner {
             }
             GetChunk::BlockHash(block_hash, shard_id) => {
                 let block = self.chain.get_block(&block_hash)?;
-                get_chunk_from_block(block, shard_id, &self.chain)?
+                get_chunk_from_block(&block, shard_id, &self.chain)?
             }
             GetChunk::Height(height, shard_id) => {
                 let block = self.chain.get_block_by_height(height)?;
-                get_chunk_from_block(block, shard_id, &self.chain)?
+                get_chunk_from_block(&block, shard_id, &self.chain)?
             }
         };
 
@@ -1301,12 +1301,12 @@ impl Handler<TxStatusResponse> for ViewClientActorInner {
 
 impl Handler<BlockRequest> for ViewClientActorInner {
     #[perf]
-    fn handle(&mut self, msg: BlockRequest) -> Option<Box<Block>> {
+    fn handle(&mut self, msg: BlockRequest) -> Option<Arc<Block>> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["BlockRequest"]).start_timer();
         let BlockRequest(hash) = msg;
-        if let Ok(block) = self.chain.get_block(&hash) { Some(Box::new(block)) } else { None }
+        if let Ok(block) = self.chain.get_block(&hash) { Some(block) } else { None }
     }
 }
 

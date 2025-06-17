@@ -90,7 +90,7 @@ pub trait ChainStoreAccess {
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error>;
+    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
@@ -865,7 +865,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
+    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         ChainStoreAdapter::get_block(self, h)
     }
 
@@ -997,7 +997,7 @@ impl ChainStoreAccess for ChainStore {
 /// Cache update for ChainStore
 #[derive(Default)]
 pub(crate) struct ChainStoreCacheUpdate {
-    block: Option<Block>,
+    block: Option<Arc<Block>>,
     headers: HashMap<CryptoHash, Arc<BlockHeader>>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, Arc<ArcedShardChunk>>,
@@ -1149,10 +1149,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
+    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         if let Some(block) = &self.chain_store_cache_update.block {
             if block.hash() == h {
-                return Ok(block.clone());
+                return Ok(Arc::clone(block));
             }
         }
         self.chain_store.get_block(h)
@@ -1488,7 +1488,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Save block.
-    pub fn save_block(&mut self, block: Block) {
+    pub fn save_block(&mut self, block: Arc<Block>) {
         debug_assert!(self.chain_store_cache_update.block.is_none());
         self.chain_store_cache_update.block = Some(block);
     }
@@ -1498,11 +1498,9 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
-        chunk_extra: ChunkExtra,
+        chunk_extra: Arc<ChunkExtra>,
     ) {
-        self.chain_store_cache_update
-            .chunk_extras
-            .insert((*block_hash, *shard_uid), Arc::new(chunk_extra));
+        self.chain_store_cache_update.chunk_extras.insert((*block_hash, *shard_uid), chunk_extra);
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
