@@ -439,7 +439,7 @@ with <code>http</code> is going to be cumbersome though — transactions are bor
 to bytes, then signed, then encoded in base64 for JSON.</p>
 <p>So we will use the official <a href="https://docs.near.org/tools/near-cli">NEAR CLI</a> utility.</p>
 <p>Install it via <code>npm</code>:</p>
-<pre><code class="language-console">$ npm install -g near-cli
+<pre><code class="language-console">$ npm install -g near-cli@3.4.2
 $ near -h
 Usage: near &lt;command&gt; [options]
 
@@ -520,7 +520,7 @@ binary we've built from source. The steps are:</p>
 <li>Create configs with <code>cargo run --profile dev-release -p neard -- init</code></li>
 <li>Run the node with <code>cargo run --profile dev-release -p neard -- run</code></li>
 <li>Poke the node with <code>httpie</code> or</li>
-<li>Install <code>near-cli</code> via <code>npm install -g near-cli</code></li>
+<li>Install <code>near-cli</code> via <code>npm install -g near-cli@3.4.2</code></li>
 <li>Submit transactions via <code>NEAR_ENV=local near create-account ...</code></li>
 </ul>
 <p>In the <a href="./deploy_a_contract.html">next chapter</a>, we'll learn how to deploy a simple
