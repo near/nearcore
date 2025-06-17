@@ -34,6 +34,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
           aws-region: us-west-1
+          role-duration-seconds: 7200
           
       - name: Checkout nearcore release
         # for release events we need to checkout all branches to be able to determine
