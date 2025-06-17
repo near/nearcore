@@ -1,6 +1,5 @@
 use crate::blacklist;
 use crate::concurrency::rate;
-use crate::config_json::Tier1Config;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_store;
@@ -104,18 +103,6 @@ pub struct Tier1 {
     pub enable_outbound: bool,
 }
 
-impl From<Tier1Config> for Tier1 {
-    fn from(cfg: Tier1Config) -> Self {
-        Self {
-            connect_interval: cfg.connect_interval,
-            new_connections_per_attempt: cfg.new_connections_per_attempt,
-            advertise_proxies_interval: cfg.advertise_proxies_interval,
-            enable_inbound: cfg.enable_inbound,
-            enable_outbound: cfg.enable_outbound,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct SocketOptions {
     pub recv_buffer_size: Option<u32>,
@@ -197,7 +184,7 @@ pub struct NetworkConfig {
     /// Maximal rate at which RoutingTable can be recomputed.
     pub routing_table_update_rate_limit: rate::Limit,
     /// Config of the TIER1 network.
-    pub tier1: Tier1,
+    pub tier1: Option<Tier1>,
 
     // Whether to ignore tombstones some time after startup.
     //
@@ -329,7 +316,13 @@ impl NetworkConfig {
             .collect::<blacklist::Blacklist>();
 
         // Configure Tier1 network
-        let tier1 = cfg.tier1.into();
+        let tier1 = Some(Tier1 {
+            connect_interval: cfg.tier1.connect_interval,
+            new_connections_per_attempt: cfg.tier1.new_connections_per_attempt,
+            advertise_proxies_interval: time::Duration::minutes(15),
+            enable_inbound: cfg.tier1.enable_inbound,
+            enable_outbound: cfg.tier1.enable_outbound,
+        });
 
         let mut this = Self {
             node_addr,
@@ -430,8 +423,6 @@ impl NetworkConfig {
                 peer_id: PeerId::new(node_key.public_key()),
             }]),
         };
-        let tier1 = Tier1Config::default().into();
-
         NetworkConfig {
             node_addr: Some(node_addr),
             node_key,
@@ -473,7 +464,7 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             routing_table_update_rate_limit: rate::Limit { qps: 10., burst: 1 },
-            tier1,
+            tier1: None,
             skip_tombstones: None,
             received_messages_rate_limits: messages_limits::Config::default(),
             #[cfg(test)]
