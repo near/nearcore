@@ -1101,18 +1101,6 @@ pub struct RoutedMessageV3 {
 }
 
 impl RoutedMessageV3 {
-    pub fn build_hash(
-        target: &PeerIdOrHash,
-        source: &PeerId,
-        body: &TieredMessageBody,
-    ) -> CryptoHash {
-        CryptoHash::hash_borsh((target, source, body))
-    }
-
-    pub fn hash(&self) -> CryptoHash {
-        RoutedMessageV3::build_hash(&self.target, &self.author, &self.body)
-    }
-
     pub fn hash_tiered(&self) -> CryptoHash {
         let routed = RoutedMessageBody::from(self.body.clone());
         CryptoHash::hash_borsh(RoutedMessageNoSignature {
@@ -1149,7 +1137,6 @@ impl RoutedMessageV3 {
 impl From<RoutedMessageV1> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV1) -> Self {
         let body = TieredMessageBody::from_routed(msg.body);
-        // let signature = if body.is_t1() { None } else { Some(msg.signature) };
         Self {
             target: msg.target,
             author: msg.author,
@@ -1165,7 +1152,6 @@ impl From<RoutedMessageV1> for RoutedMessageV3 {
 impl From<RoutedMessageV2> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV2) -> Self {
         let body = TieredMessageBody::from_routed(msg.msg.body);
-        // let signature = if body.is_t1() { None } else { Some(msg.msg.signature) };
         Self {
             target: msg.msg.target,
             author: msg.msg.author,
@@ -1229,8 +1215,7 @@ impl RoutedMessage {
     pub fn msg(&self) -> &RoutedMessageV3 {
         // Old versions should be upgraded to V3.
         match self {
-            RoutedMessage::V1(_) => panic!("QQP Should be upgraded to V3"),
-            RoutedMessage::V2(_) => panic!("QQP Should be upgraded to V3"),
+            RoutedMessage::V1(_) | RoutedMessage::V2(_) => unreachable!(),
             RoutedMessage::V3(msg) => msg,
         }
     }
@@ -1262,8 +1247,7 @@ impl RoutedMessage {
     pub fn body(&self) -> &TieredMessageBody {
         // Old versions should be upgraded to V3.
         match self {
-            RoutedMessage::V1(_) => panic!("QQP Should be upgraded to V3"),
-            RoutedMessage::V2(_) => panic!("QQP Should be upgraded to V3"),
+            RoutedMessage::V1(_) | RoutedMessage::V2(_) => unreachable!(),
             RoutedMessage::V3(msg) => &msg.body,
         }
     }
@@ -1324,7 +1308,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => msg.hash(),
             RoutedMessage::V2(msg) => msg.msg.hash(),
-            RoutedMessage::V3(msg) => msg.hash(),
+            RoutedMessage::V3(msg) => msg.hash_tiered(),
         }
     }
 
@@ -1571,16 +1555,6 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessage {
         let author = PeerId::new(node_key.public_key());
-        // let signature = match &self.body {
-        //     TieredMessageBody::T1(_) => None,
-        //     TieredMessageBody::T2(_body) => {
-        //         let body = RoutedMessageBody::from(self.body.clone());
-        //         let hash = RoutedMessage::build_hash(&self.target, &author, &body);
-        //         let signature = node_key.sign(hash.as_ref());
-        //         Some(signature)
-        //     }
-        // };
-
         let body = RoutedMessageBody::from(self.body.clone());
         let hash = RoutedMessage::build_hash(&self.target, &author, &body);
         let signature = node_key.sign(hash.as_ref());
