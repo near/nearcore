@@ -132,7 +132,7 @@ impl Chain {
             *genesis.header().random_value(),
         )?);
         store_update.save_block_header(genesis.header().clone())?;
-        store_update.save_block(genesis.clone());
+        store_update.save_block(genesis.clone().into());
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;
 
         let block_head = Tip::from_header(genesis.header());
@@ -242,7 +242,7 @@ impl Chain {
             store_update.save_chunk_extra(
                 genesis.hash(),
                 &shard_id_to_uid(epoch_manager, chunk_header.shard_id(), &EpochId::default())?,
-                chunk_extra,
+                chunk_extra.into(),
             );
         }
         Ok(())

@@ -104,7 +104,7 @@ struct StateWitnessBlockRange {
     /// Blocks from the last last new chunk (exclusive) to the last new chunk
     /// (inclusive). Note they are in **reverse** order, from the newest to the
     /// oldest. They are needed to validate the chunk's source receipt proofs.
-    blocks_after_last_last_chunk: Vec<Block>,
+    blocks_after_last_last_chunk: Vec<Arc<Block>>,
     /// Shard layout for the last chunk before the chunk being validated.
     last_chunk_shard_layout: ShardLayout,
     /// Shard id of the last chunk before the chunk being validated.
@@ -142,7 +142,7 @@ fn get_state_witness_block_range(
         /// currently observed block.
         shard_id: ShardId,
         /// Previous block.
-        prev_block: Block,
+        prev_block: Arc<Block>,
         /// Number of new chunks seen during traversal.
         num_new_chunks_seen: u32,
         /// Current candidate shard layout of last chunk before the chunk being
@@ -195,12 +195,9 @@ fn get_state_witness_block_range(
             // If we have seen 0 chunks, the block contributes to implicit
             // state transition.
             0 => {
-                let block_context = Chain::get_apply_chunk_block_context(
-                    &position.prev_block,
-                    &store.get_block_header(&prev_prev_hash)?,
-                    false,
-                )?;
-
+                let header = store.get_block_header(&prev_prev_hash)?;
+                let block_context =
+                    Chain::get_apply_chunk_block_context(&position.prev_block, &header, false)?;
                 implicit_transition_params
                     .push(ImplicitTransitionParams::ApplyOldChunk(block_context, shard_uid));
             }
@@ -354,7 +351,7 @@ pub fn pre_validate_chunk_state_witness(
         } else {
             let prev_block_header =
                 store.get_block_header(last_chunk_block.header().prev_hash())?;
-            let check = chain.transaction_validity_check(prev_block_header);
+            let check = chain.transaction_validity_check(BlockHeader::clone(&prev_block_header));
             state_witness.transactions().iter().map(|t| check(t)).collect::<Vec<_>>()
         }
     };
@@ -378,15 +375,12 @@ pub fn pre_validate_chunk_state_witness(
             state_witness.transactions().clone(),
             transaction_validity_check_results,
         );
+        let header = store.get_block_header(last_chunk_block.header().prev_hash())?;
         MainTransition::NewChunk(NewChunkData {
             chunk_header: last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().clone(),
             transactions,
             receipts: receipts_to_apply,
-            block: Chain::get_apply_chunk_block_context(
-                last_chunk_block,
-                &store.get_block_header(last_chunk_block.header().prev_hash())?,
-                true,
-            )?,
+            block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true)?,
             storage_context: StorageContext {
                 storage_data_source: StorageDataSource::Recorded(PartialStorage {
                     nodes: state_witness.main_state_transition().base_state.clone(),
@@ -405,7 +399,7 @@ pub fn pre_validate_chunk_state_witness(
 fn validate_source_receipt_proofs(
     epoch_manager: &dyn EpochManagerAdapter,
     source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
-    receipt_source_blocks: &[Block],
+    receipt_source_blocks: &[Arc<Block>],
     target_shard_layout: ShardLayout,
     target_chunk_shard_id: ShardId,
 ) -> Result<Vec<Receipt>, Error> {
@@ -604,7 +598,7 @@ pub fn validate_chunk_state_witness_impl(
             block_hash,
             ChunkStateWitnessValidationResult {
                 chunk_extra: chunk_extra.clone(),
-                outgoing_receipts: outgoing_receipts,
+                outgoing_receipts,
             },
         );
     }

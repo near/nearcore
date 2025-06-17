@@ -75,16 +75,17 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                             .unwrap()
                             .account_and_stake();
                         let validator_signer = create_test_signer(bp.as_str());
+                        let mut_block = Arc::make_mut(&mut block);
                         match mode {
                             InvalidBlockMode::InvalidHeader => {
                                 // produce an invalid block with invalid header.
-                                block.mut_header().set_chunk_mask(vec![]);
-                                block.mut_header().resign(&validator_signer);
+                                mut_block.mut_header().set_chunk_mask(vec![]);
+                                mut_block.mut_header().resign(&validator_signer);
                             }
                             InvalidBlockMode::IllFormed => {
                                 // produce an ill-formed block
-                                block.mut_header().set_chunk_headers_root(hash(&[1]));
-                                block.mut_header().resign(&validator_signer);
+                                mut_block.mut_header().set_chunk_headers_root(hash(&[1]));
+                                mut_block.mut_header().resign(&validator_signer);
                             }
                             InvalidBlockMode::InvalidBlock => {
                                 // produce an invalid block whose invalidity cannot be verified by just
@@ -95,8 +96,8 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                     0,
                                 )];
 
-                                block.mut_header().set_prev_validator_proposals(proposals);
-                                block.mut_header().resign(&validator_signer);
+                                mut_block.mut_header().set_prev_validator_proposals(proposals);
+                                mut_block.mut_header().resign(&validator_signer);
                             }
                         }
                     }
