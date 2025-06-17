@@ -28,8 +28,7 @@ jobs:
           - name: Intel Linux Ubuntu
             os: warp-ubuntu-2204-x64-16x
           - name: ARM Linux Ubuntu
-            # os: warp-ubuntu-2204-arm64-16x
-            os: ubuntu-22.04-arm
+            os: warp-ubuntu-2404-arm64-16x
           
     environment: deploy
     permissions:
