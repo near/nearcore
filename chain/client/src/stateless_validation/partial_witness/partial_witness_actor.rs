@@ -206,8 +206,8 @@ impl PartialWitnessActor {
             target: "client",
             "distribute_chunk_state_witness",
             chunk_hash=?state_witness.chunk_header().chunk_hash(),
-            height=?state_witness.chunk_header().height_created(),
-            shard_id=?state_witness.chunk_header().shard_id(),
+            height=state_witness.chunk_header().height_created(),
+            shard_id=%state_witness.chunk_header().shard_id(),
             tag_block_production=true,
         )
         .entered();
