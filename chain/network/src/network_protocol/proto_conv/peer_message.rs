@@ -121,7 +121,7 @@ impl From<&BlockHeader> for proto::BlockHeader {
 
 pub type ParseBlockHeaderError = std::io::Error;
 
-impl TryFrom<&proto::BlockHeader> for BlockHeader {
+impl TryFrom<&proto::BlockHeader> for Arc<BlockHeader> {
     type Error = ParseBlockHeaderError;
     fn try_from(x: &proto::BlockHeader) -> Result<Self, Self::Error> {
         Self::try_from_slice(&x.borsh)
@@ -138,7 +138,7 @@ impl From<&Block> for proto::Block {
 
 pub type ParseBlockError = std::io::Error;
 
-impl TryFrom<&proto::Block> for Block {
+impl TryFrom<&proto::Block> for Arc<Block> {
     type Error = ParseBlockError;
     fn try_from(x: &proto::Block) -> Result<Self, Self::Error> {
         Self::try_from_slice(&x.borsh)
@@ -315,7 +315,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 }
                 PeerMessage::BlockHeaders(bhs) => {
                     ProtoMT::BlockHeadersResponse(proto::BlockHeadersResponse {
-                        block_headers: bhs.iter().map(Into::into).collect(),
+                        block_headers: bhs.iter().map(|b| b.as_ref().into()).collect(),
                         ..Default::default()
                     })
                 }
@@ -324,7 +324,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Block(b) => ProtoMT::BlockResponse(proto::BlockResponse {
-                    block: MF::some(b.into()),
+                    block: MF::some(b.as_ref().into()),
                     ..Default::default()
                 }),
                 PeerMessage::OptimisticBlock(ob) => ProtoMT::OptimisticBlock(ob.into()),

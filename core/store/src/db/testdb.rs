@@ -5,10 +5,9 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
-use crate::{DBCol, StoreStatistics};
+use crate::{DBCol, StoreStatistics, deserialized_column};
 
 /// An in-memory database intended for tests and IO-agnostic estimations.
-#[derive(Default)]
 pub struct TestDB {
     // In order to ensure determinism when iterating over column's results
     // a BTreeMap is used since it is an ordered map. A HashMap would
@@ -19,6 +18,18 @@ pub struct TestDB {
     // The TestDB doesn't produce any stats on its own, it's up to the user of
     // this class to set the stats as they need it.
     stats: RwLock<Option<StoreStatistics>>,
+
+    cache: Arc<deserialized_column::Cache>,
+}
+
+impl Default for TestDB {
+    fn default() -> Self {
+        Self {
+            db: Default::default(),
+            stats: Default::default(),
+            cache: deserialized_column::Cache::enabled().into(),
+        }
+    }
 }
 
 impl TestDB {
@@ -155,5 +166,9 @@ impl Database for TestDB {
             copy.stats.write().clone_from(&self.stats.read());
         }
         Some(Arc::new(copy))
+    }
+
+    fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
+        Arc::clone(&self.cache)
     }
 }

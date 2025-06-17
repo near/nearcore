@@ -36,6 +36,7 @@ use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
 use super::drop_condition::ClientToShardsManagerSender;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
+#[allow(clippy::large_stack_frames)]
 pub fn setup_client(
     identifier: &str,
     test_loop: &mut TestLoopV2,
@@ -81,8 +82,6 @@ pub fn setup_client(
         &genesis.config,
         epoch_config_store.clone(),
     );
-    let shard_tracker =
-        ShardTracker::new(client_config.tracked_shards_config.clone(), epoch_manager.clone());
 
     let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
     let runtime_adapter = NightshadeRuntime::test_with_trie_config(
@@ -113,6 +112,11 @@ pub fn setup_client(
     let validator_signer = MutableConfigValue::new(
         Some(Arc::new(create_test_signer(account_id.as_str()))),
         "validator_signer",
+    );
+    let shard_tracker = ShardTracker::new(
+        client_config.tracked_shards_config.clone(),
+        epoch_manager.clone(),
+        validator_signer.clone(),
     );
 
     let shards_manager_adapter = LateBoundSender::new();
@@ -154,30 +158,32 @@ pub fn setup_client(
     // If this is an archival node and split storage is initialized, then create view-specific
     // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initialize the
     // ViewClientActorInner. Otherwise, we use the regular versions created above.
-    let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) = if let Some(split_store) =
-        &split_store
-    {
-        let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
-            split_store.clone(),
-            &genesis.config,
-            epoch_config_store.clone(),
-        );
-        let view_shard_tracker =
-            ShardTracker::new(client_config.tracked_shards_config.clone(), epoch_manager.clone());
-        let view_runtime_adapter = NightshadeRuntime::test_with_trie_config(
-            &homedir,
-            split_store.clone(),
-            ContractRuntimeCache::handle(&contract_cache),
-            &genesis.config,
-            view_epoch_manager.clone(),
-            runtime_config_store.clone(),
-            TrieConfig::from_store_config(&store_config),
-            client_config.gc.gc_num_epochs_to_keep,
-        );
-        (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
-    } else {
-        (epoch_manager.clone(), shard_tracker.clone(), runtime_adapter.clone())
-    };
+    let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
+        if let Some(split_store) = &split_store {
+            let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+                split_store.clone(),
+                &genesis.config,
+                epoch_config_store.clone(),
+            );
+            let view_shard_tracker = ShardTracker::new(
+                client_config.tracked_shards_config.clone(),
+                view_epoch_manager.clone(),
+                validator_signer.clone(),
+            );
+            let view_runtime_adapter = NightshadeRuntime::test_with_trie_config(
+                &homedir,
+                split_store.clone(),
+                ContractRuntimeCache::handle(&contract_cache),
+                &genesis.config,
+                view_epoch_manager.clone(),
+                runtime_config_store.clone(),
+                TrieConfig::from_store_config(&store_config),
+                client_config.gc.gc_num_epochs_to_keep,
+            );
+            (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
+        } else {
+            (epoch_manager.clone(), shard_tracker.clone(), runtime_adapter.clone())
+        };
     let view_client_actor = ViewClientActorInner::new(
         test_loop.clock(),
         validator_signer.clone(),
@@ -191,6 +197,8 @@ pub fn setup_client(
     )
     .unwrap();
 
+    let head = client.chain.head().unwrap();
+    let header_head = client.chain.header_head().unwrap();
     let shards_manager = ShardsManagerActor::new(
         test_loop.clock(),
         validator_signer.clone(),
@@ -200,8 +208,8 @@ pub fn setup_client(
         network_adapter.as_sender(),
         client_adapter.as_sender(),
         store.chunk_store(),
-        client.chain.head().unwrap(),
-        client.chain.header_head().unwrap(),
+        <_>::clone(&head),
+        <_>::clone(&header_head),
         Duration::milliseconds(100),
     );
 

@@ -1,4 +1,4 @@
-use crate::DBCol;
+use crate::{DBCol, deserialized_column};
 use near_fmt::{AbbrBytes, StorageKey};
 use std::collections::HashSet;
 use std::io;
@@ -262,6 +262,10 @@ pub trait Database: Sync + Send {
     /// Otherwise return None.
     fn copy_if_test(&self, _columns_to_keep: Option<&[DBCol]>) -> Option<Arc<dyn Database>> {
         None
+    }
+
+    fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
+        deserialized_column::Cache::disabled()
     }
 }
 
