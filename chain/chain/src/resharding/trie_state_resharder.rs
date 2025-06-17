@@ -109,7 +109,8 @@ impl TrieStateResharder {
             "TrieStateResharder::process_batch_and_update_status",
             parent_shard_uid = ?status.parent_shard_uid,
             child_shard_uid = ?child.shard_uid,
-        );
+        )
+        .entered();
 
         let mut store_update = self.runtime.store().store_update();
         let next_key = self.next_batch(
