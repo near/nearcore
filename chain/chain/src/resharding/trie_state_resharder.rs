@@ -267,7 +267,31 @@ impl TrieStateResharder {
             )));
         }
         let mut status = status.with_metrics();
+        if let Some(left) = &mut status.left {
+            self.load_memtrie_if_not_loaded(&left.shard_uid, left.state_root)?;
+        }
+        if let Some(right) = &mut status.right {
+            self.load_memtrie_if_not_loaded(&right.shard_uid, right.state_root)?;
+        }
         self.resharding_blocking_impl(&mut status)
+    }
+
+    fn load_memtrie_if_not_loaded(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: CryptoHash,
+    ) -> Result<(), Error> {
+        let trie = self.runtime.get_tries().get_trie_for_shard(*shard_uid, state_root);
+        if !trie.has_memtries() {
+            tracing::debug!(
+                target: "resharding",
+                "TrieStateResharder: loading memtrie for shard {} with state root {}",
+                shard_uid, state_root
+            );
+            // Load the memtrie for the shard if it is not already loaded.
+            self.runtime.get_tries().load_memtrie(shard_uid, Some(state_root), true)?;
+        }
+        Ok(())
     }
 
     fn resharding_blocking_impl(
