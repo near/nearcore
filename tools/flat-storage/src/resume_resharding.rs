@@ -4,6 +4,7 @@ use near_chain::resharding::trie_state_resharder::TrieStateResharder;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::ReshardingHandle;
 use near_epoch_manager::EpochManager;
+use near_store::flat::FlatStorageStatus;
 use near_store::{ShardUId, StoreOpener};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::PathBuf;
@@ -27,20 +28,26 @@ pub(crate) fn resume_resharding(
         epoch_manager.clone(),
     )?;
 
-    let flat_storage_resharder = FlatStorageResharder::new(
-        epoch_manager,
-        runtime_adapter.clone(),
-        ReshardingHandle::new(),
-        config.client_config.resharding_config.clone(),
-    );
-
     let shard_uid = ShardUId::new(3, cmd.shard_id); // version is fixed at 3 in resharding V3
 
-    runtime_adapter.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
+    let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+    let flat_storage_resharding_complete =
+        flat_storage_manager.get_flat_storage_status(shard_uid) == FlatStorageStatus::Empty;
 
-    flat_storage_resharder.resume(shard_uid)?;
+    if flat_storage_resharding_complete {
+        tracing::info!(target: "resharding", "FlatStorageResharder is already complete for shard {}", shard_uid);
+    } else {
+        let flat_storage_resharder = FlatStorageResharder::new(
+            epoch_manager,
+            runtime_adapter.clone(),
+            ReshardingHandle::new(),
+            config.client_config.resharding_config.clone(),
+        );
 
-    tracing::info!(target: "resharding", "FlatStorageResharder completed");
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
+        flat_storage_resharder.resume(shard_uid)?;
+        tracing::info!(target: "resharding", "FlatStorageResharder completed");
+    }
 
     let trie_state_resharder = TrieStateResharder::new(
         runtime_adapter,
@@ -48,7 +55,6 @@ pub(crate) fn resume_resharding(
         config.client_config.resharding_config.clone(),
     );
     trie_state_resharder.resume(shard_uid)?;
-
     tracing::info!(target: "resharding", "TrieStateResharder completed");
 
     Ok(())
