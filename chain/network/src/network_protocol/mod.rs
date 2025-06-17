@@ -1280,30 +1280,6 @@ impl RoutedMessage {
         &mut msg.num_hops
     }
 
-    fn upgrade_to_v3(&mut self) {
-        if let RoutedMessage::V1(msg) = self {
-            *self = RoutedMessage::V3(RoutedMessageV3 {
-                target: msg.target.clone(),
-                author: msg.author.clone(),
-                ttl: msg.ttl,
-                body: TieredMessageBody::from_routed(msg.body.clone()),
-                signature: msg.signature.clone(),
-                created_at: None,
-                num_hops: 0,
-            });
-        } else if let RoutedMessage::V2(msg) = self {
-            *self = RoutedMessage::V3(RoutedMessageV3 {
-                target: msg.msg.target.clone(),
-                author: msg.msg.author.clone(),
-                ttl: msg.msg.ttl,
-                body: TieredMessageBody::from_routed(msg.msg.body.clone()),
-                signature: msg.msg.signature.clone(),
-                created_at: msg.created_at.map(|t| t.unix_timestamp()),
-                num_hops: msg.num_hops,
-            });
-        }
-    }
-
     pub fn hash(&self) -> CryptoHash {
         match self {
             RoutedMessage::V1(msg) => msg.hash(),
@@ -1350,6 +1326,30 @@ impl RoutedMessage {
             RoutedMessage::V1(msg) => msg.ttl,
             RoutedMessage::V2(msg) => msg.msg.ttl,
             RoutedMessage::V3(msg) => msg.ttl,
+        }
+    }
+
+    fn upgrade_to_v3(&mut self) {
+        if let RoutedMessage::V1(msg) = self {
+            *self = RoutedMessage::V3(RoutedMessageV3 {
+                target: msg.target.clone(),
+                author: msg.author.clone(),
+                ttl: msg.ttl,
+                body: TieredMessageBody::from_routed(msg.body.clone()),
+                signature: msg.signature.clone(),
+                created_at: None,
+                num_hops: 0,
+            });
+        } else if let RoutedMessage::V2(msg) = self {
+            *self = RoutedMessage::V3(RoutedMessageV3 {
+                target: msg.msg.target.clone(),
+                author: msg.msg.author.clone(),
+                ttl: msg.msg.ttl,
+                body: TieredMessageBody::from_routed(msg.msg.body.clone()),
+                signature: msg.msg.signature.clone(),
+                created_at: msg.created_at.map(|t| t.unix_timestamp()),
+                num_hops: msg.num_hops,
+            });
         }
     }
 }

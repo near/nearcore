@@ -172,3 +172,43 @@ fn serialize_deserialize() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_message_matching_hashes() {
+    let mut rng = make_rng(19385389);
+    let message_v3 = data::make_routed_message(
+        &mut rng,
+        T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+            chunk_hash: CryptoHash::default().into(),
+            part_ords: vec![],
+            tracking_shards: Default::default(),
+        })
+        .into(),
+    );
+    let message_v1: RoutedMessage = message_v3.clone().msg_v1().into();
+    assert_eq!(message_v3.hash(), message_v1.hash());
+}
+
+#[test]
+fn test_upgrading_v1_to_v3() {
+    let mut rng = make_rng(19385389);
+    let message_v3 = data::make_routed_message(
+        &mut rng,
+        T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+            chunk_hash: CryptoHash::default().into(),
+            part_ords: vec![],
+            tracking_shards: Default::default(),
+        })
+        .into(),
+    );
+    let message_v1: RoutedMessage = message_v3.msg_v1().into();
+
+    let mut message = message_v1.clone();
+    assert!(matches!(message, RoutedMessage::V1(_)));
+    let _ = message.num_hops_mut();
+    assert!(matches!(message, RoutedMessage::V3(_)));
+
+    assert!(matches!(message_v1, RoutedMessage::V1(_)));
+    let body = message_v1.body_owned();
+    assert!(matches!(body, TieredMessageBody::T2(_)));
+}
