@@ -49,9 +49,16 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
 
-      - name: Neard binary build and upload to S3
+      - name: Neard releasebinary build and upload to S3
         run: ./scripts/mac-release.sh
 
-      - name: Neard binary build and upload to S3
+      - name: Configure again AWS Credentials
+        # This is needed to refresh the credentials JWT which expires after 1 hour
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
+          aws-region: us-west-1
+
+      - name: Neard nightly-release build and upload to S3
         run: ./scripts/mac-release.sh nightly-release
 
