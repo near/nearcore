@@ -288,7 +288,7 @@ impl PeerManagerActor {
                             }
                         }
                     });
-                } 
+                }
 
                 // Connect to TIER1 proxies and broadcast the list those connections periodically.
                 let tier1 = state.config.tier1.clone();
@@ -304,7 +304,7 @@ impl PeerManagerActor {
                         }
                     }
                 });
-                
+
                 // Update TIER1 connections periodically.
                 arbiter.spawn({
                     let clock = clock.clone();
