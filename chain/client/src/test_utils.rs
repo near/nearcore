@@ -41,7 +41,7 @@ impl Client {
     ///                         the produced chunk content.
     fn process_block_sync_with_produce_chunk_options(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         should_produce_chunk: bool,
         allow_errors: bool,
@@ -59,7 +59,7 @@ impl Client {
 
     pub fn process_block_test(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.process_block_sync_with_produce_chunk_options(block, provenance, true, false)
@@ -67,7 +67,7 @@ impl Client {
 
     pub fn process_block_test_no_produce_chunk(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.process_block_sync_with_produce_chunk_options(block, provenance, false, false)
@@ -75,7 +75,7 @@ impl Client {
 
     pub fn process_block_test_no_produce_chunk_allow_errors(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.process_block_sync_with_produce_chunk_options(block, provenance, false, true)
@@ -161,7 +161,7 @@ pub fn create_chunk_on_height(client: &mut Client, next_height: BlockHeight) -> 
 pub fn create_chunk(
     client: &mut Client,
     validated_txs: Vec<ValidatedTransaction>,
-) -> (ProduceChunkResult, Block) {
+) -> (ProduceChunkResult, Arc<Block>) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
     let signer = client.validator_signer.get().unwrap();
@@ -236,7 +236,7 @@ pub fn create_chunk(
     let endorsement =
         ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
-    let block = Block::produce(
+    let block = Arc::new(Block::produce(
         PROTOCOL_VERSION,
         last_block.header(),
         next_height,
@@ -257,7 +257,7 @@ pub fn create_chunk(
         client.clock.clone(),
         None,
         None,
-    );
+    ));
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }

@@ -1208,7 +1208,7 @@ pub struct BlockView {
 }
 
 impl BlockView {
-    pub fn from_author_block(author: AccountId, block: Block) -> Self {
+    pub fn from_author_block(author: AccountId, block: &Block) -> Self {
         BlockView {
             author,
             header: block.header().into(),

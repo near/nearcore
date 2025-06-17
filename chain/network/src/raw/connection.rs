@@ -85,7 +85,7 @@ impl fmt::Debug for RoutedMessage {
 pub enum DirectMessage {
     AnnounceAccounts(Vec<AnnounceAccount>),
     BlockRequest(CryptoHash),
-    Block(Block),
+    Block(Arc<Block>),
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<Arc<BlockHeader>>),
     StateRequestHeader(ShardId, CryptoHash),

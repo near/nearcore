@@ -230,7 +230,11 @@ impl ReshardingManager {
             *child_chunk_extra.state_root_mut() = trie_changes.new_root;
             *child_chunk_extra.congestion_info_mut() = child_congestion_info;
 
-            chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
+            chain_store_update.save_chunk_extra(
+                block_hash,
+                &new_shard_uid,
+                child_chunk_extra.into(),
+            );
             chain_store_update.save_state_transition_data(
                 *block_hash,
                 new_shard_uid.shard_id(),
