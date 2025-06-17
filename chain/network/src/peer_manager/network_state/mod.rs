@@ -560,7 +560,7 @@ impl NetworkState {
                     // If a message is a response, we try to load the target from the route back
                     // cache.
                     PeerIdOrHash::Hash(hash) => {
-                        match self.tier1_route_back.lock().remove(clock, hash) {
+                        match self.tier1_route_back.lock().remove(clock, &hash) {
                             Some(peer_id) => peer_id,
                             None => return false,
                         }
