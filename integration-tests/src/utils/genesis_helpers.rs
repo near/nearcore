@@ -10,6 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
+use std::sync::Arc;
 use tempfile::tempdir;
 
 /// Compute genesis hash from genesis.
