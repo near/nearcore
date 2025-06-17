@@ -237,6 +237,14 @@ impl JsonRpcClient {
     }
 
     #[allow(non_snake_case)]
+    pub fn changes(
+        &self,
+        request: RpcStateChangesInBlockByTypeRequest,
+    ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
+        call_method(&self.client, &self.server_addr, "changes", request)
+    }
+
+    #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_validators_ordered(
         &self,
         request: RpcValidatorsOrderedRequest,
