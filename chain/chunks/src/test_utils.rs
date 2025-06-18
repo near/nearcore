@@ -29,7 +29,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::adapter::ShardsManagerRequestFromClient;
-use crate::client::ShardsManagerResponse;
+use crate::client::{ShardsManagerResponse, ShardsManagerResponseInner};
 use crate::shards_manager_actor::ShardsManagerActor;
 
 pub struct ChunkTestFixture {
@@ -235,7 +235,7 @@ impl ChunkTestFixture {
     pub fn count_chunk_completion_messages(&self) -> usize {
         let mut chunks_completed = 0;
         while let Some(message) = self.mock_client_adapter.pop() {
-            if let ShardsManagerResponse::ChunkCompleted { .. } = message {
+            if let ShardsManagerResponseInner::ChunkCompleted { .. } = message.span_unwrap() {
                 chunks_completed += 1;
             }
         }
@@ -245,7 +245,9 @@ impl ChunkTestFixture {
     pub fn count_chunk_ready_for_inclusion_messages(&self) -> usize {
         let mut chunks_ready = 0;
         while let Some(message) = self.mock_client_adapter.pop() {
-            if let ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } = message {
+            if let ShardsManagerResponseInner::ChunkHeaderReadyForInclusion { .. } =
+                message.span_unwrap()
+            {
                 chunks_ready += 1;
             }
         }

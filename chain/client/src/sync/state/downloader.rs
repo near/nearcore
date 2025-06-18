@@ -1,5 +1,5 @@
 use super::StateSyncDownloadSource;
-use super::chain_requests::StateHeaderValidationRequest;
+use super::chain_requests::{StateHeaderValidationRequest, StateHeaderValidationRequestInner};
 use super::task_tracker::TaskTracker;
 use super::util::get_state_header_if_exists_in_storage;
 use futures::FutureExt;
@@ -7,6 +7,7 @@ use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
 use near_chain::types::RuntimeAdapter;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
@@ -88,11 +89,14 @@ impl StateSyncDownloader {
                     // so the chain can pick it up later, and we await until the chain gives us a response.
                     handle.set_status("Waiting for validation");
                     validation_sender
-                        .send_async(StateHeaderValidationRequest {
-                            shard_id,
-                            sync_hash,
-                            header: header.clone(),
-                        })
+                        .send_async(
+                            StateHeaderValidationRequestInner {
+                                shard_id,
+                                sync_hash,
+                                header: header.clone(),
+                            }
+                            .span_wrap(),
+                        )
                         .await
                         .map_err(|_| {
                             near_chain::Error::Other(

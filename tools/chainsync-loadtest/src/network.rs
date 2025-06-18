@@ -240,9 +240,11 @@ impl Network {
             block_request: Sender::from_async_fn(|_| None),
             block_headers_request: Sender::from_async_fn(|_| None),
             block: Sender::from_async_fn(move |block: BlockResponse| {
+                let block = block.span_unwrap();
                 blocks.get(&block.block.hash().clone()).map(|p| p.set(block.block));
             }),
             block_headers: Sender::from_async_fn(move |headers: BlockHeadersResponse| {
+                let headers = headers.span_unwrap();
                 if let Some(h) = headers.0.iter().min_by_key(|h| h.height()) {
                     let hash = *h.prev_hash();
                     block_headers.get(&hash).map(|p| p.set(headers.0));
@@ -251,7 +253,7 @@ impl Network {
             }),
             network_info: Sender::from_async_fn(move |info: SetNetworkInfo| {
                 let mut n = data.lock();
-                n.info_ = Arc::new(info.0);
+                n.info_ = Arc::new(info.span_unwrap().0);
                 if n.info_.num_connected_peers < min_peers {
                     info!("connected = {}/{}", n.info_.num_connected_peers, min_peers);
                     return;

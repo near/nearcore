@@ -18,11 +18,9 @@ use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE};
 use near_client::test_utils::create_chunk_on_height;
-use near_client::{
-    BlockApproval, BlockResponse, GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult,
-    SetNetworkInfo,
-};
+use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
+use near_network::client::{BlockApprovalInner, BlockResponseInner, SetNetworkInfoInner};
 use near_network::test_utils::{MockPeerManagerAdapter, wait_or_panic};
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
@@ -31,6 +29,7 @@ use near_network::types::{
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerInfo, ReasonForBan};
 use near_o11y::WithSpanContextExt;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -164,11 +163,12 @@ fn receive_network_block() {
                 None,
             );
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                BlockResponseInner {
                     block: block.into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: false,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
             future::ready(())
@@ -256,11 +256,12 @@ fn produce_block_with_approvals() {
                 None,
             );
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                BlockResponseInner {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: false,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
 
@@ -278,9 +279,11 @@ fn produce_block_with_approvals() {
                     10, // the height at which "test1" is producing
                     &signer,
                 );
-                actor_handles
-                    .client_actor
-                    .do_send(BlockApproval(approval, PeerInfo::random().id).with_span_context());
+                actor_handles.client_actor.do_send(
+                    BlockApprovalInner(approval, PeerInfo::random().id)
+                        .span_wrap()
+                        .with_span_context(),
+                );
             }
 
             future::ready(())
@@ -368,11 +371,12 @@ fn invalid_blocks_common(is_requested: bool) {
             block.mut_header().set_chunk_mask(vec![]);
             block.mut_header().init();
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                BlockResponseInner {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
 
@@ -381,11 +385,12 @@ fn invalid_blocks_common(is_requested: bool) {
             block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
             block.mut_header().init();
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                BlockResponseInner {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
 
@@ -406,22 +411,24 @@ fn invalid_blocks_common(is_requested: bool) {
             };
             block.set_chunks(chunks);
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                BlockResponseInner {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
 
             // Send proper block.
             let block2 = valid_block;
             actor_handles.client_actor.do_send(
-                BlockResponse {
+                BlockResponseInner {
                     block: block2.clone().into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
             if is_requested {
@@ -429,11 +436,12 @@ fn invalid_blocks_common(is_requested: bool) {
                 block3.mut_header().set_chunk_headers_root(hash(&[1]));
                 block3.mut_header().init();
                 actor_handles.client_actor.do_send(
-                    BlockResponse {
+                    BlockResponseInner {
                         block: block3.clone().into(),
                         peer_id: PeerInfo::random().id,
                         was_requested: is_requested,
                     }
+                    .span_wrap()
                     .with_span_context(),
                 );
             }
@@ -510,7 +518,7 @@ fn client_sync_headers() {
             }),
         );
         actor_handles.client_actor.do_send(
-            SetNetworkInfo(NetworkInfo {
+            SetNetworkInfoInner(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo {
                     full_peer_info: FullPeerInfo {
                         peer_info: peer_info2.clone(),
@@ -546,6 +554,7 @@ fn client_sync_headers() {
                 tier1_accounts_keys: vec![],
                 tier1_accounts_data: vec![],
             })
+            .span_wrap()
             .with_span_context(),
         );
         wait_or_panic(2000);
