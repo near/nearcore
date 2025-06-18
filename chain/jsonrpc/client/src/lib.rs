@@ -228,7 +228,7 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_tx_status", request)
     }
 
-    // Deprecated, use the stabilized version, `changes` method instead
+    #[deprecated(since = "2.7.0", note = "Use `changes` method instead")]
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_changes(
         &self,

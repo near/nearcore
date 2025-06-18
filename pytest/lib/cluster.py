@@ -28,6 +28,8 @@ from key import Key
 from proxy import NodesProxy
 import state_sync_lib
 
+from warnings import deprecated
+
 # cspell:ignore nretry pmap preemptible proxify uefi useragent
 os.environ["ADVERSARY_CONSENT"] = "1"
 
@@ -477,6 +479,7 @@ class BaseNode(object):
     def get_changes(self, changes_request):
         return self.json_rpc('changes', changes_request)
 
+    @deprecated(version='2.7.0', reason="You should use get_changes function")
     def get_experimental_changes(self, changes_request):
         return self.json_rpc('EXPERIMENTAL_changes', changes_request)
 
