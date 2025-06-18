@@ -408,7 +408,6 @@ impl ProtocolFeature {
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
-            ProtocolFeature::UnsignedT1Messages => 79,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -416,6 +415,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::UnsignedT1Messages => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
