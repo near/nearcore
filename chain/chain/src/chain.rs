@@ -416,7 +416,6 @@ impl Chain {
             store.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            None, // No validator id for view client
             noop().into_multi_sender(),
         );
         let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
@@ -577,7 +576,6 @@ impl Chain {
             chain_store.store(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            me,
             resharding_sender,
         );
 
@@ -3213,12 +3211,8 @@ impl Chain {
             self.shard_tracker.cares_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
-        let cared_about_shard_prev_epoch = self.shard_tracker.cared_about_shard_in_prev_epoch(
-            me.as_ref(),
-            prev_hash,
-            shard_id,
-            true,
-        );
+        let cared_about_shard_prev_epoch =
+            self.shard_tracker.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
         let should_apply_chunk = get_should_apply_chunk(
             mode,
             cares_about_shard_this_epoch,
