@@ -50,7 +50,7 @@ pub struct CreateSnapshotRequest {
     /// Shards that need to be present in the snapshot.
     shard_indexes_and_uids: Vec<(ShardIndex, ShardUId)>,
     /// prev block of the "sync_hash" block.
-    block: Block,
+    block: Arc<Block>,
 }
 
 impl std::fmt::Debug for CreateSnapshotRequest {
@@ -222,7 +222,7 @@ pub struct StateSnapshotSenderForClient {
 }
 
 type MakeSnapshotCallback = Arc<
-    dyn Fn(BlockHeight, EpochHeight, Vec<(ShardIndex, ShardUId)>, Block) -> ()
+    dyn Fn(BlockHeight, EpochHeight, Vec<(ShardIndex, ShardUId)>, Arc<Block>) -> ()
         + Send
         + Sync
         + 'static,

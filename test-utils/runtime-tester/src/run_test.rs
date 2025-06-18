@@ -103,7 +103,8 @@ impl Scenario {
 
             last_block = env.clients[0]
                 .produce_block(block.height)?
-                .ok_or_else(|| Error::Other(String::from("No block has been produced")))?;
+                .ok_or_else(|| Error::Other(String::from("No block has been produced")))?
+                .into();
             env.process_block(0, last_block.clone(), Provenance::PRODUCED);
 
             block_stats.block_production_time = start_time.elapsed();

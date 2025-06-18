@@ -36,6 +36,7 @@ use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
 use super::drop_condition::ClientToShardsManagerSender;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
+#[allow(clippy::large_stack_frames)]
 pub fn setup_client(
     identifier: &str,
     test_loop: &mut TestLoopV2,
@@ -196,6 +197,8 @@ pub fn setup_client(
     )
     .unwrap();
 
+    let head = client.chain.head().unwrap();
+    let header_head = client.chain.header_head().unwrap();
     let shards_manager = ShardsManagerActor::new(
         test_loop.clock(),
         validator_signer.clone(),
@@ -205,8 +208,8 @@ pub fn setup_client(
         network_adapter.as_sender(),
         client_adapter.as_sender(),
         store.chunk_store(),
-        client.chain.head().unwrap(),
-        client.chain.header_head().unwrap(),
+        <_>::clone(&head),
+        <_>::clone(&header_head),
         Duration::milliseconds(100),
     );
 

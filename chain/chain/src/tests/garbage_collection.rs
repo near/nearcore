@@ -26,12 +26,12 @@ use near_store::{ShardTries, Trie, WrappedTrieChanges};
 
 // Build a chain of num_blocks on top of prev_block
 fn do_fork(
-    mut prev_block: Block,
+    mut prev_block: Arc<Block>,
     mut prev_state_roots: Vec<StateRoot>,
     tries: ShardTries,
     chain: &mut Chain,
     num_blocks: u64,
-    states: &mut Vec<(Block, Vec<StateRoot>, Vec<Vec<(Vec<u8>, Option<Vec<u8>>)>>)>,
+    states: &mut Vec<(Arc<Block>, Vec<StateRoot>, Vec<Vec<(Vec<u8>, Option<Vec<u8>>)>>)>,
     max_changes: usize,
     verbose: bool,
     final_block_height: Option<u64>,
@@ -725,8 +725,8 @@ fn test_clear_old_data() {
 fn add_block(
     chain: &mut Chain,
     epoch_manager: &dyn EpochManagerAdapter,
-    prev_block: &mut Block,
-    blocks: &mut Vec<Block>,
+    prev_block: &mut Arc<Block>,
+    blocks: &mut Vec<Arc<Block>>,
     signer: Arc<ValidatorSigner>,
     height: u64,
 ) {

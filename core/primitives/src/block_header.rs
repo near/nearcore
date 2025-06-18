@@ -11,7 +11,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
-use std::sync::Arc;
 
 #[derive(
     BorshSerialize,
@@ -561,11 +560,11 @@ enum SignatureSource<'a> {
     BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
 )]
 pub enum BlockHeader {
-    BlockHeaderV1(Arc<BlockHeaderV1>),
-    BlockHeaderV2(Arc<BlockHeaderV2>),
-    BlockHeaderV3(Arc<BlockHeaderV3>),
-    BlockHeaderV4(Arc<BlockHeaderV4>),
-    BlockHeaderV5(Arc<BlockHeaderV5>),
+    BlockHeaderV1(BlockHeaderV1),
+    BlockHeaderV2(BlockHeaderV2),
+    BlockHeaderV3(BlockHeaderV3),
+    BlockHeaderV4(BlockHeaderV4),
+    BlockHeaderV5(BlockHeaderV5),
 }
 
 impl BlockHeader {
@@ -642,7 +641,7 @@ impl BlockHeader {
         )
     }
 
-    /// Creates a new BlockHeader from information in the view of an existing block.  
+    /// Creates a new BlockHeader from information in the view of an existing block.
     pub fn from_view(
         expected_hash: &CryptoHash,
         epoch_protocol_version: ProtocolVersion,
@@ -779,19 +778,13 @@ impl BlockHeader {
         };
         let (hash, signature) =
             Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
-        Self::BlockHeaderV5(Arc::new(BlockHeaderV5 {
-            prev_hash,
-            inner_lite,
-            inner_rest,
-            signature,
-            hash,
-        }))
+        Self::BlockHeaderV5(BlockHeaderV5 { prev_hash, inner_lite, inner_rest, signature, hash })
     }
 
     /// Helper function for `new_impl` and `old_impl` to compute the hash and signature of the hash from the block header parts.
     /// Exactly one of the `signer` and `signature` must be provided.
     /// If `signer` is given signs the header with given `prev_hash`, `inner_lite`, and `inner_rest` and returns the hash and signature of the header.
-    /// If `signature` is given, uses the signature as is and only computes the hash.  
+    /// If `signature` is given, uses the signature as is and only computes the hash.
     fn compute_hash_and_sign<T>(
         signature_source: SignatureSource,
         prev_hash: CryptoHash,
