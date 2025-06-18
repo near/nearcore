@@ -472,7 +472,7 @@ impl PartialEncodedStateWitnessTracker {
                 target: "client",
                 "send_witness_to_client",
                 chunk_hash = ?witness.chunk_header().chunk_hash(),
-                height_created = key.height_created,
+                height = key.height_created,
                 shard_id = %key.shard_id,
                 raw_witness_size = raw_witness_size,
                 tag_witness_distribution = true,
