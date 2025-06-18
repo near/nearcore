@@ -28,14 +28,14 @@ pub(crate) fn resume_resharding(
         epoch_manager.clone(),
     )?;
 
-    let shard_uid = ShardUId::new(3, cmd.shard_id); // version is fixed at 3 in resharding V3
+    let parent_shard_uid = ShardUId::new(3, cmd.shard_id); // version is fixed at 3 in resharding V3
 
     let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
-    let flat_storage_resharding_complete =
-        flat_storage_manager.get_flat_storage_status(shard_uid) == FlatStorageStatus::Empty;
+    let flat_storage_status = flat_storage_manager.get_flat_storage_status(parent_shard_uid);
+    let flat_storage_resharding_complete = flat_storage_status == FlatStorageStatus::Empty;
 
     if flat_storage_resharding_complete {
-        tracing::info!(target: "resharding", "FlatStorageResharder is already complete for shard {}", shard_uid);
+        tracing::info!(target: "resharding", "FlatStorageResharder is already complete for shard {}", parent_shard_uid);
     } else {
         let flat_storage_resharder = FlatStorageResharder::new(
             epoch_manager,
@@ -44,8 +44,8 @@ pub(crate) fn resume_resharding(
             config.client_config.resharding_config.clone(),
         );
 
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
-        flat_storage_resharder.resume(shard_uid)?;
+        flat_storage_manager.create_flat_storage_for_shard(parent_shard_uid)?;
+        flat_storage_resharder.resume(parent_shard_uid)?;
         tracing::info!(target: "resharding", "FlatStorageResharder completed");
     }
 
@@ -54,7 +54,7 @@ pub(crate) fn resume_resharding(
         ReshardingHandle::new(),
         config.client_config.resharding_config.clone(),
     );
-    trie_state_resharder.resume(shard_uid)?;
+    trie_state_resharder.resume(parent_shard_uid)?;
     tracing::info!(target: "resharding", "TrieStateResharder completed");
 
     Ok(())

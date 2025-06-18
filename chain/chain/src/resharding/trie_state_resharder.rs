@@ -109,8 +109,8 @@ impl TrieStateResharder {
             return Ok(());
         };
 
-        // Sleep between batches in order to throttle resharding and leave some resource for the
-        // regular node operation.
+        // Sleep between batches in order to throttle resharding and leave some
+        // resource for the regular node operation.
         std::thread::sleep(batch_delay);
         let _span = tracing::debug_span!(
             target: "resharding",
@@ -119,6 +119,7 @@ impl TrieStateResharder {
             child_shard_uid = ?child.shard_uid,
         )
         .entered();
+
         tracing::trace!(
             target: "resharding",
             "Processing batch for child shard {} with state root {}",
@@ -167,8 +168,12 @@ impl TrieStateResharder {
         store_update: &mut TrieStoreUpdateAdapter,
     ) -> Result<Option<Vec<u8>>, StorageError> {
         let tries = self.runtime.get_tries();
-        let trie =
-            tries.get_trie_for_shard(child_shard_uid, state_root).recording_reads_new_recorder();
+        let trie = tries.get_trie_for_shard(child_shard_uid, state_root);
+        let trie = trie.recording_reads_new_recorder();
+
+        tries.load_memtrie(&child_shard_uid, Some(state_root), true)?;
+        assert!(trie.has_memtries());
+
         let locked = trie.lock_for_iter();
         let mut iter = locked.iter()?;
         if let Some(seek_key) = seek_key {
