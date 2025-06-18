@@ -360,9 +360,7 @@ impl TrieStateResharder {
             )?;
         }
 
-        let parent_trie = tries
-            .get_trie_for_shard(parent_shard_uid, status.parent_state_root)
-            .recording_reads_new_recorder();
+        let parent_trie = tries.get_trie_for_shard(parent_shard_uid, status.parent_state_root);
 
         if !parent_trie.has_memtries() {
             return Err(Error::Other(format!(
