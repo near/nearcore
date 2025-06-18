@@ -1,14 +1,29 @@
-name: MacOS-m1 binary release
+name: Mac OS binary release
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+*'
+    inputs:
+      branch:
+        default: 'master'
+        description: "Nearcore branch to build and publish"
+        type: string
+        required: true
+  # Run when a new release or rc is created
+  release:
+    types: [published]
+
 jobs:
   build_binary:
-    runs-on: warp-macos-14-arm64-6x
+    runs-on: ${{ matrix.os }}
+    name: "Build ${{matrix.name}} binary"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Intel Mac OS
+            id: intel-macos
+            os: macos-latest-large
+          - name: ARM Mac OS
+            os: warp-macos-14-arm64-6x
     environment: deploy
     permissions:
       id-token: write # required to use OIDC authentication
@@ -19,15 +34,25 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
           aws-region: us-west-1
+          role-duration-seconds: 7200
           
-      - name: Checkout  repository for master branch
-        # In case of master branch we want to checkout with depth 1
-        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
+      - name: Checkout nearcore release
+        # for release events we need to checkout all branches to be able to determine
+        # later branch name
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name == 'release'}}
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Neard binary build and upload to S3
+      - name: Checkout ${{ github.event.inputs.branch }} branch
+        if: ${{ github.event_name == 'workflow_dispatch'}}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Neard release binary build and upload to S3
         run: ./scripts/mac-release.sh
 
-      - name: Neard binary build and upload to S3
+      - name: Neard nightly-release build and upload to S3
         run: ./scripts/mac-release.sh nightly-release
 

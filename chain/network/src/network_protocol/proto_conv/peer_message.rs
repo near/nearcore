@@ -7,7 +7,7 @@ use crate::network_protocol::{
     AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
     RoutingTableUpdate, SyncAccountsData,
 };
-use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
+use crate::network_protocol::{RoutedMessageV1, RoutedMessageV2};
 use crate::types::StateResponseInfo;
 use borsh::BorshDeserialize as _;
 use near_async::time::error::ComponentRange;
@@ -138,7 +138,7 @@ impl From<&Block> for proto::Block {
 
 pub type ParseBlockError = std::io::Error;
 
-impl TryFrom<&proto::Block> for Block {
+impl TryFrom<&proto::Block> for Arc<Block> {
     type Error = ParseBlockError;
     fn try_from(x: &proto::Block) -> Result<Self, Self::Error> {
         Self::try_from_slice(&x.borsh)
@@ -324,7 +324,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Block(b) => ProtoMT::BlockResponse(proto::BlockResponse {
-                    block: MF::some(b.into()),
+                    block: MF::some(b.as_ref().into()),
                     ..Default::default()
                 }),
                 PeerMessage::OptimisticBlock(ob) => ProtoMT::OptimisticBlock(ob.into()),
@@ -333,9 +333,9 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
-                    borsh: borsh::to_vec(&r.msg).unwrap(),
-                    created_at: MF::from_option(r.created_at.as_ref().map(utc_to_proto)),
-                    num_hops: r.num_hops,
+                    borsh: borsh::to_vec(r.msg()).unwrap(),
+                    created_at: MF::from_option(r.created_at().as_ref().map(utc_to_proto)),
+                    num_hops: r.num_hops(),
                     ..Default::default()
                 }),
                 PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
@@ -509,16 +509,19 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Transaction(t) => PeerMessage::Transaction(
                 SignedTransaction::try_from_slice(&t.borsh).map_err(Self::Error::Transaction)?,
             ),
-            ProtoMT::Routed(r) => PeerMessage::Routed(Box::new(RoutedMessageV2 {
-                msg: RoutedMessage::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
-                created_at: r
-                    .created_at
-                    .as_ref()
-                    .map(utc_from_proto)
-                    .transpose()
-                    .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
-                num_hops: r.num_hops,
-            })),
+            ProtoMT::Routed(r) => PeerMessage::Routed(Box::new(
+                RoutedMessageV2 {
+                    msg: RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
+                    created_at: r
+                        .created_at
+                        .as_ref()
+                        .map(utc_from_proto)
+                        .transpose()
+                        .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
+                    num_hops: r.num_hops,
+                }
+                .into(),
+            )),
             ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {
                 remove_from_connection_store: d.remove_from_connection_store,
             }),

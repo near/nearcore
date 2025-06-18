@@ -368,7 +368,7 @@ So we will use the official [NEAR CLI] utility.
 Install it via `npm`:
 
 ```console
-$ npm install -g near-cli
+$ npm install -g near-cli@3.4.2
 $ near -h
 Usage: near <command> [options]
 
@@ -470,7 +470,7 @@ binary we've built from source. The steps are:
 - Create configs with `cargo run --profile dev-release -p neard -- init`
 - Run the node with `cargo run --profile dev-release -p neard -- run`
 - Poke the node with `httpie` or
-- Install `near-cli` via `npm install -g near-cli`
+- Install `near-cli` via `npm install -g near-cli@3.4.2`
 - Submit transactions via `NEAR_ENV=local near create-account ...`
 
 In the [next chapter](./deploy_a_contract.md), we'll learn how to deploy a simple

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
-use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
+use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::TRIE_STATE_RESHARDING_STATUS_KEY;
 use near_store::metrics::resharding::trie_state_metrics;
@@ -55,14 +55,6 @@ struct TrieStateReshardingStatus {
 }
 
 impl TrieStateReshardingStatus {
-    fn new(
-        parent_shard_uid: ShardUId,
-        left: TrieStateReshardingChildStatus,
-        right: TrieStateReshardingChildStatus,
-    ) -> Self {
-        Self { parent_shard_uid, left: Some(left), right: Some(right) }
-    }
-
     fn with_metrics(mut self) -> Self {
         for child in [&mut self.left, &mut self.right] {
             child.as_mut().map(|child| {
@@ -162,6 +154,15 @@ impl TrieStateResharder {
         let tries = self.runtime.get_tries();
         let trie =
             tries.get_trie_for_shard(child_shard_uid, state_root).recording_reads_new_recorder();
+
+        // Assert that the child shard has memtries loaded during resharding
+        debug_assert!(
+            trie.has_memtries(),
+            "Child shard {:?} should have memtries loaded during trie state resharding",
+            child_shard_uid
+        );
+
+        // If the child shard does not have memtries, we cannot proceed with resharding.
         let locked = trie.lock_for_iter();
         let mut iter = locked.iter()?;
         if let Some(seek_key) = seek_key {
@@ -228,11 +229,26 @@ impl TrieStateResharder {
             "TrieStateResharding: child state roots"
         );
 
-        let mut status = TrieStateReshardingStatus::new(
-            event.parent_shard,
-            TrieStateReshardingChildStatus::new(event.left_child_shard, left_state_root),
-            TrieStateReshardingChildStatus::new(event.right_child_shard, right_state_root),
-        )
+        // If the child shard_uid mapping doesn't exist, it means we are not tracking the child shard.
+        let store = self.runtime.store();
+        let left_child =
+            if get_shard_uid_mapping(store, event.left_child_shard) != event.left_child_shard {
+                Some(TrieStateReshardingChildStatus::new(event.left_child_shard, left_state_root))
+            } else {
+                None
+            };
+        let right_child =
+            if get_shard_uid_mapping(store, event.right_child_shard) != event.right_child_shard {
+                Some(TrieStateReshardingChildStatus::new(event.right_child_shard, right_state_root))
+            } else {
+                None
+            };
+
+        let mut status = TrieStateReshardingStatus {
+            parent_shard_uid: event.parent_shard,
+            left: left_child,
+            right: right_child,
+        }
         .with_metrics();
         self.resharding_blocking_impl(&mut status)
     }
@@ -323,11 +339,11 @@ mod tests {
 
     impl TestSetup {
         fn as_status(&self) -> TrieStateReshardingStatus {
-            TrieStateReshardingStatus::new(
-                self.parent_shard,
-                TrieStateReshardingChildStatus::new(self.left_shard, self.left_root),
-                TrieStateReshardingChildStatus::new(self.right_shard, self.right_root),
-            )
+            TrieStateReshardingStatus {
+                parent_shard_uid: self.parent_shard,
+                left: Some(TrieStateReshardingChildStatus::new(self.left_shard, self.left_root)),
+                right: Some(TrieStateReshardingChildStatus::new(self.right_shard, self.right_root)),
+            }
         }
     }
 

@@ -972,6 +972,50 @@ impl ForkNetworkCommand {
                             access_key.clone(),
                         )?;
                     }
+                    StateRecord::GasKey { account_id, public_key, gas_key } => {
+                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                        if account_id.get_account_type() != AccountType::NearImplicitAccount
+                            && gas_key.permission == AccessKeyPermission::FullAccess
+                        {
+                            has_full_key.insert(account_id.clone());
+                        }
+                        let new_account_id = map_account(&account_id, None);
+                        let replacement = map_key(&public_key, None);
+                        let new_shard_id =
+                            target_shard_layout.account_id_to_shard_id(&new_account_id);
+                        let new_shard_idx =
+                            target_shard_layout.get_shard_index(new_shard_id).unwrap();
+
+                        storage_mutator.remove_gas_key(shard_uid, account_id, public_key)?;
+                        storage_mutator.set_gas_key(
+                            new_shard_idx,
+                            new_account_id,
+                            replacement.public_key(),
+                            gas_key,
+                        )?;
+                    }
+                    StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
+                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                        if account_id.get_account_type() != AccountType::NearImplicitAccount {
+                            has_full_key.insert(account_id.clone());
+                        }
+                        let new_account_id = map_account(&account_id, None);
+                        let replacement = map_key(&public_key, None);
+                        let new_shard_id =
+                            target_shard_layout.account_id_to_shard_id(&new_account_id);
+                        let new_shard_idx =
+                            target_shard_layout.get_shard_index(new_shard_id).unwrap();
+
+                        storage_mutator
+                            .remove_gas_key_nonce(shard_uid, account_id, public_key, index)?;
+                        storage_mutator.set_gas_key_nonce(
+                            new_shard_idx,
+                            new_account_id,
+                            replacement.public_key(),
+                            index,
+                            nonce,
+                        )?;
+                    }
                     StateRecord::Account { account_id, account } => {
                         storage_mutator.map_account(shard_uid, account_id, account)?;
                     }

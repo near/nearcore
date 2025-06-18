@@ -67,13 +67,12 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::BlockByHash { block_hash } => {
                 let block = store
-                    .get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Block not found"))?;
                 let author = self
                     .epoch_manager
                     .get_block_producer(block.header().epoch_id(), block.header().height())?;
-                let mut ret =
-                    serialize_entity(&BlockView::from_author_block(author, block.clone()));
+                let mut ret = serialize_entity(&BlockView::from_author_block(author, &block));
                 if let EntityDataValue::Struct(inner) = &mut ret {
                     inner.add("chunk_endorsements", serialize_entity(block.chunk_endorsements()));
                 }
@@ -323,7 +322,7 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::StateTransitionData { block_hash } => {
                 let block = store
-                    .get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Block not found"))?;
                 let epoch_id = block.header().epoch_id();
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;

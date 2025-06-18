@@ -73,7 +73,7 @@ pub fn load_trie_stop_at_height(
 }
 
 /// find the first final block whose height is at least `height`.
-fn get_last_final_from_height(height: u64, head: &Tip, chain_store: &ChainStore) -> Block {
+fn get_last_final_from_height(height: u64, head: &Tip, chain_store: &ChainStore) -> Arc<Block> {
     let mut cur_height = height + 1;
     loop {
         if cur_height >= head.height {

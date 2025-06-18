@@ -21,7 +21,7 @@ use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
-use crate::{StatusResponse, metrics};
+use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
 use actix::Actor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
@@ -37,7 +37,6 @@ use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
 };
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -157,6 +156,7 @@ pub fn start_client(
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
+    let multi_spawner = AsyncComputationMultiSpawner::default();
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -170,7 +170,7 @@ pub fn start_client(
         enable_doomslug,
         seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
-        Arc::new(RayonAsyncComputationSpawner),
+        multi_spawner,
         partial_witness_adapter,
         resharding_sender,
         state_sync_future_spawner,
@@ -530,7 +530,7 @@ impl Handler<BlockResponse> for ClientActorInner {
             || blocks_at_height.as_ref().unwrap().is_empty()
         {
             // This is a very sneaky piece of logic.
-            if self.maybe_receive_state_sync_blocks(&block) {
+            if self.maybe_receive_state_sync_blocks(Arc::clone(&block)) {
                 // A node is syncing its state. Don't consider receiving
                 // blocks other than the few special ones that State Sync expects.
                 return;
@@ -1106,6 +1106,7 @@ impl ClientActorInner {
         }
 
         let prev_block_hash = &head.last_block_hash;
+        let chunks_readiness = self.client.prepare_chunk_headers(prev_block_hash, &epoch_id)?;
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -1116,24 +1117,12 @@ impl ClientActorInner {
                 continue;
             }
 
-            {
-                self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                    prev_block_hash,
-                    &self.client.chunk_endorsement_tracker,
-                )?;
-            }
-            let num_chunks = self
-                .client
-                .chunk_inclusion_tracker
-                .num_chunk_headers_ready_for_inclusion(&epoch_id, prev_block_hash);
-            let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
-            let have_all_chunks = head.height == 0 || num_chunks == shard_ids.len();
-
             if self.client.doomslug.ready_to_produce_block(
                 height,
-                have_all_chunks,
+                chunks_readiness,
                 log_block_production_info,
             ) {
+                let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id)?;
                 self.client
                     .chunk_inclusion_tracker
                     .record_endorsement_metrics(prev_block_hash, &shard_ids);
@@ -1350,7 +1339,7 @@ impl ClientActorInner {
         // If we produced the block, send it out before we apply the block.
         self.client.chain.blocks_delay_tracker.mark_block_received(&block);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::Block { block: block.clone() },
+            NetworkRequests::Block { block: Arc::clone(&block) },
         ));
         // We’ve produced the block so that counts as validated block.
         let block = MaybeValidated::from_validated(block);
@@ -1751,7 +1740,7 @@ impl ClientActorInner {
     /// - Extra blocks before the prev block needed for incoming receipts
     ///
     /// Returns whether the node is syncing its state.
-    fn maybe_receive_state_sync_blocks(&mut self, block: &Block) -> bool {
+    fn maybe_receive_state_sync_blocks(&mut self, block: Arc<Block>) -> bool {
         let SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) =
             self.client.sync_handler.sync_status
         else {
@@ -1762,7 +1751,7 @@ impl ClientActorInner {
             return true;
         };
 
-        let block: MaybeValidated<Block> = (*block).clone().into();
+        let block: MaybeValidated<Arc<Block>> = Arc::clone(&block).into();
         let block_hash = *block.hash();
 
         // Notice that the blocks are saved differently:
@@ -1871,7 +1860,7 @@ impl ClientActorInner {
         let signer = self.client.validator_signer.get();
         let mut blocks_produced = 0;
         for height in start_height.. {
-            let block: Option<Block> = if is_based_on_current_head {
+            let block = if is_based_on_current_head {
                 self.client.produce_block(height).expect("block should be produced")
             } else {
                 let prev_block_hash = self

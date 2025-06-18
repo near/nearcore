@@ -15,7 +15,7 @@ from configured_logger import logger
 from cluster import start_cluster
 from utils import load_test_contract, poll_blocks
 
-GGAS = 10**9
+TGAS = 10**12
 
 
 class SlowChunkTest(unittest.TestCase):
@@ -99,7 +99,7 @@ class SlowChunkTest(unittest.TestCase):
             node.signer_key.account_id,
             'sleep',
             duration_bytes,
-            150 * GGAS,
+            150 * TGAS,
             1,
             20,
             block_hash,

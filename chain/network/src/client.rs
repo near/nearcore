@@ -29,14 +29,14 @@ pub struct TxStatusResponse(pub Box<FinalExecutionOutcomeView>);
 
 /// Request a block.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "Option<Box<Block>>")]
+#[rtype(result = "Option<Arc<Block>>")]
 pub struct BlockRequest(pub CryptoHash);
 
 /// Block response.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct BlockResponse {
-    pub block: Block,
+    pub block: Arc<Block>,
     pub peer_id: PeerId,
     pub was_requested: bool,
 }
@@ -153,7 +153,7 @@ pub struct ClientSenderForNetwork {
     pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
     pub state_response: AsyncSender<StateResponseReceived, ()>,
     pub block_approval: AsyncSender<BlockApproval, ()>,
-    pub block_request: AsyncSender<BlockRequest, Option<Box<Block>>>,
+    pub block_request: AsyncSender<BlockRequest, Option<Arc<Block>>>,
     pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>>,
     pub block: AsyncSender<BlockResponse, ()>,
     pub block_headers: AsyncSender<BlockHeadersResponse, Result<(), ReasonForBan>>,

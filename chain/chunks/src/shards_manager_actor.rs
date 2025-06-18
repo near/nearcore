@@ -1104,7 +1104,7 @@ impl ShardsManagerActor {
 
         let content = EncodedShardChunkBody { parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
-        if header.encoded_merkle_root() != encoded_merkle_root {
+        if header.encoded_merkle_root() != &encoded_merkle_root {
             warn!(target: "chunks",
                    "Not sending {:?}, expected encoded Merkle root doesn’t match calculated: {} != {}",
                    chunk.chunk_hash(), header.encoded_merkle_root(), encoded_merkle_root);
@@ -1162,7 +1162,7 @@ impl ShardsManagerActor {
         }
 
         let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
-        if merkle_root != chunk.encoded_merkle_root() {
+        if &merkle_root != chunk.encoded_merkle_root() {
             debug!(target: "chunks", ?merkle_root, chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(), "Invalid: Wrong merkle root");
             return ChunkStatus::Invalid;
         }
@@ -1274,7 +1274,7 @@ impl ShardsManagerActor {
             .ok_or(Error::UnknownChunk)?;
 
         // Check the hashes match
-        if header.chunk_hash() != *chunk_hash {
+        if header.chunk_hash() != chunk_hash {
             byzantine_assert!(false);
             return Err(Error::InvalidChunkHeader);
         }
@@ -1547,7 +1547,7 @@ impl ShardsManagerActor {
                 partial_encoded_chunk.header.height_created(),
                 partial_encoded_chunk.header.shard_id(),
             ) {
-                if hash != &chunk_hash {
+                if hash != chunk_hash {
                     warn!(
                         target: "client",
                         "Rejecting un-requested chunk {:?}, height {}, shard_id {}, because of having {:?}",
@@ -1593,7 +1593,7 @@ impl ShardsManagerActor {
         for part_info in &parts {
             // TODO: only validate parts we care about
             // https://github.com/near/nearcore/issues/5885
-            self.validate_part(header.encoded_merkle_root(), part_info, num_total_parts)?;
+            self.validate_part(*header.encoded_merkle_root(), part_info, num_total_parts)?;
         }
 
         // 1.e Checking receipts validity
@@ -1602,7 +1602,7 @@ impl ShardsManagerActor {
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
             // because prev_block_hash may not be ready
-            if !proof.verify_against_receipt_root(header.prev_outgoing_receipts_root()) {
+            if !proof.verify_against_receipt_root(*header.prev_outgoing_receipts_root()) {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
             }
@@ -2323,14 +2323,18 @@ mod test {
         let epoch_manager = Arc::new(epoch_manager.into_handle());
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_id = shard_layout.shard_ids().next().unwrap();
-        let shard_tracker =
-            ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
+        let validator_signer = mutable_validator_signer(&"test".parse().unwrap());
+        let shard_tracker = ShardTracker::new(
+            TrackedShardsConfig::AllShards,
+            epoch_manager.clone(),
+            validator_signer.clone(),
+        );
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
-            mutable_validator_signer(&"test".parse().unwrap()),
+            validator_signer,
             epoch_manager.clone(),
             epoch_manager,
             shard_tracker,
@@ -2837,7 +2841,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
             });
@@ -2871,7 +2875,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
             });
@@ -2905,7 +2909,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
             });
@@ -2937,7 +2941,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
             });
@@ -2981,7 +2985,7 @@ mod test {
         .unwrap();
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
             });
@@ -3026,7 +3030,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
             });
@@ -3072,7 +3076,7 @@ mod test {
         .unwrap();
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
             });
@@ -3098,7 +3102,7 @@ mod test {
         );
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: Vec::new(),
                 tracking_shards: HashSet::new(),
             });
@@ -3124,7 +3128,7 @@ mod test {
         );
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: vec![0],
                 tracking_shards: HashSet::new(),
             });
@@ -3155,7 +3159,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: vec![0, fixture.epoch_manager.num_total_parts() as u64],
                 tracking_shards: HashSet::new(),
             });
@@ -3188,7 +3192,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
-                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: vec![0, 1, 0, 1, 0, 1, 0, 1],
                 tracking_shards: HashSet::new(),
             });

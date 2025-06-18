@@ -29,7 +29,6 @@ use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
 use std::collections::BTreeMap;
 use std::ops::Index;
-use std::sync::Arc;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
@@ -82,10 +81,10 @@ pub struct BlockV4 {
 /// For each next version, document what are the changes between versions.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub enum Block {
-    BlockV1(Arc<BlockV1>),
-    BlockV2(Arc<BlockV2>),
-    BlockV3(Arc<BlockV3>),
-    BlockV4(Arc<BlockV4>),
+    BlockV1(BlockV1),
+    BlockV2(BlockV2),
+    BlockV3(BlockV3),
+    BlockV4(BlockV4),
 }
 
 impl Block {
@@ -96,7 +95,7 @@ impl Block {
             BlockBody::V1(_) => {
                 panic!("Attempted to include BlockBodyV1 in new protocol version")
             }
-            _ => Block::BlockV4(Arc::new(BlockV4 { header, body })),
+            _ => Block::BlockV4(BlockV4 { header, body }),
         }
     }
 
@@ -339,6 +338,7 @@ impl Block {
             &chunks
                 .into_iter()
                 .map(|chunk| chunk.prev_outgoing_receipts_root())
+                .copied()
                 .collect::<Vec<CryptoHash>>(),
         )
         .0
@@ -350,7 +350,7 @@ impl Block {
         merklize(
             &chunks
                 .into_iter()
-                .map(|chunk| ChunkHashHeight(chunk.chunk_hash(), chunk.height_included()))
+                .map(|chunk| ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()))
                 .collect::<Vec<ChunkHashHeight>>(),
         )
     }
@@ -358,14 +358,21 @@ impl Block {
     pub fn compute_chunk_tx_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
     ) -> CryptoHash {
-        merklize(&chunks.into_iter().map(|chunk| chunk.tx_root()).collect::<Vec<CryptoHash>>()).0
+        merklize(
+            &chunks.into_iter().map(|chunk| chunk.tx_root()).copied().collect::<Vec<CryptoHash>>(),
+        )
+        .0
     }
 
     pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
     ) -> CryptoHash {
         merklize(
-            &chunks.into_iter().map(|chunk| chunk.prev_outcome_root()).collect::<Vec<CryptoHash>>(),
+            &chunks
+                .into_iter()
+                .map(|chunk| chunk.prev_outcome_root())
+                .copied()
+                .collect::<Vec<CryptoHash>>(),
         )
         .0
     }
@@ -396,7 +403,7 @@ impl Block {
         verify_path(
             *chunk_root,
             merkle_path,
-            &ChunkHashHeight(chunk.chunk_hash(), chunk.height_included()),
+            &ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()),
         )
     }
 

@@ -107,9 +107,10 @@ pub static NUM_PENDING_BLOCKS: LazyLock<IntGauge> = LazyLock::new(|| {
     .unwrap()
 });
 pub static BLOCK_PENDING_EXECUTION_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
-    try_create_histogram(
+    try_create_histogram_with_buckets(
         "near_block_pending_execution_delay",
         "Time taken for a block to wait in pending execution pool",
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
     )
     .unwrap()
 });
@@ -162,9 +163,18 @@ pub static OPTIMISTIC_BLOCK_PROCESSED_GAP: LazyLock<Histogram> = LazyLock::new(|
     .unwrap()
 });
 pub static BLOCK_MISSING_CHUNKS_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
-    try_create_histogram(
+    try_create_histogram_with_buckets(
         "near_block_missing_chunks_delay",
         "How long blocks stay in the missing chunks pool",
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
+    )
+    .unwrap()
+});
+pub static BLOCK_APPROVAL_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_block_approval_delay",
+        "How long block with chunks is waiting for approval",
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
     )
     .unwrap()
 });
@@ -334,6 +344,24 @@ pub(crate) static CHAIN_VALIDITY_PERIOD_CHECK_DELAY: LazyLock<Histogram> = LazyL
         "near_chain_validity_period_check_delay",
         "how far back in the past is the validity period we're checking (not 100% precise!)",
         vec![5.0, 10.0, 20.0, 40.0, 60.0, 120.0, 180.0],
+    )
+    .unwrap()
+});
+
+pub(crate) static THREAD_POOL_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_thread_pool_num_threads",
+        "current number of threads in apply chunks thread pool",
+        &["pool_name"],
+    )
+    .unwrap()
+});
+
+pub(crate) static THREAD_POOL_MAX_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_thread_pool_max_num_threads",
+        "maximum observed number of threads in apply chunks thread pool",
+        &["pool_name"],
     )
     .unwrap()
 });

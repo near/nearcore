@@ -51,7 +51,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use utils::check_transaction_validity_period;
 
-mod latest_witnesses;
+pub mod latest_witnesses;
 mod merkle_proof;
 pub mod utils;
 
@@ -90,7 +90,7 @@ pub trait ChainStoreAccess {
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error>;
+    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
@@ -667,6 +667,19 @@ impl ChainStore {
                 }
                 changes
             }
+            StateChangesRequest::SingleGasKeyChanges { keys } => {
+                let mut changes = StateChanges::new();
+                for key in keys {
+                    let data_key = trie_key_parsers::get_raw_prefix_for_gas_key(
+                        &key.account_id,
+                        &key.public_key,
+                    );
+                    let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
+                    let changes_per_key_prefix = storage_key.find_iter(&store);
+                    changes.extend(StateChanges::from_gas_key_changes(changes_per_key_prefix)?);
+                }
+                changes
+            }
             StateChangesRequest::AllAccessKeyChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
@@ -674,6 +687,16 @@ impl ChainStore {
                     let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
                     let changes_per_key_prefix = storage_key.find_iter(&store);
                     changes.extend(StateChanges::from_access_key_changes(changes_per_key_prefix)?);
+                }
+                changes
+            }
+            StateChangesRequest::AllGasKeyChanges { account_ids } => {
+                let mut changes = StateChanges::new();
+                for account_id in account_ids {
+                    let data_key = trie_key_parsers::get_raw_prefix_for_gas_keys(account_id);
+                    let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
+                    let changes_per_key_prefix = storage_key.find_iter(&store);
+                    changes.extend(StateChanges::from_gas_key_changes(changes_per_key_prefix)?);
                 }
                 changes
             }
@@ -842,7 +865,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
+    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         ChainStoreAdapter::get_block(self, h)
     }
 
@@ -974,7 +997,7 @@ impl ChainStoreAccess for ChainStore {
 /// Cache update for ChainStore
 #[derive(Default)]
 pub(crate) struct ChainStoreCacheUpdate {
-    block: Option<Block>,
+    block: Option<Arc<Block>>,
     headers: HashMap<CryptoHash, Arc<BlockHeader>>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, Arc<ArcedShardChunk>>,
@@ -1126,10 +1149,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
+    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         if let Some(block) = &self.chain_store_cache_update.block {
             if block.hash() == h {
-                return Ok(block.clone());
+                return Ok(Arc::clone(block));
             }
         }
         self.chain_store.get_block(h)
@@ -1465,7 +1488,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Save block.
-    pub fn save_block(&mut self, block: Block) {
+    pub fn save_block(&mut self, block: Arc<Block>) {
         debug_assert!(self.chain_store_cache_update.block.is_none());
         self.chain_store_cache_update.block = Some(block);
     }
@@ -1475,11 +1498,9 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
-        chunk_extra: ChunkExtra,
+        chunk_extra: Arc<ChunkExtra>,
     ) {
-        self.chain_store_cache_update
-            .chunk_extras
-            .insert((*block_hash, *shard_uid), Arc::new(chunk_extra));
+        self.chain_store_cache_update.chunk_extras.insert((*block_hash, *shard_uid), chunk_extra);
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
@@ -1500,7 +1521,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn save_partial_chunk(&mut self, partial_chunk: Arc<PartialEncodedChunk>) {
         self.chain_store_cache_update
             .partial_chunks
-            .insert(partial_chunk.chunk_hash(), partial_chunk);
+            .insert(partial_chunk.chunk_hash().clone(), partial_chunk);
     }
 
     pub fn save_block_merkle_tree(
@@ -1632,7 +1653,9 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_invalid_chunk(&mut self, chunk: EncodedShardChunk) {
-        self.chain_store_cache_update.invalid_chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
+        self.chain_store_cache_update
+            .invalid_chunks
+            .insert(chunk.chunk_hash().clone(), Arc::new(chunk));
     }
 
     pub fn save_block_height_processed(&mut self, height: BlockHeight) {
