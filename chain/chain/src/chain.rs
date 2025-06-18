@@ -3550,7 +3550,7 @@ impl Chain {
         self.chain_store.get_block(&tip.last_block_hash)
     }
 
-    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
+    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
         self.chain_store.get_chunk(chunk_hash)
     }
 
