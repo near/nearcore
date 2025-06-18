@@ -79,9 +79,9 @@ fn test_client_with_simple_test_loop() {
         "validator_signer",
     );
     let shard_tracker = ShardTracker::new(
-        validator_signer.clone(),
         TrackedShardsConfig::AllShards,
         epoch_manager.clone(),
+        validator_signer.clone(),
     );
 
     let shards_manager_adapter = LateBoundSender::new();

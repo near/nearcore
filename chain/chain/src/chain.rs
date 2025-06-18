@@ -415,6 +415,7 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             store.clone(),
             epoch_manager.clone(),
+            shard_tracker.clone(),
             noop().into_multi_sender(),
         );
         let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
@@ -532,11 +533,12 @@ impl Chain {
         let tip = chain_store.head()?;
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id)?;
         let shard_uids = shard_layout.shard_uids().collect_vec();
+        let me = validator.get().map(|v| v.validator_id().clone());
         let tracked_shards: Vec<_> = shard_uids
             .iter()
             .filter(|shard_uid| {
                 shard_tracker.cares_about_shard(
-                    validator.get().map(|v| v.validator_id().clone()).as_ref(),
+                    me.as_ref(),
                     &tip.prev_block_hash,
                     shard_uid.shard_id(),
                     true,
@@ -570,8 +572,12 @@ impl Chain {
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
-        let resharding_manager =
-            ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
+        let resharding_manager = ReshardingManager::new(
+            chain_store.store(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            resharding_sender,
+        );
 
         // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit. This assumes that:
         // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
@@ -3180,7 +3186,7 @@ impl Chain {
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(prev_hash, shard_id);
         let cared_about_shard_prev_epoch =
-            self.shard_tracker.cared_about_shard_in_prev_epoch(prev_hash, shard_id);
+            self.shard_tracker.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
         let should_apply_chunk = get_should_apply_chunk(
             mode,
             cares_about_shard_this_epoch,

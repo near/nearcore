@@ -2305,9 +2305,9 @@ mod test {
         let shard_id = shard_layout.shard_ids().next().unwrap();
         let validator_signer = mutable_validator_signer(&"test".parse().unwrap());
         let shard_tracker = ShardTracker::new(
-            validator_signer.clone(),
             TrackedShardsConfig::AllShards,
             epoch_manager.clone(),
+            validator_signer.clone(),
         );
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());

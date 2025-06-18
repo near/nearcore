@@ -136,7 +136,7 @@ fn setup(
         "validator_signer",
     );
     let shard_tracker =
-        ShardTracker::new(signer.clone(), TrackedShardsConfig::AllShards, epoch_manager.clone());
+        ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
     let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
     let config = {
         let mut base = ClientConfig::test(

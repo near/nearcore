@@ -113,9 +113,9 @@ pub fn setup_client(
         "validator_signer",
     );
     let shard_tracker = ShardTracker::new(
-        validator_signer.clone(),
         client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
+        validator_signer.clone(),
     );
 
     let shards_manager_adapter = LateBoundSender::new();
@@ -165,9 +165,9 @@ pub fn setup_client(
                 epoch_config_store.clone(),
             );
             let view_shard_tracker = ShardTracker::new(
-                validator_signer.clone(),
                 client_config.tracked_shards_config.clone(),
                 view_epoch_manager.clone(),
+                validator_signer.clone(),
             );
             let view_runtime_adapter = NightshadeRuntime::test_with_trie_config(
                 &homedir,
