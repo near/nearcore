@@ -317,7 +317,7 @@ impl TrieStateResharder {
     fn ensure_child_memtries_exist(&self, status: &TrieStateReshardingStatus) -> Result<(), Error> {
         let tries = self.runtime.get_tries();
 
-        let missing_children = [
+        let children_missing_memtrie = [
             status.left.as_ref().map(|child| (child.shard_uid, RetainMode::Left)),
             status.right.as_ref().map(|child| (child.shard_uid, RetainMode::Right)),
         ]
@@ -326,8 +326,8 @@ impl TrieStateResharder {
         .filter(|(shard_uid, _)| tries.get_memtries(*shard_uid).is_none())
         .collect_vec();
 
-        if !missing_children.is_empty() {
-            self.recreate_child_memtries(status, missing_children)?;
+        if !children_missing_memtrie.is_empty() {
+            self.recreate_child_memtries(status, children_missing_memtrie)?;
         }
 
         Ok(())
@@ -520,6 +520,16 @@ mod tests {
         }
     }
 
+    /// Sets up a test environment for trie state resharding.
+    ///
+    /// # Parameters
+    ///
+    /// * `create_memtries`:
+    ///   - `true`: Creates and keeps all memtries (parent + children) in memory.
+    ///     This simulates the normal case where memtries are available during resharding.
+    ///   - `false`: Skips creation of children memtries, unloads the parent memtrie and
+    ///     sets up flat storage instead. This simulates resharding interruption and recovery
+    ///     where memtries need to be loaded from flat storage during resume().
     fn setup_test(create_memtries: bool) -> TestSetup {
         let shard_layout = ShardLayout::single_shard();
         let genesis = Genesis::from_accounts(
