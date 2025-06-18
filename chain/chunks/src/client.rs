@@ -1,5 +1,6 @@
 use actix::Message;
 use itertools::Itertools;
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -14,7 +15,7 @@ use std::collections::HashMap;
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
 #[allow(clippy::large_enum_variant)]
-pub enum ShardsManagerResponse {
+pub enum ShardsManagerResponseInner {
     /// Notifies the client that the ShardsManager has collected a complete chunk.
     /// Note that this does NOT mean that the chunk is fully constructed. If we are
     /// not tracking the shard this chunk is in, then being complete only means that
@@ -31,6 +32,8 @@ pub enum ShardsManagerResponse {
     /// this chunk now. The producer of this chunk is also provided.
     ChunkHeaderReadyForInclusion { chunk_header: ShardChunkHeader, chunk_producer: AccountId },
 }
+
+pub type ShardsManagerResponse = SpanWrapped<ShardsManagerResponseInner>;
 
 pub struct ShardedTransactionPool {
     tx_pools: HashMap<ShardUId, TransactionPool>,

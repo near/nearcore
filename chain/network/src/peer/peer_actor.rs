@@ -1,8 +1,9 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    StateRequestHeader, StateRequestPart, StateResponseReceived,
+    AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponseInner, BlockRequest,
+    BlockResponseInner, EpochSyncRequestMessage, EpochSyncResponseMessage,
+    OptimisticBlockMessageInner, ProcessTxRequest, StateRequestHeader, StateRequestPart,
+    StateResponseReceivedInner,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -39,6 +40,7 @@ use lru::LruCache;
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::{WithSpanContext, handler_debug_span, log_assert};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
@@ -1058,7 +1060,9 @@ impl PeerActor {
                 PeerMessage::Block(block) => {
                     network_state
                         .client
-                        .send_async(BlockResponse { block, peer_id, was_requested })
+                        .send_async(
+                            BlockResponseInner { block, peer_id, was_requested }.span_wrap(),
+                        )
                         .await
                         .ok();
                     None
@@ -1078,7 +1082,7 @@ impl PeerActor {
                 PeerMessage::BlockHeaders(headers) => {
                     if let Ok(Err(ban_reason)) = network_state
                         .client
-                        .send_async(BlockHeadersResponse(headers, peer_id))
+                        .send_async(BlockHeadersResponseInner(headers, peer_id).span_wrap())
                         .await
                     {
                         return Err(ban_reason);
@@ -1104,10 +1108,13 @@ impl PeerActor {
                     //TODO: Route to state sync actor.
                     network_state
                         .client
-                        .send_async(StateResponseReceived {
-                            peer_id,
-                            state_response_info: info.into(),
-                        })
+                        .send_async(
+                            StateResponseReceivedInner {
+                                peer_id,
+                                state_response_info: info.into(),
+                            }
+                            .span_wrap(),
+                        )
                         .await
                         .ok();
                     None
@@ -1123,9 +1130,10 @@ impl PeerActor {
                     None
                 }
                 PeerMessage::OptimisticBlock(ob) => {
-                    network_state
-                        .client
-                        .send(OptimisticBlockMessage { from_peer: peer_id, optimistic_block: ob });
+                    network_state.client.send(
+                        OptimisticBlockMessageInner { from_peer: peer_id, optimistic_block: ob }
+                            .span_wrap(),
+                    );
                     None
                 }
                 msg => {

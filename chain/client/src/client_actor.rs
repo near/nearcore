@@ -47,7 +47,9 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, MutableValidatorSigner};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
+use near_chunks::client::{
+    ShardedTransactionPool, ShardsManagerResponse, ShardsManagerResponseInner,
+};
 use near_client_primitives::types::{
     Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse,
     StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
@@ -55,8 +57,9 @@ use near_client_primitives::types::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, OptimisticBlockMessage, SetNetworkInfo,
-    StateResponseReceived,
+    BlockApproval, BlockApprovalInner, BlockHeadersResponse, BlockHeadersResponseInner,
+    BlockResponse, BlockResponseInner, OptimisticBlockMessage, OptimisticBlockMessageInner,
+    SetNetworkInfo, StateResponseReceived, StateResponseReceivedInner,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -512,7 +515,7 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
 
 impl Handler<OptimisticBlockMessage> for ClientActorInner {
     fn handle(&mut self, msg: OptimisticBlockMessage) {
-        let OptimisticBlockMessage { optimistic_block, from_peer } = msg;
+        let OptimisticBlockMessageInner { optimistic_block, from_peer } = msg.span_unwrap();
         debug!(target: "client", block_height = optimistic_block.inner.block_height, prev_block_hash = ?optimistic_block.inner.prev_block_hash, ?from_peer, "OptimisticBlockMessage");
 
         self.client.receive_optimistic_block(optimistic_block, &from_peer);
@@ -521,7 +524,7 @@ impl Handler<OptimisticBlockMessage> for ClientActorInner {
 
 impl Handler<BlockResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockResponse) {
-        let BlockResponse { block, peer_id, was_requested } = msg;
+        let BlockResponseInner { block, peer_id, was_requested } = msg.span_unwrap();
         debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "BlockResponse");
         let blocks_at_height =
             self.client.chain.chain_store().get_all_block_hashes_by_height(block.header().height());
@@ -561,7 +564,7 @@ impl Handler<BlockResponse> for ClientActorInner {
 
 impl Handler<BlockHeadersResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockHeadersResponse) -> Result<(), ReasonForBan> {
-        let BlockHeadersResponse(headers, peer_id) = msg;
+        let BlockHeadersResponseInner(headers, peer_id) = msg.span_unwrap();
         if self.receive_headers(headers, peer_id) {
             Ok(())
         } else {
@@ -573,7 +576,7 @@ impl Handler<BlockHeadersResponse> for ClientActorInner {
 
 impl Handler<BlockApproval> for ClientActorInner {
     fn handle(&mut self, msg: BlockApproval) {
-        let BlockApproval(approval, peer_id) = msg;
+        let BlockApprovalInner(approval, peer_id) = msg.span_unwrap();
         debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
         let validator_signer = self.client.validator_signer.get();
         self.client.collect_block_approval(
@@ -588,7 +591,7 @@ impl Handler<BlockApproval> for ClientActorInner {
 /// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
 impl Handler<StateResponseReceived> for ClientActorInner {
     fn handle(&mut self, msg: StateResponseReceived) {
-        let StateResponseReceived { peer_id, state_response_info } = msg;
+        let StateResponseReceivedInner { peer_id, state_response_info } = msg.span_unwrap();
         let shard_id = state_response_info.shard_id();
         let hash = state_response_info.sync_hash();
         let state_response = state_response_info.take_state_response();
@@ -634,9 +637,9 @@ impl Handler<StateResponseReceived> for ClientActorInner {
 
 impl Handler<SetNetworkInfo> for ClientActorInner {
     fn handle(&mut self, msg: SetNetworkInfo) {
+        let msg = msg.span_unwrap();
         // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
-        let SetNetworkInfo(network_info) = msg;
-        self.network_info = network_info;
+        self.network_info = msg.0;
     }
 }
 
@@ -678,6 +681,7 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActorInner
 
 impl Handler<Status> for ClientActorInner {
     fn handle(&mut self, msg: Status) -> Result<StatusResponse, StatusError> {
+        let msg = msg.span_unwrap();
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
@@ -1897,7 +1901,8 @@ impl ClientActorInner {
 
 impl Handler<BlockCatchUpResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockCatchUpResponse) {
-        tracing::debug!(target: "client", ?msg);
+        let msg = msg.span_unwrap();
+        debug!(target: "client", ?msg);
         if let Some(CatchupState { catchup, .. }) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
@@ -1915,8 +1920,9 @@ impl Handler<BlockCatchUpResponse> for ClientActorInner {
 impl Handler<ShardsManagerResponse> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: ShardsManagerResponse) {
+        let msg = msg.span_unwrap();
         match msg {
-            ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
+            ShardsManagerResponseInner::ChunkCompleted { partial_chunk, shard_chunk } => {
                 let signer = self.client.validator_signer.get();
                 self.client.on_chunk_completed(
                     partial_chunk,
@@ -1925,10 +1931,10 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
                     &signer,
                 );
             }
-            ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
+            ShardsManagerResponseInner::InvalidChunk(encoded_chunk) => {
                 self.client.on_invalid_chunk(encoded_chunk);
             }
-            ShardsManagerResponse::ChunkHeaderReadyForInclusion {
+            ShardsManagerResponseInner::ChunkHeaderReadyForInclusion {
                 chunk_header,
                 chunk_producer,
             } => {
@@ -1942,8 +1948,7 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
 
 impl Handler<GetClientConfig> for ClientActorInner {
     fn handle(&mut self, msg: GetClientConfig) -> Result<ClientConfig, GetClientConfigError> {
-        tracing::debug!(target: "client", ?msg);
-
+        debug!(target: "client", ?msg);
         Ok(self.client.config.clone())
     }
 }
@@ -1951,12 +1956,12 @@ impl Handler<GetClientConfig> for ClientActorInner {
 impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: ChunkStateWitnessMessage) {
-        let ChunkStateWitnessMessage { witness, raw_witness_size } = msg;
+        let msg = msg.span_unwrap();
         let signer = self.client.validator_signer.get();
         if let Err(err) =
-            self.client.process_chunk_state_witness(witness, raw_witness_size, None, signer)
+            self.client.process_chunk_state_witness(msg.witness, msg.raw_witness_size, None, signer)
         {
-            tracing::error!(target: "client", ?err, "Error processing chunk state witness");
+            error!(target: "client", ?err, "Error processing chunk state witness");
         }
     }
 }
@@ -1964,6 +1969,7 @@ impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
 impl Handler<StateHeaderValidationRequest> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: StateHeaderValidationRequest) -> Result<(), near_chain::Error> {
+        let msg = msg.span_unwrap();
         self.client.chain.state_sync_adapter.set_state_header(
             msg.shard_id,
             msg.sync_hash,
@@ -1975,6 +1981,7 @@ impl Handler<StateHeaderValidationRequest> for ClientActorInner {
 impl Handler<ChainFinalizationRequest> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: ChainFinalizationRequest) -> Result<(), near_chain::Error> {
+        let msg = msg.span_unwrap();
         self.client.chain.set_state_finalize(msg.shard_id, msg.sync_hash)
     }
 }

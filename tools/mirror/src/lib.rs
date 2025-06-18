@@ -8,7 +8,7 @@ use near_client::{ClientActor, RpcHandlerActor, ViewClientActor};
 use near_client::{ProcessTxRequest, ProcessTxResponse};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcomeError, GetReceiptError, Query,
-    QueryError, Status,
+    QueryError, StatusInner,
 };
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
@@ -49,6 +49,7 @@ mod online;
 pub mod secret;
 
 pub use cli::MirrorCommand;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 
 #[derive(strum::EnumIter)]
 enum DBCol {
@@ -1887,7 +1888,11 @@ impl<T: ChainAccess> TxMirror<T> {
 
     async fn target_chain_syncing(target_client: &Addr<ClientActor>) -> bool {
         target_client
-            .send(Status { is_health_check: false, detailed: false }.with_span_context())
+            .send(
+                StatusInner { is_health_check: false, detailed: false }
+                    .span_wrap()
+                    .with_span_context(),
+            )
             .await
             .unwrap()
             .map(|s| s.sync_info.syncing)

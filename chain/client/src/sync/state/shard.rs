@@ -1,7 +1,7 @@
 use super::downloader::StateSyncDownloader;
 use super::task_tracker::TaskTracker;
 use crate::metrics;
-use crate::sync::state::chain_requests::ChainFinalizationRequest;
+use crate::sync::state::chain_requests::{ChainFinalizationRequest, ChainFinalizationRequestInner};
 use futures::{StreamExt, TryStreamExt};
 use near_async::futures::{FutureSpawner, respawn_for_parallelism};
 use near_async::messaging::AsyncSender;
@@ -10,6 +10,7 @@ use near_chain::types::RuntimeAdapter;
 use near_client_primitives::types::ShardSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_part::PartId;
@@ -197,11 +198,11 @@ pub(super) async fn run_state_sync_for_shard(
     // Finalize; this needs to be done by the Chain.
     *status.lock() = ShardSyncStatus::StateApplyFinalizing;
     chain_finalization_sender
-        .send_async(ChainFinalizationRequest { shard_id, sync_hash })
+        .send_async(ChainFinalizationRequestInner { shard_id, sync_hash }.span_wrap())
         .await
         .map_err(|_| {
-        near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
-    })??;
+            near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
+        })??;
 
     *status.lock() = ShardSyncStatus::StateSyncDone;
 

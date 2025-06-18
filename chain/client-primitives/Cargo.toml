@@ -23,12 +23,13 @@ near-chain-primitives.workspace = true
 near-chain-configs.workspace = true
 near-chunks-primitives.workspace = true
 near-crypto.workspace = true
+near-o11y.workspace = true
 near-primitives.workspace = true
 
 [features]
 nightly = [
-  "near-chain-configs/nightly",
-  "near-primitives/nightly",
+    "near-chain-configs/nightly",
+    "near-primitives/nightly",
 ]
 sandbox = []
 test_features = ["near-primitives/test_features"]
