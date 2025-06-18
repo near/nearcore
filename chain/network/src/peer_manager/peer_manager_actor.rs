@@ -1130,7 +1130,7 @@ impl PeerManagerActor {
                     "send partial_encoded_state_witnesses",
                     height = partial_witness.chunk_production_key().height_created,
                     shard_id = %partial_witness.chunk_production_key().shard_id,
-                    part_owners = ?part_owners,
+                    part_owners_len = part_owners.len(),
                     tag_witness_distribution = true,
                 )
                 .entered();
