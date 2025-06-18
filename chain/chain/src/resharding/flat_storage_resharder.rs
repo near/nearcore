@@ -165,13 +165,31 @@ impl FlatStorageResharder {
             }
             FlatStorageReshardingStatus::SplittingParent(status) => {
                 let parent_shard_uid = shard_uid;
-                info!(target: "resharding", ?parent_shard_uid, ?status, "resuming flat storage shard split");
-                // On resume, flat storage status is already set correctly and read from DB.
-                // Thus, we don't need to care about cancelling other existing resharding events.
-                // However, we don't know the current state of children shards,
-                // so it's better to clean them.
-                self.clean_children_shards(&status)?;
-                self.start_resharding_blocking_impl(parent_shard_uid, status);
+
+                // Check if children's flat storages are already in Ready status to skip flat storage resharding
+                // and go directly to Trie resharding.
+                let all_children_done = [status.left_child_shard, status.right_child_shard]
+                    .iter()
+                    .all(|&child_shard| {
+                        matches!(
+                            self.runtime
+                                .get_flat_storage_manager()
+                                .get_flat_storage_status(child_shard),
+                            FlatStorageStatus::Ready(_)
+                        )
+                    });
+
+                if all_children_done {
+                    info!(target: "resharding", ?parent_shard_uid, ?status, "all children shards are ready, skipping resharding");
+                    return Ok(());
+                } else {
+                    info!(target: "resharding", ?parent_shard_uid, ?status, "resuming flat storage shard split");
+                    // On resume, flat storage status is already set correctly and read from DB.
+                    // Thus, we don't need to care about cancelling other existing resharding events.
+                    // Children are not both ready, so we need to clean them and restart resharding.
+                    self.clean_children_shards(&status)?;
+                    self.start_resharding_blocking_impl(parent_shard_uid, status);
+                }
             }
             FlatStorageReshardingStatus::CatchingUp(_) => {
                 info!(target: "resharding", ?shard_uid, ?resharding_status, "resuming flat storage shard catchup");
