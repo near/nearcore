@@ -16,6 +16,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::compression::CompressedData;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use protobuf::MessageField as MF;
 use std::sync::Arc;
 
@@ -522,13 +523,20 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Routed(r) => {
                 let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
                 let body = TieredMessageBody::from_routed(msg.body);
+                let signature = if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION)
+                    && body.is_t1()
+                {
+                    None
+                } else {
+                    Some(msg.signature)
+                };
                 PeerMessage::Routed(Box::new(
                     RoutedMessageV3 {
                         target: msg.target,
                         author: msg.author,
                         ttl: msg.ttl,
                         body,
-                        signature: msg.signature,
+                        signature,
                         created_at: r
                             .created_at
                             .as_ref()

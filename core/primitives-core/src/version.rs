@@ -312,6 +312,7 @@ pub enum ProtocolFeature {
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
     SaturatingFloatToInt,
+    UnsignedT1Messages,
 }
 
 impl ProtocolFeature {
@@ -407,6 +408,7 @@ impl ProtocolFeature {
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
+            ProtocolFeature::UnsignedT1Messages => 79,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

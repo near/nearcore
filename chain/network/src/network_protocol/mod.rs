@@ -16,6 +16,8 @@ use near_primitives::stateless_validation::contract_distribution::ContractCodeRe
 use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::ProtocolFeature;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -1091,8 +1093,8 @@ pub struct RoutedMessageV3 {
     pub ttl: u8,
     /// Message
     pub body: TieredMessageBody,
-    /// Signature.
-    pub signature: Signature,
+    /// Signature only for T2 messages.
+    pub signature: Option<Signature>,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<i64>,
     /// Number of peers this routed message traveled through.
@@ -1111,7 +1113,14 @@ impl RoutedMessageV3 {
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
+        if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && self.body.is_t1() {
+            self.signature.is_none()
+        } else {
+            let Some(signature) = &self.signature else {
+                return false;
+            };
+            signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
+        }
     }
 
     pub fn expect_response(&self) -> bool {
@@ -1137,12 +1146,13 @@ impl RoutedMessageV3 {
 impl From<RoutedMessageV1> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV1) -> Self {
         let body = TieredMessageBody::from_routed(msg.body);
+        let signature = if body.is_t1() { None } else { Some(msg.signature) };
         Self {
             target: msg.target,
             author: msg.author,
             ttl: msg.ttl,
             body,
-            signature: msg.signature,
+            signature,
             created_at: None,
             num_hops: 0,
         }
@@ -1152,12 +1162,13 @@ impl From<RoutedMessageV1> for RoutedMessageV3 {
 impl From<RoutedMessageV2> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV2) -> Self {
         let body = TieredMessageBody::from_routed(msg.msg.body);
+        let signature = if body.is_t1() { None } else { Some(msg.msg.signature) };
         Self {
             target: msg.msg.target,
             author: msg.msg.author,
             ttl: msg.msg.ttl,
             body,
-            signature: msg.msg.signature,
+            signature,
             created_at: msg.created_at.map(|t| t.unix_timestamp()),
             num_hops: msg.num_hops,
         }
@@ -1207,7 +1218,7 @@ impl RoutedMessage {
                 author: msg.author,
                 ttl: msg.ttl,
                 body: msg.body.into(),
-                signature: msg.signature,
+                signature: msg.signature.unwrap_or_default(),
             },
         }
     }
@@ -1228,11 +1239,11 @@ impl RoutedMessage {
         }
     }
 
-    pub fn signature(&self) -> &Signature {
+    pub fn signature(&self) -> Option<&Signature> {
         match self {
-            RoutedMessage::V1(msg) => &msg.signature,
-            RoutedMessage::V2(msg) => &msg.msg.signature,
-            RoutedMessage::V3(msg) => &msg.signature,
+            RoutedMessage::V1(msg) => Some(&msg.signature),
+            RoutedMessage::V2(msg) => Some(&msg.msg.signature),
+            RoutedMessage::V3(msg) => msg.signature.as_ref(),
         }
     }
 
@@ -1331,22 +1342,26 @@ impl RoutedMessage {
 
     fn upgrade_to_v3(&mut self) {
         if let RoutedMessage::V1(msg) = self {
+            let body = TieredMessageBody::from_routed(msg.body.clone());
+            let signature = if body.is_t1() { None } else { Some(msg.signature.clone()) };
             *self = RoutedMessage::V3(RoutedMessageV3 {
                 target: msg.target.clone(),
                 author: msg.author.clone(),
                 ttl: msg.ttl,
-                body: TieredMessageBody::from_routed(msg.body.clone()),
-                signature: msg.signature.clone(),
+                body,
+                signature,
                 created_at: None,
                 num_hops: 0,
             });
         } else if let RoutedMessage::V2(msg) = self {
+            let body = TieredMessageBody::from_routed(msg.msg.body.clone());
+            let signature = if body.is_t1() { None } else { Some(msg.msg.signature.clone()) };
             *self = RoutedMessage::V3(RoutedMessageV3 {
                 target: msg.msg.target.clone(),
                 author: msg.msg.author.clone(),
                 ttl: msg.msg.ttl,
-                body: TieredMessageBody::from_routed(msg.msg.body.clone()),
-                signature: msg.msg.signature.clone(),
+                body,
+                signature,
                 created_at: msg.created_at.map(|t| t.unix_timestamp()),
                 num_hops: msg.num_hops,
             });
@@ -1555,9 +1570,14 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessage {
         let author = PeerId::new(node_key.public_key());
-        let body = RoutedMessageBody::from(self.body.clone());
-        let hash = RoutedMessage::build_hash(&self.target, &author, &body);
-        let signature = node_key.sign(hash.as_ref());
+        let signature =
+            if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && self.body.is_t1() {
+                None
+            } else {
+                let body = RoutedMessageBody::from(self.body.clone());
+                let hash = RoutedMessage::build_hash(&self.target, &author, &body);
+                Some(node_key.sign(hash.as_ref()))
+            };
         RoutedMessage::V3(RoutedMessageV3 {
             target: self.target,
             author,
