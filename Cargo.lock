@@ -9254,6 +9254,7 @@ dependencies = [
  "postcard",
  "psm",
  "pulley-interpreter",
+ "rayon",
  "rustix 0.38.44",
  "serde",
  "serde_derive",
