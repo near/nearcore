@@ -1146,7 +1146,12 @@ impl RoutedMessageV3 {
 impl From<RoutedMessageV1> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV1) -> Self {
         let body = TieredMessageBody::from_routed(msg.body);
-        let signature = if body.is_t1() { None } else { Some(msg.signature) };
+        let signature =
+            if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && body.is_t1() {
+                None
+            } else {
+                Some(msg.signature)
+            };
         Self {
             target: msg.target,
             author: msg.author,
@@ -1162,7 +1167,12 @@ impl From<RoutedMessageV1> for RoutedMessageV3 {
 impl From<RoutedMessageV2> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV2) -> Self {
         let body = TieredMessageBody::from_routed(msg.msg.body);
-        let signature = if body.is_t1() { None } else { Some(msg.msg.signature) };
+        let signature =
+            if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && body.is_t1() {
+                None
+            } else {
+                Some(msg.msg.signature)
+            };
         Self {
             target: msg.msg.target,
             author: msg.msg.author,
@@ -1343,7 +1353,12 @@ impl RoutedMessage {
     fn upgrade_to_v3(&mut self) {
         if let RoutedMessage::V1(msg) = self {
             let body = TieredMessageBody::from_routed(msg.body.clone());
-            let signature = if body.is_t1() { None } else { Some(msg.signature.clone()) };
+            let signature =
+                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && body.is_t1() {
+                    None
+                } else {
+                    Some(msg.signature.clone())
+                };
             *self = RoutedMessage::V3(RoutedMessageV3 {
                 target: msg.target.clone(),
                 author: msg.author.clone(),
@@ -1355,7 +1370,12 @@ impl RoutedMessage {
             });
         } else if let RoutedMessage::V2(msg) = self {
             let body = TieredMessageBody::from_routed(msg.msg.body.clone());
-            let signature = if body.is_t1() { None } else { Some(msg.msg.signature.clone()) };
+            let signature =
+                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && body.is_t1() {
+                    None
+                } else {
+                    Some(msg.msg.signature.clone())
+                };
             *self = RoutedMessage::V3(RoutedMessageV3 {
                 target: msg.msg.target.clone(),
                 author: msg.msg.author.clone(),
