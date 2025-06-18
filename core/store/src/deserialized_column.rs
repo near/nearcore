@@ -63,6 +63,7 @@ impl Cache {
                 // the transaction isn't going to be very old most of the time.
                 | DBCol::Block => ColumnCache::new(32),
                 | DBCol::ChunkExtra => ColumnCache::new(1024),
+                | DBCol::PartialChunks => ColumnCache::new(512),
                 _ => ColumnCache::disabled(),
             },
         }
