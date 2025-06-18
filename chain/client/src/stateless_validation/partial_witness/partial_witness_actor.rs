@@ -270,7 +270,7 @@ impl PartialWitnessActor {
             chunk_hash = ?chunk_header.chunk_hash(),
             height = %chunk_header.height_created(),
             shard_id = %chunk_header.shard_id(),
-            ?chunk_validators,
+            chunk_validators_len = chunk_validators.len(),
             tag_witness_distribution = true,
         )
         .entered();
