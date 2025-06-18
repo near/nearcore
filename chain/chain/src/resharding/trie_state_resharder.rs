@@ -314,6 +314,23 @@ impl TrieStateResharder {
         let boundary_account = &status.boundary_account;
         let block_height = status.resharding_block_height;
 
+        // Parent memtrie must be loaded before proceeding.
+        if tries.get_memtries(parent_shard_uid).is_none() {
+            tracing::info!(
+                target: "resharding",
+                ?parent_shard_uid,
+                parent_state_root = ?status.parent_state_root,
+                "Parent memtrie not loaded, loading it now"
+            );
+            tries.load_memtrie(&parent_shard_uid, Some(status.parent_state_root), false).map_err(
+                |e| {
+                    Error::Other(format!(
+                        "Failed to load parent memtrie for shard {parent_shard_uid}: {e}"
+                    ))
+                },
+            )?;
+        }
+
         let parent_trie = tries
             .get_trie_for_shard(parent_shard_uid, status.parent_state_root)
             .recording_reads_new_recorder();
@@ -444,6 +461,8 @@ mod tests {
     use crate::types::ChainConfig;
 
     use super::*;
+    use near_primitives::state::FlatStateValue;
+    use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 
     type KeyValues = Vec<(Vec<u8>, Option<Vec<u8>>)>;
     struct TestSetup {
@@ -472,7 +491,7 @@ mod tests {
         }
     }
 
-    fn setup_test(create_child_memtries: bool) -> TestSetup {
+    fn setup_test(create_memtries: bool) -> TestSetup {
         let shard_layout = ShardLayout::single_shard();
         let genesis = Genesis::from_accounts(
             Clock::real(),
@@ -533,7 +552,7 @@ mod tests {
             let trie_changes =
                 parent_trie.retain_split_shard(&boundary_account, retain_mode).unwrap();
             tries.apply_insertions(&trie_changes, parent_shard, &mut store_update);
-            if create_child_memtries {
+            if create_memtries {
                 tries.apply_memtrie_changes(&trie_changes, parent_shard, block_height);
             }
             trie_changes.new_root
@@ -545,8 +564,41 @@ mod tests {
         store_update.set_shard_uid_mapping(right_shard, parent_shard);
         store_update.commit().unwrap();
 
-        if create_child_memtries {
+        if create_memtries {
             tries.freeze_parent_memtrie(parent_shard, children).unwrap();
+        } else {
+            // If not creating memtries, we need to set up flat storage properly
+            // so that the parent memtrie can be loaded later during resume.
+
+            // First, create flat storage for the parent shard.
+            runtime.get_flat_storage_manager().create_flat_storage_for_shard(parent_shard).unwrap();
+
+            // Second, populate flat storage with the trie data.
+            let flat_store = runtime.store().flat_store();
+            let mut store_update = flat_store.store_update();
+            let parent_trie = tries.get_trie_for_shard(parent_shard, parent_root);
+            let iter = parent_trie.lock_for_iter();
+            for item in iter.iter().unwrap() {
+                let (key, value) = item.unwrap();
+                store_update.set(parent_shard, key, Some(FlatStateValue::Inlined(value)));
+            }
+
+            // Third, set up flat storage status to Ready with the parent state root.
+            store_update.set_flat_storage_status(
+                parent_shard,
+                FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                    flat_head: near_store::flat::BlockInfo {
+                        hash: parent_root,
+                        height: block_height,
+                        prev_hash: CryptoHash::default(),
+                    },
+                }),
+            );
+            store_update.commit().unwrap();
+
+            // Now unload the parent memtrie, so the test can verify
+            // it will get loaded correctly during resume.
+            tries.unload_memtrie(&parent_shard);
         }
 
         TestSetup {
@@ -580,8 +632,8 @@ mod tests {
         assert_eq!(0, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());
     }
 
-    fn test_trie_state_resharder_interrupt_and_resume_impl(missing_child_memtries: bool) {
-        let test = setup_test(!missing_child_memtries);
+    fn test_trie_state_resharder_interrupt_and_resume_impl(missing_memtries: bool) {
+        let test = setup_test(!missing_memtries);
 
         let config = ChainConfig::test().resharding_config;
         let resharder =
@@ -593,9 +645,13 @@ mod tests {
             .update(ReshardingConfig { batch_size: ByteSize(1), ..ReshardingConfig::test() });
         let mut update_status = test.as_status();
 
-        if missing_child_memtries {
-            // Verify child memtries don't exist.
+        if missing_memtries {
+            // Verify all memtries don't exist.
             let tries = test.runtime.get_tries();
+            assert!(
+                tries.get_memtries(test.parent_shard).is_none(),
+                "Parent memtrie should not exist"
+            );
             assert!(
                 tries.get_memtries(test.left_shard).is_none(),
                 "Left child memtrie should not exist"
@@ -634,9 +690,13 @@ mod tests {
             TrieStateResharder::new(test.runtime.clone(), ReshardingHandle::new(), config);
         resharder.resume(test.parent_shard).expect("resume should succeed");
 
-        if missing_child_memtries {
-            // Verify that child memtries were recreated during resume.
+        if missing_memtries {
+            // Verify that all memtries were loaded/recreated during resume.
             let tries = test.runtime.get_tries();
+            assert!(
+                tries.get_memtries(test.parent_shard).is_some(),
+                "Parent memtrie should be loaded"
+            );
             assert!(
                 tries.get_memtries(test.left_shard).is_some(),
                 "Left child memtrie should be recreated"
@@ -660,7 +720,7 @@ mod tests {
     }
 
     #[test]
-    fn test_trie_state_resharder_with_missing_child_memtries() {
+    fn test_trie_state_resharder_with_missing_memtries() {
         test_trie_state_resharder_interrupt_and_resume_impl(true);
     }
 
