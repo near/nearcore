@@ -4,14 +4,17 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::TRIE_STATE_RESHARDING_STATUS_KEY;
 use near_store::metrics::resharding::trie_state_metrics;
+use near_store::trie::ops::resharding::RetainMode;
 use near_store::{DBCol, StorageError};
 
 use crate::resharding::event_type::ReshardingSplitShardParams;
 use crate::types::RuntimeAdapter;
+use itertools::Itertools;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 use near_o11y::metrics::IntGauge;
@@ -52,6 +55,9 @@ struct TrieStateReshardingStatus {
     parent_shard_uid: ShardUId,
     left: Option<TrieStateReshardingChildStatus>,
     right: Option<TrieStateReshardingChildStatus>,
+    boundary_account: AccountId,
+    resharding_block_height: BlockHeight,
+    parent_state_root: CryptoHash,
 }
 
 impl TrieStateReshardingStatus {
@@ -59,8 +65,18 @@ impl TrieStateReshardingStatus {
         parent_shard_uid: ShardUId,
         left: TrieStateReshardingChildStatus,
         right: TrieStateReshardingChildStatus,
+        boundary_account: AccountId,
+        resharding_block_height: BlockHeight,
+        parent_state_root: CryptoHash,
     ) -> Self {
-        Self { parent_shard_uid, left: Some(left), right: Some(right) }
+        Self {
+            parent_shard_uid,
+            left: Some(left),
+            right: Some(right),
+            boundary_account,
+            resharding_block_height,
+            parent_state_root,
+        }
     }
 
     fn with_metrics(mut self) -> Self {
@@ -219,19 +235,29 @@ impl TrieStateResharder {
             *store.get_chunk_extra(&block_hash, &event.left_child_shard)?.state_root();
         let right_state_root =
             *store.get_chunk_extra(&block_hash, &event.right_child_shard)?.state_root();
+
+        // We need the parent state root for memtrie recreation.
+        let parent_state_root =
+            *store.get_chunk_extra(&block_hash, &event.parent_shard)?.state_root();
+
         tracing::debug!(
             target: "resharding",
             ?left_state_root,
             ?right_state_root,
+            ?parent_state_root,
             ?event.left_child_shard,
             ?event.right_child_shard,
-            "TrieStateResharding: child state roots"
+            ?event.parent_shard,
+            "TrieStateResharding: child and parent state roots"
         );
 
         let mut status = TrieStateReshardingStatus::new(
             event.parent_shard,
             TrieStateReshardingChildStatus::new(event.left_child_shard, left_state_root),
             TrieStateReshardingChildStatus::new(event.right_child_shard, right_state_root),
+            event.boundary_account.clone(),
+            event.resharding_block.height,
+            parent_state_root,
         )
         .with_metrics();
         self.resharding_blocking_impl(&mut status)
@@ -250,8 +276,89 @@ impl TrieStateResharder {
                 status.parent_shard_uid, parent_shard_uid
             )));
         }
+
+        // Before resuming, ensure child memtries exist for both children.
+        self.ensure_child_memtries_exist(&status)?;
+
         let mut status = status.with_metrics();
         self.resharding_blocking_impl(&mut status)
+    }
+
+    /// Ensures that child memtries exist for both children, recreating them if necessary.
+    fn ensure_child_memtries_exist(&self, status: &TrieStateReshardingStatus) -> Result<(), Error> {
+        let tries = self.runtime.get_tries();
+
+        let missing_children = [
+            status.left.as_ref().map(|child| (child.shard_uid, RetainMode::Left)),
+            status.right.as_ref().map(|child| (child.shard_uid, RetainMode::Right)),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|(shard_uid, _)| tries.get_memtries(*shard_uid).is_none())
+        .collect_vec();
+
+        if !missing_children.is_empty() {
+            self.recreate_child_memtries(status, missing_children)?;
+        }
+
+        Ok(())
+    }
+
+    fn recreate_child_memtries(
+        &self,
+        status: &TrieStateReshardingStatus,
+        missing_children: Vec<(ShardUId, RetainMode)>,
+    ) -> Result<(), Error> {
+        let tries = self.runtime.get_tries();
+        let parent_shard_uid = status.parent_shard_uid;
+        let boundary_account = &status.boundary_account;
+        let block_height = status.resharding_block_height;
+
+        let parent_trie = tries
+            .get_trie_for_shard(parent_shard_uid, status.parent_state_root)
+            .recording_reads_new_recorder();
+
+        if !parent_trie.has_memtries() {
+            return Err(Error::Other(format!(
+                "Parent memtrie for shard {parent_shard_uid} does not exist or is not loaded"
+            )));
+        }
+
+        let mut store_update = self.runtime.store().trie_store().store_update();
+
+        // Recreate each missing child memtrie.
+        for (child_shard_uid, retain_mode) in &missing_children {
+            tracing::info!(
+                target: "resharding",
+                ?child_shard_uid,
+                ?parent_shard_uid,
+                ?boundary_account,
+                ?retain_mode,
+                ?block_height,
+                "Recreating child memtrie from parent"
+            );
+
+            // Perform the shard split operation.
+            let trie_changes = parent_trie.retain_split_shard(boundary_account, *retain_mode)?;
+
+            tries.apply_insertions(&trie_changes, parent_shard_uid, &mut store_update);
+            tries.apply_memtrie_changes(&trie_changes, parent_shard_uid, block_height);
+
+            tracing::info!(
+                target: "resharding",
+                ?child_shard_uid,
+                new_root = ?trie_changes.new_root,
+                "Successfully recreated child memtrie from parent"
+            );
+        }
+
+        store_update.commit().unwrap();
+
+        // After creating all the child memtries, freeze the parent.
+        let children_shard_uids = missing_children.into_iter().map(|(uid, _)| uid).collect_vec();
+        tries.freeze_parent_memtrie(parent_shard_uid, children_shard_uids)?;
+
+        Ok(())
     }
 
     fn resharding_blocking_impl(
@@ -262,7 +369,35 @@ impl TrieStateResharder {
             self.process_batch_and_update_status(status)?;
         }
 
+        // If resharding completed successfully, clean up parent flat storage.
+        if status.done() {
+            self.cleanup_parent_flat_storage(status.parent_shard_uid);
+        }
+
         Ok(())
+    }
+
+    /// Cleans up parent flat storage after trie state resharding is complete.
+    fn cleanup_parent_flat_storage(&self, parent_shard_uid: ShardUId) {
+        tracing::info!(
+            target: "resharding",
+            ?parent_shard_uid,
+            "Trie state resharding complete, cleaning up parent flat storage"
+        );
+
+        let flat_store = self.runtime.store().flat_store();
+        let mut store_update = flat_store.store_update();
+
+        if !self
+            .runtime
+            .get_flat_storage_manager()
+            .remove_flat_storage_for_shard(parent_shard_uid, &mut store_update)
+            .unwrap()
+        {
+            store_update.remove_flat_storage(parent_shard_uid);
+        }
+
+        store_update.commit().unwrap();
     }
 }
 
@@ -317,8 +452,11 @@ mod tests {
         parent_shard: ShardUId,
         left_shard: ShardUId,
         right_shard: ShardUId,
+        parent_root: CryptoHash,
         left_root: CryptoHash,
         right_root: CryptoHash,
+        boundary_account: AccountId,
+        resharding_block_height: BlockHeight,
     }
 
     impl TestSetup {
@@ -327,11 +465,14 @@ mod tests {
                 self.parent_shard,
                 TrieStateReshardingChildStatus::new(self.left_shard, self.left_root),
                 TrieStateReshardingChildStatus::new(self.right_shard, self.right_root),
+                self.boundary_account.clone(),
+                self.resharding_block_height,
+                self.parent_root,
             )
         }
     }
 
-    fn setup_test() -> TestSetup {
+    fn setup_test(create_child_memtries: bool) -> TestSetup {
         let shard_layout = ShardLayout::single_shard();
         let genesis = Genesis::from_accounts(
             Clock::real(),
@@ -392,7 +533,9 @@ mod tests {
             let trie_changes =
                 parent_trie.retain_split_shard(&boundary_account, retain_mode).unwrap();
             tries.apply_insertions(&trie_changes, parent_shard, &mut store_update);
-            tries.apply_memtrie_changes(&trie_changes, parent_shard, block_height);
+            if create_child_memtries {
+                tries.apply_memtrie_changes(&trie_changes, parent_shard, block_height);
+            }
             trie_changes.new_root
         });
         // Add a mapping from the child shards to the parent shard. This is not
@@ -402,14 +545,27 @@ mod tests {
         store_update.set_shard_uid_mapping(right_shard, parent_shard);
         store_update.commit().unwrap();
 
-        tries.freeze_parent_memtrie(parent_shard, children).unwrap();
+        if create_child_memtries {
+            tries.freeze_parent_memtrie(parent_shard, children).unwrap();
+        }
 
-        TestSetup { runtime, initial, parent_shard, left_shard, right_shard, left_root, right_root }
+        TestSetup {
+            runtime,
+            initial,
+            parent_shard,
+            left_shard,
+            right_shard,
+            parent_root,
+            left_root,
+            right_root,
+            boundary_account,
+            resharding_block_height: block_height,
+        }
     }
 
     #[test]
     fn test_trie_state_resharder() {
-        let test = setup_test();
+        let test = setup_test(true);
 
         let config = ChainConfig::test().resharding_config;
         let resharder =
@@ -424,9 +580,8 @@ mod tests {
         assert_eq!(0, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());
     }
 
-    #[test]
-    fn test_trie_state_resharder_interrupt_and_resume() {
-        let test = setup_test();
+    fn test_trie_state_resharder_interrupt_and_resume_impl(missing_child_memtries: bool) {
+        let test = setup_test(!missing_child_memtries);
 
         let config = ChainConfig::test().resharding_config;
         let resharder =
@@ -437,6 +592,20 @@ mod tests {
             .resharding_config
             .update(ReshardingConfig { batch_size: ByteSize(1), ..ReshardingConfig::test() });
         let mut update_status = test.as_status();
+
+        if missing_child_memtries {
+            // Verify child memtries don't exist.
+            let tries = test.runtime.get_tries();
+            assert!(
+                tries.get_memtries(test.left_shard).is_none(),
+                "Left child memtrie should not exist"
+            );
+            assert!(
+                tries.get_memtries(test.right_shard).is_none(),
+                "Right child memtrie should not exist"
+            );
+        }
+
         resharder.process_batch_and_update_status(&mut update_status).unwrap();
 
         let got_status = resharder
@@ -465,11 +634,34 @@ mod tests {
             TrieStateResharder::new(test.runtime.clone(), ReshardingHandle::new(), config);
         resharder.resume(test.parent_shard).expect("resume should succeed");
 
+        if missing_child_memtries {
+            // Verify that child memtries were recreated during resume.
+            let tries = test.runtime.get_tries();
+            assert!(
+                tries.get_memtries(test.left_shard).is_some(),
+                "Left child memtrie should be recreated"
+            );
+            assert!(
+                tries.get_memtries(test.right_shard).is_some(),
+                "Right child memtrie should be recreated"
+            );
+        }
+
         // The resharding status should be None after completion.
         assert!(resharder.load_status().unwrap().is_none());
         check_child_tries_contain_all_keys(&test);
         // StateShardUIdMapping should be removed after resharding.
         assert_eq!(0, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());
+    }
+
+    #[test]
+    fn test_trie_state_resharder_interrupt_and_resume() {
+        test_trie_state_resharder_interrupt_and_resume_impl(false);
+    }
+
+    #[test]
+    fn test_trie_state_resharder_with_missing_child_memtries() {
+        test_trie_state_resharder_interrupt_and_resume_impl(true);
     }
 
     fn check_child_tries_contain_all_keys(test: &TestSetup) {
