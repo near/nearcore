@@ -351,13 +351,11 @@ impl TrieStateResharder {
                 parent_state_root = ?status.parent_state_root,
                 "Parent memtrie not loaded, loading it now"
             );
-            tries.load_memtrie(&parent_shard_uid, Some(status.parent_state_root), false).map_err(
-                |e| {
-                    Error::Other(format!(
-                        "Failed to load parent memtrie for shard {parent_shard_uid}: {e}"
-                    ))
-                },
-            )?;
+            tries.load_memtrie(&parent_shard_uid, None, true).map_err(|e| {
+                Error::Other(format!(
+                    "Failed to load parent memtrie for shard {parent_shard_uid}: {e}"
+                ))
+            })?;
         }
 
         let parent_trie = tries.get_trie_for_shard(parent_shard_uid, status.parent_state_root);
@@ -476,7 +474,7 @@ mod tests {
     use near_async::time::Clock;
     use near_chain_configs::Genesis;
     use near_epoch_manager::EpochManager;
-    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
     use near_primitives::trie_key::TrieKey;
     use near_store::Trie;
     use near_store::test_utils::{
@@ -488,7 +486,10 @@ mod tests {
     use crate::types::ChainConfig;
 
     use super::*;
+    use near_primitives::bandwidth_scheduler::BandwidthRequests;
+    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::state::FlatStateValue;
+    use near_primitives::types::chunk_extra::ChunkExtra;
     use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 
     type KeyValues = Vec<(Vec<u8>, Option<Vec<u8>>)>;
@@ -632,6 +633,24 @@ mod tests {
                 }),
             );
             store_update.commit().unwrap();
+
+            // Fourth, create ChunkExtra for the flat storage head so load_memtrie can find the state root.
+            let mut chain_store_update = runtime.store().store_update();
+            let chunk_extra = ChunkExtra::new(
+                &parent_root,
+                CryptoHash::default(),
+                Vec::new(),
+                0,
+                0,
+                0,
+                Some(CongestionInfo::default()),
+                BandwidthRequests::empty(),
+            );
+            let block_shard_uid = get_block_shard_uid(&parent_root, &parent_shard);
+            chain_store_update
+                .set_ser(near_store::DBCol::ChunkExtra, &block_shard_uid, &chunk_extra)
+                .unwrap();
+            chain_store_update.commit().unwrap();
 
             // Now unload the parent memtrie, so the test can verify
             // it will get loaded correctly during resume.
