@@ -274,7 +274,7 @@ impl ShardTracker {
             || self.will_care_about_shard(account_id.as_ref(), parent_hash, shard_id, true)
     }
 
-    /// Whether some client tracking account_id cares about shard_idd in this or next epoch.
+    /// Whether some client tracking account_id cares about shard_id in this or next epoch.
     ///
     /// Note that `shard_id` always refers to a shard in the current epoch. If shard layout will
     /// change next epoch, return true if it cares about any shard that `shard_id` will split to
