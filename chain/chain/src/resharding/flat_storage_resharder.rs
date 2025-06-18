@@ -1393,8 +1393,12 @@ mod tests {
         // Do the resharding.
         flat_storage_resharder.start_resharding_blocking_impl(parent_shard, split_params.clone());
 
-        // Verify parent shard is gone
-        assert_matches!(store.get_flat_storage_status(parent_shard), Ok(FlatStorageStatus::Empty));
+        // Verify parent shard is still in resharding state (not deleted yet).
+        // Parent flat storage cleanup happens in trie_state_resharder, not here.
+        assert_matches!(
+            store.get_flat_storage_status(parent_shard),
+            Ok(FlatStorageStatus::Resharding(_))
+        );
 
         // Both children shards should be in Ready state
         for child_shard in [split_params.left_child_shard, split_params.right_child_shard] {
