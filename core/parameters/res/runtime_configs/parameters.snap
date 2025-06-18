@@ -203,6 +203,8 @@ fix_contract_loading_cost               false
 vm_kind                                 NearVm
 eth_implicit_accounts                   true
 discard_custom_sections                 true
+saturating_float_to_int                 true
+reftypes_bulk_memory                    false
 max_congestion_incoming_gas             400_000_000_000_000_000
 max_congestion_outgoing_gas             10_000_000_000_000_000
 max_congestion_memory_consumption              1_000_000_000
@@ -235,5 +237,4 @@ action_use_global_contract_per_identifier_byte
 - send_sir:                6_812_999
 - send_not_sir:           47_683_715
 - execution:              64_572_944
-saturating_float_to_int                 true
 global_contract_host_fns                true

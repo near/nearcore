@@ -10,6 +10,7 @@ use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_index;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_store::Store;
@@ -17,13 +18,22 @@ use near_time::Clock;
 use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
 
+pub enum DumpWitnessesSource {
+    /// Dumps latest saved witnesses.
+    Latest,
+    /// Dumps saved invalid witnesses.
+    Invalid,
+}
+
 #[derive(clap::Subcommand)]
 pub enum StateWitnessCmd {
     /// Generates and validates resulting state witnesses for the given range
     /// of blocks.
     Generate(GenerateWitnessesCmd),
-    /// Dumps some of the latest stored state witnesses.
-    Dump(DumpWitnessesCmd),
+    /// Dumps some of the stored latest state witnesses.
+    DumpLatest(DumpWitnessesCmd),
+    /// Dumps some of the stored invalid state witnesses.
+    DumpInvalid(DumpWitnessesCmd),
     /// Validates given state witness.
     Validate(ValidateWitnessCmd),
 }
@@ -32,7 +42,12 @@ impl StateWitnessCmd {
     pub(crate) fn run(&self, home_dir: &Path, near_config: NearConfig, store: Store) {
         match self {
             StateWitnessCmd::Generate(cmd) => cmd.run(home_dir, near_config, store),
-            StateWitnessCmd::Dump(cmd) => cmd.run(near_config, store),
+            StateWitnessCmd::DumpLatest(cmd) => {
+                cmd.run(near_config, store, DumpWitnessesSource::Latest)
+            }
+            StateWitnessCmd::DumpInvalid(cmd) => {
+                cmd.run(near_config, store, DumpWitnessesSource::Invalid)
+            }
             StateWitnessCmd::Validate(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
@@ -47,8 +62,11 @@ fn setup_chain(home_dir: &Path, near_config: NearConfig, store: Store) -> Chain 
     let runtime_adapter =
         NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
             .expect("could not create the transaction runtime");
-    let shard_tracker =
-        ShardTracker::new(near_config.client_config.tracked_shards_config, epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(
+        near_config.client_config.tracked_shards_config,
+        epoch_manager.clone(),
+        near_config.validator_signer,
+    );
     Chain::new_for_view_client(
         Clock::real(),
         epoch_manager,
@@ -191,15 +209,21 @@ enum DumpWitnessesMode {
 }
 
 impl DumpWitnessesCmd {
-    pub(crate) fn run(&self, near_config: NearConfig, store: Store) {
+    pub(crate) fn run(&self, near_config: NearConfig, store: Store, source: DumpWitnessesSource) {
         let chain_store = Rc::new(ChainStore::new(
             store,
             false,
             near_config.genesis.config.transaction_validity_period,
         ));
 
-        let witnesses =
-            chain_store.get_latest_witnesses(self.height, self.shard_id, self.epoch_id).unwrap();
+        let witnesses = match source {
+            DumpWitnessesSource::Latest => {
+                chain_store.get_latest_witnesses(self.height, self.shard_id, self.epoch_id).unwrap()
+            }
+            DumpWitnessesSource::Invalid => chain_store
+                .get_invalid_witnesses(self.height, self.shard_id, self.epoch_id)
+                .unwrap(),
+        };
         println!("Found {} witnesses:", witnesses.len());
         if let DumpWitnessesMode::Binary { ref output_dir } = self.mode {
             if !output_dir.exists() {
@@ -208,12 +232,12 @@ impl DumpWitnessesCmd {
         }
 
         for (i, witness) in witnesses.iter().enumerate() {
+            let ChunkProductionKey { shard_id, height_created, epoch_id } =
+                witness.chunk_production_key();
+
             println!(
                 "#{} (height: {}, shard_id: {}, epoch_id: {:?})",
-                i,
-                witness.chunk_header.height_created(),
-                witness.chunk_header.shard_id(),
-                witness.epoch_id
+                i, height_created, shard_id, epoch_id
             );
             match self.mode {
                 DumpWitnessesMode::Pretty => {
@@ -221,13 +245,8 @@ impl DumpWitnessesCmd {
                     println!("");
                 }
                 DumpWitnessesMode::Binary { ref output_dir } => {
-                    let file_name = format!(
-                        "witness_{}_{}_{}_{}.bin",
-                        witness.chunk_header.height_created(),
-                        witness.chunk_header.shard_id(),
-                        witness.epoch_id.0,
-                        i
-                    );
+                    let file_name =
+                        format!("witness_{}_{}_{}_{}.bin", height_created, shard_id, epoch_id.0, i);
                     let file_path = output_dir.join(file_name);
                     std::fs::write(&file_path, borsh::to_vec(witness).unwrap()).unwrap();
                     println!("Saved to {:?}", file_path);

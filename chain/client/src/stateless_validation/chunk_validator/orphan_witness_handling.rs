@@ -28,7 +28,7 @@ impl Client {
         witness: ChunkStateWitness,
         witness_size: usize,
     ) -> Result<HandleOrphanWitnessOutcome, Error> {
-        let chunk_header = &witness.chunk_header;
+        let chunk_header = &witness.chunk_header();
         let witness_height = chunk_header.height_created();
         let witness_shard = chunk_header.shard_id();
 
@@ -83,7 +83,7 @@ impl Client {
             .orphan_witness_pool
             .take_state_witnesses_waiting_for_block(new_block.hash());
         for witness in ready_witnesses {
-            let header = &witness.chunk_header;
+            let header = &witness.chunk_header();
             tracing::debug!(
                 target: "client",
                 witness_height = header.height_created(),
@@ -92,9 +92,13 @@ impl Client {
                 witness_prev_block = ?header.prev_block_hash(),
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
             );
-            if let Err(err) =
-                self.process_chunk_state_witness_with_prev_block(witness, new_block, None, signer)
-            {
+            if let Err(err) = self.process_chunk_state_witness_with_prev_block(
+                witness,
+                new_block,
+                None,
+                signer,
+                self.config.save_invalid_witnesses,
+            ) {
                 tracing::error!(target: "client", ?err, "Error processing orphan chunk state witness");
             }
         }

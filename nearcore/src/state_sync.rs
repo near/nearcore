@@ -108,7 +108,7 @@ impl StateSyncDumper {
         if let Some(shards) = dump_config.restart_dump_for_shards.as_ref() {
             for shard_id in shards {
                 chain.chain_store().set_state_sync_dump_progress(*shard_id, None).unwrap();
-                tracing::debug!(target: "state_sync_dump", ?shard_id, "Dropped existing progress");
+                tracing::debug!(target: "state_sync_dump", %shard_id, "Dropped existing progress");
             }
         }
         self.future_spawner.spawn_boxed(
@@ -280,7 +280,7 @@ impl DumpState {
                     *s.parts_missing.write() = missing;
                 }
                 Err(error) => {
-                    tracing::error!(target: "state_sync_dump", ?error, ?shard_id, "Failed to list stored state parts.");
+                    tracing::error!(target: "state_sync_dump", ?error, %shard_id, "Failed to list stored state parts.");
                 }
             }
         }
@@ -617,7 +617,7 @@ impl HeaderUploader {
         {
             Ok(stored) => stored,
             Err(err) => {
-                tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to determine header presence in external storage.");
+                tracing::error!(target: "state_sync_dump", ?err, %shard_id, "Failed to determine header presence in external storage.");
                 false
             }
         }
@@ -651,7 +651,7 @@ impl StateDumper {
         }
     }
 
-    fn get_block_header(&self, hash: &CryptoHash) -> anyhow::Result<BlockHeader> {
+    fn get_block_header(&self, hash: &CryptoHash) -> anyhow::Result<Arc<BlockHeader>> {
         self.chain.get_block_header(hash).with_context(|| format!("Failed getting header {}", hash))
     }
 
@@ -681,7 +681,7 @@ impl StateDumper {
     }
 
     /// Returns the `sync_hash` header corresponding to the latest final block if it's already known.
-    fn latest_sync_header(&self) -> anyhow::Result<Option<BlockHeader>> {
+    fn latest_sync_header(&self) -> anyhow::Result<Option<Arc<BlockHeader>>> {
         let head = self.chain.head().context("Failed getting chain head")?;
         let header = self.get_block_header(&head.last_block_hash)?;
         let final_hash = header.last_final_block();
@@ -1078,6 +1078,12 @@ async fn do_state_sync_dump(
     handle: Arc<StateSyncDumpHandle>,
     future_spawner: Arc<dyn FutureSpawner>,
 ) {
+    // TODO(spice): Make state sync work with spice.
+    if cfg!(feature = "protocol_feature_spice") {
+        handle.task_finished();
+        return;
+    }
+
     if let Err(error) = state_sync_dump(
         clock,
         chain,

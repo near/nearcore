@@ -284,7 +284,7 @@ impl RuntimeStorageConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum BlockType {
     Normal,
     Optimistic,

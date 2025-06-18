@@ -102,7 +102,7 @@ impl ChunkEndorsementTracker {
         let entry = cache.get_or_insert(key, || HashMap::new());
         let validator_signatures = entry
             .into_iter()
-            .filter(|(_, (chunk_hash, _))| chunk_hash == &chunk_header.chunk_hash())
+            .filter(|(_, (chunk_hash, _))| chunk_hash == chunk_header.chunk_hash())
             .map(|(account_id, (_, signature))| (account_id, signature.clone()))
             .collect();
 

@@ -105,11 +105,9 @@ pub enum DBCol {
     /// - *Rows*: ShardChunkHeader object
     /// - *Content type*: EncodedShardChunk
     InvalidChunks,
-    /// Contains 'BlockExtra' information that is computed after block was processed.
-    /// Currently it stores only challenges results.
-    /// - *Rows*: BlockHash (CryptoHash)
-    /// - *Content type*: BlockExtra
-    BlockExtra,
+    // Deprecated.
+    #[strum(serialize = "BlockExtra")]
+    _BlockExtra,
     /// Store hash of all block per each height, to detect double signs.
     /// In most cases, it is better to get the value from BlockHeight column instead (which
     /// keeps the hash of the block from canonical chain)
@@ -293,6 +291,15 @@ pub enum DBCol {
     /// Witnesses with the lowest index are garbage collected first.
     /// u64 -> LatestWitnessesKey
     LatestWitnessesByIndex,
+    /// Column to store invalid ChunkStateWitnesses received from other nodes.
+    /// Not necessary for stateless validation, but useful for debugging.
+    /// - *Rows*: `InvalidWitnessesKey`
+    /// - *Column type*: `ChunkStateWitness`
+    InvalidChunkStateWitnesses,
+    /// Each observed InvalidChunkStateWitness gets an index, in increasing order.
+    /// Witnesses with the lowest index are garbage collected first.
+    /// u64 -> InvalidWitnessesKey
+    InvalidWitnessesByIndex,
     /// A valid epoch sync proof that proves the transition from the genesis to some epoch,
     /// beyond which we keep all headers in this node. Nodes bootstrapped via Epoch Sync will
     /// have this column, which allows it to compute a more recent EpochSyncProof using block
@@ -357,6 +364,8 @@ pub enum DBKeyType {
     ColumnId,
     LatestWitnessesKey,
     LatestWitnessIndex,
+    InvalidWitnessesKey,
+    InvalidWitnessIndex,
 }
 
 impl DBCol {
@@ -378,7 +387,6 @@ impl DBCol {
         match self {
             DBCol::Block
             | DBCol::BlockHeader
-            | DBCol::BlockExtra
             | DBCol::BlockInfo
             | DBCol::Chunks
             | DBCol::InvalidChunks
@@ -447,7 +455,6 @@ impl DBCol {
             DBCol::DbVersion | DBCol::BlockMisc => false,
             // Most of the GC-ed columns should be copied to the cold storage.
             DBCol::Block
-            | DBCol::BlockExtra
             | DBCol::BlockInfo
             // TODO can be reconstruction from BlockHeight instead of saving to cold storage.
             | DBCol::BlockPerHeight
@@ -494,6 +501,9 @@ impl DBCol {
             // LatestChunkStateWitnesses stores the last N observed witnesses, used only for debugging.
             DBCol::LatestChunkStateWitnesses => false,
             DBCol::LatestWitnessesByIndex => false,
+            // InvalidChunkStateWitnesses stores the last N observed invalid witnesses, used only for debugging.
+            DBCol::InvalidChunkStateWitnesses => false,
+            DBCol::InvalidWitnessesByIndex => false,
             // Deprecated.
             DBCol::_ReceiptIdToShardId => false,
             // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
@@ -501,6 +511,7 @@ impl DBCol {
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::BlockHeader
+            | DBCol::_BlockExtra
             | DBCol::_GCCount
             | DBCol::BlockHeight
             | DBCol::_Peers
@@ -520,7 +531,6 @@ impl DBCol {
             | DBCol::_LastBlockWithNewChunk
             | DBCol::_TransactionRefCount
             | DBCol::_TransactionResult
-            // | DBCol::StateChangesForSplitStates
             | DBCol::CachedContractCode
             | DBCol::FlatState
             | DBCol::FlatStateChanges
@@ -562,7 +572,7 @@ impl DBCol {
             DBCol::ChallengedBlocks => &[DBKeyType::BlockHash],
             DBCol::StateHeaders => &[DBKeyType::ShardId, DBKeyType::BlockHash],
             DBCol::InvalidChunks => &[DBKeyType::ChunkHash],
-            DBCol::BlockExtra => &[DBKeyType::BlockHash],
+            DBCol::_BlockExtra => &[DBKeyType::BlockHash],
             DBCol::BlockPerHeight => &[DBKeyType::BlockHeight],
             DBCol::StateParts => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId],
             DBCol::EpochStart => &[DBKeyType::EpochId],
@@ -600,6 +610,8 @@ impl DBCol {
             DBCol::StateTransitionData => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::LatestChunkStateWitnesses => &[DBKeyType::LatestWitnessesKey],
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
+            DBCol::InvalidChunkStateWitnesses => &[DBKeyType::InvalidWitnessesKey],
+            DBCol::InvalidWitnessesByIndex => &[DBKeyType::InvalidWitnessIndex],
             DBCol::EpochSyncProof => &[DBKeyType::Empty],
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],

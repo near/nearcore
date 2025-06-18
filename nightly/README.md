@@ -1,7 +1,7 @@
 # Nightly tests lists
 
 The directory contains test list files which can be sent to NayDuck to
-request a run of the tests.  Most notably, `nightly.txt` file contains
+request a run of the tests.  Most notably, `ci.txt` file contains
 all the tests that NayDuck runs once a day on the head of the master
 branch of the repository.
 
@@ -106,7 +106,7 @@ syntax for including contents of other files in the list.  The
 includes are handled recursively though at the moment there’s a limit
 of three levels before the parser starts ignoring the includes.
 
-For example, `nightly.txt` file may just look as follows:
+For example, `ci.txt` file may just look as follows:
 
     ./sandbox.txt
     ./pytest.txt
@@ -115,20 +115,14 @@ For example, `nightly.txt` file may just look as follows:
 with individual tests listed in each of the referenced files.  This
 makes the files more tidy.
 
-Note that any includes accessible from `nightly.txt` file must live
+Note that any includes accessible from `ci.txt` file must live
 within the `nightly` directory and use `.txt` file extension.  Using
 arbitrary paths and extensions will work locally but it will break
 NayDuck’s nightly runs.
 
 ## Scheduling a run
 
-Every 24 hours NayDuck checks if master branch has changed and if it
-has schedules a new run including all tests listed in the
-`nightly.txt` file.  It’s also possible to request a run manually in
-which case arbitrary set of tests can be run on an arbitrary commit
-(so long as it exists in the near/nearcore repository).
-
-This can be done with `nayduck.py` script which takes the list file as
+A manual run can be scheduled with `nayduck.py` script which takes the list file as
 an argument.  For example, to run spec tests one might invoke:
 
     ./scripts/nayduck.py -t nightly/pytest-spec.txt
@@ -170,7 +164,7 @@ those functions in a code fragment guarded by `if __name__ ==
 
 ### Check scripts
 
-Unless tests are included (potentially transitively) in `nightly.txt`
+Unless tests are included (potentially transitively) in `ci.txt`
 file, NayDuck won’t run them.  As part of pull request checks,
 verification is performed to make sure that no test is forgotten and
 all new tests are included in the nightly list.  That’s done by

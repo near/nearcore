@@ -36,4 +36,4 @@ jobs:
         run: |
           cd benchmarks/transactions-generator
           ln -s ../../target/release/neard
-          just do-it 10000 2m
+          just do-it

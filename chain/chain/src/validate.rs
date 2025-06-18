@@ -21,14 +21,14 @@ pub fn validate_chunk_proofs(
 
     // 1. Checking chunk.header.hash
     let header_hash = chunk.header_hash();
-    if header_hash != correct_chunk_hash {
+    if header_hash != &correct_chunk_hash {
         byzantine_assert!(false);
         return Ok(false);
     }
 
     // 2. Checking that chunk body is valid
     // 2a. Checking chunk hash
-    if chunk.chunk_hash() != correct_chunk_hash {
+    if chunk.chunk_hash() != &correct_chunk_hash {
         byzantine_assert!(false);
         return Ok(false);
     }
@@ -38,13 +38,13 @@ pub fn validate_chunk_proofs(
 
     // 2b. Checking that chunk transactions are valid
     let (tx_root, _) = merklize(transactions);
-    if tx_root != chunk.tx_root() {
+    if &tx_root != chunk.tx_root() {
         byzantine_assert!(false);
         return Ok(false);
     }
     // 2c. Checking that chunk receipts are valid
     if height_created == 0 {
-        return Ok(receipts.is_empty() && outgoing_receipts_root == CryptoHash::default());
+        return Ok(receipts.is_empty() && outgoing_receipts_root == &CryptoHash::default());
     } else {
         let shard_layout = {
             let prev_block_hash = chunk.prev_block_hash();
@@ -52,7 +52,7 @@ pub fn validate_chunk_proofs(
         };
         let outgoing_receipts_hashes = Chain::build_receipts_hashes(receipts, &shard_layout)?;
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-        if receipts_root != outgoing_receipts_root {
+        if &receipts_root != outgoing_receipts_root {
             byzantine_assert!(false);
             return Ok(false);
         }
@@ -98,7 +98,7 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         return Err(Error::InvalidStateRoot);
     }
 
-    if *prev_chunk_extra.outcome_root() != chunk_header.prev_outcome_root() {
+    if prev_chunk_extra.outcome_root() != chunk_header.prev_outcome_root() {
         return Err(Error::InvalidOutcomesProof);
     }
 
@@ -122,7 +122,7 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         return Err(Error::InvalidBalanceBurnt);
     }
 
-    if outgoing_receipts_root != &chunk_header.prev_outgoing_receipts_root() {
+    if outgoing_receipts_root != chunk_header.prev_outgoing_receipts_root() {
         return Err(Error::InvalidReceiptsProof);
     }
 

@@ -5,6 +5,7 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
+use crate::chunk_executor_actor::ExecutorBlock;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -20,12 +21,14 @@ use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
-use crate::{StatusResponse, metrics};
+use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
 use actix::Actor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
-use near_async::messaging::{self, CanSend, Handler, IntoMultiSender, LateBoundSender, Sender};
+use near_async::messaging::{
+    self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
+};
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSenderFrom};
@@ -34,7 +37,6 @@ use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
 };
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -154,6 +156,7 @@ pub fn start_client(
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
+    let multi_spawner = AsyncComputationMultiSpawner::default();
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -167,7 +170,7 @@ pub fn start_client(
         enable_doomslug,
         seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
-        Arc::new(RayonAsyncComputationSpawner),
+        multi_spawner,
         partial_witness_adapter,
         resharding_sender,
         state_sync_future_spawner,
@@ -191,6 +194,8 @@ pub fn start_client(
         adv,
         config_updater,
         sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+        // TODO(spice): Pass in chunk_executor_sender.
+        noop().into_sender(),
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
@@ -266,6 +271,10 @@ pub struct ClientActorInner {
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
+
+    /// With spice chunk executor executes chunks asynchronously.
+    /// Should be noop sender otherwise.
+    chunk_executor_sender: Sender<ExecutorBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -339,6 +348,7 @@ impl ClientActorInner {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
+        chunk_executor_sender: Sender<ExecutorBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -377,6 +387,7 @@ impl ClientActorInner {
             shutdown_signal,
             config_updater,
             sync_jobs_sender,
+            chunk_executor_sender,
         })
     }
 }
@@ -519,7 +530,7 @@ impl Handler<BlockResponse> for ClientActorInner {
             || blocks_at_height.as_ref().unwrap().is_empty()
         {
             // This is a very sneaky piece of logic.
-            if self.maybe_receive_state_sync_blocks(&block) {
+            if self.maybe_receive_state_sync_blocks(Arc::clone(&block)) {
                 // A node is syncing its state. Don't consider receiving
                 // blocks other than the few special ones that State Sync expects.
                 return;
@@ -729,6 +740,8 @@ impl Handler<Status> for ClientActorInner {
         // Provide more detailed information about the current state of chain.
         // For now - provide info about last 50 blocks.
         let detailed_debug_status = if msg.detailed {
+            let head = self.client.chain.head()?;
+            let header_head = self.client.chain.header_head()?;
             Some(DetailedDebugStatus {
                 network_info: new_network_info_view(&self.client.chain, &self.network_info),
                 sync_status: format!(
@@ -736,13 +749,13 @@ impl Handler<Status> for ClientActorInner {
                     self.client.sync_handler.sync_status.as_variant_name(),
                     display_sync_status(
                         &self.client.sync_handler.sync_status,
-                        &self.client.chain.head()?,
+                        &head,
                         &self.client.config.state_sync.sync,
                     ),
                 ),
                 catchup_status: self.client.get_catchup_status()?,
-                current_head_status: head.clone().into(),
-                current_header_head_status: self.client.chain.header_head()?.into(),
+                current_head_status: head.as_ref().into(),
+                current_header_head_status: header_head.as_ref().into(),
                 block_production_delay_millis: self
                     .client
                     .config
@@ -1001,6 +1014,7 @@ impl ClientActorInner {
         Ok(Some(new_latest_known))
     }
 
+    #[allow(clippy::needless_pass_by_ref_mut)] // &mut self is needed with the sandbox feature
     fn pre_block_production(&mut self) -> Result<(), Error> {
         #[cfg(feature = "sandbox")]
         {
@@ -1015,6 +1029,7 @@ impl ClientActorInner {
         Ok(())
     }
 
+    #[allow(clippy::needless_pass_by_ref_mut)] // &mut self is needed with the sandbox feature
     fn post_block_production(&mut self) {
         #[cfg(feature = "sandbox")]
         if self.fastforward_delta > 0 {
@@ -1091,6 +1106,7 @@ impl ClientActorInner {
         }
 
         let prev_block_hash = &head.last_block_hash;
+        let chunks_readiness = self.client.prepare_chunk_headers(prev_block_hash, &epoch_id)?;
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -1101,24 +1117,12 @@ impl ClientActorInner {
                 continue;
             }
 
-            {
-                self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                    prev_block_hash,
-                    &self.client.chunk_endorsement_tracker,
-                )?;
-            }
-            let num_chunks = self
-                .client
-                .chunk_inclusion_tracker
-                .num_chunk_headers_ready_for_inclusion(&epoch_id, prev_block_hash);
-            let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
-            let have_all_chunks = head.height == 0 || num_chunks == shard_ids.len();
-
             if self.client.doomslug.ready_to_produce_block(
                 height,
-                have_all_chunks,
+                chunks_readiness,
                 log_block_production_info,
             ) {
+                let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id)?;
                 self.client
                     .chunk_inclusion_tracker
                     .record_endorsement_metrics(prev_block_hash, &shard_ids);
@@ -1335,7 +1339,7 @@ impl ClientActorInner {
         // If we produced the block, send it out before we apply the block.
         self.client.chain.blocks_delay_tracker.mark_block_received(&block);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::Block { block: block.clone() },
+            NetworkRequests::Block { block: Arc::clone(&block) },
         ));
         // We’ve produced the block so that counts as validated block.
         let block = MaybeValidated::from_validated(block);
@@ -1480,10 +1484,11 @@ impl ClientActorInner {
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block(), signer);
+            self.chunk_executor_sender.send(ExecutorBlock { block_hash: accepted_block });
         }
     }
 
-    fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
+    fn receive_headers(&mut self, headers: Vec<Arc<BlockHeader>>, peer_id: PeerId) -> bool {
         let _span =
             debug_span!(target: "client", "receive_headers", num_headers = headers.len(), ?peer_id)
                 .entered();
@@ -1533,6 +1538,7 @@ impl ClientActorInner {
         let peer_id = peer_info.peer_info.id.clone();
         let shutdown_height = self.client.config.expected_shutdown.get().unwrap_or(u64::MAX);
         let highest_height = peer_info.highest_block_height.min(shutdown_height);
+        let head = Tip::clone(&head);
 
         if is_syncing {
             if highest_height <= head.height {
@@ -1734,7 +1740,7 @@ impl ClientActorInner {
     /// - Extra blocks before the prev block needed for incoming receipts
     ///
     /// Returns whether the node is syncing its state.
-    fn maybe_receive_state_sync_blocks(&mut self, block: &Block) -> bool {
+    fn maybe_receive_state_sync_blocks(&mut self, block: Arc<Block>) -> bool {
         let SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) =
             self.client.sync_handler.sync_status
         else {
@@ -1745,7 +1751,7 @@ impl ClientActorInner {
             return true;
         };
 
-        let block: MaybeValidated<Block> = (*block).clone().into();
+        let block: MaybeValidated<Arc<Block>> = Arc::clone(&block).into();
         let block_hash = *block.hash();
 
         // Notice that the blocks are saved differently:
@@ -1854,7 +1860,7 @@ impl ClientActorInner {
         let signer = self.client.validator_signer.get();
         let mut blocks_produced = 0;
         for height in start_height.. {
-            let block: Option<Block> = if is_based_on_current_head {
+            let block = if is_based_on_current_head {
                 self.client.produce_block(height).expect("block should be produced")
             } else {
                 let prev_block_hash = self

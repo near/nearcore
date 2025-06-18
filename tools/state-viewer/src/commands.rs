@@ -74,7 +74,7 @@ pub(crate) fn apply_block(
     runtime: &dyn RuntimeAdapter,
     chain_store: &ChainStore,
     storage: StorageSource,
-) -> (Block, ApplyChunkResult) {
+) -> (Arc<Block>, ApplyChunkResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
     let epoch_id = block.header().epoch_id();
@@ -229,7 +229,7 @@ pub(crate) fn apply_chunk(
         epoch_manager.as_ref(),
         runtime.as_ref(),
         &mut chain_store,
-        chunk_hash,
+        &chunk_hash,
         target_height,
         None,
         storage,
@@ -649,7 +649,8 @@ pub(crate) fn print_chain(
                             .map(|info| info.account_id().to_string())
                             .unwrap_or_else(|_| "CP Unknown".to_owned());
                         if header.chunk_mask()[shard_index] {
-                            let chunk_hash = &block.chunks()[shard_index].chunk_hash();
+                            let chunks = block.chunks();
+                            let chunk_hash = chunks[shard_index].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
                                 chunk_debug_str.push(format!(
                                     "{}: {} {: >3} Tgas {: >10}",
@@ -874,7 +875,7 @@ pub(crate) fn view_genesis(
 fn read_genesis_from_store(
     chain_store: &ChainStore,
     genesis_height: u64,
-) -> Result<(Block, Vec<ShardChunk>), Error> {
+) -> Result<(Arc<Block>, Vec<ShardChunk>), Error> {
     let genesis_hash = chain_store.get_block_hash_by_height(genesis_height)?;
     let genesis_block = chain_store.get_block(&genesis_hash)?;
     let mut genesis_chunks = vec![];

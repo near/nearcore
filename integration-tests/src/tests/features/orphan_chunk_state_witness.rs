@@ -1,5 +1,5 @@
-use std::collections::HashSet;
-
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
@@ -15,14 +15,34 @@ use near_primitives::sharding::{
 };
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::{AccountId, ShardId};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
+trait ChunkStateWitnessExt {
+    fn mut_source_receipt_proofs(&mut self) -> &mut HashMap<ChunkHash, ReceiptProof>;
+    fn mut_chunk_header(&mut self) -> &mut ShardChunkHeader;
+}
+
+impl ChunkStateWitnessExt for ChunkStateWitness {
+    fn mut_source_receipt_proofs(&mut self) -> &mut HashMap<ChunkHash, ReceiptProof> {
+        match self {
+            ChunkStateWitness::V1(witness) => &mut witness.source_receipt_proofs,
+            ChunkStateWitness::V2(witness) => &mut witness.source_receipt_proofs,
+        }
+    }
+
+    fn mut_chunk_header(&mut self) -> &mut ShardChunkHeader {
+        match self {
+            ChunkStateWitness::V1(witness) => &mut witness.chunk_header,
+            ChunkStateWitness::V2(witness) => &mut witness.chunk_header,
+        }
+    }
+}
 
 struct OrphanWitnessTestEnv {
     env: TestEnv,
-    block1: Block,
-    block2: Block,
+    block1: Arc<Block>,
+    block2: Arc<Block>,
     witness: ChunkStateWitness,
     excluded_validator: AccountId,
     excluded_validator_idx: usize,
@@ -174,7 +194,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         "There should be no missing chunks."
     );
     let witness = witness_opt.unwrap();
-    assert_eq!(witness.chunk_header.chunk_hash(), block2.chunks()[0].chunk_hash());
+    assert_eq!(witness.chunk_header().chunk_hash(), block2.chunks()[0].chunk_hash());
 
     for client_idx in clients_without_excluded {
         let blocks_processed = env.clients[client_idx]
@@ -265,6 +285,7 @@ fn test_orphan_witness_far_from_head() {
         ShardChunkHeaderInner::V2(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V3(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V4(inner) => inner.height_created = bad_height,
+        ShardChunkHeaderInner::V5(inner) => inner.height_created = bad_height,
     });
 
     let outcome =
@@ -289,7 +310,7 @@ fn test_orphan_witness_not_fully_validated() {
         setup_orphan_witness_test();
 
     // Make the witness invalid in a way that won't be detected during orphan witness validation
-    witness.source_receipt_proofs.insert(
+    witness.mut_source_receipt_proofs().insert(
         ChunkHash::default(),
         ReceiptProof(
             vec![],
@@ -315,7 +336,7 @@ fn modify_witness_header_inner(
     witness: &mut ChunkStateWitness,
     f: impl FnOnce(&mut ShardChunkHeaderV3),
 ) {
-    match &mut witness.chunk_header {
+    match witness.mut_chunk_header() {
         ShardChunkHeader::V3(header) => {
             f(header);
         }

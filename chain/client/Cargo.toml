@@ -62,6 +62,7 @@ near-primitives = { workspace = true, features = ["clock"] }
 near-store.workspace = true
 near-telemetry.workspace = true
 near-vm-runner.workspace = true
+node-runtime.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
@@ -76,7 +77,6 @@ protocol_feature_spice = [
     "near-chain/protocol_feature_spice",
     "near-epoch-manager/protocol_feature_spice"
 ]
-expensive_tests = []
 test_features = [
     "near-network/test_features",
     "near-chain/test_features",

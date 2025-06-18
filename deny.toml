@@ -39,12 +39,15 @@ skip = [
     { name = "memoffset", version = "=0.8.0" },
     { name = "rustix", version = "^0.38" },
     { name = "linux-raw-sys", version = "^0.4" },
+    { name = "finite-wasm", version = "^0.5" },
 
     # wasm-tools
     { name = "wasmparser", version = "=0.78.2" },
     { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
+    { name = "wasmparser", version = "=0.224.1" },
     { name = "wasm-encoder", version = "=0.27.0" },
+    { name = "wasm-encoder", version = "=0.224.1" },
     { name = "wasmprinter", version = "=0.2.57" },
 
     # wasmer 0.17.x

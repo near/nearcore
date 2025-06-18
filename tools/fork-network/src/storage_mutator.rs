@@ -1,6 +1,6 @@
 use near_crypto::PublicKey;
 use near_mirror::key_mapping::map_account;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, GasKey};
 use near_primitives::bandwidth_scheduler::{
     BandwidthSchedulerState, BandwidthSchedulerStateV1, LinkAllowance,
 };
@@ -10,7 +10,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, ShardIndex, StateChangeCause, StateRoot, StoreKey, StoreValue,
+    AccountId, BlockHeight, Nonce, NonceIndex, ShardIndex, StateChangeCause, StateRoot, StoreKey,
+    StoreValue,
 };
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
@@ -255,6 +256,64 @@ impl StorageMutator {
         )
     }
 
+    pub(crate) fn remove_gas_key(
+        &mut self,
+        source_shard_uid: ShardUId,
+        account_id: AccountId,
+        public_key: PublicKey,
+    ) -> anyhow::Result<()> {
+        if self.target_shards.contains(&source_shard_uid) {
+            let shard_idx =
+                self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
+            self.remove(shard_idx, TrieKey::GasKey { account_id, public_key, index: None })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_gas_key(
+        &mut self,
+        shard_idx: ShardIndex,
+        account_id: AccountId,
+        public_key: PublicKey,
+        gas_key: GasKey,
+    ) -> anyhow::Result<()> {
+        self.set(
+            shard_idx,
+            TrieKey::GasKey { account_id, public_key, index: None },
+            borsh::to_vec(&gas_key)?,
+        )
+    }
+
+    pub(crate) fn remove_gas_key_nonce(
+        &mut self,
+        source_shard_uid: ShardUId,
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: NonceIndex,
+    ) -> anyhow::Result<()> {
+        if self.target_shards.contains(&source_shard_uid) {
+            let shard_idx =
+                self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
+            self.remove(shard_idx, TrieKey::GasKey { account_id, public_key, index: Some(index) })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_gas_key_nonce(
+        &mut self,
+        shard_idx: ShardIndex,
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: NonceIndex,
+        nonce: Nonce,
+    ) -> anyhow::Result<()> {
+        self.set(
+            shard_idx,
+            TrieKey::GasKey { account_id, public_key, index: Some(index) },
+            borsh::to_vec(&nonce)?,
+        )
+    }
+
     pub(crate) fn map_data(
         &mut self,
         source_shard_uid: ShardUId,
@@ -363,8 +422,10 @@ impl StorageMutator {
         self.set(shard_idx, TrieKey::BandwidthSchedulerState, borsh::to_vec(&state)?)
     }
 
+    /// Check if the total number of updates is greater than or equal to the batch size
     pub(crate) fn should_commit(&self, batch_size: u64) -> bool {
-        self.updates.len() >= batch_size as usize
+        let total_updates = self.updates.iter().map(|shard| shard.updates.len()).sum::<usize>();
+        total_updates >= batch_size as usize
     }
 
     /// Commits any pending trie changes for all shards

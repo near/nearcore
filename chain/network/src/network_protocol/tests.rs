@@ -89,7 +89,8 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     let b = data::make_secret_key(&mut rng);
     let edge = data::make_edge(&a, &b, 1);
 
-    let chunk_hash = chain.blocks[3].chunks()[0].chunk_hash();
+    let block3_chunks = chain.blocks[3].chunks();
+    let chunk_hash = block3_chunks[0].chunk_hash();
     let routed_message1 = Box::new(data::make_routed_message(
         &mut rng,
         RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
@@ -102,7 +103,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         &mut rng,
         RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
             chunk_hash: chunk_hash.clone(),
-            parts: data::make_chunk_parts(chain.chunks[&chunk_hash].clone()),
+            parts: data::make_chunk_parts(chain.chunks[chunk_hash].clone()),
             receipts: vec![],
         }),
     ));
@@ -121,7 +122,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             direct_peers: vec![], // TODO: populate this field once borsh support is dropped
         }),
         PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect()),
-        PeerMessage::BlockHeaders(chain.get_block_headers()),
+        PeerMessage::BlockHeaders(chain.get_block_headers().map(Into::into).collect()),
         PeerMessage::BlockRequest(*chain.blocks[5].hash()),
         PeerMessage::Block(chain.blocks[5].clone()),
         PeerMessage::Transaction(data::make_signed_transaction(&mut rng)),

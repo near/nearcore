@@ -705,7 +705,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
-        self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
         self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
         self.gc_col(DBCol::BlocksToCatchup, block_hash.as_bytes());
@@ -840,7 +839,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 2. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
-        self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
         self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
         self.gc_col(DBCol::BlocksToCatchup, block_hash.as_bytes());
@@ -1003,9 +1001,6 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::Block => {
                 store_update.delete(col, key);
             }
-            DBCol::BlockExtra => {
-                store_update.delete(col, key);
-            }
             DBCol::NextBlockHashes => {
                 store_update.delete(col, key);
             }
@@ -1081,6 +1076,12 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::LatestWitnessesByIndex => {
                 store_update.delete(col, key);
             }
+            DBCol::InvalidChunkStateWitnesses => {
+                store_update.delete(col, key);
+            }
+            DBCol::InvalidWitnessesByIndex => {
+                store_update.delete(col, key);
+            }
             DBCol::StateSyncNewChunks => {
                 store_update.delete(col, key);
             }
@@ -1089,6 +1090,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             DBCol::DbVersion
             | DBCol::BlockMisc
+            | DBCol::_BlockExtra
             | DBCol::_GCCount
             | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
             | DBCol::_Peers
@@ -1138,31 +1140,45 @@ fn gc_parent_shard_after_resharding(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
 ) -> Result<(), Error> {
-    // If we are GC'ing the resharding block, i.e. the last block of the epoch, clear out state for the parent shard
-    if !epoch_manager.will_shard_layout_change(block_hash)?
-        || !epoch_manager.is_last_block_in_finished_epoch(block_hash)?
-    {
+    // Clear out state for the parent shard. Note that this function is called at every epoch boundary,
+    // even if there is no resharding.
+    // It's fine to do that as after the first call to `trie_store_update.delete_shard_uid_prefixed_state`
+    // the rest of the calls in future epochs are no-ops.
+    if !epoch_manager.is_last_block_in_finished_epoch(block_hash)? {
         return Ok(());
     }
 
     let _span = tracing::debug_span!(target: "garbage_collection", "gc_resharding").entered();
 
     // Given block_hash is the resharding block, shard_layout is the shard layout of the next epoch
-    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(block_hash)?;
+    // Important: We are not allowed to call `epoch_manager.get_shard_layout_from_prev_block()` as
+    // the function relies on `self.get_block_info(block_info.epoch_first_block())` but epoch_first_block
+    // has already been cleaned up.
+    // We instead need to rely on chain_store to get the next block hash and use the block_info to get
+    // the next epoch id and shard layout.
     let store = chain_store_update.store();
+    let next_block_hash = store.chain_store().get_next_block_hash(block_hash)?;
+    let next_epoch_id = epoch_manager.get_epoch_id(&next_block_hash)?;
+    let shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
     let mut trie_store_update = store.trie_store().store_update();
     for parent_shard_uid in shard_layout.get_split_parent_shard_uids() {
-        // Delete the state of the parent shard
-        tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup");
-        trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
+        // Check if any child shard still map to this parent shard
+        let children_shards =
+            shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap();
+        let has_active_mapping = children_shards.into_iter().any(|child_shard_uid| {
+            let mapped_shard_uid = get_shard_uid_mapping(&store, child_shard_uid);
+            mapped_shard_uid == parent_shard_uid && mapped_shard_uid != child_shard_uid
+        });
+        if !has_active_mapping {
+            // Delete the state of the parent shard
+            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup");
+            trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
+        } else {
+            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "skipping parent shard cleanup - active mappings exist");
+        }
     }
+
     chain_store_update.merge(trie_store_update.into());
-
-    // Assert that the shard_uid mapping doesn't exist for any of the shards in the new shard layout
-    for shard_uid in shard_layout.shard_uids() {
-        assert_eq!(get_shard_uid_mapping(&store, shard_uid), shard_uid, "Incomplete Resharding");
-    }
-
     Ok(())
 }
 
@@ -1191,9 +1207,8 @@ fn gc_state(
 
     // Get all the shards that belong to the gc_epoch for shards_to_cleanup
     let block_info = epoch_manager.get_block_info(last_block_hash_in_gc_epoch)?;
-    let gc_epoch_id = block_info.epoch_id();
     let mut shards_to_cleanup =
-        epoch_manager.get_shard_layout(gc_epoch_id)?.shard_uids().collect_vec();
+        epoch_manager.get_shard_layout(block_info.epoch_id())?.shard_uids().collect_vec();
 
     // Remove shards that we are currently tracking from shards_to_cleanup
     shards_to_cleanup.retain(|shard_uid| {
@@ -1206,21 +1221,22 @@ fn gc_state(
     });
 
     // reverse iterate over the epochs starting from epoch of latest_block_hash upto gc_epoch
+    // The current_block_hash is the hash of the last block in the current iteration epoch.
     let store = chain_store_update.store();
-    let mut current_block_info = epoch_manager.get_block_info(&latest_block_hash)?;
-    while current_block_info.hash() != last_block_hash_in_gc_epoch {
+    let mut current_block_hash = *epoch_manager.get_block_info(&latest_block_hash)?.hash();
+    while &current_block_hash != last_block_hash_in_gc_epoch {
         shards_to_cleanup.retain(|shard_uid| {
             // If shard_uid exists in the TrieChanges column, it means we were tracking the shard_uid in this epoch.
             // We would like to remove shard_uid from shards_to_cleanup
-            let trie_changes_key = get_block_shard_uid(&current_block_info.hash(), shard_uid);
+            let trie_changes_key = get_block_shard_uid(&current_block_hash, shard_uid);
             !store.exists(DBCol::TrieChanges, &trie_changes_key).unwrap()
         });
 
-        // Get the block_info for prev_epoch last_block_hash to continue the iteration
-        let epoch_first_block_info =
-            epoch_manager.get_block_info(current_block_info.epoch_first_block())?;
-        let prev_epoch_last_block_hash = epoch_first_block_info.prev_hash();
-        current_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
+        // Go to the previous epoch last_block_hash
+        let epoch_block_info = epoch_manager.get_block_info(&current_block_hash)?;
+        let epoch_first_block_hash = epoch_block_info.epoch_first_block();
+        let epoch_first_block = store.chain_store().get_block_header(epoch_first_block_hash)?;
+        current_block_hash = *epoch_first_block.prev_hash();
     }
 
     // Delete State of `shards_to_cleanup` and associated ShardUId mapping.

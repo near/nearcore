@@ -5,9 +5,9 @@ use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::Client;
 use near_client::client_actor::ClientActorInner;
 use near_client::sync_jobs_actor::SyncJobsActor;
+use near_client::{AsyncComputationMultiSpawner, Client};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
@@ -68,7 +68,6 @@ fn test_client_with_simple_test_loop() {
 
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let shard_tracker = ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
     let runtime_adapter = NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
@@ -79,6 +78,11 @@ fn test_client_with_simple_test_loop() {
         Some(Arc::new(create_test_signer(accounts[0].as_str()))),
         "validator_signer",
     );
+    let shard_tracker = ShardTracker::new(
+        TrackedShardsConfig::AllShards,
+        epoch_manager.clone(),
+        validator_signer.clone(),
+    );
 
     let shards_manager_adapter = LateBoundSender::new();
     let sync_jobs_adapter = LateBoundSender::new();
@@ -87,6 +91,9 @@ fn test_client_with_simple_test_loop() {
     let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
 
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
+    let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
+        test_loop.async_computation_spawner("node0", |_| Duration::milliseconds(80)),
+    ));
     let client = Client::new(
         test_loop.clock(),
         client_config,
@@ -100,7 +107,7 @@ fn test_client_with_simple_test_loop() {
         true,
         [0; 32],
         None,
-        Arc::new(test_loop.async_computation_spawner("node0", |_| Duration::milliseconds(80))),
+        multi_spawner,
         noop().into_multi_sender(),
         noop().into_multi_sender(),
         Arc::new(test_loop.future_spawner("node0")),
@@ -110,6 +117,8 @@ fn test_client_with_simple_test_loop() {
     )
     .unwrap();
 
+    let head = client.chain.head().unwrap();
+    let header_head = client.chain.header_head().unwrap();
     let shards_manager = ShardsManagerActor::new(
         test_loop.clock(),
         validator_signer,
@@ -119,8 +128,8 @@ fn test_client_with_simple_test_loop() {
         noop().into_sender(),
         client_adapter.as_sender(),
         store.chunk_store(),
-        client.chain.head().unwrap(),
-        client.chain.header_head().unwrap(),
+        <_>::clone(&head),
+        <_>::clone(&header_head),
         Duration::milliseconds(100),
     );
 
@@ -134,6 +143,7 @@ fn test_client_with_simple_test_loop() {
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
+        noop().into_sender(),
     )
     .unwrap();
 

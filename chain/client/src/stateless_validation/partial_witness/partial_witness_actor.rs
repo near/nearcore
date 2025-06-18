@@ -202,11 +202,15 @@ impl PartialWitnessActor {
             main_transition_shard_id,
         } = msg;
 
-        tracing::debug!(
+        let _span = tracing::debug_span!(
             target: "client",
-            chunk_hash=?state_witness.chunk_header.chunk_hash(),
             "distribute_chunk_state_witness",
-        );
+            chunk_hash=?state_witness.chunk_header().chunk_hash(),
+            height=state_witness.chunk_header().height_created(),
+            shard_id=%state_witness.chunk_header().shard_id(),
+            tag_block_production=true,
+        )
+        .entered();
 
         // We send the state-witness and contract-updates in the following order:
         // 1. We send the hashes of the contract code accessed (if contract code is excluded from witness and any contracts are called)
@@ -228,7 +232,7 @@ impl PartialWitnessActor {
                 key.clone(),
                 contract_accesses,
                 MainTransitionKey {
-                    block_hash: state_witness.main_state_transition.block_hash,
+                    block_hash: state_witness.main_state_transition().block_hash,
                     shard_id: main_transition_shard_id,
                 },
                 &chunk_validators,
@@ -239,7 +243,7 @@ impl PartialWitnessActor {
         let witness_bytes = compress_witness(&state_witness)?;
         self.send_state_witness_parts(
             key.epoch_id,
-            &state_witness.chunk_header,
+            state_witness.chunk_header(),
             witness_bytes,
             &chunk_validators,
             &signer,
@@ -358,7 +362,7 @@ impl PartialWitnessActor {
         // Record the witness in order to match the incoming acks for measuring round-trip times.
         // See process_chunk_state_witness_ack for the handling of the ack messages.
         self.state_witness_tracker.record_witness_sent(
-            chunk_hash,
+            chunk_hash.clone(),
             witness_size_in_bytes,
             validator_witness_tuple.len(),
         );
@@ -825,11 +829,16 @@ impl PartialWitnessActor {
 }
 
 fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkStateWitness, Error> {
-    let shard_id_label = witness.chunk_header.shard_id().to_string();
+    let shard_id_label = witness.chunk_header().shard_id().to_string();
     let encode_timer = near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
         .with_label_values(&[shard_id_label.as_str()])
         .start_timer();
-    let (witness_bytes, raw_witness_size) = EncodedChunkStateWitness::encode(witness)?;
+    let (witness_bytes, raw_witness_size) = if let ChunkStateWitness::V1(witness_v1) = witness {
+        // For V1 witness, we need to encode only the inner witness struct for backwards compatibility.
+        EncodedChunkStateWitness::encode(witness_v1)?
+    } else {
+        EncodedChunkStateWitness::encode(witness)?
+    };
     encode_timer.observe_duration();
 
     near_chain::stateless_validation::metrics::record_witness_size_metrics(
