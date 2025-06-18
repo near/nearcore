@@ -55,6 +55,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::validate::validate_optimistic_block_relevant;
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::block::{
     Block, BlockValidityError, Chunks, MaybeNew, Tip, compute_bp_hash_from_validator_stakes,
 };
@@ -143,7 +144,9 @@ pub enum ApplyChunksMode {
 /// just finished applying chunks.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub struct ApplyChunksDoneMessage;
+pub struct ApplyChunksDoneMessageInner;
+
+pub type ApplyChunksDoneMessage = SpanWrapped<ApplyChunksDoneMessageInner>;
 
 /// Contains information for missing chunks in a block
 pub struct BlockMissingChunks {
@@ -1808,7 +1811,7 @@ impl Chain {
             sc.send((block, res)).unwrap();
             drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
-                sender.send(ApplyChunksDoneMessage {});
+                sender.send(ApplyChunksDoneMessageInner {}.span_wrap());
             }
         });
     }
@@ -3861,18 +3864,22 @@ impl Debug for BlockCatchUpRequest {
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub struct BlockCatchUpResponse {
+pub struct BlockCatchUpResponseInner {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
     pub results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
 }
 
+pub type BlockCatchUpResponse = SpanWrapped<BlockCatchUpResponseInner>;
+
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ChunkStateWitnessMessage {
+pub struct ChunkStateWitnessMessageInner {
     pub witness: ChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,
 }
+
+pub type ChunkStateWitnessMessage = SpanWrapped<ChunkStateWitnessMessageInner>;
 
 /// Helper to track blocks catch up
 /// Starting from the first block we want to apply after syncing state (so either the first block

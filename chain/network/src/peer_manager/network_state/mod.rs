@@ -1,7 +1,7 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
+    BlockApprovalInner, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
     TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
@@ -39,6 +39,7 @@ use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
 use near_async::time;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -726,7 +727,10 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
-                self.client.send_async(BlockApproval(approval, prev_hop)).await.ok();
+                self.client
+                    .send_async(BlockApprovalInner(approval, prev_hop).span_wrap())
+                    .await
+                    .ok();
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {
