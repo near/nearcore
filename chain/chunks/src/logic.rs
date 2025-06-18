@@ -90,11 +90,11 @@ pub fn make_outgoing_receipts_proofs(
 ) -> Result<Vec<ReceiptProof>, EpochError> {
     let shard_id = chunk_header.shard_id();
     let shard_layout =
-        epoch_manager.get_shard_layout_from_prev_block(&chunk_header.prev_block_hash())?;
+        epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
 
     let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)?;
     let (root, proofs) = merklize(&hashes);
-    assert_eq!(chunk_header.prev_outgoing_receipts_root(), root);
+    assert_eq!(chunk_header.prev_outgoing_receipts_root(), &root);
 
     let mut receipts_by_shard = Chain::group_receipts_by_shard(outgoing_receipts, &shard_layout)?;
     let mut result = vec![];
@@ -116,7 +116,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
     epoch_manager: &dyn EpochManagerAdapter,
     shard_tracker: &ShardTracker,
 ) -> PartialEncodedChunk {
-    let prev_block_hash = &header.prev_block_hash();
+    let prev_block_hash = header.prev_block_hash();
     let cares_about_shard = shard_tracker.cares_about_shard_this_or_next_epoch(
         me,
         prev_block_hash,
@@ -161,7 +161,7 @@ pub fn create_partial_chunk(
         target: "chunks",
         "create_partial_chunk",
         height_included = header.height_included(),
-        shard_id = ?header.shard_id(),
+        shard_id = %header.shard_id(),
         encoded_length = tracing::field::Empty,
         num_tx = tracing::field::Empty,
         me = me.map(tracing::field::debug),

@@ -268,14 +268,14 @@ impl OptimisticBlockChunksPool {
             return;
         }
 
-        let prev_block_hash = chunk_header.prev_block_hash();
+        let prev_block_hash = *chunk_header.prev_block_hash();
         let entry = self.chunks.entry(prev_block_hash).or_insert_with(|| {
             OptimisticBlockChunks::new(prev_block_height, shard_layout.num_shards() as usize)
         });
 
         let shard_index = shard_layout.get_shard_index(chunk_header.shard_id()).unwrap();
         let chunk_entry = entry.chunks.get_mut(shard_index).unwrap();
-        let chunk_hash = chunk_header.chunk_hash();
+        let chunk_hash = chunk_header.chunk_hash().clone();
         if let Some(chunk) = &chunk_entry {
             let existing_chunk_hash = chunk.chunk_hash();
             tracing::info!(target: "chunks", ?prev_block_hash, ?chunk_hash, ?existing_chunk_hash, "Chunk already found for OptimisticBlock");

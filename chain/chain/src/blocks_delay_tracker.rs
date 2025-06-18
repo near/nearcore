@@ -126,7 +126,7 @@ impl ChunkTrackingStats {
         Self {
             height_created: chunk_header.height_created(),
             shard_id: chunk_header.shard_id(),
-            prev_block_hash: chunk_header.prev_block_hash(),
+            prev_block_hash: *chunk_header.prev_block_hash(),
             requested_timestamp: None,
             completed_timestamp: None,
         }
@@ -212,8 +212,8 @@ impl BlocksDelayTracker {
                     self.chunks
                         .entry(chunk_hash.clone())
                         .or_insert_with(|| ChunkTrackingStats::new(chunk));
-                    self.floating_chunks.remove(&chunk_hash);
-                    Some(chunk_hash)
+                    self.floating_chunks.remove(chunk_hash);
+                    Some(chunk_hash.clone())
                 } else {
                     None
                 }
@@ -327,7 +327,7 @@ impl BlocksDelayTracker {
         self.chunks
             .entry(chunk_hash.clone())
             .or_insert_with(|| {
-                self.floating_chunks.insert(chunk_hash, chunk_header.height_created());
+                self.floating_chunks.insert(chunk_hash.clone(), chunk_header.height_created());
                 ChunkTrackingStats::new(chunk_header)
             })
             .completed_timestamp
@@ -339,7 +339,7 @@ impl BlocksDelayTracker {
         self.chunks
             .entry(chunk_hash.clone())
             .or_insert_with(|| {
-                self.floating_chunks.insert(chunk_hash, chunk_header.height_created());
+                self.floating_chunks.insert(chunk_hash.clone(), chunk_header.height_created());
                 ChunkTrackingStats::new(chunk_header)
             })
             .requested_timestamp

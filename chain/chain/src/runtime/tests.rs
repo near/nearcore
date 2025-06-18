@@ -1,5 +1,4 @@
 use super::*;
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
@@ -1379,14 +1378,14 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
-        Arc::new(RayonAsyncComputationSpawner),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )
     .unwrap();
 
     // Make sure `chain` and test `env` use the same genesis hash.
-    env.head = chain.chain_store().head().unwrap();
+    env.head = Tip::clone(&chain.chain_store().head().unwrap());
     // Produce a single block, so that `prev_block_hash` is valid.
     env.step_default(vec![]);
 

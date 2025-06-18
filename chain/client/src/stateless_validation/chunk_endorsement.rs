@@ -81,7 +81,7 @@ impl ChunkEndorsementTracker {
     ) -> Result<ChunkEndorsementsState, Error> {
         let shard_id = chunk_header.shard_id();
         let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
 
         let height_created = chunk_header.height_created();
         let key = ChunkProductionKey { shard_id, epoch_id, height_created };
@@ -102,7 +102,7 @@ impl ChunkEndorsementTracker {
         let entry = cache.get_or_insert(key, || HashMap::new());
         let validator_signatures = entry
             .into_iter()
-            .filter(|(_, (chunk_hash, _))| chunk_hash == &chunk_header.chunk_hash())
+            .filter(|(_, (chunk_hash, _))| chunk_hash == chunk_header.chunk_hash())
             .map(|(account_id, (_, signature))| (account_id, signature.clone()))
             .collect();
 

@@ -132,7 +132,7 @@ impl Chain {
             *genesis.header().random_value(),
         )?);
         store_update.save_block_header(genesis.header().clone())?;
-        store_update.save_block(genesis.clone());
+        store_update.save_block(genesis.clone().into());
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;
 
         let block_head = Tip::from_header(genesis.header());
@@ -242,7 +242,7 @@ impl Chain {
             store_update.save_chunk_extra(
                 genesis.hash(),
                 &shard_id_to_uid(epoch_manager, chunk_header.shard_id(), &EpochId::default())?,
-                chunk_extra,
+                chunk_extra.into(),
             );
         }
         Ok(())
@@ -316,7 +316,7 @@ fn get_genesis_congestion_info(
     let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
     let runtime_config = runtime.get_runtime_config(protocol_version);
     let congestion_info = bootstrap_congestion_info(&trie, runtime_config, shard_id)?;
-    tracing::debug!(target: "chain", ?shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
+    tracing::debug!(target: "chain", %shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
     Ok(congestion_info)
 }
 

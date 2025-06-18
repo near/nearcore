@@ -67,13 +67,12 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::BlockByHash { block_hash } => {
                 let block = store
-                    .get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Block not found"))?;
                 let author = self
                     .epoch_manager
                     .get_block_producer(block.header().epoch_id(), block.header().height())?;
-                let mut ret =
-                    serialize_entity(&BlockView::from_author_block(author, block.clone()));
+                let mut ret = serialize_entity(&BlockView::from_author_block(author, &block));
                 if let EntityDataValue::Struct(inner) = &mut ret {
                     inner.add("chunk_endorsements", serialize_entity(block.chunk_endorsements()));
                 }
@@ -95,7 +94,7 @@ impl EntityDebugHandlerImpl {
                         &borsh::to_vec(&block_hash).unwrap(),
                     )?
                     .ok_or_else(|| anyhow!("Block header not found"))?;
-                Ok(serialize_entity(&BlockHeaderView::from(block_header)))
+                Ok(serialize_entity(&BlockHeaderView::from(&block_header)))
             }
             EntityQuery::BlockInfoByHash { block_hash } => {
                 let block_info = store
@@ -121,7 +120,7 @@ impl EntityDebugHandlerImpl {
                     .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
                 let epoch_id =
-                    self.epoch_manager.get_epoch_id_from_prev_block(&chunk.prev_block())?;
+                    self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
                 let author = self
                     .epoch_manager
                     .get_chunk_producer_info(&ChunkProductionKey {
@@ -152,7 +151,7 @@ impl EntityDebugHandlerImpl {
                     )?
                     .ok_or_else(|| anyhow!("Cannot find block at chunk's height"))?;
                 let epoch_id =
-                    self.epoch_manager.get_epoch_id_from_prev_block(&chunk.prev_block())?;
+                    self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
                 let shard_id = chunk.shard_id();
                 let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
                 let chunk_extra = store
@@ -323,7 +322,7 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::StateTransitionData { block_hash } => {
                 let block = store
-                    .get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Block not found"))?;
                 let epoch_id = block.header().epoch_id();
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;

@@ -20,6 +20,7 @@ enum-map.workspace = true
 itertools.workspace = true
 lru.workspace = true
 num-rational.workspace = true
+oneshot.workspace = true
 parking_lot.workspace = true
 rand_chacha.workspace = true
 rand.workspace = true
@@ -28,6 +29,7 @@ serde.workspace = true
 strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+thread-priority.workspace = true
 time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -65,7 +67,6 @@ assert_matches.workspace = true
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = []
-expensive_tests = []
 test_features = [
     "near-vm-runner/test_features",
     "near-primitives/test_features",
@@ -75,6 +76,7 @@ test_features = [
 shadow_chunk_validation = []
 protocol_feature_spice = [
     "near-epoch-manager/protocol_feature_spice",
+    "near-primitives/protocol_feature_spice",
 ]
 
 nightly = [

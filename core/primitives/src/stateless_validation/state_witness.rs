@@ -92,7 +92,7 @@ pub struct ChunkStateWitnessAck {
 
 impl ChunkStateWitnessAck {
     pub fn new(witness: &ChunkStateWitness) -> Self {
-        Self { chunk_hash: witness.chunk_header().chunk_hash() }
+        Self { chunk_hash: witness.chunk_header().chunk_hash().clone() }
     }
 }
 
@@ -245,6 +245,13 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1(witness) => witness.chunk_production_key(),
             ChunkStateWitness::V2(witness) => witness.chunk_production_key(),
+        }
+    }
+
+    pub fn epoch_id(&self) -> &EpochId {
+        match self {
+            ChunkStateWitness::V1(witness) => &witness.epoch_id,
+            ChunkStateWitness::V2(witness) => &witness.epoch_id,
         }
     }
 

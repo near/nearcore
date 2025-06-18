@@ -132,19 +132,45 @@ The first step is to create VMs to run the nodes.
 You should be able to use any valid forknet image with [forknet terraform recipes](https://docs.nearone.org/doc/mocknet-guide-7VnYUXjs2A).
 This [setup](https://github.com/Near-One/infra-ops/tree/tpsnet/provisioning/terraform/infra/network/mocknet/tpsnet) is an example infra suitable for the benchmark. You can make a copy then make the following modifications:
 
-1. in `main.tf`: update `unique_id` and `start_height`, then specify the number
+1. in `main.tf`: update `unique_id` and set `start_height` to 138038232 which
+corresponds to the existing setup with minimal disk usage. Then specify the number
 of nodes to start & their regions. Number of instances specified in terraform
 (when totalled across regions) _MUST_ match the `CASE` you intend to run (eg, 20
-CP + 1 RPC = 21) -- see below or [`cases`](https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm/cases) Note all regions may not
-support starting all types of instances (you can check in the console)
+CP + 1 RPC = 21) -- see below or [`cases`](https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm/cases).
+Note all regions may not support starting all types of instances (you can check in the console).
+We recommend spawning all VMs in the same region, e.g.
+
+```tf
+    nodes_location = {
+        europe-west1 = 7
+        europe-west4 = 7
+        europe-west2 = 7
+    }
+```
+
+Then set
+
+```tf
+state_dumper = false
+
+machine_type = "c2d-standard-16"
+
+traffic = []
+```
+
+and set `tracing_server` to true / false if you want to collect traces.
+
 2. in `resources.tf` modify the bucket prefix to be unique (will store the terraform state)
 
 If needed, switch active project with:
+
 ```sh
 gcloud config set project nearone-mocknet
 gcloud auth application-default set-quota-project nearone-mocknet
 ```
+
 Next, you can deploy the nodes with:
+
 ```sh
 terraform init
 terraform apply

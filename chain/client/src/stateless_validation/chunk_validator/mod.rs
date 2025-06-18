@@ -9,7 +9,7 @@ use near_chain::stateless_validation::chunk_validation;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::types::RuntimeAdapter;
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{Block, Chain};
+use near_chain::{ApplyChunksSpawner, Block, Chain};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -22,6 +22,8 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_store::adapter::StoreAdapter;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::sync::Arc;
 
@@ -52,14 +54,19 @@ impl ChunkValidator {
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphan_witness_pool_size: usize,
-        validation_spawner: Arc<dyn AsyncComputationSpawner>,
+        validation_spawner: ApplyChunksSpawner,
     ) -> Self {
+        // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit. This assumes that:
+        // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
+        // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
+        let max_num_shards =
+            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         Self {
             epoch_manager,
             network_sender,
             runtime_adapter,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
-            validation_spawner,
+            validation_spawner: validation_spawner.into_spawner(max_num_shards),
             main_state_transition_result_cache: chunk_validation::MainStateTransitionCache::default(
             ),
         }
@@ -76,7 +83,18 @@ impl ChunkValidator {
         chain: &Chain,
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
+        save_witness_if_invalid: bool,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "start_validating_chunk",
+            height = %state_witness.chunk_production_key().height_created,
+            shard_id = %state_witness.chunk_production_key().shard_id,
+            validator = %signer.validator_id(),
+            tag_block_production = true,
+        )
+        .entered();
+
         let prev_block_hash = state_witness.chunk_header().prev_block_hash();
         let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
         let shard_id = state_witness.chunk_header().shard_id();
@@ -153,6 +171,7 @@ impl ChunkValidator {
         }
 
         let runtime_adapter = self.runtime_adapter.clone();
+        let store = chain.chain_store.store();
         let cache = self.main_state_transition_result_cache.clone();
         let signer = signer.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
@@ -166,6 +185,8 @@ impl ChunkValidator {
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
                 &cache,
+                store,
+                save_witness_if_invalid,
             ) {
                 Ok(()) => {
                     send_chunk_endorsement_to_block_producers(
@@ -208,14 +229,14 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         "send_chunk_endorsement",
         chunk_hash = ?chunk_header.chunk_hash(),
         height = %chunk_header.height_created(),
-        shard_id = ?chunk_header.shard_id(),
+        shard_id = %chunk_header.shard_id(),
         validator = %signer.validator_id(),
         tag_block_production = true,
     )
     .entered();
 
     let epoch_id =
-        epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash()).unwrap();
+        epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash()).unwrap();
 
     // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
     // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
@@ -232,7 +253,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     tracing::debug!(
         target: "client",
         chunk_hash=?chunk_hash,
-        shard_id=?chunk_header.shard_id(),
+        shard_id=%chunk_header.shard_id(),
         ?block_producers,
         "send_chunk_endorsement",
     );
@@ -265,7 +286,7 @@ impl Client {
         tracing::debug!(
             target: "client",
             chunk_hash=?witness.chunk_header().chunk_hash(),
-            shard_id=?witness.chunk_header().shard_id(),
+            shard_id=%witness.chunk_header().shard_id(),
             "process_chunk_state_witness",
         );
 
@@ -286,12 +307,13 @@ impl Client {
         }
 
         let signer = signer.unwrap();
-        match self.chain.get_block(&witness.chunk_header().prev_block_hash()) {
+        match self.chain.get_block(witness.chunk_header().prev_block_hash()) {
             Ok(block) => self.process_chunk_state_witness_with_prev_block(
                 witness,
                 &block,
                 processing_done_tracker,
                 &signer,
+                self.config.save_invalid_witnesses,
             ),
             Err(Error::DBNotFoundErr(_)) => {
                 // Previous block isn't available at the moment, add this witness to the orphan pool.
@@ -323,8 +345,9 @@ impl Client {
         prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
+        save_witness_if_invalid: bool,
     ) -> Result<(), Error> {
-        if &witness.chunk_header().prev_block_hash() != prev_block.hash() {
+        if witness.chunk_header().prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(
                 "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",
                 witness.chunk_header().prev_block_hash(),
@@ -337,6 +360,7 @@ impl Client {
             &self.chain,
             processing_done_tracker,
             signer,
+            save_witness_if_invalid,
         )
     }
 }

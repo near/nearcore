@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::messaging::{IntoMultiSender, noop};
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
@@ -22,7 +21,6 @@ use near_time::Clock;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 
 #[derive(serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub struct BlockCheckpoint {
@@ -238,6 +236,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     let shard_tracker = ShardTracker::new(
         near_config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
+        near_config.validator_signer.clone(),
     );
     let runtime = NightshadeRuntime::from_config(
         home_dir,
@@ -263,7 +262,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
             ),
         },
         None,
-        Arc::new(RayonAsyncComputationSpawner),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )

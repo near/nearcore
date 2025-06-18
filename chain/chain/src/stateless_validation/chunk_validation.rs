@@ -8,6 +8,7 @@ use crate::resharding::manager::ReshardingManager;
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
+use crate::store::latest_witnesses::save_invalid_chunk_state_witness;
 use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource};
 use crate::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use crate::{Chain, ChainStore, ChainStoreAccess};
@@ -33,7 +34,7 @@ use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
-use near_store::{PartialStorage, Trie};
+use near_store::{PartialStorage, Store, Trie};
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -103,7 +104,7 @@ struct StateWitnessBlockRange {
     /// Blocks from the last last new chunk (exclusive) to the last new chunk
     /// (inclusive). Note they are in **reverse** order, from the newest to the
     /// oldest. They are needed to validate the chunk's source receipt proofs.
-    blocks_after_last_last_chunk: Vec<Block>,
+    blocks_after_last_last_chunk: Vec<Arc<Block>>,
     /// Shard layout for the last chunk before the chunk being validated.
     last_chunk_shard_layout: ShardLayout,
     /// Shard id of the last chunk before the chunk being validated.
@@ -141,7 +142,7 @@ fn get_state_witness_block_range(
         /// currently observed block.
         shard_id: ShardId,
         /// Previous block.
-        prev_block: Block,
+        prev_block: Arc<Block>,
         /// Number of new chunks seen during traversal.
         num_new_chunks_seen: u32,
         /// Current candidate shard layout of last chunk before the chunk being
@@ -152,7 +153,7 @@ fn get_state_witness_block_range(
         last_chunk_shard_id: ShardId,
     }
 
-    let initial_prev_hash = state_witness.chunk_header().prev_block_hash();
+    let initial_prev_hash = *state_witness.chunk_header().prev_block_hash();
     let initial_prev_block = store.get_block(&initial_prev_hash)?;
     let initial_shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(&initial_prev_hash)?;
@@ -194,12 +195,9 @@ fn get_state_witness_block_range(
             // If we have seen 0 chunks, the block contributes to implicit
             // state transition.
             0 => {
-                let block_context = Chain::get_apply_chunk_block_context(
-                    &position.prev_block,
-                    &store.get_block_header(&prev_prev_hash)?,
-                    false,
-                )?;
-
+                let header = store.get_block_header(&prev_prev_hash)?;
+                let block_context =
+                    Chain::get_apply_chunk_block_context(&position.prev_block, &header, false)?;
                 implicit_transition_params
                     .push(ImplicitTransitionParams::ApplyOldChunk(block_context, shard_uid));
             }
@@ -337,9 +335,10 @@ pub fn pre_validate_chunk_state_witness(
     let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
         Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
     })?;
+    let last_chunk_block_chunks = last_chunk_block.chunks();
     let last_new_chunk_tx_root =
-        last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().tx_root();
-    if last_new_chunk_tx_root != tx_root_from_state_witness {
+        last_chunk_block_chunks.get(last_chunk_shard_index).unwrap().tx_root();
+    if last_new_chunk_tx_root != &tx_root_from_state_witness {
         return Err(Error::InvalidChunkStateWitness(format!(
             "Transaction root {:?} does not match expected transaction root {:?}",
             tx_root_from_state_witness, last_new_chunk_tx_root
@@ -352,7 +351,7 @@ pub fn pre_validate_chunk_state_witness(
         } else {
             let prev_block_header =
                 store.get_block_header(last_chunk_block.header().prev_hash())?;
-            let check = chain.transaction_validity_check(prev_block_header);
+            let check = chain.transaction_validity_check(BlockHeader::clone(&prev_block_header));
             state_witness.transactions().iter().map(|t| check(t)).collect::<Vec<_>>()
         }
     };
@@ -376,15 +375,12 @@ pub fn pre_validate_chunk_state_witness(
             state_witness.transactions().clone(),
             transaction_validity_check_results,
         );
+        let header = store.get_block_header(last_chunk_block.header().prev_hash())?;
         MainTransition::NewChunk(NewChunkData {
             chunk_header: last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().clone(),
             transactions,
             receipts: receipts_to_apply,
-            block: Chain::get_apply_chunk_block_context(
-                last_chunk_block,
-                &store.get_block_header(last_chunk_block.header().prev_hash())?,
-                true,
-            )?,
+            block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true)?,
             storage_context: StorageContext {
                 storage_data_source: StorageDataSource::Recorded(PartialStorage {
                     nodes: state_witness.main_state_transition().base_state.clone(),
@@ -403,7 +399,7 @@ pub fn pre_validate_chunk_state_witness(
 fn validate_source_receipt_proofs(
     epoch_manager: &dyn EpochManagerAdapter,
     source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
-    receipt_source_blocks: &[Block],
+    receipt_source_blocks: &[Arc<Block>],
     target_shard_layout: ShardLayout,
     target_chunk_shard_id: ShardId,
 ) -> Result<Vec<Receipt>, Error> {
@@ -506,7 +502,7 @@ fn validate_receipt_proof(
         )));
     }
     // Verify that (receipts, to_shard_id) belongs to the merkle tree of outgoing receipts in from_chunk.
-    if !receipt_proof.verify_against_receipt_root(from_chunk.prev_outgoing_receipts_root()) {
+    if !receipt_proof.verify_against_receipt_root(*from_chunk.prev_outgoing_receipts_root()) {
         return Err(Error::InvalidChunkStateWitness(format!(
             "Receipt proof for chunk {:?} has invalid merkle path, doesn't match outgoing receipts root",
             from_chunk.chunk_hash()
@@ -515,7 +511,7 @@ fn validate_receipt_proof(
     Ok(())
 }
 
-pub fn validate_chunk_state_witness(
+pub fn validate_chunk_state_witness_impl(
     state_witness: ChunkStateWitness,
     pre_validation_output: PreValidationOutput,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -530,8 +526,8 @@ pub fn validate_chunk_state_witness(
     let span = tracing::debug_span!(
         target: "client",
         "validate_chunk_state_witness",
-        height_created,
-        shard_id = ?witness_chunk_shard_id,
+        height = height_created,
+        shard_id = %witness_chunk_shard_id,
         tag_block_production = true
     )
     .entered();
@@ -602,7 +598,7 @@ pub fn validate_chunk_state_witness(
             block_hash,
             ChunkStateWitnessValidationResult {
                 chunk_extra: chunk_extra.clone(),
-                outgoing_receipts: outgoing_receipts,
+                outgoing_receipts,
             },
         );
     }
@@ -706,6 +702,45 @@ pub fn validate_chunk_state_witness(
     Ok(())
 }
 
+pub fn validate_chunk_state_witness(
+    state_witness: ChunkStateWitness,
+    pre_validation_output: PreValidationOutput,
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
+    main_state_transition_cache: &MainStateTransitionCache,
+    store: Store,
+    save_witness_if_invalid: bool,
+) -> Result<(), Error> {
+    // Avoid cloning the witness if possible
+    if !save_witness_if_invalid {
+        return validate_chunk_state_witness_impl(
+            state_witness,
+            pre_validation_output,
+            epoch_manager,
+            runtime_adapter,
+            main_state_transition_cache,
+        );
+    }
+
+    let result = validate_chunk_state_witness_impl(
+        state_witness.clone(),
+        pre_validation_output,
+        epoch_manager,
+        runtime_adapter,
+        main_state_transition_cache,
+    );
+    if result.is_err() {
+        if let Err(storage_err) = save_invalid_chunk_state_witness(store, &state_witness) {
+            tracing::error!(
+                target: "stateless_validation",
+                ?storage_err,
+                "Failed to store invalid state witness"
+            );
+        }
+    }
+    result
+}
+
 pub fn apply_result_to_chunk_extra(
     apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,
@@ -732,9 +767,9 @@ impl Chain {
     ) -> Result<(), Error> {
         let shard_id = witness.chunk_header().shard_id();
         let height_created = witness.chunk_header().height_created();
-        let chunk_hash = witness.chunk_header().chunk_hash();
+        let chunk_hash = witness.chunk_header().chunk_hash().clone();
         let parent_span = tracing::debug_span!(
-            target: "chain", "shadow_validate", ?shard_id, height_created);
+            target: "chain", "shadow_validate", %shard_id, height_created);
         let (encoded_witness, raw_witness_size) = {
             let shard_id_label = shard_id.to_string();
             let encode_timer =
@@ -769,7 +804,7 @@ impl Chain {
             pre_validate_chunk_state_witness(&witness, &self, epoch_manager)?;
         tracing::debug!(
             parent: &parent_span,
-            ?shard_id,
+            %shard_id,
             ?chunk_hash,
             witness_size = encoded_witness.size_bytes(),
             raw_witness_size,
@@ -778,6 +813,7 @@ impl Chain {
         );
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
+        let store = self.chain_store.store();
         Arc::new(RayonAsyncComputationSpawner).spawn("shadow_validate", move || {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
@@ -791,11 +827,13 @@ impl Chain {
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
                 &MainStateTransitionCache::default(),
+                store,
+                false,
             ) {
                 Ok(()) => {
                     tracing::debug!(
                         parent: &parent_span,
-                        ?shard_id,
+                        %shard_id,
                         ?chunk_hash,
                         validation_elapsed = ?validation_start.elapsed(),
                         "completed shadow chunk validation"
@@ -808,7 +846,7 @@ impl Chain {
                     tracing::error!(
                         parent: &parent_span,
                         ?err,
-                        ?shard_id,
+                        %shard_id,
                         ?chunk_hash,
                         "shadow chunk validation failed"
                     );

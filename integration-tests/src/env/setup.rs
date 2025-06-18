@@ -17,8 +17,8 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{
-    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue, ReshardingConfig,
-    ReshardingHandle, TrackedShardsConfig,
+    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
+    MutableValidatorSigner, ReshardingConfig, ReshardingHandle, TrackedShardsConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -26,9 +26,9 @@ use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
 use near_client::{
-    Client, ClientActor, PartialWitnessActor, PartialWitnessSenderForClient, RpcHandler,
-    RpcHandlerConfig, StartClientResult, SyncStatus, ViewClientActor, ViewClientActorInner,
-    start_client,
+    AsyncComputationMultiSpawner, Client, ClientActor, PartialWitnessActor,
+    PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
+    ViewClientActor, ViewClientActorInner, start_client,
 };
 use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
@@ -44,7 +44,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats};
-use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
+use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_store::adapter::StoreAdapter;
 use near_store::genesis::initialize_genesis_state;
@@ -117,7 +117,6 @@ fn setup(
         epoch_manager.clone(),
     );
 
-    let shard_tracker = ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -136,6 +135,8 @@ fn setup(
         Some(Arc::new(create_test_signer(account_id.as_str()))),
         "validator_signer",
     );
+    let shard_tracker =
+        ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
     let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
     let config = {
         let mut base = ClientConfig::test(
@@ -425,13 +426,15 @@ pub fn setup_client_with_runtime(
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
-    validator_signer: Arc<ValidatorSigner>,
+    validator_signer: MutableValidatorSigner,
     resharding_sender: ReshardingSender,
 ) -> Client {
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
+    let multi_spawner = AsyncComputationMultiSpawner::default()
+        .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
     let mut client = Client::new(
         clock,
         config,
@@ -441,11 +444,11 @@ pub fn setup_client_with_runtime(
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),
-        MutableConfigValue::new(Some(validator_signer), "validator_signer"),
+        validator_signer,
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
-        Arc::new(RayonAsyncComputationSpawner),
+        multi_spawner,
         partial_witness_adapter,
         resharding_sender,
         Arc::new(ActixFutureSpawner),
@@ -490,7 +493,7 @@ pub fn setup_synchronous_shards_manager(
             ),
         }, // irrelevant
         None,
-        Arc::new(RayonAsyncComputationSpawner),
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )
@@ -507,8 +510,8 @@ pub fn setup_synchronous_shards_manager(
         network_adapter.request_sender,
         client_adapter,
         chunk_store,
-        chain_head,
-        chain_header_head,
+        <_>::clone(&chain_head),
+        <_>::clone(&chain_header_head),
         Duration::hours(1),
     );
     SynchronousShardsManagerAdapter::new(shards_manager)
