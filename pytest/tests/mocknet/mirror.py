@@ -712,29 +712,16 @@ def clear_scheduled_cmds(ctx: CommandContext):
     cmd = f'systemctl --user stop "{filter}"'
     _run_remote(targeted, cmd)
 
-def create_snapshot(ctx: CommandContext):
-    dev = ctx.nodes[0]
-    cmd = f'sudo mkdir -p /mnt/btrfs-root; mountpoint -q /mnt/btrfs-root || sudo mount -o subvol=/ /dev/sdb /mnt/btrfs-root; sudo btrfs subvolume snapshot -r /mnt/btrfs-root/old /mnt/btrfs-root/$BACKUP"
-'
-
-def restore_snapshot(ctx: CommandContext):
-    pass
-
-def list_snapshots(ctx: CommandContext):
-    pass
-
-def delete_snapshot(ctx: CommandContext):
-    pass
 
 def snapshot_cmd(ctx: CommandContext):
     if ctx.args.create:
-        create_snapshot(ctx)
+        pmap(lambda node: node.make_snapshot(ctx.args.snapshot_id), ctx.get_targeted_with_schedule_ctx())
     elif ctx.args.restore:
-        restore_snapshot(ctx)
+        pmap(lambda node: node.restore_snapshot(ctx.args.snapshot_id), ctx.get_targeted_with_schedule_ctx())
     elif ctx.args.list:
-        list_snapshots(ctx)
+        pmap(lambda node: node.list_snapshots(), ctx.get_targeted_with_schedule_ctx())
     elif ctx.args.delete:
-        delete_snapshot(ctx)
+         pmap(lambda node: node.delete_snapshot(ctx.args.snapshot_id), ctx.get_targeted_with_schedule_ctx())
 
 class ParseFraction(Action):
 
