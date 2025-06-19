@@ -133,6 +133,7 @@ impl TrieStateResharder {
     fn process_batch_and_update_status(
         &self,
         status: &mut TrieStateReshardingStatus,
+        expect_memtries: bool,
     ) -> Result<(), Error> {
         let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
 
@@ -158,6 +159,7 @@ impl TrieStateResharder {
             child.state_root,
             child.next_key.clone(),
             &mut store_update.trie_store_update(),
+            expect_memtries,
         )?;
 
         if let Some(metrics) = &child.metrics {
@@ -191,6 +193,7 @@ impl TrieStateResharder {
         state_root: CryptoHash,
         seek_key: Option<Vec<u8>>,
         store_update: &mut TrieStoreUpdateAdapter,
+        expect_memtries: bool,
     ) -> Result<Option<Vec<u8>>, StorageError> {
         let tries = self.runtime.get_tries();
         let trie =
@@ -198,7 +201,7 @@ impl TrieStateResharder {
 
         // Assert that the child shard has memtries loaded during resharding
         debug_assert!(
-            trie.has_memtries(),
+            trie.has_memtries() || !expect_memtries,
             "Child shard {:?} should have memtries loaded during trie state resharding",
             child_shard_uid
         );
@@ -423,7 +426,7 @@ impl TrieStateResharder {
         status: &mut TrieStateReshardingStatus,
     ) -> Result<(), Error> {
         while !status.done() && !self.handle.is_cancelled() {
-            self.process_batch_and_update_status(status)?;
+            self.process_batch_and_update_status(status, true)?;
         }
 
         // If resharding completed successfully, clean up parent flat storage.
@@ -741,7 +744,7 @@ mod tests {
             );
         }
 
-        resharder.process_batch_and_update_status(&mut update_status).unwrap();
+        resharder.process_batch_and_update_status(&mut update_status, !missing_memtries).unwrap();
 
         let got_status = resharder
             .load_status()
@@ -825,7 +828,7 @@ mod tests {
             .resharding_config
             .update(ReshardingConfig { batch_size: ByteSize(1), ..ReshardingConfig::test() });
         let mut update_status = test.as_status();
-        resharder.process_batch_and_update_status(&mut update_status).unwrap();
+        resharder.process_batch_and_update_status(&mut update_status, true).unwrap();
 
         // Implicitly resuming the resharding operation should panic,
         // as the status is not None and we are not allowed to resume.
