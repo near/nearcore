@@ -667,6 +667,7 @@ impl From<T2MessageBody> for TieredMessageBody {
     }
 }
 
+/// T1 messages are sent over T1 connections and they are critical for the progress of the network.
 #[derive(
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
@@ -741,6 +742,7 @@ impl fmt::Debug for T1MessageBody {
 }
 
 // TODO(#1313): Use Box
+/// T2 messages are sent over T2 connections and they are routed over multiple hops.
 #[derive(
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
@@ -1093,6 +1095,9 @@ impl BorshDeserialize for RoutedMessageV2 {
     }
 }
 
+/// V3 message will remove the signature field for T1.
+/// Contains the body as a `TieredMessageBody` instead of `RoutedMessageBody`.
+/// All other fields are the same as in previous versions.
 #[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct RoutedMessageV3 {
     /// Peer id which is directed this message.

@@ -212,3 +212,38 @@ fn test_upgrading_v1_to_v3() {
     let body = message_v1.body_owned();
     assert!(matches!(body, TieredMessageBody::T2(_)));
 }
+
+#[test]
+fn test_body_conversion() {
+    let routed_body = RoutedMessageBody::Ping(Ping {
+        nonce: 1,
+        source: PeerId::new(PublicKey::empty(near_crypto::KeyType::ED25519)),
+    });
+    let tiered_body = TieredMessageBody::from_routed(routed_body.clone());
+    assert!(matches!(tiered_body, TieredMessageBody::T2(_)));
+    let routed_body2 = tiered_body.into();
+    assert_eq!(routed_body, routed_body2);
+}
+
+#[test]
+fn test_proto_conv() {
+    let mut rng = make_rng(19385389);
+    let message_v3 = data::make_routed_message(
+        &mut rng,
+        T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+            chunk_hash: CryptoHash::default().into(),
+            part_ords: vec![],
+            tracking_shards: Default::default(),
+        })
+        .into(),
+    );
+    let message_v1: RoutedMessage = message_v3.clone().msg_v1().into();
+
+    let peer_message_v3 = PeerMessage::Routed(Box::new(message_v3));
+    let peer_message_v1 = PeerMessage::Routed(Box::new(message_v1));
+
+    let proto_v3 = proto::PeerMessage::from(&peer_message_v3);
+    let proto_v1 = proto::PeerMessage::from(&peer_message_v1);
+
+    assert_eq!(proto_v3, proto_v1);
+}
