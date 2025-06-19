@@ -414,6 +414,8 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             store.clone(),
             epoch_manager.clone(),
+            shard_tracker.clone(),
+            None, // No validator id for view client
             noop().into_multi_sender(),
         );
         Ok(Chain {
@@ -530,11 +532,12 @@ impl Chain {
         let tip = chain_store.head()?;
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id)?;
         let shard_uids = shard_layout.shard_uids().collect_vec();
+        let me = validator.get().map(|v| v.validator_id().clone());
         let tracked_shards: Vec<_> = shard_uids
             .iter()
             .filter(|shard_uid| {
                 shard_tracker.cares_about_shard(
-                    validator.get().map(|v| v.validator_id().clone()).as_ref(),
+                    me.as_ref(),
                     &tip.prev_block_hash,
                     shard_uid.shard_id(),
                     true,
@@ -568,8 +571,14 @@ impl Chain {
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
-        let resharding_manager =
-            ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
+        let resharding_manager = ReshardingManager::new(
+            chain_store.store(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            me,
+            resharding_sender,
+        );
+
         Ok(Chain {
             clock: clock.clone(),
             chain_store,

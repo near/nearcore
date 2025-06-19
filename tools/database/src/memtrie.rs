@@ -6,6 +6,7 @@ use near_chain::resharding::manager::ReshardingManager;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_o11y::default_subscriber;
 use near_o11y::env_filter::EnvFilterBuilder;
@@ -184,7 +185,13 @@ impl SplitShardTrieCommand {
 
         // Create resharding manager and prepare split params
         let sender = noop().into_multi_sender();
-        let resharding_manager = ReshardingManager::new(store, epoch_manager, sender);
+        let shard_tracker = ShardTracker::new(
+            near_config.client_config.tracked_shards_config.clone(),
+            epoch_manager.clone(),
+        );
+        let my_account_id = near_config.validator_signer.get().map(|v| v.validator_id().clone());
+        let resharding_manager =
+            ReshardingManager::new(store, epoch_manager, shard_tracker, my_account_id, sender);
         let chain_store_update = chain_store.store_update();
         let split_params = ReshardingSplitShardParams {
             parent_shard: self.shard_uid,
