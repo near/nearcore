@@ -1449,7 +1449,7 @@ fn test_exclude_contract_code_from_witness() {
     // Set the storage proof soft-limit to the size of the contract.
     // Since contract code is not included in the storage proof, both function calls below pass the proof soft-limit.
     let mut runtime_config = RuntimeConfig::test();
-    runtime_config.witness_config.main_storage_proof_size_soft_limit = CONTRACT_SIZE;
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = CONTRACT_SIZE as u64;
     apply_state.config = Arc::new(runtime_config);
 
     let contract_code =

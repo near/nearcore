@@ -13253,20 +13253,20 @@
         "description": "Configuration specific to ChunkStateWitness.",
         "properties": {
           "combined_transactions_size_limit": {
-            "description": "A witness contains transactions from both the previous chunk and the current one.\n This parameter limits the sum of sizes of transactions from both of those chunks.",
+            "description": "Maximum size of transactions contained inside ChunkStateWitness.\n\n A witness contains transactions from both the previous chunk and the current one.\n This parameter limits the sum of sizes of transactions from both of those chunks.",
             "format": "uint",
             "minimum": 0,
             "type": "integer"
           },
           "main_storage_proof_size_soft_limit": {
             "description": "Size limit for storage proof generated while executing receipts in a chunk.\n After this limit is reached we defer execution of any new receipts.",
-            "format": "uint",
+            "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "new_transactions_validation_state_size_soft_limit": {
             "description": "Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.",
-            "format": "uint",
+            "format": "uint64",
             "minimum": 0,
             "type": "integer"
           }
