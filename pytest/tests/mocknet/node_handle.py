@@ -58,13 +58,13 @@ class NodeHandle:
 
     def make_snapshot(self, snapshot_id):
         return self.node.make_snapshot(snapshot_id)
-    
+
     def restore_snapshot(self, snapshot_id):
         return self.node.restore_snapshot(snapshot_id)
-    
+
     def list_snapshots(self):
         return self.node.list_snapshots()
-    
+
     def delete_snapshot(self, snapshot_id):
         return self.node.delete_snapshot(snapshot_id)
 

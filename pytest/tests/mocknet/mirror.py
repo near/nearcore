@@ -715,13 +715,24 @@ def clear_scheduled_cmds(ctx: CommandContext):
 
 def snapshot_cmd(ctx: CommandContext):
     if ctx.args.create:
-        pmap(lambda node: print_result(node, node.make_snapshot(ctx.args.snapshot_id)), ctx.get_targeted_with_schedule_ctx())
+        pmap(
+            lambda node: print_result(node,
+                                      node.make_snapshot(ctx.args.snapshot_id)),
+            ctx.get_targeted_with_schedule_ctx())
     elif ctx.args.restore:
-        pmap(lambda node: print_result(node, node.restore_snapshot(ctx.args.snapshot_id)), ctx.get_targeted_with_schedule_ctx())
+        pmap(
+            lambda node: print_result(
+                node, node.restore_snapshot(ctx.args.snapshot_id)),
+            ctx.get_targeted_with_schedule_ctx())
     elif ctx.args.list:
-        pmap(lambda node: print_result(node, node.list_snapshots()), ctx.get_targeted_with_schedule_ctx())
+        pmap(lambda node: print_result(node, node.list_snapshots()),
+             ctx.get_targeted_with_schedule_ctx())
     elif ctx.args.delete:
-         pmap(lambda node: print_result(node, node.delete_snapshot(ctx.args.snapshot_id)), ctx.get_targeted_with_schedule_ctx())
+        pmap(
+            lambda node: print_result(
+                node, node.delete_snapshot(ctx.args.snapshot_id)),
+            ctx.get_targeted_with_schedule_ctx())
+
 
 class ParseFraction(Action):
 
@@ -893,16 +904,27 @@ def register_base_commands(subparsers):
     upload_file_parser.add_argument('--dst', type=str)
     upload_file_parser.set_defaults(func=run_remote_upload_file)
 
+
 def add_snapshot_parser(subparsers):
     snapshot_parser = subparsers.add_parser('snapshot', help='Manage snapshots')
-    snapshot_parser.add_argument('--snapshot-id', type=str, help='Name of the snapshot')
-    
+    snapshot_parser.add_argument('--snapshot-id',
+                                 type=str,
+                                 help='Name of the snapshot')
+
     snapshot_group = snapshot_parser.add_mutually_exclusive_group()
-    snapshot_group.add_argument('--create', action='store_true', help='Create a snapshot')
-    snapshot_group.add_argument('--restore', action='store_true', help='Restore a snapshot')
-    snapshot_group.add_argument('--list', action='store_true', help='List all snapshots')
-    snapshot_group.add_argument('--delete', action='store_true', help='Delete a snapshot')
-  
+    snapshot_group.add_argument('--create',
+                                action='store_true',
+                                help='Create a snapshot')
+    snapshot_group.add_argument('--restore',
+                                action='store_true',
+                                help='Restore a snapshot')
+    snapshot_group.add_argument('--list',
+                                action='store_true',
+                                help='List all snapshots')
+    snapshot_group.add_argument('--delete',
+                                action='store_true',
+                                help='Delete a snapshot')
+
     snapshot_parser.set_defaults(func=snapshot_cmd)
 
 

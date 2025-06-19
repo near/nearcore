@@ -6,6 +6,7 @@ import pathlib
 import json
 import os
 import sys
+import re
 from functools import wraps
 from typing import Optional
 
@@ -129,13 +130,13 @@ class RemoteNeardRunner:
         if not re.match(r'^[a-zA-Z0-9_-]+$', snapshot_id):
             raise ValueError(f'Invalid snapshot id: {snapshot_id}')
         cmd = f'sudo btrfs subvolume snapshot -r /mnt/btrfs-root/old /mnt/btrfs-root/{snapshot_id}'
-        self.node.machine.run(cmd)
+        return self.node.machine.run(cmd)
 
     def restore_snapshot(self, snapshot_id):
         if not re.match(r'^[a-zA-Z0-9_-]+$', snapshot_id):
             raise ValueError(f'Invalid snapshot id: {snapshot_id}')
         # check if snapshot exists
-        check_snapshot_cmd = f"""sudo btrfs subvolume show /mnt/btrfs-root/{snapshot_id} > /dev/null""" 
+        check_snapshot_cmd = f"""sudo btrfs subvolume show /mnt/btrfs-root/{snapshot_id} > /dev/null"""
         # stop neard-runner if it is running
         stop_neard_runner_cmd = """systemctl is-active --quiet neard-runner && sudo systemctl stop neard-runner"""
         # umount old snapshot
@@ -151,17 +152,18 @@ class RemoteNeardRunner:
         # mount it back
         mount_cmd = f"""sudo mount -a"""
         cmd = f"""{check_snapshot_cmd} && {stop_neard_runner_cmd} && {umount_cmd} && {reset_default_cmd} && {delete_old_cmd} && {restore_cmd} && {set_default_cmd} && {mount_cmd}"""
-        self.node.machine.run(cmd)
+        return self.node.machine.run(cmd)
 
     def list_snapshots(self):
         cmd = 'sudo btrfs subvolume list /mnt/btrfs-root'
         return self.node.machine.run(cmd)
-    
+
     def delete_snapshot(self, snapshot_id):
         if not re.match(r'^[a-zA-Z0-9_-]+$', snapshot_id):
             raise ValueError(f'Invalid snapshot id: {snapshot_id}')
         cmd = f'sudo btrfs subvolume delete "/mnt/btrfs-root/{snapshot_id}"'
-        self.node.machine.run(cmd)
+        return self.node.machine.run(cmd)
+
 
 def get_traffic_generator_handle(traffic_generator):
     if traffic_generator is None:
