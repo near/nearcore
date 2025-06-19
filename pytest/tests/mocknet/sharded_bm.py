@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from types import SimpleNamespace
 from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
-    reset_cmd, run_env_cmd, run_remote_cmd, run_remote_upload_file, \
+    reset_cmd, run_env_cmd, run_remote_cmd, run_remote_download_file, run_remote_upload_file, \
     start_nodes_cmd, stop_nodes_cmd, update_binaries_cmd
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -33,8 +33,8 @@ START_HEIGHT = 138038232
 SOURCE_BENCHNET_DIR = "../benchmarks/sharded-bm"
 
 REMOTE_HOME = "/home/ubuntu"
-BENCHNET_DIR = "/home/ubuntu/bench"
-NEAR_HOME = "/home/ubuntu/.near"
+BENCHNET_DIR = f"{REMOTE_HOME}/bench"
+NEAR_HOME = f"{REMOTE_HOME}/.near"
 CONFIG_PATH = f"{NEAR_HOME}/config.json"
 
 
@@ -402,33 +402,15 @@ def handle_get_profiles(args):
         logger.info(f"Targeting {machine}")
         args.host_filter = machine
 
-    if not args.skip_setup:
-        upload_args = copy.deepcopy(args)
-        script_dir = os.path.dirname(os.path.realpath(__file__))
-        upload_args.src = f"{script_dir}/helpers/get-profile.sh"
-        upload_args.dst = f"{REMOTE_HOME}/get-profile.sh"
-        run_remote_upload_file(CommandContext(upload_args))
-
     run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = f"bash {REMOTE_HOME}/get-profile.sh {args.record_secs}"
+    run_cmd_args.cmd = f"bash {BENCHNET_DIR}/helpers/get-profile.sh {args.record_secs}"
     run_remote_cmd(CommandContext(run_cmd_args))
 
     os.makedirs(args.output_dir, exist_ok=True)
-    for host in CommandContext(args).get_targeted():
-        host_name = host.name()
-        logger.info(f"Downloading profile from {host_name}")
-        scp_cmd = [
-            "gcloud",
-            "compute",
-            "scp",
-            "--project=nearone-mocknet",
-            f"ubuntu@{host_name}:{REMOTE_HOME}/perf.script.gz",
-            f"{args.output_dir}/perf-{host_name}.gz",
-        ]
-        subprocess.run(
-            scp_cmd,
-            check=True,
-        )
+    download_args = copy.deepcopy(args)
+    download_args.src = f"{REMOTE_HOME}/perf*.script.gz"
+    download_args.dst = args.output_dir
+    run_remote_download_file(CommandContext(download_args))
 
 
 def handle_start(args):
@@ -540,11 +522,6 @@ def main():
         type=int,
         default=10,
         help='Number of seconds to record the profile (default: 10)')
-    get_profiles_parser.add_argument(
-        '--skip-setup',
-        action='store_true',
-        default=False,
-        help='Skip the setup of the profile script on the nodes')
 
     args = parser.parse_args()
 
