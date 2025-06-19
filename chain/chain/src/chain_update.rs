@@ -481,7 +481,6 @@ impl<'a> ChainUpdate<'a> {
             ApplyChunkBlockContext {
                 block_type: BlockType::Normal,
                 height: chunk_header.height_included(),
-                block_hash: *block_header.hash(),
                 prev_block_hash: *chunk_header.prev_block_hash(),
                 block_timestamp: block_header.raw_timestamp(),
                 gas_price,

@@ -37,9 +37,6 @@ pub struct RuntimeExt<'a> {
     current_protocol_version: ProtocolVersion,
     storage_access_mode: StorageGetMode,
     trie_access_tracker: AccountingAccessTracker,
-
-    // TODO:
-    _deprecated_last_block_hash: CryptoHash,
 }
 
 /// Error used by `RuntimeExt`.
@@ -90,7 +87,6 @@ impl<'a> RuntimeExt<'a> {
         account: Account,
         action_hash: CryptoHash,
         epoch_id: EpochId,
-        last_block_hash: CryptoHash,
         block_height: BlockHeight,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
@@ -105,7 +101,6 @@ impl<'a> RuntimeExt<'a> {
             action_hash,
             data_count: 0,
             epoch_id,
-            _deprecated_last_block_hash: last_block_hash,
             block_height,
             epoch_info_provider,
             current_protocol_version,

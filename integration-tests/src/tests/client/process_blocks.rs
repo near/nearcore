@@ -3303,7 +3303,6 @@ mod contract_precompilation_tests {
         let view_state = ViewApplyState {
             block_height: EPOCH_LENGTH,
             prev_block_hash: *block.header().prev_hash(),
-            block_hash: *block.hash(),
             shard_id,
             epoch_id: *block.header().epoch_id(),
             epoch_height: 1,

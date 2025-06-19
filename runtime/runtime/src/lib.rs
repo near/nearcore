@@ -109,8 +109,6 @@ pub struct ApplyState {
     pub block_height: BlockHeight,
     /// Prev block hash
     pub prev_block_hash: CryptoHash,
-    /// Current block hash
-    pub block_hash: CryptoHash,
     /// To which shard the applied chunk belongs.
     pub shard_id: ShardId,
     /// Current epoch id
