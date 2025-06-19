@@ -528,6 +528,9 @@ impl PeerMessage {
     }
 }
 
+/// `TieredMessageBody` is used to distinguish between T1 and T2 messages.
+/// T1 messages are sent over T1 connections and they are critical for the progress of the network.
+/// T2 messages are sent over T2 connections and they are routed over multiple hops.
 #[derive(
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
@@ -571,13 +574,6 @@ impl TieredMessageBody {
         match self {
             TieredMessageBody::T1(body) => body.allow_sending_to_self(),
             TieredMessageBody::T2(body) => body.allow_sending_to_self(),
-        }
-    }
-
-    pub fn as_t2(&self) -> Option<&T2MessageBody> {
-        match self {
-            TieredMessageBody::T1(_) => None,
-            TieredMessageBody::T2(body) => Some(body),
         }
     }
 
@@ -1049,13 +1045,6 @@ impl From<TieredMessageBody> for RoutedMessageBody {
     }
 }
 
-/// RoutedMessage represent a package that will travel the network towards a specific peer id.
-/// It contains the peer_id and signature from the original sender. Every intermediate peer in the
-/// route must verify that this signature is valid otherwise previous sender of this package should
-/// be banned. If the final receiver of this package finds that the body is invalid the original
-/// sender of the package should be banned instead.
-/// If target is hash, it is a message that should be routed back using the same path used to route
-/// the request in first place. It is the hash of the request message.
 #[derive(
     borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
 )]
@@ -1214,6 +1203,13 @@ impl From<RoutedMessageV3> for RoutedMessage {
     }
 }
 
+/// RoutedMessage represent a package that will travel the network towards a specific peer id.
+/// It contains the peer_id and signature from the original sender. Every intermediate peer in the
+/// route must verify that this signature is valid otherwise previous sender of this package should
+/// be banned. If the final receiver of this package finds that the body is invalid the original
+/// sender of the package should be banned instead.
+/// If target is hash, it is a message that should be routed back using the same path used to route
+/// the request in first place. It is the hash of the request message.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub enum RoutedMessage {
     V1(RoutedMessageV1),
@@ -1242,6 +1238,7 @@ impl RoutedMessage {
         CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
     }
 
+    /// Get the V1 message from the current version. Used for serializations (only V1 is sent over the wire).
     pub fn msg_v1(self) -> RoutedMessageV1 {
         match self {
             RoutedMessage::V1(msg) => msg,
