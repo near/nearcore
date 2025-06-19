@@ -19,7 +19,8 @@ from utils import ScheduleContext
 
 from configured_logger import logger
 
-# cspell:words btrfs subvolume
+# cspell:words btrfs subvolume, subvol
+
 
 class RemoteNeardRunner:
 
