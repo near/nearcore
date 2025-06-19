@@ -46,7 +46,7 @@ impl CacheEntry {
             );
             return None;
         }
-        match self.parts.insert_part(part_ord, part.data) {
+        match self.parts.insert_part(part_ord, part.data, None) {
             InsertPartResult::Accepted => None,
             InsertPartResult::PartAlreadyAvailable => {
                 tracing::warn!(

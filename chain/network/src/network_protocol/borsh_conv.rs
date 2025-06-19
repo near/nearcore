@@ -1,6 +1,6 @@
-/// Contains borsh <-> network_protocol conversions.
-use crate::network_protocol as mem;
 use crate::network_protocol::borsh_ as net;
+/// Contains borsh <-> network_protocol conversions.
+use crate::network_protocol::{self as mem};
 use crate::network_protocol::{PeersRequest, PeersResponse, RoutedMessageV2};
 
 impl From<&net::Handshake> for mem::Handshake {
@@ -169,11 +169,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::Block(b) => mem::PeerMessage::Block(b),
             net::PeerMessage::OptimisticBlock(ob) => mem::PeerMessage::OptimisticBlock(ob),
             net::PeerMessage::Transaction(t) => mem::PeerMessage::Transaction(t),
-            net::PeerMessage::Routed(r) => mem::PeerMessage::Routed(Box::new(RoutedMessageV2 {
-                msg: *r,
-                created_at: None,
-                num_hops: 0,
-            })),
+            net::PeerMessage::Routed(r) => mem::PeerMessage::Routed(Box::new(
+                RoutedMessageV2 { msg: *r, created_at: None, num_hops: 0 }.into(),
+            )),
             net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect(mem::Disconnect {
                 // This flag is used by the disconnecting peer to advise the other peer that there
                 // is a reason to remove the connection from storage (for example, a peer ban).
@@ -249,7 +247,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::Block(b) => net::PeerMessage::Block(b),
             mem::PeerMessage::OptimisticBlock(ob) => net::PeerMessage::OptimisticBlock(ob),
             mem::PeerMessage::Transaction(t) => net::PeerMessage::Transaction(t),
-            mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg.clone())),
+            mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg().clone())),
             mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),
             mem::PeerMessage::StateRequestHeader(shard_id, sync_hash) => {

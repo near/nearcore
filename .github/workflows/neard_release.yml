@@ -7,7 +7,7 @@ on:
   release:
     types: [published]
   push:
-    branches: master
+    branches: [master]
 
   workflow_dispatch:
     inputs:
@@ -19,19 +19,22 @@ on:
 
 jobs:
   binary-release:
-    name: "Build and publish neard binary"
-    runs-on: warp-ubuntu-2204-x64-16x
+    name: "Build and publish ${{matrix.name}} neard binary"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Intel Linux Ubuntu
+            os: warp-ubuntu-2204-x64-16x
+          - name: ARM Linux Ubuntu
+            os: warp-ubuntu-2404-arm64-16x
+          
     environment: deploy
     permissions:
       id-token: write # required to use OIDC authentication
 
     steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
-          aws-region: us-west-1
-
       - name: Checkout ${{ github.event.inputs.branch }} branch
         if: ${{ github.event_name == 'workflow_dispatch'}}
         uses: actions/checkout@v4
@@ -50,6 +53,12 @@ jobs:
         # In case of master branch we want to checkout with depth 1
         if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
         uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
+          aws-region: us-west-1
 
       - name: Neard binary build and upload to S3
         run: ./scripts/binary_release.sh

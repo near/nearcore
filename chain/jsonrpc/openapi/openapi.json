@@ -410,6 +410,33 @@
         }
       }
     },
+    "/changes": {
+      "post": {
+        "operationId": "changes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_changes"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/chunk": {
       "post": {
         "operationId": "chunk",
@@ -6686,6 +6713,33 @@
           "method"
         ],
         "title": "JsonRpcRequest_for_broadcast_tx_commit",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_changes": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "changes"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcStateChangesInBlockByTypeRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_changes",
         "type": "object"
       },
       "JsonRpcRequest_for_chunk": {

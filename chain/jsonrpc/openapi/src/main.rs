@@ -366,11 +366,15 @@ fn main() {
         &mut all_paths,
         "client_config".to_string(),
     );
-
     add_spec_for_path::<RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockResponse>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_changes".to_string(),
+    );
+    add_spec_for_path::<RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockResponse>(
+        &mut all_schemas,
+        &mut all_paths,
+        "changes".to_string(),
     );
     add_spec_for_path::<RpcStateChangesInBlockRequest, RpcStateChangesInBlockByTypeResponse>(
         &mut all_schemas,

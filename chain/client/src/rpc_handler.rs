@@ -197,12 +197,9 @@ impl RpcHandler {
 
         let shard_uid = shard_layout.account_id_to_shard_uid(signed_tx.transaction.signer_id());
         let shard_id = shard_uid.shard_id();
-        let cares_about_shard =
-            self.shard_tracker.cares_about_shard(me, &head.last_block_hash, shard_id, true);
-        let will_care_about_shard =
-            self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
 
-        if cares_about_shard || will_care_about_shard {
+        if self.shard_tracker.cares_about_shard_this_or_next_epoch(&head.last_block_hash, shard_id)
+        {
             if !cfg!(feature = "protocol_feature_spice") {
                 let state_root =
                     match self.chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {

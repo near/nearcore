@@ -60,10 +60,7 @@ fn test_congestion_control_genesis_bootstrap() {
 }
 
 fn check_genesis_congestion_info_in_store(client: &mut Client) {
-    let gc_config = client.config.gc.clone();
-    let signer = client.validator_signer.get();
-    let me = signer.as_ref().map(|signer| signer.validator_id());
-    client.chain.clear_data(&gc_config, me).unwrap();
+    client.chain.clear_data(&client.config.gc).unwrap();
 
     let infos = near_store::get_genesis_congestion_infos(&client.chain.chain_store().store())
         .unwrap()

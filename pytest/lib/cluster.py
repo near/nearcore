@@ -475,6 +475,10 @@ class BaseNode(object):
                              changes_in_block_request)
 
     def get_changes(self, changes_request):
+        return self.json_rpc('changes', changes_request)
+
+    # `EXPERIMENTAL_changes` is deprecated as of 2.7, use `get_changes` test instead
+    def get_experimental_changes(self, changes_request):
         return self.json_rpc('EXPERIMENTAL_changes', changes_request)
 
     def validators(self):

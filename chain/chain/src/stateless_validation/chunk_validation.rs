@@ -528,7 +528,8 @@ pub fn validate_chunk_state_witness_impl(
         "validate_chunk_state_witness",
         height = height_created,
         shard_id = %witness_chunk_shard_id,
-        tag_block_production = true
+        tag_block_production = true,
+        tag_witness_distribution = true,
     )
     .entered();
     let witness_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;

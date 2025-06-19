@@ -458,12 +458,7 @@ impl ShardsManagerActor {
         let cache_entry = self.encoded_chunks.get(chunk_hash);
 
         let request_full = force_request_full
-            || self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                me,
-                ancestor_hash,
-                shard_id,
-                true,
-            );
+            || self.shard_tracker.cares_about_shard_this_or_next_epoch(ancestor_hash, shard_id);
 
         let chunk_producer_account_id = self
             .epoch_manager
@@ -534,7 +529,7 @@ impl ShardsManagerActor {
 
         let shards_to_fetch_receipts =
         // TODO: only keep shards for which we don't have receipts yet
-            if request_full { HashSet::new() } else { self.get_tracking_shards(ancestor_hash, me) };
+            if request_full { HashSet::new() } else { self.get_tracking_shards(ancestor_hash) };
 
         // The loop below will be sending PartialEncodedChunkRequestMsg to various block producers.
         // We need to send such a message to the original chunk producer if we do not have the receipts
@@ -607,11 +602,10 @@ impl ShardsManagerActor {
             .into_iter()
             .filter_map(|validator_stake| {
                 let account_id = validator_stake.take_account_id();
-                if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                    Some(&account_id),
+                if self.shard_tracker.cares_about_shard_this_or_next_epoch_for_account_id(
+                    &account_id,
                     parent_hash,
                     shard_id,
-                    false,
                 ) && me != Some(&account_id)
                 {
                     Some(account_id)
@@ -623,23 +617,15 @@ impl ShardsManagerActor {
         Ok(block_producers.choose(&mut rand::thread_rng()))
     }
 
-    fn get_tracking_shards(
-        &self,
-        parent_hash: &CryptoHash,
-        me: Option<&AccountId>,
-    ) -> HashSet<ShardId> {
+    fn get_tracking_shards(&self, parent_hash: &CryptoHash) -> HashSet<ShardId> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
         self.epoch_manager
             .shard_ids(&epoch_id)
             .unwrap()
             .into_iter()
             .filter(|chunk_shard_id| {
-                self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                    me,
-                    parent_hash,
-                    *chunk_shard_id,
-                    true,
-                )
+                self.shard_tracker
+                    .cares_about_shard_this_or_next_epoch(parent_hash, *chunk_shard_id)
             })
             .collect::<HashSet<_>>()
     }
@@ -1757,7 +1743,7 @@ impl ShardsManagerActor {
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry, me)?;
-        let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry, me)?;
+        let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry)?;
 
         let can_reconstruct = entry.parts.len() >= self.epoch_manager.num_data_parts();
         let chunk_producer = self
@@ -1780,12 +1766,9 @@ impl ShardsManagerActor {
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
-        let cares_about_shard = self.shard_tracker.cares_about_shard_this_or_next_epoch(
-            me,
-            &prev_block_hash,
-            header.shard_id(),
-            true,
-        );
+        let cares_about_shard = self
+            .shard_tracker
+            .cares_about_shard_this_or_next_epoch(&prev_block_hash, header.shard_id());
 
         debug!(target: "chunks", cares_about_shard, can_reconstruct, have_all_parts, have_all_receipts);
         if !cares_about_shard && have_all_parts && have_all_receipts {
@@ -1938,11 +1921,10 @@ impl ShardsManagerActor {
         for bp in block_producers {
             let bp_account_id = bp.take_account_id();
 
-            if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                Some(&bp_account_id),
+            if self.shard_tracker.cares_about_shard_this_or_next_epoch_for_account_id(
+                &bp_account_id,
                 latest_block_hash,
                 shard_id,
-                false,
             ) {
                 if accounts_forwarded_to.insert(bp_account_id.clone()) {
                     self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -1974,12 +1956,11 @@ impl ShardsManagerActor {
         &self,
         prev_block_hash: &CryptoHash,
         chunk_entry: &EncodedChunksCacheEntry,
-        me: Option<&AccountId>,
     ) -> Result<bool, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if !chunk_entry.receipts.contains_key(&shard_id) {
-                if need_receipt(prev_block_hash, shard_id, me, &self.shard_tracker) {
+                if need_receipt(prev_block_hash, shard_id, &self.shard_tracker) {
                     return Ok(false);
                 }
             }
@@ -2064,11 +2045,10 @@ impl ShardsManagerActor {
                 .iter()
                 .filter(|proof| {
                     let proof_shard_id = proof.1.to_shard_id;
-                    self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                        Some(&to_whom),
+                    self.shard_tracker.cares_about_shard_this_or_next_epoch_for_account_id(
+                        &to_whom,
                         &prev_block_hash,
                         proof_shard_id,
-                        false,
                     )
                 })
                 .cloned()

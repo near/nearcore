@@ -447,14 +447,14 @@ impl Connection {
         &mut self,
         msg: &crate::network_protocol::RoutedMessage,
     ) -> Option<RoutedMessage> {
-        if !self.target_is_for_me(&msg.target) {
+        if !self.target_is_for_me(msg.target()) {
             tracing::debug!(
                 target: "network", "{:?} dropping routed message {} for {:?}",
-                &self, <&'static str>::from(&msg.body), &msg.target
+                &self, <&'static str>::from(msg.body()), msg.target()
             );
             return None;
         }
-        match &msg.body {
+        match msg.body() {
             RoutedMessageBody::Ping(p) => Some(RoutedMessage::Ping { nonce: p.nonce }),
             RoutedMessageBody::Pong(p) => {
                 Some(RoutedMessage::Pong { nonce: p.nonce, source: p.source.clone() })

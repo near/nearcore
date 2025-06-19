@@ -12,9 +12,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId,
-};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
     get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, index_to_bytes,
 };
@@ -49,21 +47,11 @@ impl fmt::Debug for GCMode {
 /// TODO - the reset_data_pre_state_sync function seems to also be used in
 /// production code. It's used in update_sync_status <- handle_sync_needed <- run_sync_step
 impl Chain {
-    pub fn clear_data(
-        &mut self,
-        gc_config: &GCConfig,
-        me: Option<&AccountId>,
-    ) -> Result<(), Error> {
+    pub fn clear_data(&mut self, gc_config: &GCConfig) -> Result<(), Error> {
         let runtime_adapter = self.runtime_adapter.clone();
         let epoch_manager = self.epoch_manager.clone();
         let shard_tracker = self.shard_tracker.clone();
-        self.mut_chain_store().clear_data(
-            gc_config,
-            runtime_adapter,
-            epoch_manager,
-            &shard_tracker,
-            me,
-        )
+        self.mut_chain_store().clear_data(gc_config, runtime_adapter, epoch_manager, &shard_tracker)
     }
 
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
@@ -162,7 +150,6 @@ impl ChainStore {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: &ShardTracker,
-        me: Option<&AccountId>,
     ) -> Result<(), Error> {
         // We clear state transition data separately without respecting gc configs because it gets
         // accumulated too quickly for regular gc process.
@@ -175,7 +162,6 @@ impl ChainStore {
             runtime_adapter,
             epoch_manager,
             shard_tracker,
-            me,
         ))
     }
 
@@ -185,7 +171,6 @@ impl ChainStore {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: &ShardTracker,
-        me: Option<&AccountId>,
     ) -> Result<(), Error> {
         let _span =
             tracing::debug_span!(target: "garbage_collection", "clear_old_blocks_data").entered();
@@ -279,7 +264,6 @@ impl ChainStore {
                     epoch_manager.as_ref(),
                     block_hash,
                     shard_tracker,
-                    me,
                 )?;
 
                 gc_blocks_remaining -= 1;
@@ -1194,7 +1178,6 @@ fn gc_state(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
     shard_tracker: &ShardTracker,
-    me: Option<&AccountId>,
 ) -> Result<(), Error> {
     // Return if we are not dealing with the last block of the epoch
     if !epoch_manager.is_last_block_in_finished_epoch(block_hash)? {
@@ -1212,12 +1195,8 @@ fn gc_state(
 
     // Remove shards that we are currently tracking from shards_to_cleanup
     shards_to_cleanup.retain(|shard_uid| {
-        !shard_tracker.cares_about_shard_this_or_next_epoch(
-            me,
-            &latest_block_hash,
-            shard_uid.shard_id(),
-            true,
-        )
+        !shard_tracker
+            .cares_about_shard_this_or_next_epoch(&latest_block_hash, shard_uid.shard_id())
     });
 
     // reverse iterate over the epochs starting from epoch of latest_block_hash upto gc_epoch

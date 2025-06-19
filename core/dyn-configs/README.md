@@ -6,7 +6,26 @@ This crate contains utilities that allow to reconfigure the node while it is run
 
 ### Logging and tracing
 
-Make changes to `log_config.json` and send `SIGHUP` signal to the `neard` process.
+Logging options are controlled by the `rust_log` entry in the `${NEAR_HOME}/log_config.json`.
+The example entry may look like
+```json
+{
+    "rust_log": "transaction-generator=info,garbage_collection=trace"
+}
+```
+where the `transaction-generator` and `garbage_collection` are the `target`s in the `tracing` calls.
+
+Tracing options are similarly controlled by the `opentelemetry` field:
+```json
+    "opentelemetry": "client=debug,chain=debug,stateless_validation=debug,info"
+```
+
+### Apply changes
+
+Make changes to `${NEAR_HOME}/log_config.json` and send `SIGHUP` signal to the `neard` process
+```shell
+kill -HUP $(pidof neard)
+```
 
 ### Other config values
 

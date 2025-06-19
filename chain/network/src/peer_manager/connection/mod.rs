@@ -43,7 +43,7 @@ impl tcp::Tier {
                 self == tcp::Tier::T2 || self == tcp::Tier::T3
             }
             PeerMessage::OptimisticBlock(..) => true,
-            PeerMessage::Routed(msg) => self.is_allowed_routed(&msg.body),
+            PeerMessage::Routed(msg) => self.is_allowed_routed(msg.body()),
             PeerMessage::SyncRoutingTable(..)
             | PeerMessage::DistanceVector(..)
             | PeerMessage::RequestUpdateNonce(..)
