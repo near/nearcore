@@ -63,16 +63,16 @@ struct TrieStateReshardingStatus {
 impl TrieStateReshardingStatus {
     fn new(
         parent_shard_uid: ShardUId,
-        left: TrieStateReshardingChildStatus,
-        right: TrieStateReshardingChildStatus,
+        left: Option<TrieStateReshardingChildStatus>,
+        right: Option<TrieStateReshardingChildStatus>,
         boundary_account: AccountId,
         resharding_block_height: BlockHeight,
         parent_state_root: CryptoHash,
     ) -> Self {
         Self {
             parent_shard_uid,
-            left: Some(left),
-            right: Some(right),
+            left,
+            right,
             boundary_account,
             resharding_block_height,
             parent_state_root,
@@ -280,10 +280,25 @@ impl TrieStateResharder {
             "TrieStateResharding: child and parent state roots"
         );
 
+        // If the child shard_uid mapping doesn't exist, it means we are not tracking the child shard.
+        let store = self.runtime.store();
+        let left_child =
+            if get_shard_uid_mapping(store, event.left_child_shard) != event.left_child_shard {
+                Some(TrieStateReshardingChildStatus::new(event.left_child_shard, left_state_root))
+            } else {
+                None
+            };
+        let right_child =
+            if get_shard_uid_mapping(store, event.right_child_shard) != event.right_child_shard {
+                Some(TrieStateReshardingChildStatus::new(event.right_child_shard, right_state_root))
+            } else {
+                None
+            };
+
         let mut status = TrieStateReshardingStatus::new(
             event.parent_shard,
-            TrieStateReshardingChildStatus::new(event.left_child_shard, left_state_root),
-            TrieStateReshardingChildStatus::new(event.right_child_shard, right_state_root),
+            left_child,
+            right_child,
             event.boundary_account.clone(),
             event.resharding_block.height,
             parent_state_root,
@@ -510,8 +525,8 @@ mod tests {
         fn as_status(&self) -> TrieStateReshardingStatus {
             TrieStateReshardingStatus::new(
                 self.parent_shard,
-                TrieStateReshardingChildStatus::new(self.left_shard, self.left_root),
-                TrieStateReshardingChildStatus::new(self.right_shard, self.right_root),
+                Some(TrieStateReshardingChildStatus::new(self.left_shard, self.left_root)),
+                Some(TrieStateReshardingChildStatus::new(self.right_shard, self.right_root)),
                 self.boundary_account.clone(),
                 self.resharding_block_height,
                 self.parent_root,
