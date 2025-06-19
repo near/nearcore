@@ -1070,6 +1070,9 @@ pub struct RoutedMessageV2 {
     pub num_hops: u32,
 }
 
+/// V3 message will remove the signature field for T1.
+/// Contains the body as a `TieredMessageBody` instead of `RoutedMessageBody`.
+/// All other fields are the same as in previous versions.
 #[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct RoutedMessageV3 {
     /// Peer id which is directed this message.
