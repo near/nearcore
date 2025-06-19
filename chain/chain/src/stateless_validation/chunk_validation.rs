@@ -555,7 +555,7 @@ pub fn validate_chunk_state_witness_impl(
     let (mut chunk_extra, mut outgoing_receipts) =
         match (pre_validation_output.main_transition_params, cache_result) {
             (MainTransition::Genesis { chunk_extra, .. }, _) => (chunk_extra, vec![]),
-            (MainTransition::NewChunk(new_chunk_data), None) => {
+            (MainTransition::NewChunk { new_chunk_data, .. }, None) => {
                 let chunk_header = new_chunk_data.chunk_header.clone();
                 let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
                     ApplyChunkReason::ValidateChunkStateWitness,
