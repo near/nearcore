@@ -715,13 +715,13 @@ def clear_scheduled_cmds(ctx: CommandContext):
 
 def snapshot_cmd(ctx: CommandContext):
     if ctx.args.create:
-        pmap(lambda node: node.make_snapshot(ctx.args.snapshot_id), ctx.get_targeted_with_schedule_ctx())
+        pmap(lambda node: print_result(node, node.make_snapshot(ctx.args.snapshot_id)), ctx.get_targeted_with_schedule_ctx())
     elif ctx.args.restore:
-        pmap(lambda node: node.restore_snapshot(ctx.args.snapshot_id), ctx.get_targeted_with_schedule_ctx())
+        pmap(lambda node: print_result(node, node.restore_snapshot(ctx.args.snapshot_id)), ctx.get_targeted_with_schedule_ctx())
     elif ctx.args.list:
-        pmap(lambda node: node.list_snapshots(), ctx.get_targeted_with_schedule_ctx())
+        pmap(lambda node: print_result(node, node.list_snapshots()), ctx.get_targeted_with_schedule_ctx())
     elif ctx.args.delete:
-         pmap(lambda node: node.delete_snapshot(ctx.args.snapshot_id), ctx.get_targeted_with_schedule_ctx())
+         pmap(lambda node: print_result(node, node.delete_snapshot(ctx.args.snapshot_id)), ctx.get_targeted_with_schedule_ctx())
 
 class ParseFraction(Action):
 
