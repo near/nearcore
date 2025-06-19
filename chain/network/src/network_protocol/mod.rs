@@ -660,6 +660,7 @@ impl From<T2MessageBody> for TieredMessageBody {
     }
 }
 
+/// T1 messages are sent over T1 connections and they are critical for the progress of the network.
 #[derive(
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
@@ -734,6 +735,7 @@ impl fmt::Debug for T1MessageBody {
 }
 
 // TODO(#1313): Use Box
+/// T2 messages are sent over T2 connections and they are routed over multiple hops.
 #[derive(
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
@@ -1081,6 +1083,7 @@ pub struct RoutedMessageV3 {
     /// Message
     pub body: TieredMessageBody,
     /// Signature.
+    // TODO(#13709): remove for T1 messages
     pub signature: Signature,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<i64>,
