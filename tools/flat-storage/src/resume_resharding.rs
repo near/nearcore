@@ -1,6 +1,6 @@
 use crate::commands::ResumeReshardingCmd;
 use near_chain::resharding::flat_storage_resharder::FlatStorageResharder;
-use near_chain::resharding::trie_state_resharder::TrieStateResharder;
+use near_chain::resharding::trie_state_resharder::{ResumeAllowed, TrieStateResharder};
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::ReshardingHandle;
 use near_epoch_manager::EpochManager;
@@ -46,6 +46,7 @@ pub(crate) fn resume_resharding(
         runtime_adapter,
         ReshardingHandle::new(),
         config.client_config.resharding_config.clone(),
+        ResumeAllowed::Yes,
     );
     trie_state_resharder.resume(shard_uid)?;
 
