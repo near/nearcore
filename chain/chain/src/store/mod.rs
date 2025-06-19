@@ -1080,10 +1080,7 @@ impl<'a> ChainStoreUpdate<'a> {
         if let Some(arced_chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
             Ok(Arc::clone(arced_chunk))
         } else {
-            self.chain_store
-                .get_chunk(chunk_hash)
-                .map(|op| ArcedShardChunk::from(op.as_ref().clone()))
-                .map(Arc::new)
+            self.chain_store.get_chunk(chunk_hash).map(ArcedShardChunk::from).map(Arc::new)
         }
     }
 }
