@@ -7,6 +7,7 @@ mod peer;
 mod proto_conv;
 mod state_sync;
 use borsh::BorshDeserialize;
+use borsh::BorshSerialize;
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
@@ -64,6 +65,8 @@ use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
+use std::io::Read;
+use std::io::Write;
 use std::sync::Arc;
 use tracing::Span;
 
@@ -453,6 +456,7 @@ pub enum PeerMessage {
 
     EpochSyncRequest,
     EpochSyncResponse(CompressedEpochSyncProof),
+    RoutedV3(Box<RoutedMessage>),
 }
 
 impl fmt::Display for PeerMessage {
@@ -518,6 +522,7 @@ impl PeerMessage {
     pub(crate) fn msg_variant(&self) -> &'static str {
         match self {
             PeerMessage::Routed(routed_msg) => routed_msg.body_variant(),
+            PeerMessage::RoutedV3(routed_msg) => routed_msg.body_variant(),
             _ => self.into(),
         }
     }
@@ -1081,7 +1086,25 @@ pub struct RoutedMessageV2 {
     pub num_hops: u32,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+impl BorshSerialize for RoutedMessageV2 {
+    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.msg.serialize(writer)?;
+        self.created_at.map(|t| t.unix_timestamp()).serialize(writer)?;
+        self.num_hops.serialize(writer)
+    }
+}
+
+impl BorshDeserialize for RoutedMessageV2 {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        let msg = RoutedMessageV1::deserialize_reader(reader)?;
+        let created_at = Option::<i64>::deserialize_reader(reader)?
+            .map(|t| time::Utc::from_unix_timestamp(t).unwrap());
+        let num_hops = u32::deserialize_reader(reader)?;
+        Ok(Self { msg, created_at, num_hops })
+    }
+}
+
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct RoutedMessageV3 {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
@@ -1191,7 +1214,7 @@ impl From<RoutedMessageV3> for RoutedMessage {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub enum RoutedMessage {
     V1(RoutedMessageV1),
     V2(RoutedMessageV2),
