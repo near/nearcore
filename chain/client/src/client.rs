@@ -1786,6 +1786,16 @@ impl Client {
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
             let last_header = epoch_manager.get_prev_chunk_header(block, shard_id).unwrap();
+            let chain_validate = {
+                let chain = &self.chain;
+                #[cfg(features = "test_features")]
+                match self.adv_produce_chunks {
+                    Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => true,
+                    _ => chain.transaction_validity_check(block.header().clone().into()),
+                }
+                #[cfg(not(features = "test_features"))]
+                chain.transaction_validity_check(block.header().clone().into())
+            };
             let result = self.chunk_producer.produce_chunk(
                 block,
                 &epoch_id,
@@ -1793,16 +1803,9 @@ impl Client {
                 next_height,
                 shard_id,
                 signer,
-                &|tx| {
-                    #[cfg(features = "test_features")]
-                    match self.adv_produce_chunks {
-                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => true,
-                        _ => chain.transaction_validity_check(block.header().clone().into())(tx),
-                    }
-                    #[cfg(not(features = "test_features"))]
-                    self.chain.transaction_validity_check(block.header().clone().into())(tx)
-                },
+                &chain_validate,
             );
+            drop(chain_validate); // drop the chain reference to avoid holding it longer than necessary
 
             let ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts } = match result {
                 Ok(Some(res)) => res,
