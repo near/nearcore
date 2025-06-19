@@ -31,7 +31,7 @@ We're looking at the performance of state sync:
 * allowing user to ask for many at once
 * allowing user to provide a bitmask of parts that are required (therefore allowing the server to return only the ones that it already cached).
 
-### Better performance on the requestor side
+### Better performance on the requester side
 
 Currently the parts are applied only once all of them are downloaded - instead we should try to apply them in parallel - after each part is received.
 
