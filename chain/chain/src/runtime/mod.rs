@@ -658,7 +658,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if state_update.trie.recorded_storage_size()
+            // FIXME(nagisa): why is this not using `check_proof_size_limit_exceed`? Comment.
+            if state_update.trie.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
                 result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);

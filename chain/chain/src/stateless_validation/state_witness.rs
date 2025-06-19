@@ -51,6 +51,16 @@ impl ChainStore {
         chunk: &ShardChunk,
     ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
+        let _span = tracing::debug_span!(
+            target: "client",
+            "create_state_witness",
+            chunk_hash = ?chunk_header.chunk_hash(),
+            height = chunk_header.height_created(),
+            shard_id = %chunk_header.shard_id(),
+            tag_witness_distribution = true,
+        )
+        .entered();
+
         let epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let prev_chunk = self.get_chunk(&prev_chunk_header.chunk_hash())?;

@@ -283,12 +283,15 @@ impl Client {
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
-        tracing::debug!(
+        let _span = tracing::debug_span!(
             target: "client",
-            chunk_hash=?witness.chunk_header().chunk_hash(),
-            shard_id=%witness.chunk_header().shard_id(),
             "process_chunk_state_witness",
-        );
+            chunk_hash = ?witness.chunk_header().chunk_hash(),
+            height = %witness.chunk_header().height_created(),
+            shard_id = %witness.chunk_header().shard_id(),
+            tag_witness_distribution = true,
+        )
+        .entered();
 
         // Chunk producers should not receive state witness from themselves.
         log_assert!(

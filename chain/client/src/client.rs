@@ -434,11 +434,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn remove_transactions_for_block(
-        &mut self,
-        me: &AccountId,
-        block: &Block,
-    ) -> Result<(), Error> {
+    pub fn remove_transactions_for_block(&mut self, block: &Block) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
@@ -446,12 +442,10 @@ impl Client {
             let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
             if block.header().height() == chunk_header.height_included() {
-                if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                    Some(me),
-                    block.header().prev_hash(),
-                    shard_id,
-                    true,
-                ) {
+                if self
+                    .shard_tracker
+                    .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+                {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
                     let transactions = chunk.to_transactions();
@@ -463,11 +457,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn reintroduce_transactions_for_block(
-        &mut self,
-        me: &AccountId,
-        block: &Block,
-    ) -> Result<(), Error> {
+    pub fn reintroduce_transactions_for_block(&mut self, block: &Block) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let shard_layout =
@@ -480,12 +470,10 @@ impl Client {
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
 
             if block.header().height() == chunk_header.height_included() {
-                if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                    Some(me),
-                    block.header().prev_hash(),
-                    shard_id,
-                    false,
-                ) {
+                if self
+                    .shard_tracker
+                    .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+                {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
 
@@ -1604,9 +1592,7 @@ impl Client {
         }
 
         if let Some(signer) = signer.clone() {
-            let validator_id = signer.validator_id().clone();
-
-            if !self.reconcile_transaction_pool(validator_id, status, &block) {
+            if !self.reconcile_transaction_pool(status, &block) {
                 return;
             }
 
@@ -1642,23 +1628,17 @@ impl Client {
     /// Reconcile the transaction pool after processing a block.
     /// returns true if it's ok to proceed to produce chunks
     /// returns false when handling a fork and there is no need to produce chunks
-    fn reconcile_transaction_pool(
-        &mut self,
-        validator_id: AccountId,
-        status: BlockStatus,
-        block: &Block,
-    ) -> bool {
+    fn reconcile_transaction_pool(&mut self, status: BlockStatus, block: &Block) -> bool {
         match status {
             BlockStatus::Next => {
                 // If this block immediately follows the current tip, remove
                 // transactions from the tx pool.
-                match self.remove_transactions_for_block(&validator_id, block) {
+                match self.remove_transactions_for_block(block) {
                     Ok(()) => (),
                     Err(err) => {
                         tracing::debug!(
                             target: "client",
-                            "validator {}: removing txs for block {:?} failed with {:?}",
-                            validator_id,
+                            "validator: removing txs for block {:?} failed with {:?}",
                             block,
                             err
                         );
@@ -1699,13 +1679,12 @@ impl Client {
 
                 for to_reintroduce_hash in to_reintroduce {
                     if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
-                        match self.reintroduce_transactions_for_block(&validator_id, &block) {
+                        match self.reintroduce_transactions_for_block(&block) {
                             Ok(()) => (),
                             Err(err) => {
                                 tracing::debug!(
                                     target: "client",
-                                    "validator {}: reintroducing txs for block {:?} failed with {:?}",
-                                    validator_id,
+                                    "validator: reintroducing txs for block {:?} failed with {:?}",
                                     block,
                                     err
                                 );
@@ -1716,13 +1695,12 @@ impl Client {
 
                 for to_remove_hash in to_remove {
                     if let Ok(block) = self.chain.get_block(&to_remove_hash) {
-                        match self.remove_transactions_for_block(&validator_id, &block) {
+                        match self.remove_transactions_for_block(&block) {
                             Ok(()) => (),
                             Err(err) => {
                                 tracing::debug!(
                                     target: "client",
-                                    "validator {}: removing txs for block {:?} failed with {:?}",
-                                    validator_id,
+                                    "validator: removing txs for block {:?} failed with {:?}",
                                     block,
                                     err
                                 );
