@@ -202,7 +202,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         PeerMessage::Block(_) => Some((Block, 1)),
         PeerMessage::OptimisticBlock(_) => Some((OptimisticBlock, 1)),
         PeerMessage::Transaction(_) => Some((Transaction, 1)),
-        PeerMessage::Routed(msg) => match msg.body() {
+        PeerMessage::Routed(msg) | PeerMessage::RoutedV3(msg) => match msg.body() {
             TieredMessageBody::T1(msg) => match msg.as_ref() {
                 T1MessageBody::BlockApproval(_) => Some((BlockApproval, 1)),
                 T1MessageBody::VersionedPartialEncodedChunk(_) => {

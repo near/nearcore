@@ -4,7 +4,7 @@
 //! WARNING WARNING WARNING
 //! We need to maintain backwards compatibility, all changes to this file needs to be reviews.
 use crate::network_protocol::edge::{Edge, PartialEdgeInfo};
-use crate::network_protocol::{PeerChainInfoV2, PeerInfo, StateResponseInfo};
+use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage, StateResponseInfo};
 use crate::network_protocol::{RoutedMessageV1, SyncSnapshotHosts};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::block::{Block, BlockHeader};
@@ -173,6 +173,7 @@ pub(super) enum PeerMessage {
     EpochSyncRequest,
     EpochSyncResponse(CompressedEpochSyncProof),
     OptimisticBlock(OptimisticBlock),
+    RoutedV3(Box<RoutedMessage>),
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1500, "PeerMessage > 1500 bytes");

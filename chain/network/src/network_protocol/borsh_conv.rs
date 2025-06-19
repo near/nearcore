@@ -1,3 +1,5 @@
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+
 use crate::network_protocol::borsh_ as net;
 /// Contains borsh <-> network_protocol conversions.
 use crate::network_protocol::{self as mem, RoutedMessageV3};
@@ -206,6 +208,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::EpochSyncResponse(proof) => {
                 mem::PeerMessage::EpochSyncResponse(proof)
             }
+            net::PeerMessage::RoutedV3(routed_message) => {
+                mem::PeerMessage::RoutedV3(routed_message)
+            }
         })
     }
 }
@@ -248,8 +253,12 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::OptimisticBlock(ob) => net::PeerMessage::OptimisticBlock(ob),
             mem::PeerMessage::Transaction(t) => net::PeerMessage::Transaction(t),
             mem::PeerMessage::Routed(r) => {
-                let msg = r.msg_v1();
-                net::PeerMessage::Routed(Box::new(msg))
+                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
+                    net::PeerMessage::RoutedV3(r)
+                } else {
+                    let msg = r.msg_v1();
+                    net::PeerMessage::Routed(Box::new(msg))
+                }
             }
             mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),
@@ -267,6 +276,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::EpochSyncResponse(proof) => {
                 net::PeerMessage::EpochSyncResponse(proof)
             }
+            mem::PeerMessage::RoutedV3(r) => net::PeerMessage::RoutedV3(r),
         }
     }
 }

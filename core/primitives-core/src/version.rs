@@ -312,6 +312,7 @@ pub enum ProtocolFeature {
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
     SaturatingFloatToInt,
+    UnsignedT1Messages,
 }
 
 impl ProtocolFeature {
@@ -414,6 +415,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::UnsignedT1Messages => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
