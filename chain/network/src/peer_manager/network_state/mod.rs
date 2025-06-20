@@ -9,7 +9,7 @@ use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, SignedAccountData, SnapshotHostInfo,
+    RoutedMessage, RoutedMessageBody, SignedAccountData, SnapshotHostInfo,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
@@ -525,7 +525,7 @@ impl NetworkState {
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
-    pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
+    pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessage> {
         Box::new(msg.sign(
             &self.config.node_key,
             self.config.routed_message_ttl,
@@ -539,12 +539,12 @@ impl NetworkState {
         &self,
         clock: &time::Clock,
         tier: tcp::Tier,
-        msg: Box<RoutedMessageV2>,
+        msg: Box<RoutedMessage>,
     ) -> bool {
         let my_peer_id = self.config.node_id();
 
         // Check if the message is for myself and don't try to send it in that case.
-        if let PeerIdOrHash::PeerId(target) = &msg.target {
+        if let PeerIdOrHash::PeerId(target) = msg.target() {
             if target == &my_peer_id {
                 tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, ?msg, "Drop signed message to myself");
                 metrics::CONNECTED_TO_MYSELF.inc();
@@ -553,7 +553,7 @@ impl NetworkState {
         }
         match tier {
             tcp::Tier::T1 => {
-                let peer_id = match &msg.target {
+                let peer_id = match msg.target() {
                     // If a message is a response, we try to load the target from the route back
                     // cache.
                     PeerIdOrHash::Hash(hash) => {
@@ -567,10 +567,10 @@ impl NetworkState {
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T2 => {
-                match self.tier2_find_route(&clock, &msg.target) {
+                match self.tier2_find_route(&clock, msg.target()) {
                     Ok(peer_id) => {
                         // Remember if we expect a response for this message.
-                        if msg.author == my_peer_id && msg.expect_response() {
+                        if *msg.author() == my_peer_id && msg.expect_response() {
                             tracing::trace!(target: "network", ?msg, "initiate route back");
                             self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                         }
@@ -580,14 +580,14 @@ impl NetworkState {
                     }
                     Err(find_route_error) => {
                         // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                        metrics::MessageDropped::NoRouteFound.inc(&msg.body);
+                        metrics::MessageDropped::NoRouteFound.inc(msg.body());
 
                         tracing::debug!(target: "network",
                               account_id = ?self.config.validator.account_id(),
-                              to = ?msg.target,
+                              to = ?msg.target(),
                               reason = ?find_route_error,
                               known_peers = ?self.graph.routing_table.reachable_peers(),
-                              msg = ?msg.body,
+                              msg = ?msg.body(),
                             "Drop signed message"
                         );
                         return false;
@@ -595,7 +595,7 @@ impl NetworkState {
                 }
             }
             tcp::Tier::T3 => {
-                let peer_id = match &msg.target {
+                let peer_id = match msg.target() {
                     PeerIdOrHash::Hash(_) => {
                         // There is no route back cache for TIER3 as all connections are direct
                         debug_assert!(false);
@@ -632,10 +632,10 @@ impl NetworkState {
                 let hash = msg.hash();
                 this.receive_routed_message(
                     &clock,
-                    msg.msg.author.clone(),
+                    msg.author().clone(),
                     my_peer_id,
                     hash,
-                    msg.msg.body,
+                    msg.body_owned(),
                 )
                 .await;
             });
@@ -699,7 +699,7 @@ impl NetworkState {
         let mut success = false;
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
-        for _ in 0..msg.body.message_resend_count() {
+        for _ in 0..msg.body().message_resend_count() {
             success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
         }
         success

@@ -3,12 +3,13 @@
 //! WARNING WARNING WARNING
 //! WARNING WARNING WARNING
 //! We need to maintain backwards compatibility, all changes to this file needs to be reviews.
-use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::edge::{Edge, PartialEdgeInfo};
-use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage, StateResponseInfo};
+use crate::network_protocol::{PeerChainInfoV2, PeerInfo, StateResponseInfo};
+use crate::network_protocol::{RoutedMessageV1, SyncSnapshotHosts};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -16,10 +17,9 @@ use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
-
-use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use std::fmt;
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 /// Structure representing handshake between peers.
@@ -144,13 +144,13 @@ pub(super) enum PeerMessage {
     PeersResponse(Vec<PeerInfo>),
 
     BlockHeadersRequest(Vec<CryptoHash>),
-    BlockHeaders(Vec<BlockHeader>),
+    BlockHeaders(Vec<Arc<BlockHeader>>),
 
     BlockRequest(CryptoHash),
-    Block(Block),
+    Block(Arc<Block>),
 
     Transaction(SignedTransaction),
-    Routed(Box<RoutedMessage>),
+    Routed(Box<RoutedMessageV1>),
 
     /// Gracefully disconnect from other peer.
     Disconnect,

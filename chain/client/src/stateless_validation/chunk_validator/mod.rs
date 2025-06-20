@@ -85,6 +85,16 @@ impl ChunkValidator {
         signer: &Arc<ValidatorSigner>,
         save_witness_if_invalid: bool,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "start_validating_chunk",
+            height = %state_witness.chunk_production_key().height_created,
+            shard_id = %state_witness.chunk_production_key().shard_id,
+            validator = %signer.validator_id(),
+            tag_block_production = true,
+        )
+        .entered();
+
         let prev_block_hash = state_witness.chunk_header().prev_block_hash();
         let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
         let shard_id = state_witness.chunk_header().shard_id();
@@ -273,12 +283,15 @@ impl Client {
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
-        tracing::debug!(
+        let _span = tracing::debug_span!(
             target: "client",
-            chunk_hash=?witness.chunk_header().chunk_hash(),
-            shard_id=%witness.chunk_header().shard_id(),
             "process_chunk_state_witness",
-        );
+            chunk_hash = ?witness.chunk_header().chunk_hash(),
+            height = %witness.chunk_header().height_created(),
+            shard_id = %witness.chunk_header().shard_id(),
+            tag_witness_distribution = true,
+        )
+        .entered();
 
         // Chunk producers should not receive state witness from themselves.
         log_assert!(

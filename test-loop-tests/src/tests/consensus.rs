@@ -151,7 +151,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         if delayed_block.header().height() <= block.header().height() + 2 {
                             for (_, sender) in &handler.client_senders {
                                 sender.send(BlockResponse {
-                                    block: delayed_block.clone(),
+                                    block: delayed_block.clone().into(),
                                     peer_id: peer_id.clone(),
                                     was_requested: true,
                                 });
@@ -308,13 +308,13 @@ struct NetworkHandlingData {
     block_to_prev_block: HashMap<CryptoHash, CryptoHash>,
     block_to_height: HashMap<CryptoHash, u64>,
 
-    all_blocks: BTreeMap<BlockHeight, Block>,
+    all_blocks: BTreeMap<BlockHeight, Arc<Block>>,
     final_block_heights: HashSet<BlockHeight>,
 
     largest_target_height: HashMap<AccountId, BlockHeight>,
     skips_per_height: Vec<u64>,
     largest_block_height: BlockHeight,
-    delayed_blocks: Vec<Block>,
+    delayed_blocks: Vec<Arc<Block>>,
     delayed_blocks_count: u64,
 
     current_epoch: EpochId,

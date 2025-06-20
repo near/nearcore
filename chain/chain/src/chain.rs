@@ -302,7 +302,7 @@ pub struct Chain {
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
     pub optimistic_block_chunks: OptimisticBlockChunksPool,
     pub blocks_pending_execution: PendingBlocksPool<Orphan>,
-    pub(crate) genesis: Block,
+    pub(crate) genesis: Arc<Block>,
     pub epoch_length: BlockHeightDelta,
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
@@ -431,7 +431,7 @@ impl Chain {
             optimistic_block_chunks: OptimisticBlockChunksPool::new(),
             blocks_pending_execution: PendingBlocksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
-            genesis,
+            genesis: genesis.into(),
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
@@ -508,7 +508,7 @@ impl Chain {
 
                 // TODO: perform validation that latest state in runtime matches the stored chain.
 
-                (block_head, header_head)
+                (Tip::clone(&block_head), Tip::clone(&header_head))
             }
             Err(Error::DBNotFoundErr(_)) => {
                 Self::save_genesis_block_and_chunks(
@@ -599,7 +599,7 @@ impl Chain {
             blocks_in_processing: BlocksInProcessing::new(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
-            genesis: genesis.clone(),
+            genesis: genesis.into(),
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
@@ -669,7 +669,7 @@ impl Chain {
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
     }
 
-    pub fn save_block(&mut self, block: MaybeValidated<Block>) -> Result<(), Error> {
+    pub fn save_block(&mut self, block: MaybeValidated<Arc<Block>>) -> Result<(), Error> {
         if self.chain_store.get_block(block.hash()).is_ok() {
             return Ok(());
         }
@@ -712,11 +712,15 @@ impl Chain {
 
     /// Do basic validation of a block upon receiving it. Check that block is
     /// well-formed (various roots match).
-    pub fn validate_block(&self, block: &MaybeValidated<Block>) -> Result<(), Error> {
+    pub fn validate_block(&self, block: &MaybeValidated<Arc<Block>>) -> Result<(), Error> {
         block
             .validate_with(|block| {
-                Chain::validate_block_impl(self.epoch_manager.as_ref(), self.genesis_block(), block)
-                    .map(|_| true)
+                Chain::validate_block_impl(
+                    self.epoch_manager.as_ref(),
+                    &self.genesis_block(),
+                    block,
+                )
+                .map(|_| true)
             })
             .map(|_| ())
     }
@@ -811,7 +815,8 @@ impl Chain {
             }
             // Otherwise go to parent block.
             header = match self.get_previous_header(&header) {
-                Ok(header) => header,
+                // FIXME: this clone can be pretty expensive!
+                Ok(header) => <_>::clone(&header),
                 Err(_) => {
                     // We couldn't find previous header. Return Ok because it can be an orphaned block which can be
                     // connected to canonical chain later.
@@ -1208,7 +1213,7 @@ impl Chain {
     pub fn start_process_block_async(
         &mut self,
         me: &Option<AccountId>,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
@@ -1477,7 +1482,7 @@ impl Chain {
     }
 
     /// Processes headers and adds them to store for syncing.
-    pub fn sync_block_headers(&mut self, mut headers: Vec<BlockHeader>) -> Result<(), Error> {
+    pub fn sync_block_headers(&mut self, mut headers: Vec<Arc<BlockHeader>>) -> Result<(), Error> {
         // Sort headers by heights.
         headers.sort_by_key(|left| left.height());
 
@@ -1517,7 +1522,7 @@ impl Chain {
 
             self.validate_header(header, &Provenance::SYNC)?;
             let mut chain_store_update = self.chain_store.store_update();
-            chain_store_update.save_block_header(header.clone())?;
+            chain_store_update.save_block_header(BlockHeader::clone(&header))?;
 
             // Add validator proposals for given header.
             let last_finalized_height =
@@ -1547,7 +1552,7 @@ impl Chain {
         Ok(chain_header.hash() == header.hash())
     }
 
-    fn determine_status(&self, head: Option<Tip>, prev_head: Tip) -> BlockStatus {
+    fn determine_status(&self, head: Option<&Tip>, prev_head: &Tip) -> BlockStatus {
         let has_head = head.is_some();
         let mut is_next_block = false;
 
@@ -1623,7 +1628,7 @@ impl Chain {
     fn start_process_block_impl(
         &mut self,
         me: &Option<AccountId>,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         block_processing_artifact: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
@@ -1801,7 +1806,7 @@ impl Chain {
     fn postprocess_block_only(
         &mut self,
         me: &Option<AccountId>,
-        block: &Block,
+        block: Arc<Block>,
         block_preprocess_info: BlockPreprocessInfo,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
     ) -> Result<Option<Tip>, Error> {
@@ -1867,15 +1872,19 @@ impl Chain {
                 }
             }
         }
-        let new_head =
-            match self.postprocess_block_only(me, &block, block_preprocess_info, apply_results) {
-                Err(err) => {
-                    self.maybe_mark_block_invalid(*block.hash(), &err);
-                    self.blocks_delay_tracker.mark_block_errored(&block_hash, err.to_string());
-                    return Err(err);
-                }
-                Ok(new_head) => new_head,
-            };
+        let new_head = match self.postprocess_block_only(
+            me,
+            Arc::clone(&block),
+            block_preprocess_info,
+            apply_results,
+        ) {
+            Err(err) => {
+                self.maybe_mark_block_invalid(*block.hash(), &err);
+                self.blocks_delay_tracker.mark_block_errored(&block_hash, err.to_string());
+                return Err(err);
+            }
+            Ok(new_head) => new_head,
+        };
 
         self.update_optimistic_blocks_pool(&block)?;
 
@@ -2000,7 +2009,7 @@ impl Chain {
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
         // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
         // decide to how to update the tx pool.
-        let block_status = self.determine_status(new_head, prev_head);
+        let block_status = self.determine_status(new_head.as_ref(), &prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
     }
 
@@ -2251,7 +2260,7 @@ impl Chain {
     fn preprocess_block(
         &self,
         me: &Option<AccountId>,
-        block: &MaybeValidated<Block>,
+        block: &MaybeValidated<Arc<Block>>,
         provenance: &Provenance,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
         block_received_time: Instant,
@@ -2982,14 +2991,14 @@ impl Chain {
         Ok(FinalExecutionOutcomeWithReceiptView { final_outcome: outcome, receipts })
     }
 
-    pub fn check_blocks_final_and_canonical(
+    pub fn check_blocks_final_and_canonical<'a>(
         &self,
-        block_headers: &[BlockHeader],
+        block_headers: impl IntoIterator<Item = &'a BlockHeader>,
     ) -> Result<(), Error> {
         let last_final_block_hash = *self.head_header()?.last_final_block();
         let last_final_height = self.get_block_header(&last_final_block_hash)?.height();
         for hdr in block_headers {
-            if hdr.height() > last_final_height || !self.is_on_current_chain(&hdr)? {
+            if hdr.height() > last_final_height || !self.is_on_current_chain(hdr)? {
                 return Err(Error::Other(format!("{} not on current chain", hdr.hash())));
             }
         }
@@ -3478,7 +3487,7 @@ impl MerkleProofAccess for Chain {
 impl Chain {
     /// Gets chain head.
     #[inline]
-    pub fn head(&self) -> Result<Tip, Error> {
+    pub fn head(&self) -> Result<Arc<Tip>, Error> {
         self.chain_store.head()
     }
 
@@ -3490,30 +3499,30 @@ impl Chain {
 
     /// Gets chain header head.
     #[inline]
-    pub fn header_head(&self) -> Result<Tip, Error> {
+    pub fn header_head(&self) -> Result<Arc<Tip>, Error> {
         self.chain_store.header_head()
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     #[inline]
-    pub fn head_header(&self) -> Result<BlockHeader, Error> {
+    pub fn head_header(&self) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.head_header()
     }
 
     /// Get final head of the chain.
     #[inline]
-    pub fn final_head(&self) -> Result<Tip, Error> {
+    pub fn final_head(&self) -> Result<Arc<Tip>, Error> {
         self.chain_store.final_head()
     }
 
     /// Gets a block by hash.
     #[inline]
-    pub fn get_block(&self, hash: &CryptoHash) -> Result<Block, Error> {
+    pub fn get_block(&self, hash: &CryptoHash) -> Result<Arc<Block>, Error> {
         self.chain_store.get_block(hash)
     }
 
     /// Gets the block at chain head
-    pub fn get_head_block(&self) -> Result<Block, Error> {
+    pub fn get_head_block(&self) -> Result<Arc<Block>, Error> {
         let tip = self.head()?;
         self.chain_store.get_block(&tip.last_block_hash)
     }
@@ -3524,7 +3533,7 @@ impl Chain {
 
     /// Gets a block from the current chain by height.
     #[inline]
-    pub fn get_block_by_height(&self, height: BlockHeight) -> Result<Block, Error> {
+    pub fn get_block_by_height(&self, height: BlockHeight) -> Result<Arc<Block>, Error> {
         let hash = self.chain_store.get_block_hash_by_height(height)?;
         self.chain_store.get_block(&hash)
     }
@@ -3537,19 +3546,22 @@ impl Chain {
 
     /// Gets a block header by hash.
     #[inline]
-    pub fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error> {
+    pub fn get_block_header(&self, hash: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.get_block_header(hash)
     }
 
     /// Returns block header from the canonical chain for given height if present.
     #[inline]
-    pub fn get_block_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
+    pub fn get_block_header_by_height(
+        &self,
+        height: BlockHeight,
+    ) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.get_block_header_by_height(height)
     }
 
     /// Get previous block header.
     #[inline]
-    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
+    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.get_previous_header(header).map_err(|e: Error| match e {
             Error::DBNotFoundErr(_) => Error::Orphan,
             other => other,
@@ -3641,8 +3653,8 @@ impl Chain {
 
     /// Returns genesis block.
     #[inline]
-    pub fn genesis_block(&self) -> &Block {
-        &self.genesis
+    pub fn genesis_block(&self) -> Arc<Block> {
+        Arc::clone(&self.genesis)
     }
 
     /// Returns genesis block header.

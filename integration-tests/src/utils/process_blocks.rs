@@ -13,16 +13,17 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::config::Rational32;
+use std::sync::Arc;
 
 pub fn set_block_protocol_version(
-    block: &mut Block,
+    block: &mut Arc<Block>,
     block_producer: AccountId,
     protocol_version: ProtocolVersion,
 ) {
     let validator_signer = create_test_signer(block_producer.as_str());
 
-    block.mut_header().set_latest_protocol_version(protocol_version);
-    block.mut_header().resign(&validator_signer);
+    Arc::make_mut(block).mut_header().set_latest_protocol_version(protocol_version);
+    Arc::make_mut(block).mut_header().resign(&validator_signer);
 }
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.

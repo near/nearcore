@@ -11,6 +11,7 @@ use near_primitives::{
     version::PROTOCOL_VERSION,
 };
 use num_rational::Ratio;
+use std::sync::Arc;
 
 #[test]
 fn build_chain() {
@@ -74,7 +75,7 @@ fn build_chain_with_orphans() {
         blocks.push(block);
     }
     let last_block = &blocks[blocks.len() - 1];
-    let block = Block::produce(
+    let block = Arc::new(Block::produce(
         PROTOCOL_VERSION,
         last_block.header(),
         10,
@@ -95,7 +96,7 @@ fn build_chain_with_orphans() {
         clock,
         None,
         None,
-    );
+    ));
     assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
     assert_matches!(
         chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
@@ -267,7 +268,7 @@ fn block_chunk_headers_iter() {
         let fake_header = &mut fake_headers[i];
         *fake_header.height_included_mut() = block.header().height();
     }
-    block.set_chunks(fake_headers);
+    Arc::make_mut(&mut block).set_chunks(fake_headers);
 
     let chunks = block.chunks();
 
@@ -399,8 +400,8 @@ fn test_pending_block_same_height() {
     // Provenance::PRODUCED mode.
     let mut block2b = block2.clone();
     let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
-    block2b.mut_header().set_approvals(vec![Some(Box::new(some_signature))]);
-    block2b.mut_header().resign(&*signer);
+    Arc::make_mut(&mut block2b).mut_header().set_approvals(vec![Some(Box::new(some_signature))]);
+    Arc::make_mut(&mut block2b).mut_header().resign(&*signer);
     assert!(block2a.hash() != block2b.hash());
 
     // Create an optimistic block at height 2

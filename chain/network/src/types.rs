@@ -159,7 +159,7 @@ pub type AccountKeys = HashMap<AccountId, HashSet<PublicKey>>;
 pub struct ChainInfo {
     pub tracked_shards: Vec<ShardId>,
     // The latest block on chain.
-    pub block: Block,
+    pub block: Arc<Block>,
     // Public keys of accounts participating in the BFT consensus
     // It currently includes "block producers", "chunk producers" and "approvers".
     // They are collectively known as "validators".
@@ -240,7 +240,7 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
-    Block { block: Block },
+    Block { block: Arc<Block> },
     /// Sends optimistic block as soon as the production window for the height starts.
     OptimisticBlock { chunk_producers: Arc<Vec<AccountId>>, optimistic_block: OptimisticBlock },
     /// Sends approval.

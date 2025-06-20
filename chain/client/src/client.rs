@@ -725,7 +725,7 @@ impl Client {
 
     /// Produce block if we are block producer for given block `height`.
     /// Either returns produced block (not applied) or error.
-    pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Block>, Error> {
+    pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Arc<Block>>, Error> {
         self.produce_block_on_head(height, true)
     }
 
@@ -735,7 +735,7 @@ impl Client {
         &mut self,
         height: BlockHeight,
         prepare_chunk_headers: bool,
-    ) -> Result<Option<Block>, Error> {
+    ) -> Result<Option<Arc<Block>>, Error> {
         let _span =
             tracing::debug_span!(target: "client", "produce_block_on_head", height, tag_block_production = true).entered();
 
@@ -761,7 +761,7 @@ impl Client {
         &mut self,
         height: BlockHeight,
         prev_hash: CryptoHash,
-    ) -> Result<Option<Block>, Error> {
+    ) -> Result<Option<Arc<Block>>, Error> {
         let validator_signer = self.validator_signer.get().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
@@ -944,7 +944,7 @@ impl Client {
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let block = Block::produce(
+        let block = Arc::new(Block::produce(
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
@@ -966,7 +966,7 @@ impl Client {
             self.clock.clone(),
             sandbox_delta_time,
             optimistic_block,
-        );
+        ));
 
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain
@@ -982,7 +982,7 @@ impl Client {
     // This function is just a wrapper for process_block_impl that makes error propagation easier.
     pub fn receive_block(
         &mut self,
-        block: Block,
+        block: Arc<Block>,
         peer_id: PeerId,
         was_requested: bool,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
@@ -1038,7 +1038,7 @@ impl Client {
     /// Then it starts the block processing process to process the full block.
     pub fn receive_block_impl(
         &mut self,
-        block: Block,
+        block: Arc<Block>,
         peer_id: PeerId,
         was_requested: bool,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
@@ -1166,7 +1166,7 @@ impl Client {
     /// propagated in the network fast.
     fn verify_and_rebroadcast_block(
         &mut self,
-        block: &MaybeValidated<Block>,
+        block: &MaybeValidated<Arc<Block>>,
         was_requested: bool,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
@@ -1181,7 +1181,7 @@ impl Client {
                     && !was_requested
                     && !self.sync_handler.sync_status.is_syncing()
                 {
-                    self.rebroadcast_block(block.as_ref().into_inner());
+                    self.rebroadcast_block(Arc::clone(block.as_ref().into_inner()));
                 }
                 Ok(())
             }
@@ -1211,7 +1211,7 @@ impl Client {
     /// `apply_chunks_done_sender`: a callback that will be called when applying chunks is finished.
     pub fn start_process_block(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         signer: &Option<Arc<ValidatorSigner>>,
@@ -1258,9 +1258,11 @@ impl Client {
             apply_chunks_done_sender,
         );
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
+            let head = self.chain.head().unwrap();
+            let header_head = self.chain.header_head().unwrap();
             self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
-                head: self.chain.head().unwrap(),
-                header_head: self.chain.header_head().unwrap(),
+                head: Tip::clone(&head),
+                header_head: Tip::clone(&header_head),
             });
         }
         self.process_block_processing_artifact(block_processing_artifacts);
@@ -1339,10 +1341,10 @@ impl Client {
         Ok(())
     }
 
-    fn rebroadcast_block(&mut self, block: &Block) {
+    fn rebroadcast_block(&mut self, block: Arc<Block>) {
         if self.rebroadcasted_blocks.get(block.hash()).is_none() {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block.clone() },
+                NetworkRequests::Block { block: Arc::clone(&block) },
             ));
             self.rebroadcasted_blocks.put(*block.hash(), ());
         }
@@ -1400,7 +1402,7 @@ impl Client {
 
     pub fn sync_block_headers(
         &mut self,
-        headers: Vec<BlockHeader>,
+        headers: Vec<Arc<BlockHeader>>,
     ) -> Result<(), near_chain::Error> {
         if matches!(self.sync_handler.sync_status, SyncStatus::EpochSync(_)) {
             return Err(near_chain::Error::Other(
@@ -1408,9 +1410,11 @@ impl Client {
             ));
         };
         self.chain.sync_block_headers(headers)?;
+        let head = self.chain.head().unwrap();
+        let header_head = self.chain.header_head().unwrap();
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
-            head: self.chain.head().unwrap(),
-            header_head: self.chain.header_head().unwrap(),
+            head: Tip::clone(&head),
+            header_head: Tip::clone(&header_head),
         });
         Ok(())
     }
@@ -1649,7 +1653,7 @@ impl Client {
                 // If a reorg happened, reintroduce transactions from the
                 // previous chain and remove transactions from the new chain.
                 let mut reintroduce_head = self.chain.get_block_header(&prev_head).unwrap();
-                let mut remove_head = block.header().clone();
+                let mut remove_head = Arc::from(block.header().clone());
                 assert_ne!(remove_head.hash(), reintroduce_head.hash());
 
                 let mut to_remove = vec![];
@@ -1658,8 +1662,7 @@ impl Client {
                 while remove_head.hash() != reintroduce_head.hash() {
                     while remove_head.height() > reintroduce_head.height() {
                         to_remove.push(*remove_head.hash());
-                        remove_head =
-                            self.chain.get_block_header(remove_head.prev_hash()).unwrap().clone();
+                        remove_head = self.chain.get_block_header(remove_head.prev_hash()).unwrap();
                     }
                     while reintroduce_head.height() > remove_head.height()
                         || reintroduce_head.height() == remove_head.height()
@@ -1771,10 +1774,10 @@ impl Client {
                     #[cfg(features = "test_features")]
                     match self.adv_produce_chunks {
                         Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => true,
-                        _ => chain.transaction_validity_check(block.header().clone())(tx),
+                        _ => chain.transaction_validity_check(block.header().clone().into())(tx),
                     }
                     #[cfg(not(features = "test_features"))]
-                    self.chain.transaction_validity_check(block.header().clone())(tx)
+                    self.chain.transaction_validity_check(block.header().clone().into())(tx)
                 },
             );
 
