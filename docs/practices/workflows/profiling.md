@@ -1,4 +1,4 @@
-<!-- cspell:ignore Heaptrack Jemalloc bytehound highcpu jemallocator koute kptr libbytehound myexportedfile mylittleprofile readwrite rgba setcap tikv -->
+<!-- cspell:ignore Heaptrack Jemalloc bytehound highcpu jemallocator koute kptr libbytehound myexportedfile mylittleprofile read-write rgba setcap tikv -->
 # Profiling neard
 
 ## Sampling performance profiling
@@ -230,7 +230,7 @@ achieve that today.
 First, make sure all deltas in flat storage are applied and written:
 
 ```
-neard view-state --readwrite apply-range --shard-id $SHARD_ID --storage flat sequential
+neard view-state --read-write apply-range --shard-id $SHARD_ID --storage flat sequential
 ```
 
 You will need to do this for all shards you're interested in profiling. Then pick a block or a
@@ -247,9 +247,9 @@ forget to run these commands under the profiler :)
 ```
 # Apply blocks from current flat head to the highest known block height in sequence
 # using the memtrie storage (note that after this you will need to move the flat head again)
-neard view-state --readwrite apply-range --shard-id 0 --storage memtrie sequential
+neard view-state --read-write apply-range --shard-id 0 --storage memtrie sequential
 # Same but with flat storage
-neard view-state --readwrite apply-range --shard-id 0 --storage flat sequential
+neard view-state --read-write apply-range --shard-id 0 --storage flat sequential
 
 # Repeatedly apply a single block at the flat head using the memtrie storage.
 # Will not modify the storage on the disk.
