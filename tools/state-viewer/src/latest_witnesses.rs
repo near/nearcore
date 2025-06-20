@@ -75,6 +75,7 @@ fn setup_chain(home_dir: &Path, near_config: NearConfig, store: Store) -> Chain 
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,
         false,
+        near_config.validator_signer,
     )
     .unwrap()
 }

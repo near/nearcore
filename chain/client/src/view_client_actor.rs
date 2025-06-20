@@ -15,7 +15,7 @@ use near_chain::{
     get_epoch_block_producers_view, retrieve_headers,
 };
 
-use near_chain_configs::{ClientConfig, ProtocolConfigView};
+use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
@@ -125,6 +125,7 @@ impl ViewClientActorInner {
         network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         adv: crate::adversarial::Controls,
+        validator_signer: MutableValidatorSigner,
     ) -> Addr<ViewClientActor> {
         SyncArbiter::start(config.view_client_threads, move || {
             let view_client_actor = ViewClientActorInner::new(
@@ -136,6 +137,7 @@ impl ViewClientActorInner {
                 network_adapter.clone(),
                 config.clone(),
                 adv.clone(),
+                validator_signer.clone(),
             )
             .unwrap();
             SyncActixWrapper::new(view_client_actor)
@@ -151,6 +153,7 @@ impl ViewClientActorInner {
         network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         adv: crate::adversarial::Controls,
+        validator_signer: MutableValidatorSigner,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -161,6 +164,7 @@ impl ViewClientActorInner {
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             config.save_trie_changes,
+            validator_signer,
         )?;
         Ok(Self {
             clock,

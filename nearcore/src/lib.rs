@@ -353,6 +353,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         config.client_config.clone(),
         adv.clone(),
+        config.validator_signer.clone(),
     );
 
     let state_snapshot_sender = LateBoundSender::new();

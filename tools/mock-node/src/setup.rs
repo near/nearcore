@@ -115,6 +115,7 @@ pub fn setup_mock_node(
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         near_config.client_config.save_trie_changes,
+        near_config.validator_signer.clone(),
     )
     .context("failed creating Chain")?;
 
