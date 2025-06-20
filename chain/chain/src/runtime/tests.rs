@@ -205,7 +205,6 @@ impl TestEnv {
     pub fn apply_new_chunk(
         &self,
         shard_id: ShardId,
-        new_block_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         receipts: &[Receipt],
     ) -> ApplyChunkResult {
@@ -244,7 +243,6 @@ impl TestEnv {
                 ApplyChunkBlockContext {
                     block_type: BlockType::Normal,
                     height,
-                    block_hash: new_block_hash,
                     prev_block_hash,
                     block_timestamp,
                     gas_price,
@@ -265,8 +263,7 @@ impl TestEnv {
         transactions: Vec<SignedTransaction>,
         receipts: &[Receipt],
     ) -> (CryptoHash, Vec<ValidatorStake>, Vec<Receipt>) {
-        let mut apply_result =
-            self.apply_new_chunk(shard_id, new_block_hash, transactions, receipts);
+        let mut apply_result = self.apply_new_chunk(shard_id, transactions, receipts);
         let mut store_update = self.runtime.store().store_update();
         let flat_state_changes =
             FlatStateChanges::from_state_changes(&apply_result.trie_changes.state_changes());
@@ -1504,7 +1501,7 @@ fn test_storage_proof_garbage() {
         }),
         priority: 0,
     });
-    let apply_result = env.apply_new_chunk(shard_id, hash(&[42]), vec![], &[receipt]);
+    let apply_result = env.apply_new_chunk(shard_id, vec![], &[receipt]);
     let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     assert_eq!(total_size / 1000_000, garbage_size_mb);

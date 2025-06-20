@@ -291,7 +291,6 @@ pub enum BlockType {
 pub struct ApplyChunkBlockContext {
     pub block_type: BlockType,
     pub height: BlockHeight,
-    pub block_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
     pub block_timestamp: u64,
     pub gas_price: Balance,
@@ -310,7 +309,6 @@ impl ApplyChunkBlockContext {
         Self {
             block_type: BlockType::Normal,
             height: header.height(),
-            block_hash: *header.hash(),
             prev_block_hash: *header.prev_hash(),
             block_timestamp: header.raw_timestamp(),
             gas_price,

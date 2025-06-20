@@ -45,14 +45,14 @@ use std::time::Instant;
 #[allow(clippy::large_enum_variant)]
 pub enum MainTransition {
     Genesis { chunk_extra: ChunkExtra, block_hash: CryptoHash, shard_id: ShardId },
-    NewChunk(NewChunkData),
+    NewChunk { new_chunk_data: NewChunkData, block_hash: CryptoHash },
 }
 
 impl MainTransition {
     pub fn block_hash(&self) -> CryptoHash {
         match self {
             Self::Genesis { block_hash, .. } => *block_hash,
-            Self::NewChunk(data) => data.block.block_hash,
+            Self::NewChunk { block_hash, .. } => *block_hash,
         }
     }
 
@@ -61,7 +61,7 @@ impl MainTransition {
             Self::Genesis { shard_id, .. } => *shard_id,
             // It is ok to use the shard id from the header because it is a new
             // chunk. An old chunk may have the shard id from the parent shard.
-            Self::NewChunk(data) => data.chunk_header.shard_id(),
+            Self::NewChunk { new_chunk_data, .. } => new_chunk_data.chunk_header.shard_id(),
         }
     }
 }
@@ -376,18 +376,25 @@ pub fn pre_validate_chunk_state_witness(
             transaction_validity_check_results,
         );
         let header = store.get_block_header(last_chunk_block.header().prev_hash())?;
-        MainTransition::NewChunk(NewChunkData {
-            chunk_header: last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().clone(),
-            transactions,
-            receipts: receipts_to_apply,
-            block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true)?,
-            storage_context: StorageContext {
-                storage_data_source: StorageDataSource::Recorded(PartialStorage {
-                    nodes: state_witness.main_state_transition().base_state.clone(),
-                }),
-                state_patch: Default::default(),
+        MainTransition::NewChunk {
+            new_chunk_data: NewChunkData {
+                chunk_header: last_chunk_block
+                    .chunks()
+                    .get(last_chunk_shard_index)
+                    .unwrap()
+                    .clone(),
+                transactions,
+                receipts: receipts_to_apply,
+                block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true)?,
+                storage_context: StorageContext {
+                    storage_data_source: StorageDataSource::Recorded(PartialStorage {
+                        nodes: state_witness.main_state_transition().base_state.clone(),
+                    }),
+                    state_patch: Default::default(),
+                },
             },
-        })
+            block_hash: *last_chunk_block.hash(),
+        }
     };
 
     Ok(PreValidationOutput { main_transition_params, implicit_transition_params })
@@ -548,7 +555,7 @@ pub fn validate_chunk_state_witness_impl(
     let (mut chunk_extra, mut outgoing_receipts) =
         match (pre_validation_output.main_transition_params, cache_result) {
             (MainTransition::Genesis { chunk_extra, .. }, _) => (chunk_extra, vec![]),
-            (MainTransition::NewChunk(new_chunk_data), None) => {
+            (MainTransition::NewChunk { new_chunk_data, .. }, None) => {
                 let chunk_header = new_chunk_data.chunk_header.clone();
                 let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
                     ApplyChunkReason::ValidateChunkStateWitness,

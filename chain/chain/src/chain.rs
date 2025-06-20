@@ -1356,9 +1356,6 @@ impl Chain {
             let block_context = ApplyChunkBlockContext {
                 block_type: BlockType::Optimistic,
                 height: block_height,
-                // TODO: consider removing this field completely to avoid
-                // confusion with real block hash.
-                block_hash: CryptoHash::default(),
                 prev_block_hash: *block.prev_block_hash(),
                 block_timestamp: block.block_timestamp(),
                 gas_price: prev_block.header().next_gas_price(),
