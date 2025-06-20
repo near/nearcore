@@ -157,7 +157,7 @@ class RemoteNeardRunner:
         return self.node.machine.run(cmd)
 
     def list_snapshots(self):
-        cmd = 'sudo btrfs subvolume list /mnt/btrfs-root'
+        cmd = """sudo btrfs subvolume list /mnt/btrfs-root/ -sr | awk '{print $14, "-", $11, $12}'"""
         return self.node.machine.run(cmd)
 
     def delete_snapshot(self, snapshot_id):
