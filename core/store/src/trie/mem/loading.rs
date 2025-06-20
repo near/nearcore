@@ -2,7 +2,7 @@ use super::arena::single_thread::STArena;
 use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
 use crate::adapter::StoreAdapter;
-use crate::flat::FlatStorageStatus;
+use crate::flat::{FlatStorageReshardingStatus, FlatStorageStatus};
 use crate::trie::AccessOptions;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
@@ -17,7 +17,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, StateRoot};
 use std::collections::BTreeSet;
 use std::time::Instant;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Loads a trie from the FlatState column. The returned `MemTries` contains
 /// exactly one trie root.
@@ -125,6 +125,10 @@ pub fn load_trie_from_flat_state_and_delta(
     let flat_store = store.flat_store();
     let flat_head = match flat_store.get_flat_storage_status(shard_uid)? {
         FlatStorageStatus::Ready(status) => status.flat_head,
+        FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(status)) => {
+            warn!("Loading memtrie from parent flat storage which is marked as pending resharding");
+            status.flat_head
+        }
         other => {
             return Err(StorageError::MemTrieLoadingError(format!(
                 "Cannot load memtries when flat storage is not ready for shard {}, actual status: {:?}",
