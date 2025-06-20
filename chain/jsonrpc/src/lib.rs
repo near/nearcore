@@ -410,6 +410,9 @@ impl JsonRpcHandler {
                 })
                 .await
             }
+            "maintenance_windows" => {
+                process_method_call(request, |params| self.maintenance_windows(params)).await
+            }
             "next_light_client_block" => {
                 process_method_call(request, |params| self.next_light_client_block(params)).await
             }

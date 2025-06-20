@@ -341,6 +341,11 @@ fn main() {
         &mut all_paths,
         "light_client_proof".to_string(),
     );
+    add_spec_for_path::<RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse>(
+        &mut all_schemas,
+        &mut all_paths,
+        "maintenance_windows".to_string(),
+    );
     add_spec_for_path::<RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse>(
         &mut all_schemas,
         &mut all_paths,
