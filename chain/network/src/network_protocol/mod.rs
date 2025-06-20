@@ -548,10 +548,6 @@ impl fmt::Debug for TieredMessageBody {
 }
 
 impl TieredMessageBody {
-    pub fn is_t1(&self) -> bool {
-        matches!(self, TieredMessageBody::T1(_))
-    }
-
     pub fn message_resend_count(&self) -> usize {
         match self {
             TieredMessageBody::T1(body) => body.message_resend_count(),
@@ -1140,21 +1136,6 @@ impl From<RoutedMessageV1> for RoutedMessageV3 {
             signature: msg.signature,
             created_at: None,
             num_hops: 0,
-        }
-    }
-}
-
-impl From<RoutedMessageV2> for RoutedMessageV3 {
-    fn from(msg: RoutedMessageV2) -> Self {
-        let body = TieredMessageBody::from_routed(msg.msg.body);
-        Self {
-            target: msg.msg.target,
-            author: msg.msg.author,
-            ttl: msg.msg.ttl,
-            body,
-            signature: msg.msg.signature,
-            created_at: msg.created_at.map(|t| t.unix_timestamp()),
-            num_hops: msg.num_hops,
         }
     }
 }

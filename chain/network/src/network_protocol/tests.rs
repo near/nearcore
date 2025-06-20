@@ -173,10 +173,19 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test]
-fn test_message_matching_hashes() {
+fn make_block_approval_message() -> RoutedMessage {
     let mut rng = make_rng(19385389);
-    let message_v3 = data::make_routed_message(
+    let signer = data::make_validator_signer(&mut rng);
+    let approval = Approval::new(CryptoHash::default(), 1, 1, &signer);
+    data::make_routed_message(
+        &mut rng,
+        TieredMessageBody::T1(Box::new(T1MessageBody::BlockApproval(approval))),
+    )
+}
+
+fn make_chunk_request_message() -> RoutedMessage {
+    let mut rng = make_rng(19385389);
+    data::make_routed_message(
         &mut rng,
         T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
             chunk_hash: CryptoHash::default().into(),
@@ -184,23 +193,45 @@ fn test_message_matching_hashes() {
             tracking_shards: Default::default(),
         })
         .into(),
-    );
+    )
+}
+
+#[test]
+fn test_message_matching_hashes() {
+    let message_v3 = make_chunk_request_message();
     let message_v1: RoutedMessage = message_v3.clone().msg_v1().into();
     assert_eq!(message_v3.hash(), message_v1.hash());
 }
 
 #[test]
-fn test_upgrading_v1_to_v3() {
-    let mut rng = make_rng(19385389);
-    let message_v3 = data::make_routed_message(
-        &mut rng,
-        T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
-            chunk_hash: CryptoHash::default().into(),
-            part_ords: vec![],
-            tracking_shards: Default::default(),
-        })
-        .into(),
-    );
+fn test_upgrading_to_v3() {
+    let message_v3 = make_chunk_request_message();
+    let message_v1: RoutedMessage = message_v3.msg_v1().into();
+    let message_v2: RoutedMessage =
+        RoutedMessageV2 { msg: message_v1.clone().msg_v1(), created_at: None, num_hops: 0 }.into();
+
+    // Tier 2
+    let mut message = message_v1.clone();
+    assert!(matches!(message, RoutedMessage::V1(_)));
+    let _ = message.num_hops_mut();
+    assert!(matches!(message, RoutedMessage::V3(_)));
+
+    assert!(matches!(message_v1, RoutedMessage::V1(_)));
+    let body = message_v1.body_owned();
+    assert!(matches!(body, TieredMessageBody::T2(_)));
+
+    let mut message: RoutedMessage = message_v2.clone();
+    assert!(matches!(message, RoutedMessage::V2(_)));
+    let _ = message.num_hops_mut();
+    assert!(matches!(message, RoutedMessage::V3(_)));
+
+    assert!(matches!(message_v2, RoutedMessage::V2(_)));
+    let body = message_v2.body_owned();
+    assert!(matches!(body, TieredMessageBody::T2(_)));
+
+    // Tier 1
+    let message_v3 = make_block_approval_message();
+
     let message_v1: RoutedMessage = message_v3.msg_v1().into();
 
     let mut message = message_v1.clone();
@@ -210,7 +241,7 @@ fn test_upgrading_v1_to_v3() {
 
     assert!(matches!(message_v1, RoutedMessage::V1(_)));
     let body = message_v1.body_owned();
-    assert!(matches!(body, TieredMessageBody::T2(_)));
+    assert!(matches!(body, TieredMessageBody::T1(_)));
 }
 
 #[test]
@@ -223,20 +254,35 @@ fn test_body_conversion() {
     assert!(matches!(tiered_body, TieredMessageBody::T2(_)));
     let routed_body2 = tiered_body.into();
     assert_eq!(routed_body, routed_body2);
+
+    let mut rng = make_rng(19385389);
+    let signer = data::make_validator_signer(&mut rng);
+    let approval = Approval::new(CryptoHash::default(), 1, 1, &signer);
+    let routed_body = RoutedMessageBody::BlockApproval(approval);
+    let tiered_body = TieredMessageBody::from_routed(routed_body.clone());
+    assert!(matches!(tiered_body, TieredMessageBody::T1(_)));
+    let routed_body2 = tiered_body.into();
+    assert_eq!(routed_body, routed_body2);
 }
 
 #[test]
-fn test_proto_conv() {
-    let mut rng = make_rng(19385389);
-    let message_v3 = data::make_routed_message(
-        &mut rng,
-        T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
-            chunk_hash: CryptoHash::default().into(),
-            part_ords: vec![],
-            tracking_shards: Default::default(),
-        })
-        .into(),
-    );
+fn test_proto_conv_t2() {
+    let message_v3 = make_chunk_request_message();
+    let message_v1: RoutedMessage = message_v3.clone().msg_v1().into();
+
+    let peer_message_v3 = PeerMessage::Routed(Box::new(message_v3));
+    let peer_message_v1 = PeerMessage::Routed(Box::new(message_v1));
+
+    let proto_v3 = proto::PeerMessage::from(&peer_message_v3);
+    let proto_v1 = proto::PeerMessage::from(&peer_message_v1);
+
+    assert_eq!(proto_v3, proto_v1);
+}
+
+#[test]
+fn test_proto_conv_t1() {
+    let message_v3 = make_block_approval_message();
+
     let message_v1: RoutedMessage = message_v3.clone().msg_v1().into();
 
     let peer_message_v3 = PeerMessage::Routed(Box::new(message_v3));
