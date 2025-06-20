@@ -479,4 +479,32 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_create_hash_index() {
+        // cspell:ignore atata
+        let base = hash(b"atata");
+        let other_base = hash(b"banana");
+        let block_height: BlockHeight = 123_456_789;
+        let other_block_height: BlockHeight = 123_123_123;
+        let salt = 3;
+
+        // Check that the hash changes if base hash changes
+        assert_ne!(
+            create_hash_index(&base, block_height, salt),
+            create_hash_index(&other_base, block_height, salt)
+        );
+
+        // Check that the hash changes if block height changes
+        assert_ne!(
+            create_hash_index(&base, block_height, salt),
+            create_hash_index(&base, other_block_height, salt)
+        );
+
+        // Check that the hash changes if salt changes
+        assert_ne!(
+            create_hash_index(&base, block_height, salt),
+            create_hash_index(&base, block_height, salt + 1)
+        );
+    }
 }
