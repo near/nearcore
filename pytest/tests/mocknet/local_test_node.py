@@ -229,6 +229,26 @@ def run_cmd(cmd):
         )
 
 
+def make_snapshot(self, snapshot_id):
+    raise NotImplementedError(
+        'make_snapshot is not implemented for local test node')
+
+
+def restore_snapshot(self, snapshot_id):
+    raise NotImplementedError(
+        'restore_snapshot is not implemented for local test node')
+
+
+def list_snapshots(self):
+    raise NotImplementedError(
+        'list_snapshots is not implemented for local test node')
+
+
+def delete_snapshot(self, snapshot_id):
+    raise NotImplementedError(
+        'delete_snapshot is not implemented for local test node')
+
+
 # dumps records from `traffic_home_dir` and prepares records with keys changed
 # for mirroring traffic
 def make_records(neard_binary_path, traffic_home_dir, start_height):
