@@ -21,6 +21,7 @@
 ### Non-protocol Changes
 * Add RPC query for viewing global contract code. ([#13547](https://github.com/near/nearcore/pull/13547))
 * Add promise batch host functions for global contracts. ([#13565](https://github.com/near/nearcore/pull/13565))
+* Stabilize `EXPERIMENTAL_changes` RPC method and rename it to `changes`. ([#13722](https://github.com/near/nearcore/pull/13722))
 
 ## [2.6.0]
 
