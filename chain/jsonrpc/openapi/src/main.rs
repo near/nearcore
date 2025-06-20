@@ -301,6 +301,11 @@ fn main() {
         &mut all_paths,
         "block".to_string(),
     );
+    add_spec_for_path::<RpcStateChangesInBlockRequest, RpcStateChangesInBlockByTypeResponse>(
+        &mut all_schemas,
+        &mut all_paths,
+        "block_effects".to_string(),
+    );
     add_spec_for_path::<RpcSendTransactionRequest, CryptoHash>(
         &mut all_schemas,
         &mut all_paths,
@@ -310,6 +315,11 @@ fn main() {
         &mut all_schemas,
         &mut all_paths,
         "broadcast_tx_commit".to_string(),
+    );
+    add_spec_for_path::<RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockResponse>(
+        &mut all_schemas,
+        &mut all_paths,
+        "changes".to_string(),
     );
     add_spec_for_path::<RpcChunkRequest, RpcChunkResponse>(
         &mut all_schemas,
@@ -366,7 +376,6 @@ fn main() {
         &mut all_paths,
         "client_config".to_string(),
     );
-
     add_spec_for_path::<RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockResponse>(
         &mut all_schemas,
         &mut all_paths,

@@ -385,6 +385,9 @@ impl JsonRpcHandler {
         Ok(match request.method.as_ref() {
             // Handlers ordered alphabetically
             "block" => process_method_call(request, |params| self.block(params)).await,
+            "block_effects" => {
+                process_method_call(request, |params| self.changes_in_block(params)).await
+            }
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
                     let tx = self.send_tx_async(params).to_string();
@@ -394,6 +397,9 @@ impl JsonRpcHandler {
             }
             "broadcast_tx_commit" => {
                 process_method_call(request, |params| self.send_tx_commit(params)).await
+            }
+            "changes" => {
+                process_method_call(request, |params| self.changes_in_block_by_type(params)).await
             }
             "chunk" => process_method_call(request, |params| self.chunk(params)).await,
             "gas_price" => process_method_call(request, |params| self.gas_price(params)).await,
