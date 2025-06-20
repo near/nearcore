@@ -1119,12 +1119,8 @@ impl Chain {
                     &parent_hash,
                     shard_id,
                     true,
-                ) || self.shard_tracker.will_care_about_shard(
-                    me.as_ref(),
-                    &parent_hash,
-                    shard_id,
-                    true,
-                ) {
+                ) || self.shard_tracker.will_care_about_shard(&parent_hash, shard_id)
+                {
                     if let Err(_) = self.chain_store.get_chunk(&chunk_hash) {
                         missing.push(chunk_header.clone());
                     }
@@ -1145,12 +1141,7 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&parent_hash)?;
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if self.shard_tracker.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
-                || self.shard_tracker.will_care_about_shard(
-                    me.as_ref(),
-                    &parent_hash,
-                    shard_id,
-                    true,
-                )
+                || self.shard_tracker.will_care_about_shard(&parent_hash, shard_id)
             {
                 return Ok(true);
             }
@@ -1906,12 +1897,8 @@ impl Chain {
                 shard_id,
                 true,
             );
-            let will_care_about_shard = self.shard_tracker.will_care_about_shard(
-                me.as_ref(),
-                block.header().prev_hash(),
-                shard_id,
-                true,
-            );
+            let will_care_about_shard =
+                self.shard_tracker.will_care_about_shard(block.header().prev_hash(), shard_id);
             let cares_about_shard_this_or_next_epoch = cares_about_shard || will_care_about_shard;
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
             if cares_about_shard_this_or_next_epoch {
@@ -2799,12 +2786,8 @@ impl Chain {
                 block.header().prev_hash(),
                 shard_id,
                 true,
-            ) && self.shard_tracker.will_care_about_shard(
-                me.as_ref(),
-                block.header().prev_hash(),
-                shard_id,
-                true,
-            ) {
+            ) && self.shard_tracker.will_care_about_shard(block.header().prev_hash(), shard_id)
+            {
                 let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
                 self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
@@ -3210,7 +3193,7 @@ impl Chain {
         let cares_about_shard_this_epoch =
             self.shard_tracker.cares_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
-            self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+            self.shard_tracker.will_care_about_shard(prev_hash, shard_id);
         let cared_about_shard_prev_epoch =
             self.shard_tracker.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
         let should_apply_chunk = get_should_apply_chunk(

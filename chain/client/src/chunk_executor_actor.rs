@@ -391,7 +391,7 @@ impl ChunkExecutorActor {
         let cares_about_shard_this_epoch =
             self.shard_tracker.cares_about_shard(me, prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
-            self.shard_tracker.will_care_about_shard(me, prev_hash, shard_id, true);
+            self.shard_tracker.will_care_about_shard(prev_hash, shard_id);
         let cared_about_shard_prev_epoch =
             self.shard_tracker.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
         let should_apply_chunk = get_should_apply_chunk(
