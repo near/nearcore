@@ -403,6 +403,12 @@ impl JsonRpcHandler {
             }
             "chunk" => process_method_call(request, |params| self.chunk(params)).await,
             "gas_price" => process_method_call(request, |params| self.gas_price(params)).await,
+            "genesis_config" => {
+                process_method_call(request, |_params: ()| async {
+                    Result::<_, std::convert::Infallible>::Ok(&self.genesis_config)
+                })
+                .await
+            }
             "health" => process_method_call(request, |_params: ()| self.health()).await,
             "light_client_proof" => {
                 process_method_call(request, |params| {
@@ -427,9 +433,6 @@ impl JsonRpcHandler {
                 process_method_call(request, |_params: ()| self.client_config()).await
             }
             "EXPERIMENTAL_changes" => {
-                process_method_call(request, |params| self.changes_in_block_by_type(params)).await
-            }
-            "changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
             }
             "EXPERIMENTAL_changes_in_block" => {
