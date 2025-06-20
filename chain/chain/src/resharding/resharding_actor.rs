@@ -5,6 +5,7 @@ use super::event_type::ReshardingSplitShardParams;
 use super::flat_storage_resharder::FlatStorageResharder;
 use super::trie_state_resharder::TrieStateResharder;
 use super::types::ScheduleResharding;
+use crate::resharding::trie_state_resharder::ResumeAllowed;
 use crate::types::RuntimeAdapter;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, HandlerWithContext};
@@ -66,8 +67,12 @@ impl ReshardingActor {
             resharding_handle.clone(),
             resharding_config.clone(),
         );
-        let trie_state_resharder =
-            TrieStateResharder::new(runtime_adapter, resharding_handle, resharding_config);
+        let trie_state_resharder = TrieStateResharder::new(
+            runtime_adapter,
+            resharding_handle,
+            resharding_config,
+            ResumeAllowed::No,
+        );
         Self {
             chain_store,
             resharding_events: HashMap::new(),

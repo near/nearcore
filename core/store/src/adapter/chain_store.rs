@@ -228,7 +228,7 @@ impl ChainStoreAdapter {
         &self,
         chunk_hash: &ChunkHash,
     ) -> Result<Arc<PartialEncodedChunk>, Error> {
-        match self.store.get_ser(DBCol::PartialChunks, chunk_hash.as_ref()) {
+        match self.store.caching_get_ser(DBCol::PartialChunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
             _ => Err(Error::ChunkMissing(chunk_hash.clone())),
         }

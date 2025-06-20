@@ -78,13 +78,30 @@ pub struct TrieStateResharder {
     resharding_config: MutableConfigValue<ReshardingConfig>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumeAllowed {
+    Yes,
+    No,
+}
+
 impl TrieStateResharder {
     pub fn new(
         runtime: Arc<dyn RuntimeAdapter>,
         handle: ReshardingHandle,
         resharding_config: MutableConfigValue<ReshardingConfig>,
+        resume_allowed: ResumeAllowed,
     ) -> Self {
-        Self { runtime, handle, resharding_config }
+        let resharder = Self { runtime, handle, resharding_config };
+        if resume_allowed == ResumeAllowed::No {
+            // Load the status to check if resharding is in progress
+            if let Some(status) = resharder.load_status().unwrap() {
+                panic!(
+                    "TrieStateReshardingStatus already exists for shard {}, must run resume_resharding to continue interrupted resharding operation before starting node.",
+                    status.parent_shard_uid
+                )
+            }
+        }
+        resharder
     }
 
     // Processes one batch of a trie state resharding and updates the status,
@@ -162,29 +179,32 @@ impl TrieStateResharder {
             child_shard_uid
         );
 
-        // If the child shard does not have memtries, we cannot proceed with resharding.
-        let locked = trie.lock_for_iter();
-        let mut iter = locked.iter()?;
-        if let Some(seek_key) = seek_key {
-            // If seek_key is provided, this will prepare the iterator to continue from where it left off.
-            // Note this will not record any trie nodes to the recorder.
-            iter.seek(Bound::Excluded(seek_key))?;
-        }
-
-        // During iteration, the trie nodes will be recorded to the recorder, so we
-        // don't need to care about the value explicitly. If we reach the batch
-        // size, we stop iterating, and remember the key to continue from in the
-        // next batch.
-        let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
-        let mut next_key: Option<Vec<u8>> = None;
-        for item in iter {
-            let (key, _val) = item?; // Handle StorageError
-            let stats = trie.recorder_stats().expect("trie recorder stats should be available");
-            if stats.total_size >= batch_size {
-                next_key = Some(key);
-                break;
+        let next_key = {
+            // If the child shard does not have memtries, we cannot proceed with resharding.
+            let locked = trie.lock_for_iter();
+            let mut iter = locked.iter()?;
+            if let Some(seek_key) = seek_key {
+                // If seek_key is provided, this will prepare the iterator to continue from where
+                // it left off. Note this will not record any trie nodes to the recorder.
+                iter.seek(Bound::Excluded(seek_key))?;
             }
-        }
+
+            // During iteration, the trie nodes will be recorded to the recorder, so we
+            // don't need to care about the value explicitly. If we reach the batch
+            // size, we stop iterating, and remember the key to continue from in the
+            // next batch.
+            let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
+            let mut next_key: Option<Vec<u8>> = None;
+            for item in iter {
+                let (key, _val) = item?; // Handle StorageError
+                let stats = trie.recorder_stats().expect("trie recorder stats should be available");
+                if stats.total_size >= batch_size {
+                    next_key = Some(key);
+                    break;
+                }
+            }
+            next_key
+        };
 
         // Take the recorded trie changes and apply them to the State column of the child shard.
         let trie_changes =
@@ -428,8 +448,12 @@ mod tests {
         let test = setup_test();
 
         let config = ChainConfig::test().resharding_config;
-        let resharder =
-            TrieStateResharder::new(test.runtime.clone(), ReshardingHandle::new(), config);
+        let resharder = TrieStateResharder::new(
+            test.runtime.clone(),
+            ReshardingHandle::new(),
+            config,
+            ResumeAllowed::No,
+        );
 
         let mut update_status = test.as_status();
         resharder.resharding_blocking_impl(&mut update_status).unwrap();
@@ -445,8 +469,12 @@ mod tests {
         let test = setup_test();
 
         let config = ChainConfig::test().resharding_config;
-        let resharder =
-            TrieStateResharder::new(test.runtime.clone(), ReshardingHandle::new(), config);
+        let resharder = TrieStateResharder::new(
+            test.runtime.clone(),
+            ReshardingHandle::new(),
+            config,
+            ResumeAllowed::No,
+        );
 
         // Set the batch size to 1, this should stop iteration after the first key.
         resharder
@@ -477,8 +505,12 @@ mod tests {
 
         // Test resuming the resharding operation.
         let config = ChainConfig::test().resharding_config;
-        let resharder =
-            TrieStateResharder::new(test.runtime.clone(), ReshardingHandle::new(), config);
+        let resharder = TrieStateResharder::new(
+            test.runtime.clone(),
+            ReshardingHandle::new(),
+            config,
+            ResumeAllowed::Yes,
+        );
         resharder.resume(test.parent_shard).expect("resume should succeed");
 
         // The resharding status should be None after completion.
@@ -486,6 +518,37 @@ mod tests {
         check_child_tries_contain_all_keys(&test);
         // StateShardUIdMapping should be removed after resharding.
         assert_eq!(0, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());
+    }
+
+    #[test]
+    #[should_panic(expected = "TrieStateReshardingStatus already exists")]
+    fn test_trie_state_resharder_panic_on_implicit_resume() {
+        let test = setup_test();
+
+        let config = ChainConfig::test().resharding_config;
+        let resharder = TrieStateResharder::new(
+            test.runtime.clone(),
+            ReshardingHandle::new(),
+            config,
+            ResumeAllowed::No,
+        );
+
+        // Set the batch size to 1, this should stop iteration after the first key.
+        resharder
+            .resharding_config
+            .update(ReshardingConfig { batch_size: ByteSize(1), ..ReshardingConfig::test() });
+        let mut update_status = test.as_status();
+        resharder.process_batch_and_update_status(&mut update_status).unwrap();
+
+        // Implicitly resuming the resharding operation should panic,
+        // as the status is not None and we are not allowed to resume.
+        let config = ChainConfig::test().resharding_config;
+        let _resharder = TrieStateResharder::new(
+            test.runtime.clone(),
+            ReshardingHandle::new(),
+            config,
+            ResumeAllowed::No,
+        );
     }
 
     fn check_child_tries_contain_all_keys(test: &TestSetup) {
