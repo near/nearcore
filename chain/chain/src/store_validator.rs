@@ -17,7 +17,7 @@ use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, Stat
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, BlockHeight, EpochId};
+use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
 use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
@@ -66,7 +66,6 @@ pub struct ErrorMessage {
 }
 
 pub struct StoreValidator {
-    me: Option<AccountId>,
     config: GenesisConfig,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -86,7 +85,6 @@ pub struct StoreValidator {
 
 impl StoreValidator {
     pub fn new(
-        me: Option<AccountId>,
         config: GenesisConfig,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -101,7 +99,6 @@ impl StoreValidator {
                 epoch_sync_proof.into_v1().current_epoch.first_block_header_in_epoch.height()
             });
         StoreValidator {
-            me,
             config,
             epoch_manager,
             shard_tracker,
@@ -447,7 +444,6 @@ mod tests {
         (
             chain,
             StoreValidator::new(
-                None,
                 genesis.config,
                 epoch_manager,
                 shard_tracker,

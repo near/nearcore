@@ -148,11 +148,8 @@ impl InfoHelper {
         client: &crate::client::Client,
         shard_layout: &ShardLayout,
     ) {
-        let validator_signer = client.validator_signer.get();
-        let me = validator_signer.as_ref().map(|x| x.validator_id());
         for shard_id in shard_layout.shard_ids() {
-            let tracked =
-                client.shard_tracker.cares_about_shard(me, &head.prev_block_hash, shard_id, true);
+            let tracked = client.shard_tracker.cares_about_shard(&head.prev_block_hash, shard_id);
             metrics::TRACKED_SHARDS.with_label_values(&[&shard_id.to_string()]).set(if tracked {
                 1
             } else {

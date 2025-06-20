@@ -156,7 +156,6 @@ fn setup(
 
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
-        signer.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
