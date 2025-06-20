@@ -265,31 +265,23 @@ fn test_body_conversion() {
     assert_eq!(routed_body, routed_body2);
 }
 
+fn test_proto_conv_inner(message_v3: RoutedMessage) {
+    let message_v1: RoutedMessage = message_v3.clone().msg_v1().into();
+    let peer_message_v3 = PeerMessage::Routed(Box::new(message_v3));
+    let peer_message_v1 = PeerMessage::Routed(Box::new(message_v1));
+    let proto_v3 = proto::PeerMessage::from(&peer_message_v3);
+    let proto_v1 = proto::PeerMessage::from(&peer_message_v1);
+    assert_eq!(proto_v3, proto_v1);
+}
+
 #[test]
 fn test_proto_conv_t2() {
     let message_v3 = make_chunk_request_message();
-    let message_v1: RoutedMessage = message_v3.clone().msg_v1().into();
-
-    let peer_message_v3 = PeerMessage::Routed(Box::new(message_v3));
-    let peer_message_v1 = PeerMessage::Routed(Box::new(message_v1));
-
-    let proto_v3 = proto::PeerMessage::from(&peer_message_v3);
-    let proto_v1 = proto::PeerMessage::from(&peer_message_v1);
-
-    assert_eq!(proto_v3, proto_v1);
+    test_proto_conv_inner(message_v3);
 }
 
 #[test]
 fn test_proto_conv_t1() {
     let message_v3 = make_block_approval_message();
-
-    let message_v1: RoutedMessage = message_v3.clone().msg_v1().into();
-
-    let peer_message_v3 = PeerMessage::Routed(Box::new(message_v3));
-    let peer_message_v1 = PeerMessage::Routed(Box::new(message_v1));
-
-    let proto_v3 = proto::PeerMessage::from(&peer_message_v3);
-    let proto_v1 = proto::PeerMessage::from(&peer_message_v1);
-
-    assert_eq!(proto_v3, proto_v1);
+    test_proto_conv_inner(message_v3);
 }
