@@ -289,34 +289,36 @@ impl PeerManagerActor {
                         }
                     });
                 }
-                if let Some(cfg) = state.config.tier1.clone() {
-                    // Connect to TIER1 proxies and broadcast the list those connections periodically.
-                    arbiter.spawn({
-                        let clock = clock.clone();
-                        let state = state.clone();
-                        let mut interval = time::Interval::new(clock.now(), cfg.advertise_proxies_interval);
-                        async move {
-                            loop {
-                                interval.tick(&clock).await;
-                                state.tier1_request_full_sync();
-                                state.tier1_advertise_proxies(&clock).await;
-                            }
+
+                // Connect to TIER1 proxies and broadcast the list those connections periodically.
+                let tier1 = state.config.tier1.clone();
+                arbiter.spawn({
+                    let clock = clock.clone();
+                    let state = state.clone();
+                    let mut interval = time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
+                    async move {
+                        loop {
+                            interval.tick(&clock).await;
+                            state.tier1_request_full_sync();
+                            state.tier1_advertise_proxies(&clock).await;
                         }
-                    });
-                    // Update TIER1 connections periodically.
-                    arbiter.spawn({
-                        let clock = clock.clone();
-                        let state = state.clone();
-                        let mut interval = tokio::time::interval(cfg.connect_interval.try_into().unwrap());
-                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                        async move {
-                            loop {
-                                interval.tick().await;
-                                state.tier1_connect(&clock).await;
-                            }
+                    }
+                });
+
+                // Update TIER1 connections periodically.
+                arbiter.spawn({
+                    let clock = clock.clone();
+                    let state = state.clone();
+                    let mut interval = tokio::time::interval(tier1.connect_interval.try_into().unwrap());
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    async move {
+                        loop {
+                            interval.tick().await;
+                            state.tier1_connect(&clock).await;
                         }
-                    });
-                }
+                    }
+                });
+
                 // Periodically poll the connection store for connections we'd like to re-establish
                 arbiter.spawn({
                     let clock = clock.clone();

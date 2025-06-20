@@ -1,5 +1,6 @@
 use crate::blacklist;
 use crate::concurrency::rate;
+use crate::config_json::Tier1Config;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_store;
@@ -103,6 +104,18 @@ pub struct Tier1 {
     pub enable_outbound: bool,
 }
 
+impl From<Tier1Config> for Tier1 {
+    fn from(cfg: Tier1Config) -> Self {
+        Self {
+            connect_interval: cfg.connect_interval,
+            new_connections_per_attempt: cfg.new_connections_per_attempt,
+            advertise_proxies_interval: cfg.advertise_proxies_interval,
+            enable_inbound: cfg.enable_inbound,
+            enable_outbound: cfg.enable_outbound,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct SocketOptions {
     pub recv_buffer_size: Option<u32>,
@@ -184,7 +197,7 @@ pub struct NetworkConfig {
     /// Maximal rate at which RoutingTable can be recomputed.
     pub routing_table_update_rate_limit: rate::Limit,
     /// Config of the TIER1 network.
-    pub tier1: Option<Tier1>,
+    pub tier1: Tier1,
 
     // Whether to ignore tombstones some time after startup.
     //
@@ -288,22 +301,40 @@ impl NetworkConfig {
                 }
             }
         }
+
+        // Create validator config with proper proxies
+        let validator = ValidatorConfig {
+            signer: validator_signer,
+            proxies: if !cfg.public_addrs.is_empty() {
+                ValidatorProxies::Static(cfg.public_addrs.clone())
+            } else {
+                ValidatorProxies::Dynamic(cfg.trusted_stun_servers.clone())
+            },
+        };
+
+        let node_addr = if cfg.addr.is_empty() {
+            None
+        } else {
+            Some(tcp::ListenerAddr::new(cfg.addr.parse().context("Failed to parse SocketAddr")?))
+        };
+
+        // Parse blacklist from config
+        let blacklist = cfg
+            .blacklist
+            .iter()
+            .map(|e| e.parse::<blacklist::Entry>())
+            .collect::<Result<Vec<_>, _>>()
+            .context("failed to parse blacklist")?
+            .into_iter()
+            .collect::<blacklist::Blacklist>();
+
+        // Configure Tier1 network
+        let tier1 = cfg.tier1.into();
+
         let mut this = Self {
+            node_addr,
             node_key,
-            validator: ValidatorConfig {
-                signer: validator_signer,
-                proxies: if !cfg.public_addrs.is_empty() {
-                    ValidatorProxies::Static(cfg.public_addrs)
-                } else {
-                    ValidatorProxies::Dynamic(cfg.trusted_stun_servers)
-                },
-            },
-            node_addr: match cfg.addr.as_str() {
-                "" => None,
-                addr => Some(tcp::ListenerAddr::new(
-                    addr.parse().context("Failed to parse SocketAddr")?,
-                )),
-            },
+            validator,
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
                     vec![]
@@ -314,16 +345,11 @@ impl NetworkConfig {
                         .collect::<Result<_, _>>()
                         .context("boot_nodes")?
                 },
-                blacklist: cfg
-                    .blacklist
-                    .iter()
-                    .map(|e| e.parse())
-                    .collect::<Result<_, _>>()
-                    .context("failed to parse blacklist")?,
+                blacklist,
                 peer_states_cache_size: cfg.peer_states_cache_size,
-                connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
                 ban_window: cfg.ban_window.try_into()?,
                 peer_expiration_duration: cfg.peer_expiration_duration.try_into()?,
+                connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
             },
             snapshot_hosts: snapshot_hosts::Config {
                 snapshot_hosts_cache_size: cfg.snapshot_hosts_cache_size,
@@ -344,8 +370,8 @@ impl NetworkConfig {
                     .collect::<anyhow::Result<_>>()
                     .context("whitelist_nodes")?
             },
-            connect_to_reliable_peers_on_startup: true,
             handshake_timeout: cfg.handshake_timeout.try_into()?,
+            connect_to_reliable_peers_on_startup: true,
             monitor_peers_max_period: cfg.monitor_peers_max_period.try_into()?,
             max_num_peers: cfg.max_num_peers,
             minimum_outbound_peers: cfg.minimum_outbound_peers,
@@ -370,20 +396,13 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             routing_table_update_rate_limit: rate::Limit { qps: 1., burst: 1 },
-            tier1: Some(Tier1 {
-                connect_interval: cfg.experimental.tier1_connect_interval.try_into()?,
-                new_connections_per_attempt: cfg.experimental.tier1_new_connections_per_attempt,
-                advertise_proxies_interval: time::Duration::minutes(15),
-                enable_inbound: cfg.experimental.tier1_enable_inbound,
-                enable_outbound: cfg.experimental.tier1_enable_outbound,
-            }),
+            tier1,
             inbound_disabled: cfg.experimental.inbound_disabled,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
                 Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
             } else {
                 None
             },
-            // Use a preset to configure rate limits and override entries with user defined values later.
             received_messages_rate_limits: messages_limits::Config::standard_preset(),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
@@ -411,6 +430,7 @@ impl NetworkConfig {
                 peer_id: PeerId::new(node_key.public_key()),
             }]),
         };
+
         NetworkConfig {
             node_addr: Some(node_addr),
             node_key,
@@ -452,7 +472,7 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             routing_table_update_rate_limit: rate::Limit { qps: 10., burst: 1 },
-            tier1: Some(Tier1 {
+            tier1: Tier1 {
                 // Interval is very large, so that it doesn't happen spontaneously in tests.
                 // It should rather be triggered manually in tests.
                 connect_interval: time::Duration::hours(1000),
@@ -460,7 +480,7 @@ impl NetworkConfig {
                 advertise_proxies_interval: time::Duration::hours(1000),
                 enable_inbound: true,
                 enable_outbound: true,
-            }),
+            },
             skip_tombstones: None,
             received_messages_rate_limits: messages_limits::Config::default(),
             #[cfg(test)]

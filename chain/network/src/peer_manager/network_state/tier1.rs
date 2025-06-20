@@ -24,9 +24,6 @@ impl super::NetworkState {
         &self,
         accounts_data: &AccountDataCacheSnapshot,
     ) -> Option<FrozenValidatorConfig> {
-        if self.config.tier1.is_none() {
-            return None;
-        }
         let signer = self.config.validator.signer.get();
         if signer
             .as_ref()
@@ -216,11 +213,7 @@ impl super::NetworkState {
     /// Closes TIER1 connections from nodes which are not TIER1 any more.
     /// If this node is TIER1, it additionally connects to proxies of other TIER1 nodes.
     pub async fn tier1_connect(self: &Arc<Self>, clock: &time::Clock) {
-        let tier1_cfg = match &self.config.tier1 {
-            Some(it) => it,
-            None => return,
-        };
-        if !tier1_cfg.enable_outbound {
+        if !self.config.tier1.enable_outbound {
             return;
         }
         let accounts_data = self.accounts_data.load();
@@ -315,7 +308,7 @@ impl super::NetworkState {
                 }
                 // Bound the number of connections established at a single call to
                 // tier1_connect().
-                if handles.len() as u64 >= tier1_cfg.new_connections_per_attempt {
+                if handles.len() as u64 >= self.config.tier1.new_connections_per_attempt {
                     break;
                 }
                 // If we are already connected to some proxy of account_key, then

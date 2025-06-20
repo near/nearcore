@@ -325,7 +325,7 @@ impl NetworkState {
             match conn.tier {
                 tcp::Tier::T1 => {
                     if conn.peer_type == PeerType::Inbound {
-                        if !this.config.tier1.as_ref().is_some_and(|c| c.enable_inbound) {
+                        if !this.config.tier1.enable_inbound {
                             return Err(RegisterPeerError::Tier1InboundDisabled);
                         }
                         // Allow for inbound TIER1 connections only directly from a TIER1 peers.
@@ -1014,20 +1014,13 @@ impl NetworkState {
         let _mutex = self.set_chain_info_mutex.lock();
 
         // We set state.chain_info and call accounts_data.set_keys
-        // synchronously, therefore, assuming actix in-order delivery,
-        // there will be no race condition between subsequent SetChainInfo
-        // calls.
+        // synchronously, therefore, assuming actix in-order delivery, there
+        // will be no race condition between subsequent SetChainInfo calls.
         self.chain_info.store(Arc::new(Some(info.clone())));
 
-        // If tier1 is not enabled, we skip set_keys() call.
-        // This way self.state.accounts_data is always empty, hence no data
-        // will be collected or broadcasted.
-        if self.config.tier1.is_none() {
-            return false;
-        }
+        // The set of TIER1 accounts has changed, so we might be missing some
+        // accounts_data that our peers know about.
         let has_changed = self.accounts_data.set_keys(info.tier1_accounts);
-        // The set of TIER1 accounts has changed, so we might be missing some accounts_data
-        // that our peers know about.
         if has_changed {
             self.tier1_request_full_sync();
         }
