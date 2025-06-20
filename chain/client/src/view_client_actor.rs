@@ -179,7 +179,7 @@ impl ViewClientActorInner {
     fn maybe_block_id_to_block_header(
         &self,
         block_id: MaybeBlockId,
-    ) -> Result<BlockHeader, near_chain::Error> {
+    ) -> Result<Arc<BlockHeader>, near_chain::Error> {
         match block_id {
             None => {
                 let block_hash = self.chain.head()?.last_block_hash;
@@ -225,7 +225,7 @@ impl ViewClientActorInner {
     fn get_block_header_by_reference(
         &self,
         reference: &BlockReference,
-    ) -> Result<Option<BlockHeader>, near_chain::Error> {
+    ) -> Result<Option<Arc<BlockHeader>>, near_chain::Error> {
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_block_header_by_height(*block_height).map(Some)
@@ -238,7 +238,7 @@ impl ViewClientActorInner {
                 .and_then(|block_hash| self.chain.get_block_header(&block_hash))
                 .map(Some),
             BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis) => {
-                Ok(Some(self.chain.genesis().clone()))
+                Ok(Some(self.chain.genesis().clone().into()))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
                 let block_hash = match self.chain.get_earliest_block_hash()? {
@@ -258,7 +258,7 @@ impl ViewClientActorInner {
     fn get_block_by_reference(
         &self,
         reference: &BlockReference,
-    ) -> Result<Option<Block>, near_chain::Error> {
+    ) -> Result<Option<Arc<Block>>, near_chain::Error> {
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_block_by_height(*block_height).map(Some)
@@ -271,7 +271,7 @@ impl ViewClientActorInner {
                 .and_then(|block_hash| self.chain.get_block(&block_hash))
                 .map(Some),
             BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis) => {
-                Ok(Some(self.chain.genesis_block().clone()))
+                Ok(Some(self.chain.genesis_block().into()))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
                 let block_hash = match self.chain.get_earliest_block_hash()? {
@@ -511,10 +511,9 @@ impl ViewClientActorInner {
             awaiting_non_refund_receipt_ids.is_subset(&executed_receipt_ids);
         let executed_including_refunds = awaiting_receipt_ids.is_subset(&executed_receipt_ids);
 
-        if let Err(_) = self.chain.check_blocks_final_and_canonical(&[self
-            .chain
-            .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
-        {
+        let blocks =
+            [self.chain.get_block_header(&execution_outcome.transaction_outcome.block_hash)?];
+        if let Err(_) = self.chain.check_blocks_final_and_canonical(blocks.iter().map(|b| &**b)) {
             return if executed_ignoring_refunds {
                 Ok(TxExecutionStatus::ExecutedOptimistic)
             } else {
@@ -537,7 +536,7 @@ impl ViewClientActorInner {
         }
         // We can't sort and check only the last block;
         // previous blocks may be not in the canonical chain
-        Ok(match self.chain.check_blocks_final_and_canonical(&headers) {
+        Ok(match self.chain.check_blocks_final_and_canonical(headers.iter().map(|v| &**v)) {
             Err(_) => TxExecutionStatus::Executed,
             Ok(_) => TxExecutionStatus::Final,
         })
@@ -648,7 +647,7 @@ impl ViewClientActorInner {
     fn retrieve_headers(
         &self,
         hashes: Vec<CryptoHash>,
-    ) -> Result<Vec<BlockHeader>, near_chain::Error> {
+    ) -> Result<Vec<Arc<BlockHeader>>, near_chain::Error> {
         retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS, None)
     }
 
@@ -710,7 +709,7 @@ impl Handler<GetBlock> for ViewClientActorInner {
             .epoch_manager
             .get_block_producer(block.header().epoch_id(), block.header().height())
             .into_chain_error()?;
-        Ok(BlockView::from_author_block(block_author, block))
+        Ok(BlockView::from_author_block(block_author, &block))
     }
 }
 
@@ -734,7 +733,7 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActorInner {
 }
 
 fn get_chunk_from_block(
-    block: Block,
+    block: &Block,
     shard_id: ShardId,
     chain: &Chain,
 ) -> Result<ShardChunk, near_chain::Error> {
@@ -769,11 +768,11 @@ impl Handler<GetShardChunk> for ViewClientActorInner {
             }
             GetShardChunk::BlockHash(block_hash, shard_id) => {
                 let block = self.chain.get_block(&block_hash)?;
-                Ok(get_chunk_from_block(block, shard_id, &self.chain)?)
+                Ok(get_chunk_from_block(&block, shard_id, &self.chain)?)
             }
             GetShardChunk::Height(height, shard_id) => {
                 let block = self.chain.get_block_by_height(height)?;
-                Ok(get_chunk_from_block(block, shard_id, &self.chain)?)
+                Ok(get_chunk_from_block(&block, shard_id, &self.chain)?)
             }
         }
     }
@@ -793,11 +792,11 @@ impl Handler<GetChunk> for ViewClientActorInner {
             }
             GetChunk::BlockHash(block_hash, shard_id) => {
                 let block = self.chain.get_block(&block_hash)?;
-                get_chunk_from_block(block, shard_id, &self.chain)?
+                get_chunk_from_block(&block, shard_id, &self.chain)?
             }
             GetChunk::Height(height, shard_id) => {
                 let block = self.chain.get_block_by_height(height)?;
-                get_chunk_from_block(block, shard_id, &self.chain)?
+                get_chunk_from_block(&block, shard_id, &self.chain)?
             }
         };
 
@@ -1168,7 +1167,9 @@ impl Handler<GetBlockProof> for ViewClientActorInner {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlockProof"]).start_timer();
         let block_header = self.chain.get_block_header(&msg.block_hash)?;
+        let block_header = BlockHeader::clone(&block_header);
         let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
+        let head_block_header = BlockHeader::clone(&head_block_header);
         self.chain.check_blocks_final_and_canonical(&[block_header.clone(), head_block_header])?;
         let block_header_lite = block_header.into();
         let proof = self.chain.compute_past_block_proof_in_merkle_tree_of_later_block(
@@ -1276,18 +1277,18 @@ impl Handler<TxStatusResponse> for ViewClientActorInner {
 
 impl Handler<BlockRequest> for ViewClientActorInner {
     #[perf]
-    fn handle(&mut self, msg: BlockRequest) -> Option<Box<Block>> {
+    fn handle(&mut self, msg: BlockRequest) -> Option<Arc<Block>> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["BlockRequest"]).start_timer();
         let BlockRequest(hash) = msg;
-        if let Ok(block) = self.chain.get_block(&hash) { Some(Box::new(block)) } else { None }
+        if let Ok(block) = self.chain.get_block(&hash) { Some(block) } else { None }
     }
 }
 
 impl Handler<BlockHeadersRequest> for ViewClientActorInner {
     #[perf]
-    fn handle(&mut self, msg: BlockHeadersRequest) -> Option<Vec<BlockHeader>> {
+    fn handle(&mut self, msg: BlockHeadersRequest) -> Option<Vec<Arc<BlockHeader>>> {
         tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["BlockHeadersRequest"])

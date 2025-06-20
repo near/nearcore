@@ -79,9 +79,9 @@ fn test_client_with_simple_test_loop() {
         "validator_signer",
     );
     let shard_tracker = ShardTracker::new(
-        validator_signer.clone(),
         TrackedShardsConfig::AllShards,
         epoch_manager.clone(),
+        validator_signer.clone(),
     );
 
     let shards_manager_adapter = LateBoundSender::new();
@@ -117,6 +117,8 @@ fn test_client_with_simple_test_loop() {
     )
     .unwrap();
 
+    let head = client.chain.head().unwrap();
+    let header_head = client.chain.header_head().unwrap();
     let shards_manager = ShardsManagerActor::new(
         test_loop.clock(),
         validator_signer,
@@ -126,8 +128,8 @@ fn test_client_with_simple_test_loop() {
         noop().into_sender(),
         client_adapter.as_sender(),
         store.chunk_store(),
-        client.chain.head().unwrap(),
-        client.chain.header_head().unwrap(),
+        <_>::clone(&head),
+        <_>::clone(&header_head),
         Duration::milliseconds(100),
     );
 

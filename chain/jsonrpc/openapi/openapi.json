@@ -410,6 +410,33 @@
         }
       }
     },
+    "/changes": {
+      "post": {
+        "operationId": "changes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_changes"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/chunk": {
       "post": {
         "operationId": "chunk",
@@ -6688,6 +6715,33 @@
         "title": "JsonRpcRequest_for_broadcast_tx_commit",
         "type": "object"
       },
+      "JsonRpcRequest_for_changes": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "changes"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcStateChangesInBlockByTypeRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_changes",
+        "type": "object"
+      },
       "JsonRpcRequest_for_chunk": {
         "properties": {
           "id": {
@@ -9283,8 +9337,12 @@
             "nullable": true,
             "type": "string"
           },
+          "save_invalid_witnesses": {
+            "description": "Save observed instances of invalid ChunkStateWitness to the database in DBCol::InvalidChunkStateWitnesses.\n Saving invalid witnesses is useful for analysis and debugging.\n This option can cause extra load on the database and is not recommended for production use.",
+            "type": "boolean"
+          },
           "save_latest_witnesses": {
-            "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\n Saving the latest witnesses is useful for analysis and debugging.\n When this option is enabled, the node will save ALL witnesses it observes, even invalid ones,\n which can cause extra load on the database. This option is not recommended for production use,\n as a large number of incoming witnesses could cause denial of service.",
+            "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\n Saving the latest witnesses is useful for analysis and debugging.\n This option can cause extra load on the database and is not recommended for production use.",
             "type": "boolean"
           },
           "save_trie_changes": {
@@ -9502,6 +9560,7 @@
           "orphan_state_witness_pool_size",
           "orphan_state_witness_max_size",
           "save_latest_witnesses",
+          "save_invalid_witnesses",
           "transaction_request_handler_threads"
         ],
         "type": "object"
@@ -12756,6 +12815,10 @@
             ],
             "description": "Describes limits for VM and Runtime.\n\n TODO: Consider changing this to `VMLimitConfigView` to avoid dependency\n on runtime."
           },
+          "reftypes_bulk_memory": {
+            "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
+            "type": "boolean"
+          },
           "regular_op_cost": {
             "description": "Gas cost of a regular operation.",
             "format": "uint32",
@@ -12791,6 +12854,7 @@
           "discard_custom_sections",
           "saturating_float_to_int",
           "global_contract_host_fns",
+          "reftypes_bulk_memory",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",
@@ -13189,20 +13253,20 @@
         "description": "Configuration specific to ChunkStateWitness.",
         "properties": {
           "combined_transactions_size_limit": {
-            "description": "A witness contains transactions from both the previous chunk and the current one.\n This parameter limits the sum of sizes of transactions from both of those chunks.",
+            "description": "Maximum size of transactions contained inside ChunkStateWitness.\n\n A witness contains transactions from both the previous chunk and the current one.\n This parameter limits the sum of sizes of transactions from both of those chunks.",
             "format": "uint",
             "minimum": 0,
             "type": "integer"
           },
           "main_storage_proof_size_soft_limit": {
             "description": "Size limit for storage proof generated while executing receipts in a chunk.\n After this limit is reached we defer execution of any new receipts.",
-            "format": "uint",
+            "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "new_transactions_validation_state_size_soft_limit": {
             "description": "Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.",
-            "format": "uint",
+            "format": "uint64",
             "minimum": 0,
             "type": "integer"
           }

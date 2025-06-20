@@ -136,7 +136,7 @@ fn setup(
         "validator_signer",
     );
     let shard_tracker =
-        ShardTracker::new(signer.clone(), TrackedShardsConfig::AllShards, epoch_manager.clone());
+        ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
     let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
     let config = {
         let mut base = ClientConfig::test(
@@ -509,8 +509,8 @@ pub fn setup_synchronous_shards_manager(
         network_adapter.request_sender,
         client_adapter,
         chunk_store,
-        chain_head,
-        chain_header_head,
+        <_>::clone(&chain_head),
+        <_>::clone(&chain_header_head),
         Duration::hours(1),
     );
     SynchronousShardsManagerAdapter::new(shards_manager)

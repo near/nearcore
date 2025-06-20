@@ -83,7 +83,7 @@ pub enum TrackingMode<'a> {
     /// The main case why recording is needed is a branch with two children,
     /// one of which got removed. In this case we need to read another child
     /// and squash it together with parent.
-    RefcountsAndAccesses(&'a mut TrieRecorder),
+    RefcountsAndAccesses(&'a TrieRecorder),
 }
 
 /// Tracks intermediate trie changes, final version of which is to be committed
@@ -100,11 +100,11 @@ struct TrieChangesTracker<'a> {
     /// Note that negative `refcount_deleted_hashes` does not fully cover it,
     /// as node or value of the same hash can be removed and inserted for the
     /// same update in different parts of trie!
-    recorder: Option<&'a mut TrieRecorder>,
+    recorder: Option<&'a TrieRecorder>,
 }
 
 impl<'a> TrieChangesTracker<'a> {
-    fn with_recorder(recorder: Option<&'a mut TrieRecorder>) -> Self {
+    fn with_recorder(recorder: Option<&'a TrieRecorder>) -> Self {
         Self {
             refcount_deleted_hashes: BTreeMap::new(),
             refcount_inserted_values: BTreeMap::new(),

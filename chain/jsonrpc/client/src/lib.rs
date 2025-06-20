@@ -228,12 +228,21 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_tx_status", request)
     }
 
+    #[deprecated(since = "2.7.0", note = "Use `changes` method instead")]
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_changes(
         &self,
         request: RpcStateChangesInBlockByTypeRequest,
     ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_changes", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn changes(
+        &self,
+        request: RpcStateChangesInBlockByTypeRequest,
+    ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
+        call_method(&self.client, &self.server_addr, "changes", request)
     }
 
     #[allow(non_snake_case)]

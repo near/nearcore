@@ -26,8 +26,8 @@ use std::collections::HashMap;
 use std::net;
 use std::sync::Arc;
 
-pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
-    genesis_block(
+pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Arc<Block> {
+    Arc::new(genesis_block(
         version::PROTOCOL_VERSION,
         chunks.into_iter().map(|c| c.take_header()).collect(),
         clock.now_utc(),
@@ -35,7 +35,7 @@ pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block
         1000,
         1000,
         &vec![],
-    )
+    ))
 }
 
 pub fn make_block(
@@ -43,8 +43,8 @@ pub fn make_block(
     signer: &ValidatorSigner,
     prev: &Block,
     chunks: Vec<ShardChunk>,
-) -> Block {
-    Block::produce(
+) -> Arc<Block> {
+    Arc::new(Block::produce(
         version::PROTOCOL_VERSION,
         prev.header(),
         prev.header().height() + 5,
@@ -65,7 +65,7 @@ pub fn make_block(
         clock,
         None,
         None,
-    )
+    ))
 }
 
 pub fn make_account_id<R: Rng>(rng: &mut R) -> AccountId {
@@ -220,7 +220,7 @@ pub fn make_account_keys(signers: &[ValidatorSigner]) -> AccountKeys {
 
 pub struct Chain {
     pub genesis_id: GenesisId,
-    pub blocks: Vec<Block>,
+    pub blocks: Vec<Arc<Block>>,
     pub chunks: HashMap<ChunkHash, ShardChunk>,
     pub tier1_accounts: Vec<ValidatorSigner>,
 }
@@ -275,8 +275,8 @@ impl Chain {
         }
     }
 
-    pub fn get_block_headers(&self) -> Vec<BlockHeader> {
-        self.blocks.iter().map(|b| b.header().clone()).collect()
+    pub fn get_block_headers(&self) -> impl Iterator<Item = BlockHeader> {
+        self.blocks.iter().map(|b| b.header().clone())
     }
 
     pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
@@ -325,7 +325,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     }
 }
 
-pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {
+pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessage {
     let secret_key = make_secret_key(rng);
     let peer_id = PeerId::new(secret_key.public_key());
     RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(

@@ -50,7 +50,7 @@ pub(crate) struct OptimisticBlockInfo {
 /// Blocks which finished pre-processing and are now being applied asynchronously
 pub(crate) struct BlocksInProcessing {
     // A map that stores all blocks in processing
-    preprocessed_blocks: HashMap<CryptoHash, (Block, BlockPreprocessInfo)>,
+    preprocessed_blocks: HashMap<CryptoHash, (Arc<Block>, BlockPreprocessInfo)>,
     optimistic_blocks: HashMap<BlockHeight, (OptimisticBlock, OptimisticBlockInfo)>,
 }
 
@@ -102,7 +102,7 @@ impl BlocksInProcessing {
     /// reaches its max size.
     pub(crate) fn add(
         &mut self,
-        block: Block,
+        block: Arc<Block>,
         preprocess_info: BlockPreprocessInfo,
     ) -> Result<(), AddError> {
         self.add_dry_run(&BlockToApply::Normal(*block.hash()))?;
@@ -134,7 +134,7 @@ impl BlocksInProcessing {
     pub(crate) fn remove(
         &mut self,
         block_hash: &CryptoHash,
-    ) -> Option<(Block, BlockPreprocessInfo)> {
+    ) -> Option<(Arc<Block>, BlockPreprocessInfo)> {
         self.preprocessed_blocks.remove(block_hash)
     }
 

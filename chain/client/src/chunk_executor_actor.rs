@@ -190,7 +190,7 @@ impl ChunkExecutorActor {
     // Logic here is based on Chain::apply_chunk_preprocessing
     fn apply_chunks(
         &mut self,
-        block: Block,
+        block: Arc<Block>,
         mut state_patch: SandboxStatePatch,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
@@ -374,7 +374,7 @@ impl ChunkExecutorActor {
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(prev_hash, shard_id);
         let cared_about_shard_prev_epoch =
-            self.shard_tracker.cared_about_shard_in_prev_epoch(prev_hash, shard_id);
+            self.shard_tracker.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
         let should_apply_chunk = get_should_apply_chunk(
             mode,
             cares_about_shard_this_epoch,
