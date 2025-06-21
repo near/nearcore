@@ -429,9 +429,9 @@ wasm-encoder = "0.235"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.235"
 wasm-smith = "0.235"
-wasmtime = { version = "33", default-features = false, features = [
+wasmtime = { version = "34", git = "https://github.com/bytecodealliance/wasmtime", rev = "a1ed303f15f4e9ee44a7b461fbb1e79d30f37b4a", default-features = false, features = [
     "cranelift",
-] }
+] } # TODO: Remove git rev once this commit lands in a release
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.10"
