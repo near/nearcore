@@ -287,6 +287,67 @@ impl<'a> VMLogic<'a> {
         self.gas(gas)
     }
 
+    fn linear_gas(&mut self, count: u32, linear: u64, constant: u64) -> Result<u32> {
+        let linear = u64::from(count).checked_mul(linear).ok_or(HostError::IntegerOverflow)?;
+        let gas = constant.checked_add(linear).ok_or(HostError::IntegerOverflow)?;
+        self.gas(gas)?;
+        Ok(count)
+    }
+
+    pub fn finite_wasm_memory_copy(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
+        self.linear_gas(count, linear, constant)
+    }
+
+    pub fn finite_wasm_memory_fill(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
+        self.linear_gas(count, linear, constant)
+    }
+
+    pub fn finite_wasm_memory_init(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
+        self.linear_gas(count, linear, constant)
+    }
+
+    pub fn finite_wasm_table_copy(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
+        self.linear_gas(count, linear, constant)
+    }
+
+    pub fn finite_wasm_table_fill(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
+        self.linear_gas(count, linear, constant)
+    }
+
+    pub fn finite_wasm_table_init(
+        &mut self,
+        count: u32,
+        linear: u64,
+        constant: u64,
+    ) -> Result<u32> {
+        self.linear_gas(count, linear, constant)
+    }
+
     pub fn finite_wasm_stack(&mut self, operand_size: u64, frame_size: u64) -> Result<()> {
         self.remaining_stack =
             match self.remaining_stack.checked_sub(operand_size.saturating_add(frame_size)) {

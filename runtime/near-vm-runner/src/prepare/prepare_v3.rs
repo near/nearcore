@@ -339,23 +339,21 @@ macro_rules! gas_cost {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
         $(
             fn $visit(&mut self $($(, $arg: $argty)*)?) -> Fee {
-                gas_cost!(@@$proposal $op self $({ $($arg: $argty),* })? => $visit)
+                gas_cost!(@@self $visit)
             }
         )*
     };
 
-    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_block) => {
-        Fee::ZERO
-    };
-    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_end) => {
-        Fee::ZERO
-    };
-    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_else) => {
-        Fee::ZERO
-    };
-    (@@$_proposal:ident $_op:ident $self:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident) => {
-        Fee::constant($self.0)
-    };
+    (@@$self:ident visit_block) => { Fee::ZERO };
+    (@@$self:ident visit_end) => { Fee::ZERO };
+    (@@$self:ident visit_else) => { Fee::ZERO };
+    (@@$self:ident visit_memory_init) => { Fee { linear: $self.0, constant: $self.0 } };
+    (@@$self:ident visit_memory_copy) => { Fee { linear: $self.0, constant: $self.0 } };
+    (@@$self:ident visit_memory_fill) => { Fee { linear: $self.0, constant: $self.0 } };
+    (@@$self:ident visit_table_init) => { Fee { linear: $self.0, constant: $self.0 } };
+    (@@$self:ident visit_table_copy) => { Fee { linear: $self.0, constant: $self.0 } };
+    (@@$self:ident visit_table_fill) => { Fee { linear: $self.0, constant: $self.0 } };
+    (@@$self:ident $visit:ident) => { Fee::constant($self.0) };
 }
 
 impl<'a> wp::VisitOperator<'a> for SimpleGasCostCfg {
@@ -450,7 +448,7 @@ mod test {
     }
 
     #[test]
-    fn v2_preparation_wasmtime_generates_valid_contract_fuzzer() {
+    fn v3_preparation_wasmtime_generates_valid_contract_fuzzer() {
         let config = test_vm_config();
         let features = crate::features::WasmFeatures::new(&config);
         bolero::check!().for_each(|input: &[u8]| {
@@ -482,7 +480,7 @@ mod test {
             // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they
             // pass our validation step!
             if let Ok(_) = validate_contract(input, features, &config) {
-                match super::prepare_contract(input, features, &config, VMKind::NearVm) {
+                match super::prepare_contract(input, features, &config, VMKind::NearVm2) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
                         let mut validator = wp::Validator::new_with_features(features.into());

@@ -446,7 +446,8 @@ mod test {
 
     #[test]
     fn v2_preparation_wasmtime_generates_valid_contract_fuzzer() {
-        let config = test_vm_config();
+        let mut config = test_vm_config();
+        config.reftypes_bulk_memory = false;
         let features = crate::features::WasmFeatures::new(&config);
         bolero::check!().for_each(|input: &[u8]| {
             // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they
@@ -471,7 +472,8 @@ mod test {
 
     #[test]
     fn v2_preparation_near_vm_generates_valid_contract_fuzzer() {
-        let config = test_vm_config();
+        let mut config = test_vm_config();
+        config.reftypes_bulk_memory = false;
         let features = crate::features::WasmFeatures::new(&config);
         bolero::check!().for_each(|input: &[u8]| {
             // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they

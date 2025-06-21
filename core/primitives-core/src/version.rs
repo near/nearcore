@@ -311,6 +311,8 @@ pub enum ProtocolFeature {
     ReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
+
+    RefTypesBulkMemory,
     SaturatingFloatToInt,
 }
 
@@ -414,6 +416,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::RefTypesBulkMemory => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
