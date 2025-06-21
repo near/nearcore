@@ -2,7 +2,7 @@
 //! of rate limits per message.
 
 use super::token_bucket::{TokenBucket, TokenBucketError};
-use crate::network_protocol::{PeerMessage, RoutedMessageBody};
+use crate::network_protocol::{PeerMessage, T1MessageBody, T2MessageBody, TieredMessageBody};
 use enum_map::{EnumMap, enum_map};
 use near_async::time::Instant;
 use std::collections::HashMap;
@@ -203,53 +203,43 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         PeerMessage::OptimisticBlock(_) => Some((OptimisticBlock, 1)),
         PeerMessage::Transaction(_) => Some((Transaction, 1)),
         PeerMessage::Routed(msg) => match msg.body() {
-            RoutedMessageBody::BlockApproval(_) => Some((BlockApproval, 1)),
-            RoutedMessageBody::ForwardTx(_) => Some((ForwardTx, 1)),
-            RoutedMessageBody::TxStatusRequest(_, _) => Some((TxStatusRequest, 1)),
-            RoutedMessageBody::TxStatusResponse(_) => Some((TxStatusResponse, 1)),
-            RoutedMessageBody::PartialEncodedChunkRequest(_) => {
-                Some((PartialEncodedChunkRequest, 1))
-            }
-            RoutedMessageBody::PartialEncodedChunkResponse(_) => {
-                Some((PartialEncodedChunkResponse, 1))
-            }
-            RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
-                Some((VersionedPartialEncodedChunk, 1))
-            }
-            RoutedMessageBody::PartialEncodedChunkForward(_) => {
-                Some((PartialEncodedChunkForward, 1))
-            }
-            RoutedMessageBody::ChunkStateWitnessAck(_) => Some((ChunkStateWitnessAck, 1)),
-            RoutedMessageBody::PartialEncodedStateWitness(_) => {
-                Some((PartialEncodedStateWitness, 1))
-            }
-            RoutedMessageBody::PartialEncodedStateWitnessForward(_) => {
-                Some((PartialEncodedStateWitnessForward, 1))
-            }
-            RoutedMessageBody::ChunkContractAccesses(_) => Some((ChunkContractAccesses, 1)),
-            RoutedMessageBody::ContractCodeRequest(_) => Some((ContractCodeRequest, 1)),
-            RoutedMessageBody::ContractCodeResponse(_) => Some((ContractCodeResponse, 1)),
-            RoutedMessageBody::PartialEncodedContractDeploys(_) => {
-                Some((PartialEncodedContractDeploys, 1))
-            }
-            RoutedMessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
-            RoutedMessageBody::_UnusedEpochSyncRequest => None,
-            RoutedMessageBody::_UnusedEpochSyncResponse(_) => None,
-            RoutedMessageBody::StatePartRequest(_) => None, // TODO
-            RoutedMessageBody::StateHeaderRequest(_) => None, // TODO
-            RoutedMessageBody::Ping(_)
-            | RoutedMessageBody::Pong(_)
-            | RoutedMessageBody::_UnusedChunkEndorsement
-            | RoutedMessageBody::_UnusedChunkStateWitness
-            | RoutedMessageBody::_UnusedVersionedStateResponse
-            | RoutedMessageBody::_UnusedPartialEncodedChunk
-            | RoutedMessageBody::_UnusedQueryRequest
-            | RoutedMessageBody::_UnusedQueryResponse
-            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
-            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
-            | RoutedMessageBody::_UnusedStateRequestHeader
-            | RoutedMessageBody::_UnusedStateRequestPart
-            | RoutedMessageBody::_UnusedStateResponse => None,
+            TieredMessageBody::T1(msg) => match msg.as_ref() {
+                T1MessageBody::BlockApproval(_) => Some((BlockApproval, 1)),
+                T1MessageBody::VersionedPartialEncodedChunk(_) => {
+                    Some((VersionedPartialEncodedChunk, 1))
+                }
+                T1MessageBody::PartialEncodedChunkForward(_) => {
+                    Some((PartialEncodedChunkForward, 1))
+                }
+                T1MessageBody::PartialEncodedStateWitness(_) => {
+                    Some((PartialEncodedStateWitness, 1))
+                }
+                T1MessageBody::PartialEncodedStateWitnessForward(_) => {
+                    Some((PartialEncodedStateWitnessForward, 1))
+                }
+                T1MessageBody::ChunkContractAccesses(_) => Some((ChunkContractAccesses, 1)),
+                T1MessageBody::ContractCodeRequest(_) => Some((ContractCodeRequest, 1)),
+                T1MessageBody::ContractCodeResponse(_) => Some((ContractCodeResponse, 1)),
+                T1MessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
+            },
+            TieredMessageBody::T2(msg) => match msg.as_ref() {
+                T2MessageBody::ForwardTx(_) => Some((ForwardTx, 1)),
+                T2MessageBody::TxStatusRequest(_, _) => Some((TxStatusRequest, 1)),
+                T2MessageBody::TxStatusResponse(_) => Some((TxStatusResponse, 1)),
+                T2MessageBody::PartialEncodedChunkRequest(_) => {
+                    Some((PartialEncodedChunkRequest, 1))
+                }
+                T2MessageBody::PartialEncodedChunkResponse(_) => {
+                    Some((PartialEncodedChunkResponse, 1))
+                }
+                T2MessageBody::ChunkStateWitnessAck(_) => Some((ChunkStateWitnessAck, 1)),
+                T2MessageBody::PartialEncodedContractDeploys(_) => {
+                    Some((PartialEncodedContractDeploys, 1))
+                }
+                T2MessageBody::StatePartRequest(_) => None, // TODO
+                T2MessageBody::StateHeaderRequest(_) => None, // TODO
+                T2MessageBody::Ping(_) | T2MessageBody::Pong(_) => None,
+            },
         },
         PeerMessage::SyncSnapshotHosts(_) => Some((SyncSnapshotHosts, 1)),
         PeerMessage::StateRequestHeader(_, _) => Some((StateRequestHeader, 1)),
