@@ -97,7 +97,7 @@ where
 {
     let recording_trie = trie.recording_reads_new_recorder();
     let (recording_trie, output) = test(recording_trie).expect("should not fail");
-    (recording_trie.recorded_storage().unwrap(), recording_trie, output)
+    (recording_trie.recorded_storage().unwrap(), trie, output)
 }
 
 fn test_incomplete_storage<F, Out>(trie: Trie, mut test: F)
@@ -351,17 +351,19 @@ mod trie_storage_tests {
         let memtrie_iter_recorded = {
             let trie =
                 tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
-            let lock = trie.lock_for_iter();
-            let mut memtrie_iter = lock.iter().unwrap();
-            match memtrie_iter {
-                TrieIterator::Disk(_) => {
-                    panic!("Expected Memtrie iterator, got Disk iterator");
+            {
+                let lock = trie.lock_for_iter();
+                let mut memtrie_iter = lock.iter().unwrap();
+                match memtrie_iter {
+                    TrieIterator::Disk(_) => {
+                        panic!("Expected Memtrie iterator, got Disk iterator");
+                    }
+                    TrieIterator::Memtrie(_) => {}
                 }
-                TrieIterator::Memtrie(_) => {}
+                memtrie_iter.seek_prefix(&iter_prefix).unwrap();
+                let memtrie_iter_results = memtrie_iter.collect::<Result<Vec<_>, _>>().unwrap();
+                assert_eq!(memtrie_iter_results, expected_iter_results);
             }
-            memtrie_iter.seek_prefix(&iter_prefix).unwrap();
-            let memtrie_iter_results = memtrie_iter.collect::<Result<Vec<_>, _>>().unwrap();
-            assert_eq!(memtrie_iter_results, expected_iter_results);
             trie.recorded_storage().unwrap()
         };
 

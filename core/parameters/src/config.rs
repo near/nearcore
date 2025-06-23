@@ -246,24 +246,24 @@ impl CongestionControlConfig {
 pub struct WitnessConfig {
     /// Size limit for storage proof generated while executing receipts in a chunk.
     /// After this limit is reached we defer execution of any new receipts.
-    pub main_storage_proof_size_soft_limit: usize,
+    pub main_storage_proof_size_soft_limit: u64,
     /// Maximum size of transactions contained inside ChunkStateWitness.
+    ///
     /// A witness contains transactions from both the previous chunk and the current one.
     /// This parameter limits the sum of sizes of transactions from both of those chunks.
     pub combined_transactions_size_limit: usize,
-    /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
-    pub new_transactions_validation_state_size_soft_limit: usize,
+    /// Size limit of storage proof used to validate new transactions in ChunkStateWitness.
+    pub new_transactions_validation_state_size_soft_limit: u64,
 }
 
 impl WitnessConfig {
     /// Creates a config that effectively disables ChunkStateWitness related limits by setting them
     /// to max values. This can be useful for tests and benchmarks.
     pub fn test_disabled() -> Self {
-        let max_value = usize::MAX;
         Self {
-            main_storage_proof_size_soft_limit: max_value,
-            combined_transactions_size_limit: max_value,
-            new_transactions_validation_state_size_soft_limit: max_value,
+            main_storage_proof_size_soft_limit: u64::MAX,
+            combined_transactions_size_limit: usize::MAX,
+            new_transactions_validation_state_size_soft_limit: u64::MAX,
         }
     }
 }

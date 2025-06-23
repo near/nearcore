@@ -36,7 +36,7 @@ use ops::interface::{GenericTrieValue, UpdatedNodeId};
 use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 use parking_lot::{RwLock, RwLockReadGuard};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 use std::hash::Hash;
 use std::str;
@@ -251,8 +251,7 @@ pub struct Trie {
     /// during the lifetime of this Trie struct. This is used to produce a
     /// state proof so that the same access pattern can be replayed using only
     /// the captured result.
-    // FIXME: make `TrieRecorder` internally MT-safe, instead of locking the entire structure.
-    recorder: Option<RwLock<TrieRecorder>>,
+    recorder: Option<TrieRecorder>,
     /// If true, accesses to trie nodes are recorded with node access tracker, thus counting TTNs.
     ///
     /// NOTE that depending on the implementation of the tracker the lookups may get cached and
@@ -624,19 +623,19 @@ impl Trie {
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
     pub fn recording_reads_new_recorder(&self) -> Self {
-        let recorder = RwLock::new(TrieRecorder::new(None));
+        let recorder = TrieRecorder::new(None);
         self.recording_reads_with_recorder(recorder)
     }
 
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
     /// We also supply a proof size limit to prevent the proof from growing too large.
-    pub fn recording_reads_with_proof_size_limit(&self, proof_size_limit: usize) -> Self {
-        let recorder = RwLock::new(TrieRecorder::new(Some(proof_size_limit)));
+    pub fn recording_reads_with_proof_size_limit(&self, proof_size_limit: u64) -> Self {
+        let recorder = TrieRecorder::new(Some(proof_size_limit));
         self.recording_reads_with_recorder(recorder)
     }
 
-    pub fn recording_reads_with_recorder(&self, recorder: RwLock<TrieRecorder>) -> Self {
+    pub fn recording_reads_with_recorder(&self, recorder: TrieRecorder) -> Self {
         let mut trie = Self::new_with_memtries(
             self.storage.clone(),
             self.memtries.clone(),
@@ -650,21 +649,18 @@ impl Trie {
     }
 
     /// Takes the recorded state proof out of the trie.
-    pub fn recorded_storage(&self) -> Option<PartialStorage> {
-        self.recorder.as_ref().map(|recorder| recorder.write().recorded_storage())
+    pub fn recorded_storage(self) -> Option<PartialStorage> {
+        self.recorder.map(|recorder| recorder.recorded_storage())
     }
 
     /// Takes the recorded state as trie changes out of the trie.
-    pub fn recorded_trie_changes(&self, state_root: CryptoHash) -> Option<TrieChanges> {
-        self.recorder.as_ref().map(|recorder| recorder.write().recorded_trie_changes(state_root))
+    pub fn recorded_trie_changes(self, state_root: CryptoHash) -> Option<TrieChanges> {
+        self.recorder.map(|recorder| recorder.recorded_trie_changes(state_root))
     }
 
     /// Returns the in-memory size of the recorded state proof. Useful for checking size limit of state witness
     pub fn recorded_storage_size(&self) -> usize {
-        self.recorder
-            .as_ref()
-            .map(|recorder| recorder.read().recorded_storage_size())
-            .unwrap_or_default()
+        self.recorder.as_ref().map(|recorder| recorder.recorded_storage_size()).unwrap_or_default()
     }
 
     /// Size of the recorded state proof plus some additional size added to cover removals.
@@ -672,14 +668,12 @@ impl Trie {
     pub fn recorded_storage_size_upper_bound(&self) -> usize {
         self.recorder
             .as_ref()
-            .map(|recorder| recorder.read().recorded_storage_size_upper_bound())
+            .map(|recorder| recorder.recorded_storage_size_upper_bound())
             .unwrap_or_default()
     }
 
     pub fn check_proof_size_limit_exceed(&self) -> bool {
-        self.recorder
-            .as_ref()
-            .is_some_and(|recorder| recorder.read().check_proof_size_limit_exceed())
+        self.recorder.as_ref().is_some_and(|recorder| recorder.check_proof_size_limit_exceed())
     }
 
     /// Constructs a Trie from the partial storage (i.e. state proof) that
@@ -706,7 +700,7 @@ impl Trie {
     /// Get statistics about the recorded trie. Useful for observability and debugging.
     /// This scans all of the recorded data, so could potentially be expensive to run.
     pub fn recorder_stats(&self) -> Option<TrieRecorderStats> {
-        self.recorder.as_ref().map(|recorder| recorder.read().get_stats(&self.root))
+        self.recorder.as_ref().map(|recorder| recorder.get_stats(&self.root))
     }
 
     pub fn get_root(&self) -> &StateRoot {
@@ -732,7 +726,7 @@ impl Trie {
         // that it is possible to generated continuous stream of witnesses with a fixed
         // size. Using static key achieves that since in case of multiple receipts garbage
         // data will simply be overwritten, not accumulated.
-        recorder.write().record_unaccounted(
+        recorder.record_unaccounted(
             &CryptoHash::hash_bytes(b"__garbage_data_key_1720025071757228"),
             data.into(),
         );
@@ -765,7 +759,7 @@ impl Trie {
         };
         if access_options.enable_state_witness_recording {
             if let Some(recorder) = &self.recorder {
-                recorder.write().record(hash, result.clone());
+                recorder.record(hash, result.clone());
             }
         }
         Ok(result)
@@ -1334,7 +1328,7 @@ impl Trie {
             if access_options.enable_state_witness_recording {
                 if let Some(recorder) = &self.recorder {
                     for (node_hash, serialized_node) in accessed_nodes {
-                        recorder.write().record(&node_hash, serialized_node);
+                        recorder.record(&node_hash, serialized_node);
                     }
                 }
             }
@@ -1524,7 +1518,7 @@ impl Trie {
                 }
                 if operation_options.enable_state_witness_recording {
                     if let Some(recorder) = &self.recorder {
-                        recorder.write().record(&value_hash, arc_value);
+                        recorder.record(&value_hash, arc_value);
                     }
                 }
                 Ok(value.clone())
@@ -1545,16 +1539,13 @@ impl Trie {
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
         // Call `get` for contract codes requested to be recorded.
+        let empty_set = Default::default();
         let codes_to_record = if opts.enable_state_witness_recording {
-            if let Some(recorder) = &self.recorder {
-                recorder.read().codes_to_record.clone()
-            } else {
-                HashSet::default()
-            }
+            if let Some(recorder) = &self.recorder { &recorder.codes_to_record } else { &empty_set }
         } else {
-            Default::default()
+            &empty_set
         };
-        for account_id in codes_to_record {
+        for account_id in codes_to_record.iter() {
             let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
             let _ = self.get(&trie_key.to_vec(), opts);
         }
@@ -1576,14 +1567,11 @@ impl Trie {
     {
         // Get trie_update for memtrie
         let guard = self.memtries.as_ref().unwrap().read();
-        let mut recorder = if opts.enable_state_witness_recording {
-            self.recorder.as_ref().map(|recorder| recorder.write())
-        } else {
-            None
-        };
-        let tracking_mode = match &mut recorder {
-            Some(recorder) => TrackingMode::RefcountsAndAccesses(&mut *recorder),
-            None => TrackingMode::Refcounts,
+        let tracking_mode = match &self.recorder {
+            Some(recorder) if opts.enable_state_witness_recording => {
+                TrackingMode::RefcountsAndAccesses(recorder)
+            }
+            Some(_) | None => TrackingMode::Refcounts,
         };
         let mut trie_update = guard.update(self.root, tracking_mode)?;
 
@@ -1720,9 +1708,8 @@ impl Trie {
     ) -> Result<TrieChanges, StorageError> {
         // Get trie_update for memtrie
         let guard = self.memtries.as_ref().unwrap().read();
-        let mut recorder = self.recorder.as_ref().map(|recorder| recorder.write());
-        let tracking_mode = match &mut recorder {
-            Some(recorder) => TrackingMode::RefcountsAndAccesses(&mut *recorder),
+        let tracking_mode = match &self.recorder {
+            Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder),
             None => TrackingMode::Refcounts,
         };
         let mut trie_update = guard.update(self.root, tracking_mode)?;

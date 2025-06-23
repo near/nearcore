@@ -6,6 +6,7 @@ import pathlib
 import json
 import os
 import sys
+import re
 from functools import wraps
 from typing import Optional
 
@@ -17,6 +18,8 @@ import mocknet
 from utils import ScheduleContext
 
 from configured_logger import logger
+
+# cspell:words btrfs subvolume subvol
 
 
 class RemoteNeardRunner:
@@ -127,6 +130,47 @@ class RemoteNeardRunner:
 
     def get_validators(self):
         return self.node.get_validators()
+
+    def make_snapshot(self, snapshot_id):
+        # Make a snapshot of the current default subvolume
+        if not re.match(r'^[a-zA-Z0-9_-]+$', snapshot_id):
+            raise ValueError(f'Invalid snapshot id: {snapshot_id}')
+        cmd = f"""sudo btrfs subvolume snapshot -r /mnt/btrfs-root/$(sudo btrfs subvolume get-default /mnt/btrfs-root | awk '{{print $NF}}') /mnt/btrfs-root/{snapshot_id}"""
+        return self.node.machine.run(cmd)
+
+    def restore_snapshot(self, snapshot_id):
+        if not re.match(r'^[a-zA-Z0-9_-]+$', snapshot_id):
+            raise ValueError(f'Invalid snapshot id: {snapshot_id}')
+        # check if snapshot exists
+        check_snapshot_cmd = f"""sudo btrfs subvolume show /mnt/btrfs-root/{snapshot_id} > /dev/null"""
+        # stop neard-runner if it is running
+        stop_neard_runner_cmd = """systemctl is-active --quiet neard-runner && sudo systemctl stop neard-runner"""
+        # get current default subvolume
+        get_default_cmd = """OLD=$(sudo btrfs subvolume get-default /mnt/btrfs-root | awk '{print $NF}')"""
+        # umount old snapshot
+        umount_cmd = """mount | grep "subvol=/$OLD" | awk '{print $3}' | xargs -r sudo umount"""
+        # reset default subvolume
+        reset_default_cmd = """sudo btrfs subvolume set-default 5 /mnt/btrfs-root"""
+        # delete old snapshot
+        delete_old_cmd = """sudo btrfs subvolume delete /mnt/btrfs-root/$OLD"""
+        # restore snapshot
+        restore_cmd = f"""sudo btrfs subvolume snapshot /mnt/btrfs-root/{snapshot_id} /mnt/btrfs-root/current"""
+        # set default subvolume
+        set_default_cmd = """sudo btrfs subvolume set-default $(sudo btrfs subvolume list /mnt/btrfs-root | grep 'path current$' | awk '{print $2}') /mnt/btrfs-root"""
+        # mount it back
+        mount_cmd = f"""sudo mount -a"""
+        cmd = f"""{check_snapshot_cmd} && ({stop_neard_runner_cmd} ; {get_default_cmd} && {umount_cmd} && {reset_default_cmd} && {delete_old_cmd} && {restore_cmd} && {set_default_cmd} && {mount_cmd})"""
+        return self.node.machine.run(cmd)
+
+    def list_snapshots(self):
+        cmd = """sudo btrfs subvolume list /mnt/btrfs-root/ -sr | awk '{print $14, "@", $11, $12}'"""
+        return self.node.machine.run(cmd)
+
+    def delete_snapshot(self, snapshot_id):
+        if not re.match(r'^[a-zA-Z0-9_-]+$', snapshot_id):
+            raise ValueError(f'Invalid snapshot id: {snapshot_id}')
+        cmd = f'sudo btrfs subvolume delete "/mnt/btrfs-root/{snapshot_id}"'
+        return self.node.machine.run(cmd)
 
 
 def get_traffic_generator_handle(traffic_generator):
