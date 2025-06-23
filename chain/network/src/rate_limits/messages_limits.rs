@@ -76,7 +76,7 @@ impl SingleMessageConfig {
 }
 
 /// Network messages rate limits configuration.
-#[derive(Default, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct Config {
     pub rate_limits: HashMap<RateLimitedPeerMessageKey, SingleMessageConfig>,
 }
@@ -117,6 +117,14 @@ impl Config {
             RateLimitedPeerMessageKey::EpochSyncRequest,
             SingleMessageConfig::new(1, 1.0 / 30.0, None),
         );
+        // Mitigating the high CPU incident. 1 per second, per peer is still a
+        // lot but it should be fine assuming each request isn't too heavy.
+        // TODO(wacban) do it properly
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::SyncRoutingTable,
+            SingleMessageConfig::new(1, 1.0 / 1.0, None),
+        );
+
         config
     }
 

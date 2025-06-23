@@ -330,6 +330,13 @@ impl PeerActor {
             &network_state.config.received_messages_rate_limits,
             clock.now(),
         );
+        tracing::info!(
+            target: "network",
+            address = ?stream.peer_addr,
+            peer_id = ?my_node_info.id,
+            rate_limits = ?network_state.config.received_messages_rate_limits,
+            "Spawning PeerActor"
+        );
         // recv is the HandshakeSignal returned by this spawn_inner() call.
         let (send, recv): (HandshakeSignalSender, HandshakeSignal) =
             tokio::sync::oneshot::channel();
