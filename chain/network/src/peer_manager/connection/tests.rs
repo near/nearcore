@@ -9,6 +9,7 @@ use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use std::sync::Arc;
 
+#[allow(clippy::large_stack_frames)]
 #[tokio::test]
 async fn connection_tie_break() {
     init_test_logger();

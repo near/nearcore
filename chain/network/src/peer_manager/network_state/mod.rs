@@ -17,6 +17,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
+use crate::rate_limits::messages_limits::{GlobalRateLimitedPeerMessageKey, GlobalRateLimits};
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
 use crate::routing::route_back_cache::RouteBackCache;
@@ -173,6 +174,9 @@ pub(crate) struct NetworkState {
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
     set_chain_info_mutex: Mutex<()>,
+
+    /// Global rate limits for incoming messages on all connections.
+    pub global_received_messages_rate_limits: Mutex<GlobalRateLimits>,
 }
 
 impl NetworkState {
@@ -228,9 +232,16 @@ impl NetworkState {
             #[cfg(feature = "distance_vector_routing")]
             update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
-            config,
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
+            global_received_messages_rate_limits: Mutex::new(
+                GlobalRateLimits::from_single_rate_limit(
+                    GlobalRateLimitedPeerMessageKey::SyncRoutingTable,
+                    config.global_routing_table_sync_rate_limit,
+                    clock.now(),
+                ),
+            ),
+            config,
         }
     }
 

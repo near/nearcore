@@ -1284,15 +1284,27 @@ impl PeerActor {
                 }));
             }
             PeerMessage::SyncRoutingTable(rtu) => {
-                let clock = self.clock.clone();
-                let conn = conn.clone();
-                let network_state = self.network_state.clone();
-                ctx.spawn(wrap_future(async move {
-                    Self::handle_sync_routing_table(&clock, &network_state, conn.clone(), rtu)
-                        .await;
-                    #[cfg(test)]
-                    message_processed_event();
-                }));
+                let peer_msg = PeerMessage::SyncRoutingTable(rtu);
+                if !self
+                    .network_state
+                    .global_received_messages_rate_limits
+                    .lock()
+                    .is_allowed(&peer_msg, self.clock.now())
+                {
+                    tracing::debug!(target: "network", "Globally rate limited message: {:?}", peer_msg);
+                    return;
+                }
+                if let PeerMessage::SyncRoutingTable(rtu) = peer_msg {
+                    let clock = self.clock.clone();
+                    let conn = conn.clone();
+                    let network_state = self.network_state.clone();
+                    ctx.spawn(wrap_future(async move {
+                        Self::handle_sync_routing_table(&clock, &network_state, conn.clone(), rtu)
+                            .await;
+                        #[cfg(test)]
+                        message_processed_event();
+                    }));
+                }
             }
             #[cfg(not(feature = "distance_vector_routing"))]
             PeerMessage::DistanceVector(_) => {}

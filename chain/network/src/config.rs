@@ -196,6 +196,9 @@ pub struct NetworkConfig {
     /// Configuration of rate limits for incoming messages.
     pub received_messages_rate_limits: messages_limits::Config,
 
+    /// Global rate limit for incoming SyncRoutingTable messages on all connections.
+    pub global_routing_table_sync_rate_limit: rate::Limit,
+
     #[cfg(test)]
     pub(crate) event_sink:
         near_async::messaging::Sender<crate::peer_manager::peer_manager_actor::Event>,
@@ -385,6 +388,7 @@ impl NetworkConfig {
             },
             // Use a preset to configure rate limits and override entries with user defined values later.
             received_messages_rate_limits: messages_limits::Config::standard_preset(),
+            global_routing_table_sync_rate_limit: rate::Limit { qps: 0.33, burst: 3 },
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),
@@ -463,6 +467,7 @@ impl NetworkConfig {
             }),
             skip_tombstones: None,
             received_messages_rate_limits: messages_limits::Config::default(),
+            global_routing_table_sync_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),

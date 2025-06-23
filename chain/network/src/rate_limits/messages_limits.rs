@@ -2,7 +2,10 @@
 //! of rate limits per message.
 
 use super::token_bucket::{TokenBucket, TokenBucketError};
-use crate::network_protocol::{PeerMessage, RoutedMessageBody};
+use crate::{
+    concurrency::rate,
+    network_protocol::{PeerMessage, RoutedMessageBody},
+};
 use enum_map::{EnumMap, enum_map};
 use near_async::time::Instant;
 use std::collections::HashMap;
@@ -48,6 +51,72 @@ impl RateLimits {
     /// if it should be rate limited, returns `false`.
     pub fn is_allowed(&mut self, message: &PeerMessage, now: Instant) -> bool {
         if let Some((key, cost)) = get_key_and_token_cost(message) {
+            if let Some(bucket) = &mut self.buckets[key] {
+                return bucket.acquire(cost, now);
+            }
+        }
+        true
+    }
+}
+
+/// This enum represents the variants of [PeerMessage] that can be rate limited on all connections.
+/// It is meant to be used as an index for mapping peer messages to a value.
+#[derive(
+    Clone,
+    Copy,
+    enum_map::Enum,
+    strum::Display,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[allow(clippy::large_enum_variant)]
+pub enum GlobalRateLimitedPeerMessageKey {
+    SyncRoutingTable,
+}
+
+/// Object responsible to manage the rate limits of all network messages
+/// for a single connection/peer.
+#[derive(Default)]
+pub struct GlobalRateLimits {
+    buckets: EnumMap<GlobalRateLimitedPeerMessageKey, Option<TokenBucket>>,
+}
+
+impl GlobalRateLimits {
+    pub fn from_single_rate_limit(
+        key: GlobalRateLimitedPeerMessageKey,
+        rate_limit: rate::Limit,
+        start_time: Instant,
+    ) -> Self {
+        let mut buckets = enum_map! { _ => None };
+        match TokenBucket::new(
+            rate_limit.burst as u32,
+            rate_limit.burst as u32,
+            rate_limit.qps as f32,
+            start_time,
+        ) {
+            Ok(bucket) => buckets[key] = Some(bucket),
+            Err(err) => {
+                tracing::warn!(target: "network", "ignoring rate limit for {key} due to an error ({err})")
+            }
+        };
+        Self { buckets }
+    }
+
+    /// Checks if the given message is under the rate limits.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The network message to be checked
+    /// * `now` - Current time
+    ///
+    /// Returns `true` if the message should be allowed to continue. Otherwise,
+    /// if it should be rate limited, returns `false`.
+    pub fn is_allowed(&mut self, message: &PeerMessage, now: Instant) -> bool {
+        if let Some((key, cost)) = get_global_key_and_token_cost(message) {
             if let Some(bucket) = &mut self.buckets[key] {
                 return bucket.acquire(cost, now);
             }
@@ -264,6 +333,16 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         | PeerMessage::LastEdge(_)
         | PeerMessage::Disconnect(_)
         | PeerMessage::Challenge(_) => None,
+    }
+}
+
+fn get_global_key_and_token_cost(
+    message: &PeerMessage,
+) -> Option<(GlobalRateLimitedPeerMessageKey, u32)> {
+    use GlobalRateLimitedPeerMessageKey::*;
+    match message {
+        PeerMessage::SyncRoutingTable(_) => Some((SyncRoutingTable, 1)),
+        _ => None,
     }
 }
 
