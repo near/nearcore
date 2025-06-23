@@ -190,9 +190,8 @@ impl SplitShardTrieCommand {
             epoch_manager.clone(),
             near_config.validator_signer.clone(),
         );
-        let my_account_id = near_config.validator_signer.get().map(|v| v.validator_id().clone());
         let resharding_manager =
-            ReshardingManager::new(store, epoch_manager, shard_tracker, my_account_id, sender);
+            ReshardingManager::new(store, epoch_manager, shard_tracker, sender);
         let chain_store_update = chain_store.store_update();
         let split_params = ReshardingSplitShardParams {
             parent_shard: self.shard_uid,

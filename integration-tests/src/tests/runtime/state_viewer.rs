@@ -109,7 +109,6 @@ fn test_view_call() {
     let view_state = ViewApplyState {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
-        block_hash: CryptoHash::default(),
         shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,
@@ -138,7 +137,6 @@ fn test_view_call_try_changing_storage() {
     let view_state = ViewApplyState {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
-        block_hash: CryptoHash::default(),
         shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,
@@ -171,7 +169,6 @@ fn test_view_call_with_args() {
     let view_state = ViewApplyState {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
-        block_hash: CryptoHash::default(),
         shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,
@@ -399,7 +396,6 @@ fn test_log_when_panic() {
     let view_state = ViewApplyState {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
-        block_hash: CryptoHash::default(),
         shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,

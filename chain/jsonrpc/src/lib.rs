@@ -420,6 +420,9 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
             }
+            "changes" => {
+                process_method_call(request, |params| self.changes_in_block_by_type(params)).await
+            }
             "EXPERIMENTAL_changes_in_block" => {
                 process_method_call(request, |params| self.changes_in_block(params)).await
             }

@@ -76,6 +76,7 @@
         "cstring",
         "dalek",
         "datas",
+        "dashmap",
         "dbprofile",
         "dealloc",
         "deallocate",

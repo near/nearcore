@@ -20,10 +20,9 @@ use tracing::debug_span;
 pub fn need_receipt(
     prev_block_hash: &CryptoHash,
     shard_id: ShardId,
-    me: Option<&AccountId>,
     shard_tracker: &ShardTracker,
 ) -> bool {
-    shard_tracker.cares_about_shard_this_or_next_epoch(me, prev_block_hash, shard_id, true)
+    shard_tracker.cares_about_shard_this_or_next_epoch(prev_block_hash, shard_id)
 }
 
 /// Returns true if we need this part to sign the block.
@@ -38,8 +37,6 @@ pub fn need_part(
 }
 
 pub fn get_shards_cares_about_this_or_next_epoch(
-    account_id: Option<&AccountId>,
-    is_me: bool,
     block_header: &BlockHeader,
     shard_tracker: &ShardTracker,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -49,12 +46,7 @@ pub fn get_shards_cares_about_this_or_next_epoch(
         .unwrap()
         .into_iter()
         .filter(|&shard_id| {
-            shard_tracker.cares_about_shard_this_or_next_epoch(
-                account_id,
-                block_header.prev_hash(),
-                shard_id,
-                is_me,
-            )
+            shard_tracker.cares_about_shard_this_or_next_epoch(block_header.prev_hash(), shard_id)
         })
         .collect()
 }
@@ -117,12 +109,8 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
     shard_tracker: &ShardTracker,
 ) -> PartialEncodedChunk {
     let prev_block_hash = header.prev_block_hash();
-    let cares_about_shard = shard_tracker.cares_about_shard_this_or_next_epoch(
-        me,
-        prev_block_hash,
-        header.shard_id(),
-        true,
-    );
+    let cares_about_shard =
+        shard_tracker.cares_about_shard_this_or_next_epoch(prev_block_hash, header.shard_id());
     let parts = parts
         .filter(|entry| {
             cares_about_shard
@@ -131,8 +119,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
         .collect();
     let mut prev_outgoing_receipts = receipts
         .filter(|receipt| {
-            cares_about_shard
-                || need_receipt(prev_block_hash, receipt.1.to_shard_id, me, shard_tracker)
+            cares_about_shard || need_receipt(prev_block_hash, receipt.1.to_shard_id, shard_tracker)
         })
         .collect::<Vec<_>>();
     // Make sure the receipts are in a deterministic order.
