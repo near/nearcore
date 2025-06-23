@@ -32,7 +32,6 @@ pub struct RuntimeExt<'a> {
     action_hash: CryptoHash,
     data_count: u64,
     epoch_id: EpochId,
-    last_block_hash: CryptoHash,
     block_height: BlockHeight,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
@@ -88,7 +87,6 @@ impl<'a> RuntimeExt<'a> {
         account: Account,
         action_hash: CryptoHash,
         epoch_id: EpochId,
-        last_block_hash: CryptoHash,
         block_height: BlockHeight,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
@@ -103,7 +101,6 @@ impl<'a> RuntimeExt<'a> {
             action_hash,
             data_count: 0,
             epoch_id,
-            last_block_hash,
             block_height,
             epoch_info_provider,
             current_protocol_version,
@@ -304,9 +301,7 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn generate_data_id(&mut self) -> CryptoHash {
         let data_id = create_receipt_id_from_action_hash(
-            self.current_protocol_version,
             &self.action_hash,
-            &self.last_block_hash,
             self.block_height,
             self.data_count,
         );

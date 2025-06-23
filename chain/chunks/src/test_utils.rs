@@ -129,17 +129,12 @@ impl ChunkTestFixture {
                 if v == &&mock_chunk_producer {
                     false
                 } else {
-                    let tracks_shard = shard_tracker.cares_about_shard(
-                        Some(*v),
-                        &mock_ancestor_hash,
-                        mock_shard_id,
-                        false,
-                    ) || shard_tracker.will_care_about_shard(
-                        Some(*v),
-                        &mock_ancestor_hash,
-                        mock_shard_id,
-                        false,
-                    );
+                    let tracks_shard = shard_tracker
+                        .cares_about_shard_this_or_next_epoch_for_account_id(
+                            *v,
+                            &mock_ancestor_hash,
+                            mock_shard_id,
+                        );
                     tracks_shard
                 }
             })

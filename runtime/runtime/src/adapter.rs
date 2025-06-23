@@ -33,7 +33,6 @@ pub trait ViewRuntimeAdapter {
         height: BlockHeight,
         block_timestamp: u64,
         last_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
         contract_id: &AccountId,
