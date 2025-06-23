@@ -288,7 +288,7 @@ impl Graph {
         self.runtime
             .handle
             .spawn_blocking(move || {
-                let _span = tracing::debug_span!(
+                let _span = tracing::info_span!(
                     target: "network::routing::graph",
                     parent: current_span,
                     "Graph::update"

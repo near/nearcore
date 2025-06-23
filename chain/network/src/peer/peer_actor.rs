@@ -1481,9 +1481,10 @@ impl PeerActor {
     }
 
     #[tracing::instrument(
-        level = "trace",
+        level = "info",
         target = "network",
         "handle_sync_routing_table",
+        fields(peer = ?conn.peer_info, edges_num = rtu.edges.len(), accounts_num = rtu.accounts.len()),
         skip_all
     )]
     async fn handle_sync_routing_table(
@@ -1492,7 +1493,16 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
+        let debug_msg = if rtu.edges.len() < 1000 && rtu.accounts.len() < 1000 {
+            format!("RoutingTableUpdate: {:?}", rtu)
+        } else {
+            "RoutingTableUpdate: too many edges/accounts to log".to_string()
+        };
+        tracing::info!(target: "network", "handle_sync_routing_table: Received RoutingTableUpdate from {} with {} edges and {} accounts (msg: {}).", conn.peer_info, rtu.edges.len(), rtu.accounts.len(), debug_msg);
+        tracing::info!(target: "handle_sync_routing_table", "handle_sync_routing_table: RoutingTableUpdate: {:?}", rtu);
+
         if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
+            tracing::info!(target: "network", "handle_sync_routing_table: Failed to add edges, banning with reason: {:?}", ban_reason);
             conn.stop(Some(ban_reason));
         }
 
@@ -1502,6 +1512,7 @@ impl PeerActor {
             .update_routes(&clock, NetworkTopologyChange::EdgeNonceRefresh(rtu.edges))
             .await
         {
+            tracing::info!(target: "network", "handle_sync_routing_table: Failed update routes, banning with reason: {:?}", ban_reason);
             conn.stop(Some(ban_reason));
         }
 
