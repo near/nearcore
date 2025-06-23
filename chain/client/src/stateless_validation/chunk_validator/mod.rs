@@ -107,13 +107,6 @@ impl ChunkValidator {
             )));
         }
 
-        let pre_validation_result = chunk_validation::pre_validate_chunk_state_witness(
-            &state_witness,
-            chain.chain_store(),
-            chain.genesis_block(),
-            self.epoch_manager.as_ref(),
-        )?;
-
         let chunk_header = state_witness.chunk_header().clone();
         let network_sender = self.network_sender.clone();
         let epoch_manager = self.epoch_manager.clone();
@@ -172,6 +165,8 @@ impl ChunkValidator {
         }
 
         let runtime_adapter = self.runtime_adapter.clone();
+        let chain_store = chain.chain_store.clone();
+        let genesis_block = chain.genesis_block();
         let store = chain.chain_store.store();
         let cache = self.main_state_transition_result_cache.clone();
         let signer = signer.clone();
@@ -179,6 +174,28 @@ impl ChunkValidator {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
                 processing_done_tracker;
+
+            let pre_validation_result = match chunk_validation::pre_validate_chunk_state_witness(
+                &state_witness,
+                &chain_store,
+                genesis_block,
+                epoch_manager.as_ref(),
+            ) {
+                Ok(result) => result,
+                Err(err) => {
+                    near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                        .inc();
+                    tracing::error!(
+                        target: "client",
+                        ?err,
+                        ?chunk_producer_name,
+                        ?chunk_production_key,
+                        "Failed to pre-validate chunk state witness"
+                    );
+                    return;
+                }
+            };
 
             match chunk_validation::validate_chunk_state_witness(
                 state_witness,
