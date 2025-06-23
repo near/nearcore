@@ -1212,14 +1212,6 @@ impl RoutedMessage {
         }
     }
 
-    pub fn msg(&self) -> &RoutedMessageV3 {
-        // Old versions should be upgraded to V3.
-        match self {
-            RoutedMessage::V1(_) | RoutedMessage::V2(_) => unreachable!(),
-            RoutedMessage::V3(msg) => msg,
-        }
-    }
-
     pub fn target(&self) -> &PeerIdOrHash {
         match self {
             RoutedMessage::V1(msg) => &msg.target,
