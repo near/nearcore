@@ -356,6 +356,33 @@
         }
       }
     },
+    "/block_effects": {
+      "post": {
+        "operationId": "block_effects",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_block_effects"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/broadcast_tx_async": {
       "post": {
         "operationId": "broadcast_tx_async",
@@ -518,6 +545,33 @@
         }
       }
     },
+    "/genesis_config": {
+      "post": {
+        "operationId": "genesis_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_genesis_config"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_GenesisConfig_and_RpcError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "post": {
         "operationId": "health",
@@ -572,6 +626,33 @@
         }
       }
     },
+    "/maintenance_windows": {
+      "post": {
+        "operationId": "maintenance_windows",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_maintenance_windows"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/network_info": {
       "post": {
         "operationId": "network_info",
@@ -619,6 +700,33 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientNextBlockResponse_and_RpcError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/protocol_config": {
+      "post": {
+        "operationId": "protocol_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_protocol_config"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcError"
                 }
               }
             }
@@ -5135,8 +5243,6 @@
                 "shard_ids": [
                   0
                 ],
-                "shards_parent_map": null,
-                "shards_split_map": null,
                 "version": 0
               }
             },
@@ -6661,6 +6767,33 @@
         "title": "JsonRpcRequest_for_block",
         "type": "object"
       },
+      "JsonRpcRequest_for_block_effects": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "block_effects"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcStateChangesInBlockRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_block_effects",
+        "type": "object"
+      },
       "JsonRpcRequest_for_broadcast_tx_async": {
         "properties": {
           "id": {
@@ -6823,6 +6956,33 @@
         "title": "JsonRpcRequest_for_gas_price",
         "type": "object"
       },
+      "JsonRpcRequest_for_genesis_config": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "genesis_config"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/GenesisConfigRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_genesis_config",
+        "type": "object"
+      },
       "JsonRpcRequest_for_health": {
         "properties": {
           "id": {
@@ -6877,6 +7037,33 @@
         "title": "JsonRpcRequest_for_light_client_proof",
         "type": "object"
       },
+      "JsonRpcRequest_for_maintenance_windows": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "maintenance_windows"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcMaintenanceWindowsRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_maintenance_windows",
+        "type": "object"
+      },
       "JsonRpcRequest_for_network_info": {
         "properties": {
           "id": {
@@ -6929,6 +7116,33 @@
           "method"
         ],
         "title": "JsonRpcRequest_for_next_light_client_block",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_protocol_config": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "protocol_config"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcProtocolConfigRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_protocol_config",
         "type": "object"
       },
       "JsonRpcRequest_for_query": {
