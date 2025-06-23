@@ -1480,6 +1480,7 @@ impl PeerActor {
         level = "trace",
         target = "network",
         "handle_sync_routing_table",
+        fields(edges_num = rtu.edges.len(), accounts_num = rtu.accounts.len()),
         skip_all
     )]
     async fn handle_sync_routing_table(
@@ -1488,7 +1489,11 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
+        tracing::debug!(target: "network", "handle_sync_routing_table: Received RoutingTableUpdate from {} with {} edges and {} accounts.", conn.peer_info, rtu.edges.len(), rtu.accounts.len());
+        tracing::trace!(target: "handle_sync_routing_table", "handle_sync_routing_table: RoutingTableUpdate: {:?}", rtu);
+
         if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
+            tracing::debug!(target: "network", "handle_sync_routing_table: Failed to add edges, banning with reason: {:?}", ban_reason);
             conn.stop(Some(ban_reason));
         }
 
@@ -1498,6 +1503,7 @@ impl PeerActor {
             .update_routes(&clock, NetworkTopologyChange::EdgeNonceRefresh(rtu.edges))
             .await
         {
+            tracing::debug!(target: "network", "handle_sync_routing_table: Failed update routes, banning with reason: {:?}", ban_reason);
             conn.stop(Some(ban_reason));
         }
 
