@@ -361,6 +361,11 @@ fn main() {
         &mut all_paths,
         "network_info".to_string(),
     );
+    add_spec_for_path::<RpcProtocolConfigRequest, RpcProtocolConfigResponse>(
+        &mut all_schemas,
+        &mut all_paths,
+        "protocol_config".to_string(),
+    );
     add_spec_for_path::<RpcSendTransactionRequest, RpcTransactionResponse>(
         &mut all_schemas,
         &mut all_paths,
