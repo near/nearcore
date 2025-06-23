@@ -121,7 +121,7 @@ backup_id_pattern = re.compile(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$')
 # Remove old files if all the logs are past __neard_logs_max_size__
 # The prerotate logic serves us in case neard_runner is not running for a while
 # and we end up with a file larger than the estimated size.
-# cspell:ignore prerotate copytruncate missingok notifempty dateext endscript
+# cspell:ignore prerotate copytruncate missingok notifempty dateext endscript delaycompress
 LOGROTATE_TEMPLATE = """__neard_logs_dir__/__neard_logs_file_name__ {
     su ubuntu ubuntu
     size __neard_logs_file_size__
