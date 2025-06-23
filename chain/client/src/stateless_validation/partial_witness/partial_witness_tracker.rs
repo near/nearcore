@@ -188,7 +188,7 @@ impl CacheEntry {
         let create_decode_span = move || {
             tracing::debug_span!(
                 target: "client",
-                "decode_witness",
+                "decode_witness_parts",
                 height = key.height_created,
                 shard_id = %key.shard_id,
                 tag_witness_distribution = true,
@@ -453,8 +453,16 @@ impl PartialEncodedStateWitnessTracker {
             };
 
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
-            let (mut witness, raw_witness_size) =
-                self.decode_state_witness(&encoded_witness, protocol_version)?;
+            let (mut witness, raw_witness_size) = {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "decode_state_witness",
+                    height = key.height_created,
+                    shard_id = %key.shard_id,
+                    tag_witness_distribution = true)
+                .entered();
+                self.decode_state_witness(&encoded_witness, protocol_version)?
+            };
             if witness.chunk_production_key() != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
@@ -476,6 +484,7 @@ impl PartialEncodedStateWitnessTracker {
                 height = key.height_created,
                 shard_id = %key.shard_id,
                 raw_witness_size = raw_witness_size,
+                encoded_witness_size = encoded_witness.size_bytes(),
                 tag_witness_distribution = true,
             )
             .entered();
