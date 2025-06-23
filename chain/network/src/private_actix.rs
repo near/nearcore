@@ -2,6 +2,8 @@
 /// They are not meant to be used outside.
 use crate::network_protocol::PeerMessage;
 use crate::peer_manager::connection;
+use near_o11y::WithSpanContext;
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -18,6 +20,8 @@ pub(crate) enum RegisterPeerError {
 
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct SendMessage {
+pub(crate) struct SendMessageInner {
     pub message: Arc<PeerMessage>,
 }
+
+pub(crate) type SendMessage = WithSpanContext<SpanWrapped<SendMessageInner>>;
