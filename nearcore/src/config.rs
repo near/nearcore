@@ -1193,7 +1193,7 @@ fn create_localnet_config(
         peer_id: PeerId::new(network_config.1.public_key()),
     }];
     config.network.allow_private_ip_in_public_addrs = true;
-    config.network.experimental.tier1_connect_interval = Duration::seconds(5);
+    config.network.tier1.connect_interval = Duration::seconds(5);
     config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
     config.network.boot_nodes = if params.is_boot {
         "".to_string()
