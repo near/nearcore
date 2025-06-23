@@ -109,7 +109,8 @@ impl ChunkValidator {
 
         let pre_validation_result = chunk_validation::pre_validate_chunk_state_witness(
             &state_witness,
-            chain,
+            chain.chain_store(),
+            chain.genesis_block(),
             self.epoch_manager.as_ref(),
         )?;
 
@@ -340,7 +341,7 @@ impl Client {
     }
 
     pub fn process_chunk_state_witness_with_prev_block(
-        &mut self,
+        &self,
         witness: ChunkStateWitness,
         prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
