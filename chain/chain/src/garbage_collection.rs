@@ -1218,6 +1218,25 @@ fn gc_state(
         current_block_hash = *epoch_first_block.prev_hash();
     }
 
+    // Filter out shards that have active mappings pointing to them
+    // This prevents deleting parent shard state that child shards still reference via ShardUId mappings
+    let current_epoch_id = epoch_manager.get_epoch_id(&latest_block_hash)?;
+    let current_shard_layout = epoch_manager.get_shard_layout(&current_epoch_id)?;
+    let currently_tracked_shards: Vec<ShardUId> = current_shard_layout
+        .shard_ids()
+        .filter(|&shard_id| {
+            shard_tracker.cares_about_shard_this_or_next_epoch(&latest_block_hash, shard_id)
+        })
+        .map(|shard_id| shard_id_to_uid(epoch_manager, shard_id, &current_epoch_id).unwrap())
+        .collect();
+
+    shards_to_cleanup.retain(|shard_uid| {
+        !currently_tracked_shards.iter().any(|tracked_shard| {
+            let mapped_shard_uid = get_shard_uid_mapping(&store, *tracked_shard);
+            mapped_shard_uid == *shard_uid && mapped_shard_uid != *tracked_shard
+        })
+    });
+
     // Delete State of `shards_to_cleanup` and associated ShardUId mapping.
     tracing::debug!(target: "garbage_collection", ?shards_to_cleanup, "state_cleanup");
     let mut trie_store_update = store.trie_store().store_update();
