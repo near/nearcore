@@ -102,3 +102,6 @@ protocol_schema = [
     "near-parameters/protocol_schema",
     "near-schema-checker-lib/protocol_schema",
 ]
+protocol_feature_spice = [
+    "near-primitives/protocol_feature_spice",
+]

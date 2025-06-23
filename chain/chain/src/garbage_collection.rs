@@ -14,7 +14,8 @@ use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
-    get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, index_to_bytes,
+    get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, get_receipt_proof_key,
+    index_to_bytes,
 };
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -667,6 +668,15 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
             self.gc_col(DBCol::ChunkApplyStats, &block_shard_id);
 
+            if cfg!(feature = "protocol_feature_spice") {
+                for to_shard_id in shard_layout.shard_ids() {
+                    self.gc_col(
+                        DBCol::receipt_proofs(),
+                        &get_receipt_proof_key(&block_hash, shard_id, to_shard_id),
+                    );
+                }
+            }
+
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is mostly for outgoing State Parts.
             // However, if node crashes while State Syncing, it may never clear
@@ -1070,6 +1080,10 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ChunkApplyStats => {
+                store_update.delete(col, key);
+            }
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ReceiptProofs => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion

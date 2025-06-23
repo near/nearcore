@@ -329,6 +329,12 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: `ChunkApplyStats`
     ChunkApplyStats,
+    /// Mapping from Block + Target Shard + Source Shard to the corresponding receipt proof
+    /// Each proof might prove multiple receipts.
+    /// - *Rows*: (block, shard, shard)
+    /// - *Content type*: `near_primitives::sharding::ReceiptProof`
+    #[cfg(feature = "protocol_feature_spice")]
+    ReceiptProofs,
 }
 
 /// Defines different logical parts of a db key.
@@ -343,7 +349,7 @@ pub enum DBKeyType {
     /// Set of predetermined strings. Used, for example, in DBCol::BlockMisc
     StringLiteral,
     BlockHash,
-    /// Hash of the previous block. Logically different from BlockHash. Used fro DBCol::NextBlockHashes.
+    /// Hash of the previous block. Logically different from BlockHash. Used for DBCol::NextBlockHashes.
     PreviousBlockHash,
     BlockHeight,
     BlockOrdinal,
@@ -476,6 +482,8 @@ impl DBCol {
             | DBCol::Transactions
             | DBCol::StateShardUIdMapping
             | DBCol::ChunkApplyStats => true,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ReceiptProofs => true,
 
             // TODO
             DBCol::ChallengedBlocks => false,
@@ -617,7 +625,16 @@ impl DBCol {
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
             DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
         }
+    }
+
+    pub fn receipt_proofs() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ReceiptProofs;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 }
 
