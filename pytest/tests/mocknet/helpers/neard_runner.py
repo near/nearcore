@@ -121,7 +121,7 @@ backup_id_pattern = re.compile(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$')
 # Remove old files if all the logs are past __neard_logs_max_size__
 # The prerotate logic serves us in case neard_runner is not running for a while
 # and we end up with a file larger than the estimated size.
-# cspell:ignore prerotate copytruncate missingok notifempty dateext endscript
+# cspell:ignore prerotate copytruncate missingok notifempty dateext endscript delaycompress
 LOGROTATE_TEMPLATE = """__neard_logs_dir__/__neard_logs_file_name__ {
     su ubuntu ubuntu
     size __neard_logs_file_size__
@@ -130,6 +130,8 @@ LOGROTATE_TEMPLATE = """__neard_logs_dir__/__neard_logs_file_name__ {
     missingok
     notifempty
     dateext
+    compress
+    delaycompress
     dateformat -%Y-%m-%d-%H-%M-%S
     create 0644 ubuntu ubuntu
     prerotate
@@ -182,18 +184,25 @@ class NeardRunner:
         # is no need to block reading that when inside the update_binaries rpc for example
         self.lock = threading.Lock()
 
+    def _get_root_disk_size(self):
+        return psutil.disk_usage('/').total
+
     def _configure_neard_logs(self):
         try:
             os.mkdir(self.neard_logs_dir)
         except FileExistsError:
             pass
 
+        # Get the size of the root disk and leave 50G for the system
+        logs_max_size = self._get_root_disk_size() - 50 * 1024 * 1024 * 1024
+
         variables = {
             '__neard_logs_dir__': f'{self.neard_logs_dir}',
             '__neard_logs_file_name__': f'{self.neard_logs_file_name}',
-            '__neard_logs_file_size__': '100M',
-            '__neard_logs_max_file_count__': '900',
-            '__neard_logs_max_size__': '100000000000',  # 100G
+            '__neard_logs_file_size__': '200M',
+            # Set to 100k to disable log rotation based on file count.
+            '__neard_logs_max_file_count__': '100000',
+            '__neard_logs_max_size__': f'{logs_max_size}',
         }
         logrotate_config = LOGROTATE_TEMPLATE
         # Replace variables in the template
@@ -209,9 +218,10 @@ class NeardRunner:
             logging.error('The logrotate tool was not found on this system.')
 
     # Try to rotate the logs based on the policy defined here: self.logrotate_config_path.
-    def run_logrotate(self):
+    # If force is set to true, the logs will be rotated even if the file size is not reached.
+    def run_logrotate(self, force=False):
         run_logrotate_cmd = [
-            self.logrotate_binary_path, '-s',
+            self.logrotate_binary_path, '-f' if force else '', '-s',
             f'{self.neard_logs_dir}/.logrotate_status',
             self.logrotate_config_path
         ]
@@ -933,6 +943,8 @@ class NeardRunner:
 
     # If this is a regular node, starts neard run. If it's a traffic generator, starts neard mirror run
     def start_neard(self, batch_interval_millis=None):
+        # Rotate the logs before starting neard
+        self.run_logrotate(force=True)
         out_path = os.path.join(self.neard_logs_dir, self.neard_logs_file_name)
         with open(out_path, 'ab') as out:
             if self.is_traffic_generator():

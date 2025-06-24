@@ -176,7 +176,6 @@ impl<'c> EstimatorContext<'c> {
             block_height: 1,
             // Epoch length is long enough to avoid corner cases.
             prev_block_hash: Default::default(),
-            block_hash: Default::default(),
             shard_id,
             epoch_id: Default::default(),
             epoch_height: 0,

@@ -51,7 +51,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use utils::check_transaction_validity_period;
 
-mod latest_witnesses;
+pub mod latest_witnesses;
 mod merkle_proof;
 pub mod utils;
 
@@ -74,7 +74,7 @@ pub trait ChainStoreAccess {
     /// Returns underlying store.
     fn store(&self) -> Store;
     /// The chain head.
-    fn head(&self) -> Result<Tip, Error>;
+    fn head(&self) -> Result<Arc<Tip>, Error>;
     /// The chain Blocks Tail height.
     fn tail(&self) -> Result<BlockHeight, Error>;
     /// The chain Chunks Tail height.
@@ -82,15 +82,15 @@ pub trait ChainStoreAccess {
     /// Tail height of the fork cleaning process.
     fn fork_tail(&self) -> Result<BlockHeight, Error>;
     /// Head of the header chain (not the same thing as head_header).
-    fn header_head(&self) -> Result<Tip, Error>;
+    fn header_head(&self) -> Result<Arc<Tip>, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
-    fn head_header(&self) -> Result<BlockHeader, Error>;
+    fn head_header(&self) -> Result<Arc<BlockHeader>, Error>;
     /// The chain final head. It is guaranteed to be monotonically increasing.
-    fn final_head(&self) -> Result<Tip, Error>;
+    fn final_head(&self) -> Result<Arc<Tip>, Error>;
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error>;
+    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
@@ -98,7 +98,7 @@ pub trait ChainStoreAccess {
     /// Does this chunk exist?
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
     /// Get previous header.
-    fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error>;
+    fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error>;
     /// Get chunk extra info for given block hash + shard id.
     fn get_chunk_extra(
         &self,
@@ -111,7 +111,7 @@ pub trait ChainStoreAccess {
         shard_id: &ShardId,
     ) -> Result<Option<ChunkApplyStats>, Error>;
     /// Get block header.
-    fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error>;
+    fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error>;
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error>;
     /// Returns hash of the first available block after genesis.
@@ -142,7 +142,7 @@ pub trait ChainStoreAccess {
         Ok(None)
     }
     /// Returns block header from the current chain for given height if present.
-    fn get_block_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
+    fn get_block_header_by_height(&self, height: BlockHeight) -> Result<Arc<BlockHeader>, Error> {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
@@ -559,9 +559,10 @@ impl ChainStore {
             return Ok(latest_known);
         }
         let latest_known: LatestKnown = option_to_not_found(
-            self.store.store().get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
+            self.store.store().caching_get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
             "LATEST_KNOWN_KEY",
-        )?;
+        )
+        .map(|v| *v)?;
         self.latest_known.set(Some(latest_known));
         Ok(latest_known)
     }
@@ -832,7 +833,7 @@ impl ChainStoreAccess for ChainStore {
         self.store.store()
     }
     /// The chain head.
-    fn head(&self) -> Result<Tip, Error> {
+    fn head(&self) -> Result<Arc<Tip>, Error> {
         ChainStoreAdapter::head(self)
     }
 
@@ -851,7 +852,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
-    fn head_header(&self) -> Result<BlockHeader, Error> {
+    fn head_header(&self) -> Result<Arc<BlockHeader>, Error> {
         ChainStoreAdapter::head_header(self)
     }
 
@@ -861,17 +862,17 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Head of the header chain (not the same thing as head_header).
-    fn header_head(&self) -> Result<Tip, Error> {
+    fn header_head(&self) -> Result<Arc<Tip>, Error> {
         ChainStoreAdapter::header_head(self)
     }
 
     /// Final head of the chain.
-    fn final_head(&self) -> Result<Tip, Error> {
+    fn final_head(&self) -> Result<Arc<Tip>, Error> {
         ChainStoreAdapter::final_head(self)
     }
 
     /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
+    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         ChainStoreAdapter::get_block(self, h)
     }
 
@@ -890,7 +891,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get previous header.
-    fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
+    fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         ChainStoreAdapter::get_previous_header(self, header)
     }
 
@@ -912,7 +913,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get block header.
-    fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
+    fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         ChainStoreAdapter::get_block_header(self, h)
     }
 
@@ -1003,8 +1004,8 @@ impl ChainStoreAccess for ChainStore {
 /// Cache update for ChainStore
 #[derive(Default)]
 pub(crate) struct ChainStoreCacheUpdate {
-    block: Option<Block>,
-    headers: HashMap<CryptoHash, BlockHeader>,
+    block: Option<Arc<Block>>,
+    headers: HashMap<CryptoHash, Arc<BlockHeader>>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, Arc<ArcedShardChunk>>,
     partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
@@ -1032,12 +1033,12 @@ pub struct ChainStoreUpdate<'a> {
     store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
     pub(crate) chain_store_cache_update: ChainStoreCacheUpdate,
-    head: Option<Tip>,
+    head: Option<Arc<Tip>>,
     tail: Option<BlockHeight>,
     chunk_tail: Option<BlockHeight>,
     fork_tail: Option<BlockHeight>,
-    header_head: Option<Tip>,
-    final_head: Option<Tip>,
+    header_head: Option<Arc<Tip>>,
+    final_head: Option<Arc<Tip>>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<(CryptoHash, WrappedTrieChanges)>,
     state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
@@ -1094,8 +1095,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// The chain head.
-    fn head(&self) -> Result<Tip, Error> {
-        if let Some(head) = &self.head { Ok(head.clone()) } else { self.chain_store.head() }
+    fn head(&self) -> Result<Arc<Tip>, Error> {
+        let Some(updated_head) = &self.head else {
+            return self.chain_store.head();
+        };
+        Ok(Arc::clone(&updated_head))
     }
 
     /// The chain Block Tail height, used by GC.
@@ -1122,7 +1126,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Head of the header chain (not the same thing as head_header).
-    fn header_head(&self) -> Result<Tip, Error> {
+    fn header_head(&self) -> Result<Arc<Tip>, Error> {
         if let Some(header_head) = &self.header_head {
             Ok(header_head.clone())
         } else {
@@ -1130,7 +1134,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn final_head(&self) -> Result<Tip, Error> {
+    fn final_head(&self) -> Result<Arc<Tip>, Error> {
         if let Some(final_head) = self.final_head.as_ref() {
             Ok(final_head.clone())
         } else {
@@ -1147,15 +1151,15 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
-    fn head_header(&self) -> Result<BlockHeader, Error> {
+    fn head_header(&self) -> Result<Arc<BlockHeader>, Error> {
         self.get_block_header(&(self.head()?.last_block_hash))
     }
 
     /// Get full block.
-    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
+    fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         if let Some(block) = &self.chain_store_cache_update.block {
             if block.hash() == h {
-                return Ok(block.clone());
+                return Ok(Arc::clone(block));
             }
         }
         self.chain_store.get_block(h)
@@ -1177,7 +1181,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Get previous header.
-    fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
+    fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         self.get_block_header(header.prev_hash())
     }
 
@@ -1209,7 +1213,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Get block header.
-    fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error> {
+    fn get_block_header(&self, hash: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         if let Some(header) = self.chain_store_cache_update.headers.get(hash).cloned() {
             Ok(header)
         } else {
@@ -1387,12 +1391,12 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Update block body head and latest known height.
     pub fn save_body_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.try_save_latest_known(t.height)?;
-        self.head = Some(t.clone());
+        self.head = Some(t.clone().into());
         Ok(())
     }
 
     pub fn save_final_head(&mut self, t: &Tip) -> Result<(), Error> {
-        self.final_head = Some(t.clone());
+        self.final_head = Some(t.clone().into());
         Ok(())
     }
 
@@ -1462,7 +1466,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update
             .next_block_hashes
             .insert(t.prev_block_hash, t.last_block_hash);
-        self.header_head = Some(t.clone());
+        self.header_head = Some(t.clone().into());
         Ok(())
     }
 
@@ -1491,7 +1495,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Save block.
-    pub fn save_block(&mut self, block: Block) {
+    pub fn save_block(&mut self, block: Arc<Block>) {
         debug_assert!(self.chain_store_cache_update.block.is_none());
         self.chain_store_cache_update.block = Some(block);
     }
@@ -1501,11 +1505,9 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
-        chunk_extra: ChunkExtra,
+        chunk_extra: Arc<ChunkExtra>,
     ) {
-        self.chain_store_cache_update
-            .chunk_extras
-            .insert((*block_hash, *shard_uid), Arc::new(chunk_extra));
+        self.chain_store_cache_update.chunk_extras.insert((*block_hash, *shard_uid), chunk_extra);
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
@@ -1554,7 +1556,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_block_header(&mut self, header: BlockHeader) -> Result<(), Error> {
         self.update_and_save_block_merkle_tree(&header)?;
-        self.chain_store_cache_update.headers.insert(*header.hash(), header);
+        self.chain_store_cache_update.headers.insert(*header.hash(), header.into());
         Ok(())
     }
 

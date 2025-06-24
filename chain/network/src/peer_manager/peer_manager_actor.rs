@@ -289,34 +289,36 @@ impl PeerManagerActor {
                         }
                     });
                 }
-                if let Some(cfg) = state.config.tier1.clone() {
-                    // Connect to TIER1 proxies and broadcast the list those connections periodically.
-                    arbiter.spawn({
-                        let clock = clock.clone();
-                        let state = state.clone();
-                        let mut interval = time::Interval::new(clock.now(), cfg.advertise_proxies_interval);
-                        async move {
-                            loop {
-                                interval.tick(&clock).await;
-                                state.tier1_request_full_sync();
-                                state.tier1_advertise_proxies(&clock).await;
-                            }
+
+                // Connect to TIER1 proxies and broadcast the list those connections periodically.
+                let tier1 = state.config.tier1.clone();
+                arbiter.spawn({
+                    let clock = clock.clone();
+                    let state = state.clone();
+                    let mut interval = time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
+                    async move {
+                        loop {
+                            interval.tick(&clock).await;
+                            state.tier1_request_full_sync();
+                            state.tier1_advertise_proxies(&clock).await;
                         }
-                    });
-                    // Update TIER1 connections periodically.
-                    arbiter.spawn({
-                        let clock = clock.clone();
-                        let state = state.clone();
-                        let mut interval = tokio::time::interval(cfg.connect_interval.try_into().unwrap());
-                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                        async move {
-                            loop {
-                                interval.tick().await;
-                                state.tier1_connect(&clock).await;
-                            }
+                    }
+                });
+
+                // Update TIER1 connections periodically.
+                arbiter.spawn({
+                    let clock = clock.clone();
+                    let state = state.clone();
+                    let mut interval = tokio::time::interval(tier1.connect_interval.try_into().unwrap());
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    async move {
+                        loop {
+                            interval.tick().await;
+                            state.tier1_connect(&clock).await;
                         }
-                    });
-                }
+                    }
+                });
+
                 // Periodically poll the connection store for connections we'd like to re-establish
                 arbiter.spawn({
                     let clock = clock.clone();
@@ -1119,6 +1121,22 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+                let Some(partial_witness) = validator_witness_tuple.first().map(|(_, w)| w) else {
+                    return NetworkResponses::NoResponse;
+                };
+                let part_owners = validator_witness_tuple
+                    .iter()
+                    .map(|(validator, _)| validator.clone())
+                    .collect::<Vec<_>>();
+                let _span = tracing::debug_span!(target: "network",
+                    "send partial_encoded_state_witnesses",
+                    height = partial_witness.chunk_production_key().height_created,
+                    shard_id = %partial_witness.chunk_production_key().shard_id,
+                    part_owners_len = part_owners.len(),
+                    tag_witness_distribution = true,
+                )
+                .entered();
+
                 for (chunk_validator, partial_witness) in validator_witness_tuple {
                     self.state.send_message_to_account(
                         &self.clock,
@@ -1132,6 +1150,14 @@ impl PeerManagerActor {
                 chunk_validators,
                 partial_witness,
             ) => {
+                let _span = tracing::debug_span!(target: "network",
+                    "send partial_encoded_state_witness_forward",
+                    height = partial_witness.chunk_production_key().height_created,
+                    shard_id = %partial_witness.chunk_production_key().shard_id,
+                    part_ord = partial_witness.part_ord(),
+                    tag_witness_distribution = true,
+                )
+                .entered();
                 for chunk_validator in chunk_validators {
                     self.state.send_message_to_account(
                         &self.clock,

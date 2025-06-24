@@ -98,22 +98,20 @@ impl TestEnv {
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     /// Runs garbage collection manually
-    pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
+    pub fn process_block(&mut self, id: usize, block: Arc<Block>, provenance: Provenance) {
         self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
         // runs gc
         let runtime_adapter = self.clients[id].chain.runtime_adapter.clone();
         let epoch_manager = self.clients[id].chain.epoch_manager.clone();
         let shard_tracker = self.clients[id].chain.shard_tracker.clone();
         let gc_config = self.clients[id].config.gc.clone();
-        let signer = self.clients[id].validator_signer.get();
-        let me = signer.as_ref().map(|signer| signer.validator_id());
 
         // A RPC node should do regular garbage collection.
         if !self.clients[id].config.archive {
             self.clients[id]
                 .chain
                 .mut_chain_store()
-                .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker, me)
+                .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker)
                 .unwrap();
         } else {
             // An archival node with split storage should perform garbage collection
@@ -126,7 +124,7 @@ impl TestEnv {
                 self.clients[id]
                     .chain
                     .mut_chain_store()
-                    .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker, me)
+                    .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker)
                     .unwrap();
             } else {
                 // An archival node with legacy storage or in the midst of migration to split
@@ -146,7 +144,7 @@ impl TestEnv {
     /// This means that transactions added before this call will be included in the next block produced by this validator.
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
-        self.process_block(id, block.unwrap(), Provenance::PRODUCED);
+        self.process_block(id, block.unwrap().into(), Provenance::PRODUCED);
     }
 
     // Produces block by the client that is the block producer for the given height.
@@ -165,7 +163,7 @@ impl TestEnv {
                 continue;
             }
             let block = self.clients[id].produce_block(height).unwrap().unwrap();
-            self.process_block(id, block, Provenance::PRODUCED);
+            self.process_block(id, block.into(), Provenance::PRODUCED);
             return;
         }
         panic!("No client found for block producer {}", block_producer);
@@ -544,7 +542,7 @@ impl TestEnv {
             self.clients[0].epoch_manager.get_block_producer(&epoch_id, tip.height).unwrap();
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        block.mut_header().resign(&create_test_signer(block_producer.as_str()));
+        Arc::make_mut(&mut block).mut_header().resign(&create_test_signer(block_producer.as_str()));
 
         let _ = self.clients[0]
             .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)
@@ -685,7 +683,7 @@ impl TestEnv {
             self.save_tx_outcomes,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
-            self.clients[idx].validator_signer.get().unwrap(),
+            self.clients[idx].validator_signer.clone(),
             self.clients[idx].resharding_sender.clone(),
         )
     }

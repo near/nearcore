@@ -56,8 +56,23 @@ class NodeHandle:
         return self.node.run_cmd(self.schedule_ctx, cmd, raise_on_fail,
                                  return_on_fail)
 
+    def make_snapshot(self, snapshot_id):
+        return self.node.make_snapshot(snapshot_id)
+
+    def restore_snapshot(self, snapshot_id):
+        return self.node.restore_snapshot(snapshot_id)
+
+    def list_snapshots(self):
+        return self.node.list_snapshots()
+
+    def delete_snapshot(self, snapshot_id):
+        return self.node.delete_snapshot(snapshot_id)
+
     def upload_file(self, src, dst):
         return self.node.upload_file(src, dst)
+
+    def download_file(self, src, dst):
+        return self.node.download_file(src, dst)
 
     def init_neard_runner(self, config, remove_home_dir=False):
         self.node.stop_neard_runner()

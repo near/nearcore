@@ -22,6 +22,7 @@ use std::fmt;
 use std::io;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use time::ext::InstantExt as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -84,9 +85,9 @@ impl fmt::Debug for RoutedMessage {
 pub enum DirectMessage {
     AnnounceAccounts(Vec<AnnounceAccount>),
     BlockRequest(CryptoHash),
-    Block(Block),
+    Block(Arc<Block>),
     BlockHeadersRequest(Vec<CryptoHash>),
-    BlockHeaders(Vec<BlockHeader>),
+    BlockHeaders(Vec<Arc<BlockHeader>>),
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
     VersionedStateResponse(Box<StateResponseInfo>),
@@ -446,14 +447,14 @@ impl Connection {
         &mut self,
         msg: &crate::network_protocol::RoutedMessage,
     ) -> Option<RoutedMessage> {
-        if !self.target_is_for_me(&msg.target) {
+        if !self.target_is_for_me(msg.target()) {
             tracing::debug!(
                 target: "network", "{:?} dropping routed message {} for {:?}",
-                &self, <&'static str>::from(&msg.body), &msg.target
+                &self, <&'static str>::from(msg.body()), msg.target()
             );
             return None;
         }
-        match &msg.body {
+        match msg.body() {
             RoutedMessageBody::Ping(p) => Some(RoutedMessage::Ping { nonce: p.nonce }),
             RoutedMessageBody::Pong(p) => {
                 Some(RoutedMessage::Pong { nonce: p.nonce, source: p.source.clone() })

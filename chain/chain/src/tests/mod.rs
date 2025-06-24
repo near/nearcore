@@ -8,6 +8,7 @@ use crate::test_utils::process_block_sync;
 use crate::{Block, Chain, Error, Provenance};
 use near_primitives::account::id::AccountId;
 use near_primitives::utils::MaybeValidated;
+use std::sync::Arc;
 
 impl Chain {
     /// A wrapper function around process_block that doesn't trigger all the callbacks
@@ -15,7 +16,7 @@ impl Chain {
     pub(crate) fn process_block_test(
         &mut self,
         me: &Option<AccountId>,
-        block: Block,
+        block: Arc<Block>,
     ) -> Result<(), Error> {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
         process_block_sync(

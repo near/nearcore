@@ -494,14 +494,7 @@ impl ClientActorInner {
             .collect();
         let shards_tracked_next_epoch = shard_ids
             .into_iter()
-            .map(|shard_id| {
-                self.client.shard_tracker.will_care_about_shard(
-                    me.as_ref(),
-                    &fetch_hash,
-                    shard_id,
-                    true,
-                )
-            })
+            .map(|shard_id| self.client.shard_tracker.will_care_about_shard(&fetch_hash, shard_id))
             .collect();
         Ok(TrackedShardsView { shards_tracked_this_epoch, shards_tracked_next_epoch })
     }
@@ -597,7 +590,7 @@ impl ClientActorInner {
                     continue;
                 }
                 let block_header = if block_hash == CryptoHash::default() {
-                    self.client.chain.genesis().clone()
+                    self.client.chain.genesis().clone().into()
                 } else {
                     self.client.chain.get_block_header(&block_hash)?
                 };
@@ -618,7 +611,7 @@ impl ClientActorInner {
                     .get_block_producer(block_header.epoch_id(), block_header.height())
                     .ok();
 
-                let chunk_endorsements = self.compute_chunk_endorsements_ratio(&block);
+                let chunk_endorsements = self.compute_chunk_endorsements_ratio(block.as_deref());
                 let congestion_control_config = self
                     .client
                     .runtime_adapter
@@ -849,7 +842,7 @@ impl ClientActorInner {
     /// The logic is based on `validate_chunk_endorsements_in_block`.
     fn compute_chunk_endorsements_ratio(
         &self,
-        block: &Option<Block>,
+        block: Option<&Block>,
     ) -> Option<HashMap<ChunkHash, f64>> {
         let Some(block) = block else {
             return None;
