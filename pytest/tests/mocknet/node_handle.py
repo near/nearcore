@@ -71,6 +71,9 @@ class NodeHandle:
     def upload_file(self, src, dst):
         return self.node.upload_file(src, dst)
 
+    def download_file(self, src, dst):
+        return self.node.download_file(src, dst)
+
     def init_neard_runner(self, config, remove_home_dir=False):
         self.node.stop_neard_runner()
         self.node.init()

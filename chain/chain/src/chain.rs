@@ -477,7 +477,8 @@ impl Chain {
             runtime_adapter.store().clone(),
             chain_config.save_trie_changes,
             transaction_validity_period,
-        );
+        )
+        .with_save_tx_outcomes(chain_config.save_tx_outcomes);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
             ChainStoreAdapter::new(chain_store.store()),

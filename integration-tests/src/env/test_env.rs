@@ -72,6 +72,7 @@ pub struct TestEnv {
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
     pub(crate) archive: bool,
     pub(crate) save_trie_changes: bool,
+    pub(crate) save_tx_outcomes: bool,
 }
 
 pub struct StateWitnessPropagationOutput {
@@ -679,6 +680,7 @@ impl TestEnv {
             rng_seed,
             self.archive,
             self.save_trie_changes,
+            self.save_tx_outcomes,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.clone(),

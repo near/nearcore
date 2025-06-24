@@ -683,6 +683,17 @@ def run_remote_upload_file(ctx: CommandContext):
          on_exception="")
 
 
+def run_remote_download_file(ctx: CommandContext):
+    targeted = ctx.get_targeted()
+    logger.info(
+        f'Downloading {ctx.args.src} to {ctx.args.dst} on {",".join([h.name() for h in targeted])}'
+    )
+    pmap(lambda node: print_result(
+        node, node.download_file(ctx.args.src, ctx.args.dst)),
+         targeted,
+         on_exception="")
+
+
 def run_env_cmd(ctx: CommandContext):
     if ctx.args.clear_all:
         func = lambda node: node.neard_clear_env()

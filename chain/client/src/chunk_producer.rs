@@ -2,9 +2,7 @@ use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
 use itertools::Itertools;
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::types::{
-    PrepareTransactionsChunkContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
-};
+use near_chain::types::{PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig};
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
 use near_chunks::client::ShardedTransactionPool;
@@ -385,7 +383,7 @@ impl ChunkProducer {
             };
             self.runtime_adapter.prepare_transactions(
                 storage_config,
-                PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
+                shard_id,
                 prev_block.into(),
                 &mut iter,
                 chain_validate,

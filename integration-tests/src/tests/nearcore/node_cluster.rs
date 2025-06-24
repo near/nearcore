@@ -20,6 +20,7 @@ fn start_nodes(
     num_lightclient: NumSeats,
     epoch_length: BlockHeightDelta,
     genesis_height: BlockHeight,
+    save_tx_outcomes: Option<bool>,
 ) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>)>) {
     init_integration_logger();
 
@@ -53,6 +54,7 @@ fn start_nodes(
         if i >= num_validator_seats && i < num_tracking_nodes {
             near_config.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
         }
+        near_config.client_config.save_tx_outcomes = save_tx_outcomes.unwrap_or(false);
         near_configs.push(near_config);
     }
 
@@ -75,6 +77,7 @@ pub struct NodeCluster {
     num_lightclient: Option<NumSeats>,
     epoch_length: Option<BlockHeightDelta>,
     genesis_height: Option<BlockHeight>,
+    save_tx_outcomes: Option<bool>,
 }
 
 impl NodeCluster {
@@ -105,6 +108,11 @@ impl NodeCluster {
 
     pub fn set_genesis_height(mut self, h: BlockHeight) -> Self {
         self.genesis_height = Some(h);
+        self
+    }
+
+    pub fn set_save_tx_outcomes(mut self, save: bool) -> Self {
+        self.save_tx_outcomes = Some(save);
         self
     }
 
@@ -145,6 +153,7 @@ impl NodeCluster {
                     num_lightclient,
                     epoch_length,
                     genesis_height,
+                    self.save_tx_outcomes,
                 );
                 spawn_interruptible(f(genesis, rpc_addrs, clients));
             });

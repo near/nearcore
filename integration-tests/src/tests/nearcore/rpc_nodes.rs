@@ -99,7 +99,8 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         .set_num_validator_seats(1)
         .set_num_lightclients(1)
         .set_epoch_length(1000)
-        .set_genesis_height(0);
+        .set_genesis_height(0)
+        .set_save_tx_outcomes(true);
 
     cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
         let view_client = clients[0].1.clone();
