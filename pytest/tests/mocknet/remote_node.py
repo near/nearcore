@@ -74,6 +74,9 @@ class RemoteNeardRunner:
     def upload_file(self, src, dst):
         self.node.machine.upload(src, dst, switch_user='ubuntu')
 
+    def download_file(self, src, dst):
+        self.node.machine.download(src, dst)
+
     def init_python(self):
         cmd = f'cd {self.neard_runner_home} && python3 -m virtualenv venv -p $(which python3)' \
         ' && ./venv/bin/pip install -r requirements.txt'
