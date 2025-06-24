@@ -63,7 +63,7 @@ use near_primitives::sharding::{
     StateSyncInfo, StateSyncInfoV1,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::transaction::ValidatedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
 use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
@@ -279,6 +279,7 @@ impl Client {
         };
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
+            save_tx_outcomes: config.save_tx_outcomes,
             background_migration_threads: config.client_background_migration_threads,
             resharding_config: config.resharding_config.clone(),
         };
@@ -1763,23 +1764,32 @@ impl Client {
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
             let last_header = epoch_manager.get_prev_chunk_header(block, shard_id).unwrap();
-            let result = self.chunk_producer.produce_chunk(
-                block,
-                &epoch_id,
-                last_header.clone(),
-                next_height,
-                shard_id,
-                signer,
-                &|tx| {
-                    #[cfg(features = "test_features")]
-                    match self.adv_produce_chunks {
-                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => true,
-                        _ => chain.transaction_validity_check(block.header().clone().into())(tx),
+            let result = {
+                let transaction_validity_check =
+                    self.chain.transaction_validity_check(block.header().clone().into());
+
+                #[cfg(not(feature = "test_features"))]
+                let chain_validate: &dyn Fn(&SignedTransaction) -> bool =
+                    &transaction_validity_check;
+
+                #[cfg(feature = "test_features")]
+                let chain_validate: &dyn Fn(&SignedTransaction) -> bool = {
+                    match self.chunk_producer.adv_produce_chunks {
+                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => &|_| true,
+                        _ => &transaction_validity_check,
                     }
-                    #[cfg(not(features = "test_features"))]
-                    self.chain.transaction_validity_check(block.header().clone().into())(tx)
-                },
-            );
+                };
+
+                self.chunk_producer.produce_chunk(
+                    block,
+                    &epoch_id,
+                    last_header.clone(),
+                    next_height,
+                    shard_id,
+                    signer,
+                    chain_validate,
+                )
+            };
 
             let ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts } = match result {
                 Ok(Some(res)) => res,

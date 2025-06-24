@@ -165,13 +165,31 @@ impl FlatStorageResharder {
             }
             FlatStorageReshardingStatus::SplittingParent(status) => {
                 let parent_shard_uid = shard_uid;
-                info!(target: "resharding", ?parent_shard_uid, ?status, "resuming flat storage shard split");
-                // On resume, flat storage status is already set correctly and read from DB.
-                // Thus, we don't need to care about cancelling other existing resharding events.
-                // However, we don't know the current state of children shards,
-                // so it's better to clean them.
-                self.clean_children_shards(&status)?;
-                self.start_resharding_blocking_impl(parent_shard_uid, status);
+
+                // Check if children's flat storages are already in Ready status to skip flat storage resharding
+                // and go directly to Trie resharding.
+                let all_children_done = [status.left_child_shard, status.right_child_shard]
+                    .iter()
+                    .all(|&child_shard| {
+                        matches!(
+                            self.runtime
+                                .get_flat_storage_manager()
+                                .get_flat_storage_status(child_shard),
+                            FlatStorageStatus::Ready(_)
+                        )
+                    });
+
+                if all_children_done {
+                    info!(target: "resharding", ?parent_shard_uid, ?status, "all children shards are ready, skipping resharding");
+                    return Ok(());
+                } else {
+                    info!(target: "resharding", ?parent_shard_uid, ?status, "resuming flat storage shard split");
+                    // On resume, flat storage status is already set correctly and read from DB.
+                    // Thus, we don't need to care about cancelling other existing resharding events.
+                    // Children are not both ready, so we need to clean them and restart resharding.
+                    self.clean_children_shards(&status)?;
+                    self.start_resharding_blocking_impl(parent_shard_uid, status);
+                }
             }
             FlatStorageReshardingStatus::CatchingUp(_) => {
                 info!(target: "resharding", ?shard_uid, ?resharding_status, "resuming flat storage shard catchup");
@@ -403,16 +421,15 @@ impl FlatStorageResharder {
         match task_status {
             FlatStorageReshardingTaskResult::Successful { .. } => {
                 // Split shard completed successfully.
-                // Parent flat storage can be deleted from the FlatStoreManager.
-                // If FlatStoreManager has no reference to the shard, delete it manually.
-                if !self
-                    .runtime
-                    .get_flat_storage_manager()
-                    .remove_flat_storage_for_shard(parent_shard, &mut store_update)
-                    .unwrap()
-                {
-                    store_update.remove_flat_storage(parent_shard);
-                }
+
+                // NOTE: Parent flat storage cleanup has been moved to trie state resharder
+                // to ensure proper ordering.
+                //
+                // This change ensures that:
+                // 1. Flat storage resharding completes first
+                // 2. Trie state resharding can safely access/create child memtries
+                // 3. Parent flat storage is cleaned up only after all operations complete
+
                 // Children must perform catchup.
                 for child_shard in [left_child_shard, right_child_shard] {
                     store_update.set_flat_storage_status(
@@ -1487,8 +1504,12 @@ mod tests {
         // Do the resharding.
         flat_storage_resharder.start_resharding_blocking_impl(parent_shard, split_params.clone());
 
-        // Verify parent shard is gone
-        assert_matches!(store.get_flat_storage_status(parent_shard), Ok(FlatStorageStatus::Empty));
+        // Verify parent shard is still in resharding state (not deleted yet).
+        // Parent flat storage cleanup happens in trie_state_resharder, not here.
+        assert_matches!(
+            store.get_flat_storage_status(parent_shard),
+            Ok(FlatStorageStatus::Resharding(_))
+        );
 
         // Both children shards should be in Ready state
         for child_shard in [split_params.left_child_shard, split_params.right_child_shard] {

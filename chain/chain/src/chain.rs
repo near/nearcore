@@ -477,7 +477,8 @@ impl Chain {
             runtime_adapter.store().clone(),
             chain_config.save_trie_changes,
             transaction_validity_period,
-        );
+        )
+        .with_save_tx_outcomes(chain_config.save_tx_outcomes);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
             ChainStoreAdapter::new(chain_store.store()),
@@ -1345,9 +1346,6 @@ impl Chain {
             let block_context = ApplyChunkBlockContext {
                 block_type: BlockType::Optimistic,
                 height: block_height,
-                // TODO: consider removing this field completely to avoid
-                // confusion with real block hash.
-                block_hash: CryptoHash::default(),
                 prev_block_hash: *block.prev_block_hash(),
                 block_timestamp: block.block_timestamp(),
                 gas_price: prev_block.header().next_gas_price(),
