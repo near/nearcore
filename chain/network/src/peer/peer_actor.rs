@@ -1505,6 +1505,7 @@ impl PeerActor {
         // that we already broadcasted. Client actor will both verify signatures of the received announces
         // as well as filter out those which are older than the fetched ones (to avoid overriding
         // a newer announce with an older one).
+        /*
         let old = network_state
             .account_announcements
             .get_broadcasted_announcements(rtu.accounts.iter().map(|a| &a.account_id));
@@ -1521,6 +1522,7 @@ impl PeerActor {
             Ok(Ok(accounts)) => network_state.add_accounts(accounts).await,
             Err(_) => {}
         }
+        */
     }
 
     #[tracing::instrument(level = "trace", target = "network", "handle_distance_vector", skip_all)]
