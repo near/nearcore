@@ -369,10 +369,6 @@ impl From<&Block> for PrepareTransactionsBlockContext {
         }
     }
 }
-pub struct PrepareTransactionsChunkContext {
-    pub shard_id: ShardId,
-    pub gas_limit: Gas,
-}
 
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
@@ -435,7 +431,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn prepare_transactions(
         &self,
         storage: RuntimeStorageConfig,
-        chunk: PrepareTransactionsChunkContext,
+        shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,

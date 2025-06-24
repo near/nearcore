@@ -1,8 +1,8 @@
 use crate::Error;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
-    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PrepareTransactionsLimit,
-    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
@@ -577,14 +577,13 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn prepare_transactions(
         &self,
         storage_config: RuntimeStorageConfig,
-        chunk: PrepareTransactionsChunkContext,
+        shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
-        let PrepareTransactionsChunkContext { shard_id, .. } = chunk;
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
