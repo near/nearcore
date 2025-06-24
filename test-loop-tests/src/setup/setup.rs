@@ -193,6 +193,7 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         client_config.clone(),
         near_client::adversarial::Controls::default(),
+        validator_signer.clone(),
     )
     .unwrap();
 

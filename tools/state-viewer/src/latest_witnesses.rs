@@ -65,7 +65,7 @@ fn setup_chain(home_dir: &Path, near_config: NearConfig, store: Store) -> Chain 
     let shard_tracker = ShardTracker::new(
         near_config.client_config.tracked_shards_config,
         epoch_manager.clone(),
-        near_config.validator_signer,
+        near_config.validator_signer.clone(),
     );
     Chain::new_for_view_client(
         Clock::real(),
@@ -75,6 +75,7 @@ fn setup_chain(home_dir: &Path, near_config: NearConfig, store: Store) -> Chain 
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,
         false,
+        near_config.validator_signer,
     )
     .unwrap()
 }
