@@ -91,7 +91,7 @@ fn test_not_process_same_block_twice() {
         .process_optimistic_block(
             &me,
             optimistic_block,
-            block.chunks().iter_raw().cloned().collect(),
+            block.chunks().iter_all().cloned().collect(),
             None,
         )
         .unwrap();

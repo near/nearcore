@@ -3191,7 +3191,7 @@ impl Chain {
         };
         bytes.extend_from_slice(&hash(&borsh::to_vec(&block)?).0);
 
-        let chunks_key_source: Vec<_> = chunk_headers.iter_raw().map(|c| c.chunk_hash()).collect();
+        let chunks_key_source: Vec<_> = chunk_headers.iter_all().map(|c| c.chunk_hash()).collect();
         bytes.extend_from_slice(&hash(&borsh::to_vec(&chunks_key_source)?).0);
         bytes.extend_from_slice(&shard_id.to_le_bytes());
 
@@ -3329,7 +3329,7 @@ impl Chain {
 
     fn min_chunk_prev_height(&self, block: &Block) -> Result<BlockHeight, Error> {
         let mut ret = None;
-        for chunk in block.chunks().iter_raw() {
+        for chunk in block.chunks().iter_all() {
             let prev_height = if chunk.prev_block_hash() == &CryptoHash::default() {
                 0
             } else {

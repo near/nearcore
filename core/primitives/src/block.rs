@@ -535,7 +535,8 @@ fn annotate_chunk(
     if chunk.is_new_chunk(block_height) { MaybeNew::New(chunk) } else { MaybeNew::Old(chunk) }
 }
 
-pub enum ChunksCollection<'a> {
+// For BlockV1, we store the chunks in a Vec
+enum ChunksCollection<'a> {
     V1(Vec<ShardChunkHeader>),
     V2(&'a [ShardChunkHeader]),
 }
@@ -548,7 +549,6 @@ pub struct Chunks<'a> {
 impl<'a> Index<ShardIndex> for Chunks<'a> {
     type Output = ShardChunkHeader;
 
-    /// Deprecated. Please use get instead, it's safer.
     fn index(&self, index: usize) -> &Self::Output {
         match &self.chunks {
             ChunksCollection::V1(chunks) => &chunks[index],
@@ -594,7 +594,7 @@ impl<'a> Chunks<'a> {
         }
     }
 
-    pub fn iter_raw(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
+    pub fn iter_all(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
         match &self.chunks {
             ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
             ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
@@ -621,7 +621,7 @@ impl<'a> Chunks<'a> {
     }
 
     pub fn min_height_included(&self) -> Option<BlockHeight> {
-        self.iter_raw().map(|chunk| chunk.height_included()).min()
+        self.iter_all().map(|chunk| chunk.height_included()).min()
     }
 
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {

@@ -296,7 +296,7 @@ impl ChainStore {
         };
         let final_block_chunk_created_heights: HashMap<_, _> = final_block
             .chunks()
-            .iter_raw()
+            .iter_all()
             .map(|chunk| (chunk.shard_id(), chunk.height_created()))
             .collect();
 
