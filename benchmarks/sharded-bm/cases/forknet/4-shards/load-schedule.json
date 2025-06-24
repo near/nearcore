@@ -1,11 +1,12 @@
 {
    "schedule": [
-      { "tps": 3800, "duration_s": 400 },
+      { "tps": 2000, "duration_s": 240 },
       { "tps": 3900, "duration_s": 400 },
+      { "tps": 3950, "duration_s": 400 },
       { "tps": 4000, "duration_s": 400 },
       { "tps": 4050, "duration_s": 400 },
       { "tps": 4100, "duration_s": 400 },
       { "tps": 4200, "duration_s": 400 },
-      { "tps": 4400, "duration_s": 300 }
+      { "tps": 4400, "duration_s": 360 }
    ]
 }
