@@ -3053,7 +3053,7 @@ impl Chain {
         let chunk_headers = &block.chunks();
         let mut update_shard_args = vec![];
 
-        for chunk_header in chunk_headers.iter_all() {
+        for chunk_header in chunk_headers.iter_deprecated() {
             let shard_id = chunk_header.shard_id();
             let is_new_chunk = chunk_header.is_new_chunk(block.header().height());
 

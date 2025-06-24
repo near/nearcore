@@ -489,7 +489,7 @@ impl Block {
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
         let chunk_mask: Vec<bool> = self
             .chunks()
-            .iter_all()
+            .iter_deprecated()
             .map(|chunk| chunk.is_new_chunk(self.header().height()))
             .collect();
         if self.header().chunk_mask() != &chunk_mask[..] {
@@ -498,6 +498,12 @@ impl Block {
 
         Ok(())
     }
+}
+
+#[derive(Clone)]
+pub enum ChunkType<'a> {
+    New(&'a ShardChunkHeader),
+    Old(&'a ShardChunkHeader),
 }
 
 // For BlockV1, we store the chunks in a Vec
@@ -553,10 +559,21 @@ impl<'a> Chunks<'a> {
         self.chunks.as_ref().len()
     }
 
-    /// Deprecated, use `iter_all` instead. `iter_all` is available if there is no need to
+    /// Deprecated, use `iter` instead. `iter_all` is available if there is no need to
     /// distinguish between old and new headers.
     pub fn iter_deprecated(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
         Box::new(self.chunks.as_ref().iter())
+    }
+
+    /// Returns an iterator over all shard chunk headers, distinguishing between new and old chunks.
+    pub fn iter(&'a self) -> Box<dyn Iterator<Item = ChunkType<'a>> + 'a> {
+        Box::new(self.chunks.as_ref().iter().map(|chunk| {
+            if chunk.is_new_chunk(self.block_height) {
+                ChunkType::New(chunk)
+            } else {
+                ChunkType::Old(chunk)
+            }
+        }))
     }
 
     /// Returns an iterator over all shard chunk headers, regardless of whether they are new or old.
