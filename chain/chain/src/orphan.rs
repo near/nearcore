@@ -1,4 +1,6 @@
 use crate::chain::ApplyChunksDoneMessage;
+use crate::missing_chunks::BlockLike;
+use crate::{BlockProcessingArtifact, Chain, Provenance, metrics};
 use lru::LruCache;
 use near_async::messaging::Sender;
 use near_async::time::{Duration, Instant};
@@ -12,10 +14,8 @@ use near_primitives::utils::MaybeValidated;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use tracing::{debug, debug_span};
-
-use crate::missing_chunks::BlockLike;
-use crate::{BlockProcessingArtifact, Chain, Provenance, metrics};
 
 /// Maximum number of orphans chain can store.
 const MAX_ORPHAN_SIZE: usize = 1024;
@@ -43,7 +43,7 @@ const MAX_ORPHAN_MISSING_CHUNKS: usize = 5;
 /// We save these blocks in an in-memory orphan pool to be processed later
 /// after their previous block is accepted.
 pub struct Orphan {
-    pub(crate) block: MaybeValidated<Block>,
+    pub(crate) block: MaybeValidated<Arc<Block>>,
     pub(crate) provenance: Provenance,
     pub(crate) added: Instant,
 }
@@ -280,7 +280,7 @@ impl Debug for OrphanMissingChunks {
 impl Chain {
     pub fn save_orphan(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         requested_missing_chunks: bool,
     ) {

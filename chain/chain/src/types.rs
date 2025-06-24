@@ -198,6 +198,8 @@ pub struct ChainGenesis {
 pub struct ChainConfig {
     /// Whether to save `TrieChanges` on disk or not.
     pub save_trie_changes: bool,
+    /// Whether to persist transaction outcomes on disk or not.
+    pub save_tx_outcomes: bool,
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
@@ -209,6 +211,7 @@ impl ChainConfig {
     pub fn test() -> Self {
         Self {
             save_trie_changes: true,
+            save_tx_outcomes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::test(),
@@ -291,7 +294,6 @@ pub enum BlockType {
 pub struct ApplyChunkBlockContext {
     pub block_type: BlockType,
     pub height: BlockHeight,
-    pub block_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
     pub block_timestamp: u64,
     pub gas_price: Balance,
@@ -310,7 +312,6 @@ impl ApplyChunkBlockContext {
         Self {
             block_type: BlockType::Normal,
             height: header.height(),
-            block_hash: *header.hash(),
             prev_block_hash: *header.prev_hash(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
@@ -367,10 +368,6 @@ impl From<&Block> for PrepareTransactionsBlockContext {
             congestion_info: block.block_congestion_info(),
         }
     }
-}
-pub struct PrepareTransactionsChunkContext {
-    pub shard_id: ShardId,
-    pub gas_limit: Gas,
 }
 
 /// Bridge between the chain and the runtime.
@@ -434,7 +431,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn prepare_transactions(
         &self,
         storage: RuntimeStorageConfig,
-        chunk: PrepareTransactionsChunkContext,
+        shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,

@@ -92,9 +92,13 @@ impl Client {
                 witness_prev_block = ?header.prev_block_hash(),
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
             );
-            if let Err(err) =
-                self.process_chunk_state_witness_with_prev_block(witness, new_block, None, signer)
-            {
+            if let Err(err) = self.process_chunk_state_witness_with_prev_block(
+                witness,
+                new_block,
+                None,
+                signer,
+                self.config.save_invalid_witnesses,
+            ) {
                 tracing::error!(target: "client", ?err, "Error processing orphan chunk state witness");
             }
         }

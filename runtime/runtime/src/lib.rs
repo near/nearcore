@@ -109,8 +109,6 @@ pub struct ApplyState {
     pub block_height: BlockHeight,
     /// Prev block hash
     pub prev_block_hash: CryptoHash,
-    /// Current block hash
-    pub block_hash: CryptoHash,
     /// To which shard the applied chunk belongs.
     pub shard_id: ShardId,
     /// Current epoch id
@@ -155,13 +153,7 @@ impl ApplyState {
         parent_receipt_id: &CryptoHash,
         receipt_index: usize,
     ) -> CryptoHash {
-        create_receipt_id_from_receipt_id(
-            self.current_protocol_version,
-            parent_receipt_id,
-            &self.block_hash,
-            self.block_height,
-            receipt_index,
-        )
+        create_receipt_id_from_receipt_id(parent_receipt_id, self.block_height, receipt_index)
     }
 }
 
@@ -384,12 +376,8 @@ impl Runtime {
         set_tx_state_changes(state_update, validated_tx, &signer, &access_key);
         state_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: validated_tx.get_hash() });
-        let receipt_id = create_receipt_id_from_transaction(
-            apply_state.current_protocol_version,
-            validated_tx.to_hash(),
-            &apply_state.block_hash,
-            apply_state.block_height,
-        );
+        let receipt_id =
+            create_receipt_id_from_transaction(validated_tx.to_hash(), apply_state.block_height);
         let receipt = Receipt::V0(ReceiptV0 {
             predecessor_id: validated_tx.signer_id().clone(),
             receiver_id: validated_tx.receiver_id().clone(),
@@ -686,9 +674,7 @@ impl Runtime {
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let action_hash = create_action_hash_from_receipt_id(
-                apply_state.current_protocol_version,
                 receipt.receipt_id(),
-                &apply_state.block_hash,
                 apply_state.block_height,
                 action_index,
             );
@@ -2373,9 +2359,7 @@ fn resolve_promise_yield_timeouts(
         };
         if state_update.contains_key(&promise_yield_key, AccessOptions::DEFAULT)? {
             let new_receipt_id = create_receipt_id_from_receipt_id(
-                processing_state.protocol_version,
                 &queue_entry.data_id,
-                &apply_state.block_hash,
                 apply_state.block_height,
                 new_receipt_index,
             );

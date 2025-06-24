@@ -52,6 +52,7 @@ pub struct TestEnvBuilder {
     seeds: HashMap<AccountId, RngSeed>,
     archive: bool,
     save_trie_changes: bool,
+    save_tx_outcomes: bool,
     state_snapshot_enabled: bool,
     track_all_shards: bool,
 }
@@ -82,6 +83,7 @@ impl TestEnvBuilder {
             seeds,
             archive: false,
             save_trie_changes: true,
+            save_tx_outcomes: true,
             state_snapshot_enabled: false,
             track_all_shards: false,
         }
@@ -429,6 +431,11 @@ impl TestEnvBuilder {
         self
     }
 
+    pub fn save_tx_outcomes(mut self, save_tx_outcomes: bool) -> Self {
+        self.save_tx_outcomes = save_tx_outcomes;
+        self
+    }
+
     /// Constructs new `TestEnv` structure.
     ///
     /// If no clients were configured (either through count or vector) one
@@ -458,25 +465,29 @@ impl TestEnvBuilder {
             .collect_vec();
         let partial_witness_adapters =
             (0..num_clients).map(|_| MockPartialWitnessAdapter::default()).collect_vec();
-        let validator_signers = client_accounts
-            .iter()
-            .map(|account_id| {
-                MutableConfigValue::new(
-                    Some(Arc::new(create_test_signer(account_id.as_str()))),
-                    "validator_signer",
-                )
-            })
-            .collect_vec();
-        let shard_trackers = (0..num_clients)
-            .map(|i| {
-                let config = if self.track_all_shards {
-                    TrackedShardsConfig::AllShards
-                } else {
-                    TrackedShardsConfig::new_empty()
-                };
-                ShardTracker::new(validator_signers[i].clone(), config, epoch_managers[i].clone())
-            })
-            .collect_vec();
+
+        // setup validator signers and shard trackers
+        let mut validator_signers = vec![];
+        let mut shard_trackers = vec![];
+        let tracked_shards_config = if self.track_all_shards {
+            TrackedShardsConfig::AllShards
+        } else {
+            TrackedShardsConfig::new_empty()
+        };
+
+        for (i, account_id) in client_accounts.iter().enumerate() {
+            let signer = create_test_signer(account_id.as_str());
+            let validator_signer =
+                MutableConfigValue::new(Some(Arc::new(signer)), "validator_signer");
+            validator_signers.push(validator_signer.clone());
+
+            let shard_tracker = ShardTracker::new(
+                tracked_shards_config.clone(),
+                epoch_managers[i].clone(),
+                validator_signer,
+            );
+            shard_trackers.push(shard_tracker);
+        }
 
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {
@@ -512,7 +523,12 @@ impl TestEnvBuilder {
                         None => TEST_SEED,
                     };
                     let tries = runtime.get_tries();
-                    let make_snapshot_callback = Arc::new(move |_min_chunk_prev_height, _epoch_height, shard_uids: Vec<(ShardIndex, ShardUId)>, block: Block| {
+                    let make_snapshot_callback = Arc::new(move |
+                        _min_chunk_prev_height,
+                        _epoch_height,
+                        shard_uids: Vec<(ShardIndex, ShardUId)>,
+                        block: Arc<Block>
+                    | {
                         let prev_block_hash = *block.header().prev_hash();
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
                         tries.delete_state_snapshot();
@@ -540,6 +556,7 @@ impl TestEnvBuilder {
                         rng_seed,
                         self.archive,
                         self.save_trie_changes,
+                        self.save_tx_outcomes,
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
                         validator_signers[i].clone(),
@@ -582,6 +599,7 @@ impl TestEnvBuilder {
             seeds,
             archive: self.archive,
             save_trie_changes: self.save_trie_changes,
+            save_tx_outcomes: self.save_tx_outcomes,
         }
     }
 

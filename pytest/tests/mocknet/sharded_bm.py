@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from types import SimpleNamespace
 from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
-    reset_cmd, run_env_cmd, run_remote_cmd, run_remote_upload_file, \
+    reset_cmd, run_env_cmd, run_remote_cmd, run_remote_download_file, run_remote_upload_file, \
     start_nodes_cmd, stop_nodes_cmd, update_binaries_cmd
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -32,8 +32,9 @@ START_HEIGHT = 138038232
 # TODO: consider moving source directory to pytest.
 SOURCE_BENCHNET_DIR = "../benchmarks/sharded-bm"
 
-BENCHNET_DIR = "/home/ubuntu/bench"
-NEAR_HOME = "/home/ubuntu/.near"
+REMOTE_HOME = "/home/ubuntu"
+BENCHNET_DIR = f"{REMOTE_HOME}/bench"
+NEAR_HOME = f"{REMOTE_HOME}/.near"
 CONFIG_PATH = f"{NEAR_HOME}/config.json"
 
 
@@ -391,6 +392,27 @@ def handle_get_traces(args):
             f"Failed to fetch traces: {response.status_code} {response.text}")
 
 
+def handle_get_profiles(args):
+    args = copy.deepcopy(args)
+
+    # If no host filter is provided, target the first alphabetical cp instance.
+    if args.host_filter is None:
+        machines = sorted(args.forknet_details['cp_instance_names'])
+        machine = machines[0]
+        logger.info(f"Targeting {machine}")
+        args.host_filter = machine
+
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.cmd = f"bash {BENCHNET_DIR}/helpers/get-profile.sh {args.record_secs}"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    download_args = copy.deepcopy(args)
+    download_args.src = f"{REMOTE_HOME}/perf*.script.gz"
+    download_args.dst = args.output_dir
+    run_remote_download_file(CommandContext(download_args))
+
+
 def handle_start(args):
     """Handle the start command - start the benchmark."""
     start_nodes(args, args.enable_tx_generator)
@@ -483,6 +505,24 @@ def main():
         default=10,
         help='Length of the trace window in seconds (default: 10)')
 
+    get_profiles_parser = subparsers.add_parser(
+        'get-profiles', help='Fetch profiles from the benchmark nodes')
+    get_profiles_parser.add_argument(
+        '--output-dir',
+        default='.',
+        help='Directory to save the profile files (default: current directory)')
+    get_profiles_parser.add_argument(
+        '--host-filter',
+        default=None,
+        help=
+        'Filter to select specific hosts (default: first alphabetical cp instance)'
+    )
+    get_profiles_parser.add_argument(
+        '--record-secs',
+        type=int,
+        default=10,
+        help='Number of seconds to record the profile (default: 10)')
+
     args = parser.parse_args()
 
     # Route to appropriate handler based on command
@@ -498,6 +538,8 @@ def main():
         handle_reset(args)
     elif args.command == 'get-traces':
         handle_get_traces(args)
+    elif args.command == 'get-profiles':
+        handle_get_profiles(args)
     else:
         parser.print_help()
 

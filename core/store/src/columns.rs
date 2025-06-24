@@ -291,6 +291,15 @@ pub enum DBCol {
     /// Witnesses with the lowest index are garbage collected first.
     /// u64 -> LatestWitnessesKey
     LatestWitnessesByIndex,
+    /// Column to store invalid ChunkStateWitnesses received from other nodes.
+    /// Not necessary for stateless validation, but useful for debugging.
+    /// - *Rows*: `InvalidWitnessesKey`
+    /// - *Column type*: `ChunkStateWitness`
+    InvalidChunkStateWitnesses,
+    /// Each observed InvalidChunkStateWitness gets an index, in increasing order.
+    /// Witnesses with the lowest index are garbage collected first.
+    /// u64 -> InvalidWitnessesKey
+    InvalidWitnessesByIndex,
     /// A valid epoch sync proof that proves the transition from the genesis to some epoch,
     /// beyond which we keep all headers in this node. Nodes bootstrapped via Epoch Sync will
     /// have this column, which allows it to compute a more recent EpochSyncProof using block
@@ -355,6 +364,8 @@ pub enum DBKeyType {
     ColumnId,
     LatestWitnessesKey,
     LatestWitnessIndex,
+    InvalidWitnessesKey,
+    InvalidWitnessIndex,
 }
 
 impl DBCol {
@@ -490,6 +501,9 @@ impl DBCol {
             // LatestChunkStateWitnesses stores the last N observed witnesses, used only for debugging.
             DBCol::LatestChunkStateWitnesses => false,
             DBCol::LatestWitnessesByIndex => false,
+            // InvalidChunkStateWitnesses stores the last N observed invalid witnesses, used only for debugging.
+            DBCol::InvalidChunkStateWitnesses => false,
+            DBCol::InvalidWitnessesByIndex => false,
             // Deprecated.
             DBCol::_ReceiptIdToShardId => false,
             // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
@@ -596,6 +610,8 @@ impl DBCol {
             DBCol::StateTransitionData => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::LatestChunkStateWitnesses => &[DBKeyType::LatestWitnessesKey],
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
+            DBCol::InvalidChunkStateWitnesses => &[DBKeyType::InvalidWitnessesKey],
+            DBCol::InvalidWitnessesByIndex => &[DBKeyType::InvalidWitnessIndex],
             DBCol::EpochSyncProof => &[DBKeyType::Empty],
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],

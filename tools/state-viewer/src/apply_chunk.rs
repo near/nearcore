@@ -12,7 +12,6 @@ use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::MaybeNew;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
 use near_primitives::state_sync::ReceiptProofResponse;
@@ -187,10 +186,6 @@ pub fn apply_chunk(
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 prev_block_hash: *prev_block_hash,
-                block_hash: combine_hash(
-                    prev_block_hash,
-                    &hash("nonsense block hash for testing purposes".as_ref()),
-                ),
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: block_congestion_info,

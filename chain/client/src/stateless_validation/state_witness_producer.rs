@@ -27,7 +27,8 @@ impl Client {
             chunk_hash=?chunk_header.chunk_hash(),
             height,
             %shard_id,
-            tag_block_production = true
+            tag_block_production = true,
+            tag_witness_distribution = true,
         )
         .entered();
 
