@@ -15,7 +15,7 @@ use near_chain::{
     get_epoch_block_producers_view, retrieve_headers,
 };
 
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
+use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
@@ -55,7 +55,6 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
     MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
 };
-use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -92,11 +91,6 @@ pub type ViewClientActor = SyncActixWrapper<ViewClientActorInner>;
 pub struct ViewClientActorInner {
     clock: Clock,
     pub adv: crate::adversarial::Controls,
-
-    /// Validator account (if present). This field is mutable and optional. Use with caution!
-    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
-    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    validator: MutableValidatorSigner,
     pub chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -124,7 +118,6 @@ impl ViewClientActorInner {
 
     pub fn spawn_actix_actor(
         clock: Clock,
-        validator: MutableValidatorSigner,
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -136,7 +129,6 @@ impl ViewClientActorInner {
         SyncArbiter::start(config.view_client_threads, move || {
             let view_client_actor = ViewClientActorInner::new(
                 clock.clone(),
-                validator.clone(),
                 chain_genesis.clone(),
                 epoch_manager.clone(),
                 shard_tracker.clone(),
@@ -152,7 +144,6 @@ impl ViewClientActorInner {
 
     pub fn new(
         clock: Clock,
-        validator: MutableValidatorSigner,
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -174,7 +165,6 @@ impl ViewClientActorInner {
         Ok(Self {
             clock,
             adv,
-            validator,
             chain,
             epoch_manager,
             shard_tracker,
@@ -557,7 +547,6 @@ impl ViewClientActorInner {
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
-        validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<TxStatusView, TxStatusError> {
         {
             // TODO(telezhnaya): take into account `fetch_receipt()`
@@ -580,12 +569,7 @@ impl ViewClientActorInner {
             account_id_to_shard_id(self.epoch_manager.as_ref(), &signer_account_id, &head.epoch_id)
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
-        if self.shard_tracker.cares_about_shard(
-            validator_signer.as_ref().map(|v| v.validator_id()),
-            &head.prev_block_hash,
-            target_shard_id,
-            true,
-        ) {
+        if self.shard_tracker.cares_about_shard(&head.prev_block_hash, target_shard_id) {
             match self.chain.get_partial_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
                     let status = self.get_tx_execution_status(&tx_result)?;
@@ -841,8 +825,7 @@ impl Handler<TxStatus> for ViewClientActorInner {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
-        let validator_signer = self.validator.get();
-        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt, &validator_signer)
+        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
     }
 }
 
@@ -1124,12 +1107,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                     &head.epoch_id,
                 )
                 .into_chain_error()?;
-                if self.shard_tracker.cares_about_shard(
-                    self.validator.get().map(|v| v.validator_id().clone()).as_ref(),
-                    &head.last_block_hash,
-                    target_shard_id,
-                    true,
-                ) {
+                if self.shard_tracker.cares_about_shard(&head.last_block_hash, target_shard_id) {
                     Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
                         transaction_or_receipt_id: id,
                     })
@@ -1265,10 +1243,8 @@ impl Handler<TxStatusRequest> for ViewClientActorInner {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
         let TxStatusRequest { tx_hash, signer_account_id } = msg;
-        let validator_signer = self.validator.get();
-        if let Ok(Some(result)) = self
-            .get_tx_status(tx_hash, signer_account_id, false, &validator_signer)
-            .map(|s| s.execution_outcome)
+        if let Ok(Some(result)) =
+            self.get_tx_status(tx_hash, signer_account_id, false).map(|s| s.execution_outcome)
         {
             Some(Box::new(result.into_outcome()))
         } else {

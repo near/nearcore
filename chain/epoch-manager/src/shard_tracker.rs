@@ -214,23 +214,13 @@ impl ShardTracker {
     }
 
     /// Whether the client cares about some shard right now.
-    /// * If `account_id` is None, `is_me` is not checked and the
-    /// result indicates whether the client is tracking the shard
-    /// * If `account_id` is not None, it is supposed to be a validator
-    /// account and `is_me` indicates whether we check what shards
-    /// the client tracks.
-    pub fn cares_about_shard(
-        &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
-        shard_id: ShardId,
-        is_me: bool,
-    ) -> bool {
+    pub fn cares_about_shard(&self, parent_hash: &CryptoHash, shard_id: ShardId) -> bool {
+        let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
         self.cares_about_shard_in_epoch_from_prev_hash(
-            account_id,
+            account_id.as_ref(),
             parent_hash,
             shard_id,
-            is_me,
+            true,
             EpochSelection::Current,
         )
     }
@@ -259,8 +249,7 @@ impl ShardTracker {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
-        self.cares_about_shard(account_id.as_ref(), parent_hash, shard_id, true)
+        self.cares_about_shard(parent_hash, shard_id)
             || self.will_care_about_shard(parent_hash, shard_id)
     }
 
@@ -314,15 +303,11 @@ impl ShardTracker {
     ///    in the current epoch that will be split into a future shard that `me` will track.
     /// 2) Shard layout will be the same. In this case, the method returns all shards that `me` will
     ///    track in the next epoch but not this epoch
-    fn get_shards_to_state_sync(
-        &self,
-        me: &Option<AccountId>,
-        parent_hash: &CryptoHash,
-    ) -> Result<Vec<ShardId>, Error> {
+    fn get_shards_to_state_sync(&self, parent_hash: &CryptoHash) -> Result<Vec<ShardId>, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let mut shards_to_sync = Vec::new();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
-            if self.should_catch_up_shard(me, parent_hash, shard_id)? {
+            if self.should_catch_up_shard(parent_hash, shard_id)? {
                 shards_to_sync.push(shard_id)
             }
         }
@@ -339,7 +324,6 @@ impl ShardTracker {
     /// then we can just continue to apply chunks as if we were tracking it in epoch T, and there's no need to state sync.
     fn should_catch_up_shard(
         &self,
-        me: &Option<AccountId>,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<bool, Error> {
@@ -348,7 +332,7 @@ impl ShardTracker {
             return Ok(false);
         }
         // Currently tracking the shard, so no need to state sync it.
-        if self.cares_about_shard(me.as_ref(), prev_hash, shard_id, true) {
+        if self.cares_about_shard(prev_hash, shard_id) {
             return Ok(false);
         }
 
@@ -364,15 +348,14 @@ impl ShardTracker {
     /// in the next epoch.
     pub fn get_state_sync_info(
         &self,
-        me: &Option<AccountId>,
         block_hash: &CryptoHash,
         prev_hash: &CryptoHash,
     ) -> Result<Option<StateSyncInfo>, Error> {
-        let shards_to_state_sync = self.get_shards_to_state_sync(me, prev_hash)?;
+        let shards_to_state_sync = self.get_shards_to_state_sync(prev_hash)?;
         if shards_to_state_sync.is_empty() {
             Ok(None)
         } else {
-            tracing::debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
+            tracing::debug!(target: "chain", "Downloading state for {:?}", shards_to_state_sync);
             // Note that this block is the first block in an epoch because this function is only called
             // in get_catchup_and_state_sync_infos() when that is the case.
             let state_sync_info = StateSyncInfo::new(*block_hash, shards_to_state_sync);
@@ -629,7 +612,7 @@ mod tests {
     ) -> HashSet<ShardId> {
         shard_ids
             .into_iter()
-            .filter(|&&shard_id| tracker.cares_about_shard(None, parent_hash, shard_id, true))
+            .filter(|&&shard_id| tracker.cares_about_shard(parent_hash, shard_id))
             .cloned()
             .collect()
     }

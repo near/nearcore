@@ -387,45 +387,33 @@ pub(crate) fn block_chunks_exist(
     }
     for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_included() == block.header().height() {
-            if let Some(me) = &sv.me {
-                let cares_about_shard = sv.shard_tracker.cares_about_shard(
-                    Some(me),
-                    block.header().prev_hash(),
-                    chunk_header.shard_id(),
-                    true,
+            let prev_hash = block.header().prev_hash();
+            let shard_id = chunk_header.shard_id();
+            let cares_about_shard = sv.shard_tracker.cares_about_shard(prev_hash, shard_id);
+            let will_care_about_shard = sv.shard_tracker.will_care_about_shard(prev_hash, shard_id);
+            if cares_about_shard || will_care_about_shard {
+                unwrap_or_err_db!(
+                    sv.store
+                        .get_ser::<ShardChunk>(DBCol::Chunks, chunk_header.chunk_hash().as_ref()),
+                    "Can't get Chunk {:?} from storage",
+                    chunk_header
                 );
-                let will_care_about_shard = sv
-                    .shard_tracker
-                    .will_care_about_shard(block.header().prev_hash(), chunk_header.shard_id());
-                if cares_about_shard || will_care_about_shard {
+                if cares_about_shard {
+                    let shard_uid = shard_id_to_uid(
+                        sv.epoch_manager.as_ref(),
+                        shard_id,
+                        block.header().epoch_id(),
+                    )
+                    .map_err(|err| StoreValidatorError::DBNotFound {
+                        func_name: "get_shard_layout",
+                        reason: err.to_string(),
+                    })?;
+                    let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
                     unwrap_or_err_db!(
-                        sv.store.get_ser::<ShardChunk>(
-                            DBCol::Chunks,
-                            chunk_header.chunk_hash().as_ref()
-                        ),
-                        "Can't get Chunk {:?} from storage",
+                        sv.store.get_ser::<ChunkExtra>(DBCol::ChunkExtra, block_shard_uid.as_ref()),
+                        "Can't get chunk extra for chunk {:?} from storage",
                         chunk_header
                     );
-                    if cares_about_shard {
-                        let shard_uid = shard_id_to_uid(
-                            sv.epoch_manager.as_ref(),
-                            chunk_header.shard_id(),
-                            block.header().epoch_id(),
-                        )
-                        .map_err(|err| {
-                            StoreValidatorError::DBNotFound {
-                                func_name: "get_shard_layout",
-                                reason: err.to_string(),
-                            }
-                        })?;
-                        let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
-                        unwrap_or_err_db!(
-                            sv.store
-                                .get_ser::<ChunkExtra>(DBCol::ChunkExtra, block_shard_uid.as_ref()),
-                            "Can't get chunk extra for chunk {:?} from storage",
-                            chunk_header
-                        );
-                    }
                 }
             }
         }
