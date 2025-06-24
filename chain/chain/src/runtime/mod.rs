@@ -608,10 +608,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 trie.set_use_trie_accounting_cache(false);
                 trie
             }
-            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
+            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage_skip_visited_nodes(
                 storage,
                 storage_config.state_root,
                 storage_config.use_flat_storage,
+                true,
             ),
         };
         // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
@@ -820,10 +821,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 trie.set_use_trie_accounting_cache(false);
                 trie
             }
-            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
+            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage_skip_visited_nodes(
                 storage,
                 storage_config.state_root,
                 storage_config.use_flat_storage,
+                true,
             ),
         };
 

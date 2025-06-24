@@ -315,12 +315,15 @@ pub trait TrieStorage: Send + Sync {
 pub struct TrieMemoryPartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
     pub(crate) visited_nodes: RwLock<HashSet<CryptoHash>>,
+    skip_visited_nodes: bool,
 }
 
 impl TrieStorage for TrieMemoryPartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         if let Some(value) = self.recorded_storage.get(hash).cloned() {
-            self.visited_nodes.write().insert(*hash);
+            if !self.skip_visited_nodes {
+                self.visited_nodes.write().insert(*hash);
+            }
             Ok(value)
         } else {
             metrics::TRIE_MEMORY_PARTIAL_STORAGE_MISSING_VALUES_COUNT.inc();
@@ -338,7 +341,14 @@ impl TrieStorage for TrieMemoryPartialStorage {
 
 impl TrieMemoryPartialStorage {
     pub fn new(recorded_storage: HashMap<CryptoHash, Arc<[u8]>>) -> Self {
-        Self { recorded_storage, visited_nodes: Default::default() }
+        Self { recorded_storage, visited_nodes: Default::default(), skip_visited_nodes: false }
+    }
+
+    pub fn new_skip_visited_nodes(
+        recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
+        skip_visited_nodes: bool,
+    ) -> Self {
+        Self { recorded_storage, visited_nodes: Default::default(), skip_visited_nodes }
     }
 
     pub fn partial_state(&self) -> PartialState {
