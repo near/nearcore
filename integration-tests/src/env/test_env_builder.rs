@@ -52,6 +52,7 @@ pub struct TestEnvBuilder {
     seeds: HashMap<AccountId, RngSeed>,
     archive: bool,
     save_trie_changes: bool,
+    save_tx_outcomes: bool,
     state_snapshot_enabled: bool,
     track_all_shards: bool,
 }
@@ -82,6 +83,7 @@ impl TestEnvBuilder {
             seeds,
             archive: false,
             save_trie_changes: true,
+            save_tx_outcomes: true,
             state_snapshot_enabled: false,
             track_all_shards: false,
         }
@@ -429,6 +431,11 @@ impl TestEnvBuilder {
         self
     }
 
+    pub fn save_tx_outcomes(mut self, save_tx_outcomes: bool) -> Self {
+        self.save_tx_outcomes = save_tx_outcomes;
+        self
+    }
+
     /// Constructs new `TestEnv` structure.
     ///
     /// If no clients were configured (either through count or vector) one
@@ -549,6 +556,7 @@ impl TestEnvBuilder {
                         rng_seed,
                         self.archive,
                         self.save_trie_changes,
+                        self.save_tx_outcomes,
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
                         validator_signers[i].clone(),
@@ -591,6 +599,7 @@ impl TestEnvBuilder {
             seeds,
             archive: self.archive,
             save_trie_changes: self.save_trie_changes,
+            save_tx_outcomes: self.save_tx_outcomes,
         }
     }
 

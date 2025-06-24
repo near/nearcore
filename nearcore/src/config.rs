@@ -283,6 +283,15 @@ pub struct Config {
     /// needs trie changes in order to do garbage collection on hot and populate cold State column.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
+    /// Whether to persist `ExecutionOutcomeWithProof` objects into
+    /// `DBCol::TransactionResultForBlock`.  Disabling this on validator
+    /// nodes reduces write amplification.  RPC nodes keep it enabled so
+    /// that transaction status queries continue to work.
+    /// If set to `None`, the value will be treated as true if either
+    /// - `archive` is true, or
+    /// - All shards are tracked (i.e. node is an RPC node).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_tx_outcomes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub log_summary_period: Duration,
@@ -399,6 +408,7 @@ impl Default for Config {
             tracked_shard_schedule: None,
             archive: false,
             save_trie_changes: None,
+            save_tx_outcomes: None,
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
@@ -595,6 +605,10 @@ impl NearConfig {
                 tracked_shards_config: config.tracked_shards_config(),
                 archive: config.archive,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
+                save_tx_outcomes: config.save_tx_outcomes.unwrap_or_else(|| {
+                    config.archive
+                        || config.tracked_shards_config() == TrackedShardsConfig::AllShards
+                }),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
@@ -1220,6 +1234,11 @@ fn create_localnet_config(
     } else {
         Some(tracked_shards_config.clone())
     };
+
+    // Save tx outcomes for the first validator node (for testing purposes).
+    if params.is_boot {
+        config.save_tx_outcomes = Some(true);
+    }
 
     config
 }

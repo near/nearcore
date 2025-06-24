@@ -269,6 +269,8 @@ pub struct ChainStore {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
+    /// Whether to persist transaction outcomes on disk or not.
+    save_tx_outcomes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
 }
@@ -302,8 +304,13 @@ impl ChainStore {
             store: store.chain_store(),
             latest_known: std::cell::Cell::new(None),
             save_trie_changes,
+            save_tx_outcomes: true,
             transaction_validity_period,
         }
+    }
+
+    pub fn with_save_tx_outcomes(self, save_tx_outcomes: bool) -> ChainStore {
+        ChainStore { save_tx_outcomes, ..self }
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
@@ -1595,6 +1602,9 @@ impl<'a> ChainStoreUpdate<'a> {
         outcomes: Vec<ExecutionOutcomeWithId>,
         proofs: Vec<MerklePath>,
     ) {
+        if !self.chain_store.save_tx_outcomes {
+            return;
+        }
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
             outcome_ids.push(outcome_with_id.id);

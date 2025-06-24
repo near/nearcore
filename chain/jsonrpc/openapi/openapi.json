@@ -9349,6 +9349,10 @@
             "description": "save_trie_changes should be set to true iff\n - archive if false - non-archival nodes need trie changes to perform garbage collection\n - archive is true, cold_store is configured and migration to split_storage is finished - node\n working in split storage mode needs trie changes in order to do garbage collection on hot.",
             "type": "boolean"
           },
+          "save_tx_outcomes": {
+            "description": "Whether to persist transaction outcomes to disk or not.",
+            "type": "boolean"
+          },
           "skip_sync_wait": {
             "description": "Skip waiting for sync (for testing or single node testnet).",
             "type": "boolean"
@@ -9546,6 +9550,7 @@
           "tracked_shards_config",
           "archive",
           "save_trie_changes",
+          "save_tx_outcomes",
           "view_client_threads",
           "view_client_throttle_period",
           "enable_statistics_export",
