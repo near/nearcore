@@ -234,9 +234,9 @@ fn load_snapshot(load_cmd: LoadCmd) {
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let shard_tracker = ShardTracker::new(
-        near_config.validator_signer.clone(),
         near_config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
+        near_config.validator_signer.clone(),
     );
     let runtime = NightshadeRuntime::from_config(
         home_dir,
@@ -255,6 +255,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig {
             save_trie_changes: near_config.client_config.save_trie_changes,
+            save_tx_outcomes: near_config.client_config.save_tx_outcomes,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),

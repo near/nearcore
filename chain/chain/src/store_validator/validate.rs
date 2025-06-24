@@ -387,12 +387,10 @@ pub(crate) fn block_chunks_exist(
     }
     for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_included() == block.header().height() {
-            let cares_about_shard = sv
-                .shard_tracker
-                .cares_about_shard(block.header().prev_hash(), chunk_header.shard_id());
-            let will_care_about_shard = sv
-                .shard_tracker
-                .will_care_about_shard(block.header().prev_hash(), chunk_header.shard_id());
+            let prev_hash = block.header().prev_hash();
+            let shard_id = chunk_header.shard_id();
+            let cares_about_shard = sv.shard_tracker.cares_about_shard(prev_hash, shard_id);
+            let will_care_about_shard = sv.shard_tracker.will_care_about_shard(prev_hash, shard_id);
             if cares_about_shard || will_care_about_shard {
                 unwrap_or_err_db!(
                     sv.store
@@ -403,7 +401,7 @@ pub(crate) fn block_chunks_exist(
                 if cares_about_shard {
                     let shard_uid = shard_id_to_uid(
                         sv.epoch_manager.as_ref(),
-                        chunk_header.shard_id(),
+                        shard_id,
                         block.header().epoch_id(),
                     )
                     .map_err(|err| StoreValidatorError::DBNotFound {

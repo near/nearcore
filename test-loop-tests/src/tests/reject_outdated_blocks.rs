@@ -84,7 +84,9 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
     // check if block is rejected due to the outdated version
     let client = &mut test_loop.data.get_mut(&node_datas[0].client_sender.actor_handle()).client;
     let mut old_version_block = client.produce_block(height + 1).unwrap().unwrap();
-    old_version_block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
+    std::sync::Arc::make_mut(&mut old_version_block)
+        .mut_header()
+        .set_latest_protocol_version(PROTOCOL_VERSION - 1);
     let res = client.process_block_test(old_version_block.clone().into(), Provenance::NONE);
     assert!(matches!(res, Err(Error::InvalidProtocolVersion)));
 

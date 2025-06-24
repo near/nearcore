@@ -136,7 +136,7 @@ fn setup(
         "validator_signer",
     );
     let shard_tracker =
-        ShardTracker::new(signer.clone(), TrackedShardsConfig::AllShards, epoch_manager.clone());
+        ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
     let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
     let config = {
         let mut base = ClientConfig::test(
@@ -424,6 +424,7 @@ pub fn setup_client_with_runtime(
     rng_seed: RngSeed,
     archive: bool,
     save_trie_changes: bool,
+    save_tx_outcomes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: MutableValidatorSigner,
@@ -431,6 +432,7 @@ pub fn setup_client_with_runtime(
 ) -> Client {
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
+    config.save_tx_outcomes = save_tx_outcomes;
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
@@ -486,6 +488,7 @@ pub fn setup_synchronous_shards_manager(
         DoomslugThresholdMode::TwoThirds, // irrelevant
         ChainConfig {
             save_trie_changes: true,
+            save_tx_outcomes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
@@ -510,8 +513,8 @@ pub fn setup_synchronous_shards_manager(
         network_adapter.request_sender,
         client_adapter,
         chunk_store,
-        chain_head,
-        chain_header_head,
+        <_>::clone(&chain_head),
+        <_>::clone(&chain_header_head),
         Duration::hours(1),
     );
     SynchronousShardsManagerAdapter::new(shards_manager)

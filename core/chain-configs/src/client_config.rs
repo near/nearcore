@@ -641,6 +641,8 @@ pub struct ClientConfig {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     pub save_trie_changes: bool,
+    /// Whether to persist transaction outcomes to disk or not.
+    pub save_tx_outcomes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Number of seconds between state requests for view client.
@@ -696,10 +698,12 @@ pub struct ClientConfig {
     pub orphan_state_witness_max_size: ByteSize,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
-    /// When this option is enabled, the node will save ALL witnesses it observes, even invalid ones,
-    /// which can cause extra load on the database. This option is not recommended for production use,
-    /// as a large number of incoming witnesses could cause denial of service.
+    /// This option can cause extra load on the database and is not recommended for production use.
     pub save_latest_witnesses: bool,
+    /// Save observed instances of invalid ChunkStateWitness to the database in DBCol::InvalidChunkStateWitnesses.
+    /// Saving invalid witnesses is useful for analysis and debugging.
+    /// This option can cause extra load on the database and is not recommended for production use.
+    pub save_invalid_witnesses: bool,
     pub transaction_request_handler_threads: usize,
 }
 
@@ -763,6 +767,7 @@ impl ClientConfig {
             tracked_shards_config: TrackedShardsConfig::NoShards,
             archive,
             save_trie_changes,
+            save_tx_outcomes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             view_client_throttle_period: Duration::seconds(1),
@@ -788,6 +793,7 @@ impl ClientConfig {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             save_latest_witnesses: false,
+            save_invalid_witnesses: false,
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
         }
     }

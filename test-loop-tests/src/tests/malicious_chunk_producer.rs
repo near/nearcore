@@ -142,7 +142,7 @@ fn test_producer_with_expired_transactions() {
     };
     let [metric] = applied_tx_metric.get_metric() else { panic!("unexpected metric shape") };
     let applied_txs = metric.get_counter().get_value();
-    assert_eq!(applied_txs, 70.0, "should have applied the submitted transactions");
+    assert_eq!(applied_txs, 76.0, "should have applied the submitted transactions");
 
     test_loop_env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

@@ -1,31 +1,37 @@
+use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
 use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
 use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::PartialState;
 use near_primitives::trie_key::col::ALL_COLUMNS_WITH_NAMES;
 use near_primitives::types::AccountId;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
-
-use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
-    recorded: HashMap<CryptoHash, TrieNodeWithRefcount>,
-    size: usize,
-    /// Size of the recorded state proof plus some additional size added to cover removals and contract code.
-    /// An upper-bound estimation of the true recorded size after finalization.
-    /// See https://github.com/near/nearcore/issues/10890 and https://github.com/near/nearcore/pull/11000 for details.
-    upper_bound_size: usize,
-    /// Soft limit on the maximum size of the state proof that can be recorded.
-    proof_size_limit: Option<usize>,
+    recorded: dashmap::DashMap<CryptoHash, TrieNodeWithRefcount>,
+    size: AtomicUsize,
+    /// Size of the recorded state proof plus some additional size added to cover removals and
+    /// contract code.
+    ///
+    /// An upper-bound estimation of the true recorded size after finalization. See
+    /// https://github.com/near/nearcore/issues/10890 and
+    /// https://github.com/near/nearcore/pull/11000 for details.
+    upper_bound_size: AtomicUsize,
+    /// Limit on the maximum size of the state proof that can be recorded.
+    ///
+    /// This may get set to u64::MAX to effectively impose no useful limit.
+    proof_size_limit: u64,
     /// Counts removals performed while recording.
+    ///
     /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
-    removal_counter: usize,
+    removal_counter: AtomicUsize,
     /// Counts the total size of the contract codes read while recording.
-    code_len_counter: usize,
+    code_len_counter: AtomicUsize,
     /// Account IDs for which the code should be recorded.
-    pub codes_to_record: HashSet<AccountId>,
+    pub codes_to_record: dashmap::DashSet<AccountId>,
 }
 struct TrieNodeWithRefcount(Arc<[u8]>, u32);
 
@@ -40,10 +46,6 @@ impl TrieNodeWithRefcount {
     fn increment(&mut self) -> u32 {
         self.1 += 1;
         self.1
-    }
-
-    fn value(&self) -> &Arc<[u8]> {
-        &self.0
     }
 }
 
@@ -72,14 +74,14 @@ pub struct SubtreeSize {
 }
 
 impl TrieRecorder {
-    pub fn new(proof_size_limit: Option<usize>) -> Self {
+    pub fn new(proof_size_limit: Option<u64>) -> Self {
         Self {
-            recorded: HashMap::new(),
-            size: 0,
-            upper_bound_size: 0,
-            proof_size_limit,
-            removal_counter: 0,
-            code_len_counter: 0,
+            recorded: Default::default(),
+            proof_size_limit: proof_size_limit.unwrap_or(u64::MAX),
+            size: 0.into(),
+            upper_bound_size: 0.into(),
+            removal_counter: 0.into(),
+            code_len_counter: 0.into(),
             codes_to_record: Default::default(),
         }
     }
@@ -88,51 +90,68 @@ impl TrieRecorder {
     /// This is used to bypass witness size checks in order to generate
     /// large witness for testing.
     #[cfg(feature = "test_features")]
-    pub fn record_unaccounted(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
+    pub fn record_unaccounted(&self, hash: &CryptoHash, node: Arc<[u8]>) {
         self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
     }
 
-    pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
+    pub fn record(&self, hash: &CryptoHash, node: Arc<[u8]>) {
         let size = node.len();
         let times_seen = self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
 
         // Only do size accounting if this is the first time we see this value.
         if times_seen == 1 {
-            self.size = self.size.checked_add(size).unwrap();
-            self.upper_bound_size = self.upper_bound_size.checked_add(size).unwrap();
+            self.upper_bound_size.fetch_add(size, Ordering::Release).checked_add(size).unwrap();
+            self.size.fetch_add(size, Ordering::Release);
         }
     }
 
-    pub fn record_key_removal(&mut self) {
+    pub fn record_key_removal(&self) {
         // Charge 2000 bytes for every removal
-        self.removal_counter = self.removal_counter.checked_add(1).unwrap();
-        self.upper_bound_size = self.upper_bound_size.checked_add(2000).unwrap();
+        self.upper_bound_size.fetch_add(2000, Ordering::Release).checked_add(2000).unwrap();
+        // No need to check for overflows here as the `upper_bound_size` would overflow sooner than
+        // this if there was an overflow.
+        self.removal_counter.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn record_code_len(&mut self, code_len: usize) {
-        self.code_len_counter = self.code_len_counter.checked_add(code_len).unwrap();
-        self.upper_bound_size = self.upper_bound_size.checked_add(code_len).unwrap();
+    pub fn record_code_len(&self, code_len: usize) {
+        // NB: this isn't necessarily super well-formed as it is possible for reads of
+        // `code_len_counter` to observe and act on overflow-wrapped `code_len` before this
+        // `checked_add` gets an opportunity to notice the overflow and panic.
+        //
+        // We hope that this is is small enough window to make it a non-concern, esp. given that
+        // this overflow shouldn't be occurring in any practical situation anyway.
+        self.upper_bound_size.fetch_add(code_len, Ordering::Release).checked_add(code_len).unwrap();
+        // No need to check for overflows here as the `upper_bound_size` would overflow sooner than
+        // this.
+        self.code_len_counter.fetch_add(code_len, Ordering::Relaxed);
     }
 
     pub fn check_proof_size_limit_exceed(&self) -> bool {
-        if let Some(proof_size_limit) = self.proof_size_limit {
-            return self.upper_bound_size > proof_size_limit;
-        }
-        false
+        self.upper_bound_size.load(Ordering::Acquire) as u64 > self.proof_size_limit
     }
 
-    pub fn recorded_storage(&mut self) -> PartialStorage {
-        let mut nodes: Vec<_> =
-            self.recorded.drain().map(|(_key, value)| value.value().clone()).collect();
+    pub fn recorded_storage(self) -> PartialStorage {
+        let mut nodes = Vec::with_capacity(1024);
+        for shard in self.recorded.into_shards() {
+            let map = shard.into_inner().into_inner();
+            nodes.reserve(map.len());
+            for (_key, node) in map {
+                nodes.push(node.into_inner().0);
+            }
+        }
         nodes.sort();
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 
-    pub fn recorded_trie_changes(&mut self, state_root: CryptoHash) -> TrieChanges {
-        let recorded: HashMap<_, _> = self.recorded.drain().collect();
+    pub fn recorded_trie_changes(self, state_root: CryptoHash) -> TrieChanges {
         let mut refcounts = TrieRefcountDeltaMap::new();
-        for (key, TrieNodeWithRefcount(value, refcount)) in recorded {
-            refcounts.add(key, value.to_vec(), refcount);
+        for shard in self.recorded.into_shards() {
+            let map = shard.into_inner().into_inner();
+            for (key, node) in map {
+                let node = node.into_inner();
+                // FIXME(nagisa): lets not reallocate all the values
+                refcounts.add(key, node.0.to_vec(), node.1);
+            }
         }
         let (insertions, deletions) = refcounts.into_changes();
         TrieChanges {
@@ -146,11 +165,11 @@ impl TrieRecorder {
     }
 
     pub fn recorded_storage_size(&self) -> usize {
-        self.size
+        self.size.load(Ordering::Acquire)
     }
 
     pub fn recorded_storage_size_upper_bound(&self) -> usize {
-        self.upper_bound_size
+        self.upper_bound_size.load(Ordering::Acquire)
     }
 
     /// Get statistics about the recorded trie. Useful for observability and debugging.
@@ -167,9 +186,9 @@ impl TrieRecorder {
         }
         TrieRecorderStats {
             items_count: self.recorded.len(),
-            total_size: self.size,
-            removal_counter: self.removal_counter,
-            code_len_counter: self.code_len_counter,
+            total_size: self.size.load(Ordering::Relaxed),
+            removal_counter: self.removal_counter.load(Ordering::Relaxed),
+            code_len_counter: self.code_len_counter.load(Ordering::Relaxed),
             trie_column_sizes,
         }
     }
@@ -194,8 +213,8 @@ impl TrieRecorder {
         let mut cur_node_hash = *trie_root;
 
         while !subtree_key.is_empty() {
-            let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = self.recorded.get(&cur_node_hash)
-            else {
+            let node = self.recorded.get(&cur_node_hash);
+            let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = node.as_deref() else {
                 // This node wasn't recorded.
                 return None;
             };
@@ -260,8 +279,8 @@ impl TrieRecorder {
                 continue;
             }
 
-            let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = self.recorded.get(&cur_node_hash)
-            else {
+            let node = self.recorded.get(&cur_node_hash);
+            let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = node.as_deref() else {
                 // This node wasn't recorded.
                 continue;
             };
@@ -280,9 +299,8 @@ impl TrieRecorder {
 
             match raw_node {
                 RawTrieNode::Leaf(_key, value) => {
-                    if let Some(TrieNodeWithRefcount(value_bytes, _)) =
-                        self.recorded.get(&value.hash)
-                    {
+                    let node = self.recorded.get(&value.hash);
+                    if let Some(TrieNodeWithRefcount(value_bytes, _)) = node.as_deref() {
                         if !seen_items.contains(&value.hash) {
                             values_size = values_size.saturating_add(value_bytes.len());
                             seen_items.insert(value.hash);
@@ -303,9 +321,8 @@ impl TrieRecorder {
                         }
                     }
 
-                    if let Some(TrieNodeWithRefcount(value_bytes, _)) =
-                        self.recorded.get(&value.hash)
-                    {
+                    let node = self.recorded.get(&value.hash);
+                    if let Some(TrieNodeWithRefcount(value_bytes, _)) = node.as_deref() {
                         if !seen_items.contains(&value.hash) {
                             values_size = values_size.saturating_add(value_bytes.len());
                             seen_items.insert(value.hash);
@@ -847,12 +864,13 @@ mod memtrie_batch_iteration_tests {
 
         test_populate_flat_storage(&tries, shard_uid, &block_id, &block_id, &initial);
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, initial.clone());
-        let trie = tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
+        let trie = tries.get_trie_for_shard(shard_uid, root);
 
         let batch_size = 20;
         let mut last_key: Option<Vec<u8>> = None;
         let mut change_batches: Vec<TrieChanges> = Vec::new();
         loop {
+            let trie = trie.recording_reads_new_recorder();
             last_key = iterate_batch(&trie, last_key, batch_size);
             let trie_changes =
                 trie.recorded_trie_changes(root).expect("failed to get trie changes");
@@ -881,13 +899,15 @@ mod memtrie_batch_iteration_tests {
         store_update.commit().expect("failed to commit store update");
 
         let trie = new_tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
-        let read_trie = trie.lock_for_iter();
-        let iter = read_trie.iter().expect("failed to get iterator");
-        let got = iter
-            .map(|item| item.expect("got error iterating"))
-            .map(|(k, v)| (k, Some(v)))
-            .collect::<Vec<_>>();
-        assert_eq!(simplify_changes(&initial), got);
+        {
+            let read_trie = trie.lock_for_iter();
+            let iter = read_trie.iter().expect("failed to get iterator");
+            let got = iter
+                .map(|item| item.expect("got error iterating"))
+                .map(|(k, v)| (k, Some(v)))
+                .collect::<Vec<_>>();
+            assert_eq!(simplify_changes(&initial), got);
+        }
 
         let recorded_changes =
             trie.recorded_trie_changes(root).expect("failed to get recorded changes");
