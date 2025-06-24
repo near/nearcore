@@ -6,8 +6,7 @@ use near_async::messaging::Sender;
 use near_async::messaging::noop;
 use near_async::time;
 use near_network::client::{
-    AnnounceAccountRequest, BlockHeadersResponse, BlockResponse, ClientSenderForNetwork,
-    SetNetworkInfo,
+    BlockHeadersResponse, BlockResponse, ClientSenderForNetwork, SetNetworkInfo,
 };
 use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
@@ -259,9 +258,6 @@ impl Network {
                 for s in n.info_futures.split_off(0) {
                     s.send(n.info_.clone()).unwrap();
                 }
-            }),
-            announce_account: Sender::from_async_fn(|accounts: AnnounceAccountRequest| {
-                Ok(accounts.0.into_iter().map(|a| a.0).collect::<Vec<_>>())
             }),
             chunk_endorsement: noop().into_sender(),
             epoch_sync_request: noop().into_sender(),

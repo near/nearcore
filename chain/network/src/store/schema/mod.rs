@@ -6,7 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time;
 use near_crypto::Signature;
 use near_primitives::account::id::AccountId;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::DBCol;
 use std::io;
@@ -87,13 +87,6 @@ impl BorshRepr for EdgeRepr {
 
 /////////////////////////////////////////////
 // Columns
-
-pub(super) struct AccountAnnouncements;
-impl Column for AccountAnnouncements {
-    const COL: DBCol = DBCol::AccountAnnouncements;
-    type Key = AccountIdFormat;
-    type Value = Borsh<AnnounceAccount>;
-}
 
 pub(super) struct RecentOutboundConnections;
 impl Column for RecentOutboundConnections {

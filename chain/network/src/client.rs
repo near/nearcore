@@ -158,8 +158,6 @@ pub struct ClientSenderForNetwork {
     pub block: AsyncSender<BlockResponse, ()>,
     pub block_headers: AsyncSender<BlockHeadersResponse, Result<(), ReasonForBan>>,
     pub network_info: AsyncSender<SetNetworkInfo, ()>,
-    pub announce_account:
-        AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
