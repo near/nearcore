@@ -366,7 +366,7 @@ class NeardRunner:
             args = ('target',) + args
         return os.path.join(self.neard_home, *args)
 
-    def home_path(self, *args): 
+    def home_path(self, *args):
         return os.path.join(self.home, *args)
 
     def tmp_near_home_path(self, *args):

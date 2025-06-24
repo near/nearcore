@@ -51,7 +51,7 @@ def fetch_forknet_details(forknet_name, bm_params):
         text=True,
         check=True,
     )
-    
+
     # drop the table header line in the output
     nodes_data = find_instances_cmd_result.stdout.splitlines()[1:]
 
@@ -60,21 +60,17 @@ def fetch_forknet_details(forknet_name, bm_params):
         logger.error(
             f"Expected {num_cp_instances + 1} instances, got {len(nodes_data)}")
         sys.exit(1)
-    
 
     # cratch to refresh the local keystore
     for node_data in nodes_data:
         columns = node_data.split()
         name, zone = columns[0], columns[2]
         login_cmd = [
-            "gcloud", "compute", "ssh",
-            "--zone", zone,
-            f"ubuntu@{name}",
-            "--project", "nearone-mocknet",
-            "--command", "pwd"
+            "gcloud", "compute", "ssh", "--zone", zone, f"ubuntu@{name}",
+            "--project", "nearone-mocknet", "--command", "pwd"
         ]
-        subprocess.run( login_cmd, text=True, check=True)
-    
+        subprocess.run(login_cmd, text=True, check=True)
+
     rpc_instance = nodes_data[-1]
     rpc_instance_name, rpc_instance_ip, _ = rpc_instance.split()
     cp_instances = list(map(lambda x: x.split(), nodes_data[:num_cp_instances]))
@@ -136,7 +132,7 @@ def handle_init(args):
     run_cmd_args = copy.deepcopy(args)
     run_cmd_args.cmd = f"mkdir -p {BENCHNET_DIR}"
     run_remote_cmd(CommandContext(run_cmd_args))
-    
+
     if args.neard_binary_url is not None:
         logger.info(f"Using neard binary URL from CLI: {args.neard_binary_url}")
     elif os.environ.get('NEARD_BINARY_URL') is not None:
@@ -147,7 +143,7 @@ def handle_init(args):
     else:
         logger.info(
             "Please provide neard binary URL via CLI or env var NEARD_BINARY_URL"
-        ) 
+        )
         sys.exit(1)
 
     # if neard_binary_url is a local path - upload the file to each node
@@ -158,13 +154,13 @@ def handle_init(args):
         logger.info(f"`neard` local path on remote: {args.neard_binary_url}")
     else:
         logger.info("no local `neard` found, continue assuming the remote url")
-    
+
     init_args = SimpleNamespace(
         neard_upgrade_binary_url="",
         **vars(args),
     )
     init_cmd(CommandContext(init_args))
-    
+
     update_binaries_args = copy.deepcopy(args)
     update_binaries_cmd(CommandContext(update_binaries_args))
 
