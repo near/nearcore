@@ -17,10 +17,10 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
-    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StatePartRequestBody,
-    StateSyncEvent, Tier3Request, Tier3RequestBody,
+    ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerManagerSenderForNetwork,
+    PeerType, SetChainInfo, SnapshotHostInfo, StatePartRequestBody, StateSyncEvent, Tier3Request,
+    Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -723,19 +723,7 @@ impl PeerManagerActor {
                 .values()
                 .map(|x| x.stats.received_bytes_per_sec.load(Ordering::Relaxed))
                 .sum(),
-            known_producers: self
-                .state
-                .account_announcements
-                .get_announcements()
-                .into_iter()
-                .map(|announce_account| KnownProducer {
-                    account_id: announce_account.account_id,
-                    peer_id: announce_account.peer_id.clone(),
-                    // TODO: fill in the address.
-                    addr: None,
-                    next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
-                })
-                .collect(),
+            known_producers: vec![],
             tier1_accounts_keys: self.state.accounts_data.load().keys.iter().cloned().collect(),
             tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
         }
@@ -771,7 +759,7 @@ impl PeerManagerActor {
     fn handle_msg_network_requests(
         &mut self,
         msg: NetworkRequests,
-        ctx: &mut actix::Context<Self>,
+        _ctx: &mut actix::Context<Self>,
     ) -> NetworkResponses {
         let msg_type: &str = msg.as_ref();
         let _span =
@@ -924,13 +912,6 @@ impl PeerManagerActor {
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason);
-                NetworkResponses::NoResponse
-            }
-            NetworkRequests::AnnounceAccount(announce_account) => {
-                let state = self.state.clone();
-                ctx.spawn(wrap_future(async move {
-                    state.add_accounts(vec![announce_account]).await;
-                }));
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {

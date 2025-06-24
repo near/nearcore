@@ -37,9 +37,9 @@ use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_network::client::{
-    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, OptimisticBlockMessage, SetNetworkInfo,
-    StateRequestHeader, StateRequestPart, StateResponseReceived,
+    BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
+    ChunkEndorsementMessage, OptimisticBlockMessage, SetNetworkInfo, StateRequestHeader,
+    StateRequestPart, StateResponseReceived,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::{
@@ -59,7 +59,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId};
+use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use near_primitives::version::{PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
@@ -69,7 +69,7 @@ use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{Rng, thread_rng};
 use std::cmp::max;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
@@ -364,7 +364,6 @@ fn process_peer_manager_message_default(
     addresses: Vec<CryptoHash>,
     last_height: Arc<RwLock<Vec<u64>>>,
     block_stats: Arc<RwLock<BlockStats>>,
-    announced_accounts: Arc<RwLock<HashSet<(AccountId, EpochId)>>>,
     largest_endorsed_height: Arc<RwLock<Vec<u64>>>,
     largest_skipped_height: Arc<RwLock<Vec<u64>>>,
     // Maps block hashes to heights. May not include genesis block.
@@ -631,19 +630,6 @@ fn process_peer_manager_message_default(
                 );
             }
         }
-        NetworkRequests::AnnounceAccount(announce_account) => {
-            let mut aa = announced_accounts.write().unwrap();
-            let key = (announce_account.account_id.clone(), announce_account.epoch_id);
-            if aa.get(&key).is_none() {
-                aa.insert(key);
-                for actor_handles in connectors {
-                    actor_handles.view_client_actor.do_send(
-                        AnnounceAccountRequest(vec![(announce_account.clone(), None)])
-                            .with_span_context(),
-                    )
-                }
-            }
-        }
         NetworkRequests::Approval { approval_message } => {
             let height_mod = approval_message.approval.target_height % 300;
 
@@ -855,8 +841,6 @@ pub fn setup_mock_all_validators(
 
     let connectors: Arc<OnceCell<Vec<ActorHandlesForTesting>>> = Default::default();
 
-    let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
-
     let last_height = Arc::new(RwLock::new(vec![0; key_pairs.len()]));
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
@@ -872,7 +856,6 @@ pub fn setup_mock_all_validators(
         let addresses = addresses.clone();
         let connectors1 = connectors.clone();
         let network_mock1 = peer_manager_mock.clone();
-        let announced_accounts1 = announced_accounts.clone();
         let last_height = last_height.clone();
         let largest_endorsed_height1 = largest_endorsed_height.clone();
         let largest_skipped_height1 = largest_skipped_height.clone();
@@ -901,7 +884,6 @@ pub fn setup_mock_all_validators(
                     addresses.clone(),
                     last_height.clone(),
                     block_stats1.clone(),
-                    announced_accounts1.clone(),
                     largest_endorsed_height1.clone(),
                     largest_skipped_height1.clone(),
                     hash_to_height1.clone(),
