@@ -208,6 +208,7 @@ fn forward_distribution_next_shard(
             .chain(std::iter::once(apply_state.shard_id)),
     );
     if let Some(next_shard) = shard_layout
+        .clone()
         .shard_ids()
         .filter(|shard_id| !already_delivered_shards.contains(&shard_id))
         .next()
@@ -227,7 +228,7 @@ fn forward_distribution_next_shard(
             next_receipt,
             apply_state,
             state_update,
-            epoch_info_provider,
+            &shard_layout,
         )?;
     }
     Ok(())

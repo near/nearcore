@@ -399,7 +399,7 @@ pub(crate) fn block_chunks_exist(
                     .will_care_about_shard(block.header().prev_hash(), chunk_header.shard_id());
                 if cares_about_shard || will_care_about_shard {
                     unwrap_or_err_db!(
-                        sv.store.get_ser::<ShardChunk>(
+                        sv.store.caching_get_ser::<ShardChunk>(
                             DBCol::Chunks,
                             chunk_header.chunk_hash().as_ref()
                         ),
@@ -630,7 +630,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
         let chunk_hash = chunk_header.chunk_hash();
         // 6. ShardChunk with `chunk_hash` should be available
         unwrap_or_err_db!(
-            sv.store.get_ser::<ShardChunk>(DBCol::Chunks, chunk_hash.as_ref()),
+            sv.store.caching_get_ser::<ShardChunk>(DBCol::Chunks, chunk_hash.as_ref()),
             "Can't get Chunk from storage with ChunkHash {:?}",
             chunk_hash
         );
@@ -658,7 +658,7 @@ pub(crate) fn chunk_of_height_exists(
 ) -> Result<(), StoreValidatorError> {
     for chunk_hash in chunk_hashes {
         let shard_chunk = unwrap_or_err_db!(
-            sv.store.get_ser::<ShardChunk>(DBCol::Chunks, chunk_hash.as_ref()),
+            sv.store.caching_get_ser::<ShardChunk>(DBCol::Chunks, chunk_hash.as_ref()),
             "Can't get Chunk from storage with ChunkHash {:?}",
             chunk_hash
         );

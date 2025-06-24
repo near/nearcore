@@ -296,11 +296,10 @@ fn get_resharding_transition(
 /// validation thread.
 pub fn pre_validate_chunk_state_witness(
     state_witness: &ChunkStateWitness,
-    chain: &Chain,
+    store: &ChainStore,
+    genesis: Arc<Block>,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<PreValidationOutput, Error> {
-    let store = chain.chain_store();
-
     // Ensure that the chunk header version is supported in this protocol version
     let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
     let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
@@ -351,8 +350,18 @@ pub fn pre_validate_chunk_state_witness(
         } else {
             let prev_block_header =
                 store.get_block_header(last_chunk_block.header().prev_hash())?;
-            let check = chain.transaction_validity_check(BlockHeader::clone(&prev_block_header));
-            state_witness.transactions().iter().map(|t| check(t)).collect::<Vec<_>>()
+            state_witness
+                .transactions()
+                .iter()
+                .map(|t| {
+                    store
+                        .check_transaction_validity_period(
+                            &prev_block_header,
+                            t.transaction.block_hash(),
+                        )
+                        .is_ok()
+                })
+                .collect::<Vec<_>>()
         }
     };
 
@@ -363,8 +372,13 @@ pub fn pre_validate_chunk_state_witness(
             .block_congestion_info()
             .get(&last_chunk_shard_id)
             .map(|info| info.congestion_info);
-        let chunk_extra =
-            chain.genesis_chunk_extra(&shard_layout, last_chunk_shard_id, congestion_info)?;
+        let chunk_extra = Chain::genesis_chunk_extra(
+            genesis,
+            store,
+            &shard_layout,
+            last_chunk_shard_id,
+            congestion_info,
+        )?;
         MainTransition::Genesis {
             chunk_extra,
             block_hash: *last_chunk_block.hash(),
@@ -808,8 +822,12 @@ impl Chain {
             (encoded_witness, raw_witness_size)
         };
         let pre_validation_start = Instant::now();
-        let pre_validation_result =
-            pre_validate_chunk_state_witness(&witness, &self, epoch_manager)?;
+        let pre_validation_result = pre_validate_chunk_state_witness(
+            &witness,
+            self.chain_store(),
+            self.genesis_block(),
+            epoch_manager,
+        )?;
         tracing::debug!(
             parent: &parent_span,
             %shard_id,

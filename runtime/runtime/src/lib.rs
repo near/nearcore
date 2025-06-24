@@ -301,6 +301,12 @@ impl Runtime {
         signed_txs: impl IntoParallelIterator<Item = SignedTransaction>,
         current_protocol_version: ProtocolVersion,
     ) -> Vec<(CryptoHash, Result<(ValidatedTransaction, TransactionCost), InvalidTxError>)> {
+        let _span = tracing::info_span!(
+            target: "runtime",
+            "parallel_validate_transactions",
+            measure = "apply",
+        )
+        .entered();
         signed_txs
             .into_par_iter()
             .map(|signed_tx| {
@@ -892,12 +898,15 @@ impl Runtime {
                     ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
                 );
 
-                let res = receipt_sink.forward_or_buffer_receipt(
-                    new_receipt,
-                    apply_state,
-                    state_update,
-                    epoch_info_provider,
-                );
+                let res =
+                    epoch_info_provider.shard_layout(&apply_state.epoch_id).map(|shard_layout| {
+                        receipt_sink.forward_or_buffer_receipt(
+                            new_receipt,
+                            apply_state,
+                            state_update,
+                            &shard_layout,
+                        )
+                    });
                 if let Err(e) = res {
                     Some(Err(e))
                 } else if is_action {
@@ -1558,11 +1567,26 @@ impl Runtime {
         )?;
 
         // Step 2: process transactions.
-        self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
+        {
+            let _span = tracing::info_span!(
+                target: "runtime",
+                "process_transactions",
+                measure = "apply",
+            )
+            .entered();
+            self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
+        }
 
         // Step 3: process receipts.
-        let process_receipts_result =
-            self.process_receipts(&mut processing_state, &mut receipt_sink)?;
+        let process_receipts_result = {
+            let _span = tracing::info_span!(
+                target: "runtime",
+                "process_receipts",
+                measure = "apply",
+            )
+            .entered();
+            self.process_receipts(&mut processing_state, &mut receipt_sink)?
+        };
 
         // After receipt processing is done, report metrics on outgoing buffers
         // and on congestion indicators.
@@ -1573,12 +1597,20 @@ impl Runtime {
         );
 
         // Step 4: validate and apply the state update.
-        self.validate_apply_state_update(
-            processing_state,
-            process_receipts_result,
-            receipt_sink,
-            state_patch,
-        )
+        {
+            let _span = tracing::info_span!(
+                target: "runtime",
+                "validate_apply_state_update",
+                measure = "apply",
+            )
+            .entered();
+            self.validate_apply_state_update(
+                processing_state,
+                process_receipts_result,
+                receipt_sink,
+                state_patch,
+            )
+        }
     }
 
     fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
@@ -1630,6 +1662,8 @@ impl Runtime {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
+        let shard_layout =
+            processing_state.epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
 
         let signed_txs = signed_txs.into_par_iter_nonexpired_transactions();
         for (tx_hash, result) in Self::parallel_validate_transactions(
@@ -1665,7 +1699,7 @@ impl Runtime {
                             receipt,
                             apply_state,
                             state_update,
-                            processing_state.epoch_info_provider,
+                            &shard_layout,
                         )?;
                     }
                     let compute = outcome_with_id.outcome.compute_usage;
@@ -2381,11 +2415,13 @@ fn resolve_promise_yield_timeouts(
             // this yield if `yield_resume` was invoked by some receipt which was processed in
             // the current chunk. The ordering will be maintained because the receipts are
             // destined for the same shard; the timeout will be processed second and discarded.
+            let shard_layout =
+                processing_state.epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
             receipt_sink.forward_or_buffer_receipt(
                 resume_receipt,
                 apply_state,
                 &mut state_update,
-                processing_state.epoch_info_provider,
+                &shard_layout,
             )?;
         }
 
