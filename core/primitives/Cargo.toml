@@ -98,7 +98,12 @@ insta.workspace = true
 expect-test.workspace = true
 regex.workspace = true
 tempfile.workspace = true
+criterion.workspace = true
 
 [[bench]]
 name = "serialization"
+harness = false
+
+[[bench]]
+name = "compression"
 harness = false
