@@ -393,40 +393,41 @@ mod tests {
         is_memtrie: bool,
     ) {
         let trie_with_recorder = trie.recording_reads_new_recorder();
-        let lock = trie_with_recorder.lock_for_iter();
-        let mut iterator = lock.iter().unwrap();
-        if is_memtrie {
-            assert!(matches!(iterator, TrieIterator::Memtrie(_)));
-        } else {
-            assert!(matches!(iterator, TrieIterator::Disk(_)));
-        }
+        let got = {
+            let lock = trie_with_recorder.lock_for_iter();
+            let mut iterator = lock.iter().unwrap();
+            if is_memtrie {
+                assert!(matches!(iterator, TrieIterator::Memtrie(_)));
+            } else {
+                assert!(matches!(iterator, TrieIterator::Disk(_)));
+            }
 
-        let seek_bound =
-            if include_start { Bound::Included(seek_key) } else { Bound::Excluded(seek_key) };
-        iterator.seek(seek_bound).unwrap();
+            let seek_bound =
+                if include_start { Bound::Included(seek_key) } else { Bound::Excluded(seek_key) };
+            iterator.seek(seek_bound).unwrap();
 
-        // Calling seek should not record any nodes.
-        let recorded_storage =
-            trie_with_recorder.recorded_storage().expect("missing recorded storage");
-        assert_eq!(0, recorded_storage.nodes.len());
+            // Calling seek should not record any nodes.
+            assert_eq!(0, trie_with_recorder.recorded_storage_size());
+            assert_eq!(0, trie_with_recorder.recorded_storage_size_upper_bound());
 
-        let got = iterator
-            .map(|item| {
-                let (key, value) = item.unwrap();
-                if include_start == false {
-                    assert!(
-                        key.as_slice() > seek_key,
-                        "‘{key:x?}’ is not greater than ‘{seek_key:x?}’"
-                    );
-                } else {
-                    assert!(
-                        key.as_slice() >= seek_key,
-                        "‘{key:x?}’ is not greater than or equal to ‘{seek_key:x?}’"
-                    );
-                }
-                (key, value)
-            })
-            .collect::<Vec<_>>();
+            iterator
+                .map(|item| {
+                    let (key, value) = item.unwrap();
+                    if include_start == false {
+                        assert!(
+                            key.as_slice() > seek_key,
+                            "‘{key:x?}’ is not greater than ‘{seek_key:x?}’"
+                        );
+                    } else {
+                        assert!(
+                            key.as_slice() >= seek_key,
+                            "‘{key:x?}’ is not greater than or equal to ‘{seek_key:x?}’"
+                        );
+                    }
+                    (key, value)
+                })
+                .collect::<Vec<_>>()
+        };
 
         // Iteration should have recorded some nodes.
         if !got.is_empty() {

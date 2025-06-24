@@ -156,7 +156,7 @@ impl TrieUpdate {
         // by the runtime are assumed to be non-malicious and we don't charge extra for them.
         if let Some(recorder) = &self.trie.recorder {
             if matches!(trie_key, TrieKey::ContractData { .. }) {
-                recorder.write().record_key_removal();
+                recorder.record_key_removal();
             }
         }
 
