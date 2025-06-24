@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use itertools::Itertools;
@@ -189,20 +191,20 @@ impl Chain {
     }
 
     pub fn genesis_chunk_extra(
-        &self,
+        genesis: Arc<Block>,
+        chain_store: &ChainStore,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
         congestion_info: Option<CongestionInfo>,
     ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = *get_genesis_state_roots(&self.chain_store.store())?
+        let state_root = *get_genesis_state_roots(&chain_store.store())?
             .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
             .get(shard_index)
             .ok_or_else(|| {
                 Error::Other(format!("genesis state root does not exist for shard id {shard_id} shard index {shard_index}"))
             })?;
-        let gas_limit = self
-            .genesis
+        let gas_limit = genesis
             .chunks()
             .get(shard_index)
             .ok_or_else(|| {
