@@ -539,6 +539,12 @@ impl Deref for ChunkType<'_> {
     }
 }
 
+impl ChunkType<'_> {
+    pub fn is_new_chunk(&self) -> bool {
+        matches!(self, ChunkType::New(_))
+    }
+}
+
 // For BlockV1, we store the chunks in a Vec, else we use a slice reference.
 enum ChunksCollection<'a> {
     V1(Vec<ShardChunkHeader>),
