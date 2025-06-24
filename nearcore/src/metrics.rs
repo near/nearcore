@@ -122,14 +122,15 @@ fn export_postponed_receipt_count(
     let block = chain_store.get_block(&head.last_block_hash)?;
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
 
-    for chunk_header in block.chunks().iter_deprecated() {
+    // Handle missing chunks by setting their count to 0
+    for chunk_header in block.chunks().iter_old() {
         let shard_id = chunk_header.shard_id();
-        if chunk_header.height_included() != block.header().height() {
-            tracing::trace!(target: "metrics", "trie-stats - chunk for shard {shard_id} is missing, skipping it.");
-            POSTPONED_RECEIPTS_COUNT.with_label_values(&[&shard_id.to_string()]).set(0);
-            continue;
-        }
+        tracing::trace!(target: "metrics", "trie-stats - chunk for shard {shard_id} is missing, skipping it.");
+        POSTPONED_RECEIPTS_COUNT.with_label_values(&[&shard_id.to_string()]).set(0);
+    }
 
+    for chunk_header in block.chunks().iter_new() {
+        let shard_id = chunk_header.shard_id();
         let count = get_postponed_receipt_count_for_shard(
             shard_id,
             &shard_layout,

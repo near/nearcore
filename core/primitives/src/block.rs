@@ -254,10 +254,8 @@ impl Block {
     ) -> bool {
         let mut balance_burnt = 0;
 
-        for chunk in self.chunks().iter_deprecated() {
-            if chunk.height_included() == self.header().height() {
-                balance_burnt += chunk.prev_balance_burnt();
-            }
+        for chunk in self.chunks().iter_new() {
+            balance_burnt += chunk.prev_balance_burnt();
         }
 
         let new_total_supply = prev_total_supply + minted_amount.unwrap_or(0) - balance_burnt;
@@ -271,10 +269,8 @@ impl Block {
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
     ) -> bool {
-        let gas_used =
-            Self::compute_gas_used(self.chunks().iter_deprecated(), self.header().height());
-        let gas_limit =
-            Self::compute_gas_limit(self.chunks().iter_deprecated(), self.header().height());
+        let gas_used = self.chunks().compute_gas_used();
+        let gas_limit = self.chunks().compute_gas_limit();
         let expected_price = Self::compute_next_gas_price(
             gas_price,
             gas_used,
@@ -375,24 +371,6 @@ impl Block {
                 .collect::<Vec<CryptoHash>>(),
         )
         .0
-    }
-
-    pub fn compute_gas_used<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-        height: BlockHeight,
-    ) -> Gas {
-        chunks.into_iter().fold(0, |acc, chunk| {
-            if chunk.height_included() == height { acc + chunk.prev_gas_used() } else { acc }
-        })
-    }
-
-    pub fn compute_gas_limit<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-        height: BlockHeight,
-    ) -> Gas {
-        chunks.into_iter().fold(0, |acc, chunk| {
-            if chunk.height_included() == height { acc + chunk.gas_limit() } else { acc }
-        })
     }
 
     pub fn validate_chunk_header_proof(
@@ -511,8 +489,8 @@ impl Block {
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
         let chunk_mask: Vec<bool> = self
             .chunks()
-            .iter_deprecated()
-            .map(|chunk| chunk.height_included() == self.header().height())
+            .iter_all()
+            .map(|chunk| chunk.is_new_chunk(self.header().height()))
             .collect();
         if self.header().chunk_mask() != &chunk_mask[..] {
             return Err(InvalidChunkMask);
@@ -602,6 +580,14 @@ impl<'a> Chunks<'a> {
 
     pub fn min_height_included(&self) -> Option<BlockHeight> {
         self.iter_all().map(|chunk| chunk.height_included()).min()
+    }
+
+    pub fn compute_gas_used(&self) -> Gas {
+        self.iter_new().fold(0, |acc, chunk| acc + chunk.prev_gas_used())
+    }
+
+    pub fn compute_gas_limit(&self) -> Gas {
+        self.iter_new().fold(0, |acc, chunk| acc + chunk.gas_limit())
     }
 
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {

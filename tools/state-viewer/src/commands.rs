@@ -754,9 +754,9 @@ pub(crate) fn view_chain(
 
     let mut chunk_extras = vec![];
     let mut chunks = vec![];
-    for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
+    for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_included() == block.header().height() {
-            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+            let shard_id = chunk_header.shard_id();
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
             let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone();
             let chunk = chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone();

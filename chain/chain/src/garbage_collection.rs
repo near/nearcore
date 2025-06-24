@@ -940,11 +940,7 @@ impl<'a> ChainStoreUpdate<'a> {
     fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
         let store_update = self.store().store_update();
-        for chunk_header in block
-            .chunks()
-            .iter_deprecated()
-            .filter(|h| h.height_included() == block.header().height())
-        {
+        for chunk_header in block.chunks().iter_new() {
             // It is ok to use the shard id from the header because it is a new
             // chunk. An old chunk may have the shard id from the parent shard.
             let shard_id = chunk_header.shard_id();
