@@ -4,7 +4,6 @@ use near_async::time::Duration;
 use near_chain::{ReceiptFilter, get_incoming_receipts_for_shard};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, FunctionCallAction};
-use near_primitives::block::MaybeNew;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, FunctionCallError, InvalidTxError, ReceiptValidationError,
     TxExecutionError,
@@ -388,10 +387,7 @@ fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[NodeE
             .unwrap();
 
         // Go over all new chunks in a block
-        for chunk_header in block.chunks().iter() {
-            let MaybeNew::New(new_chunk) = chunk_header else {
-                continue;
-            };
+        for new_chunk in block.chunks().iter_new() {
             let shard_id = new_chunk.shard_id();
             let prev_shard_index = epoch_manager
                 .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), shard_id)
