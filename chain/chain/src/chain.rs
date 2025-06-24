@@ -344,7 +344,6 @@ pub struct Chain {
     snapshot_callbacks: Option<SnapshotCallbacks>,
     /// Manages all tasks related to resharding.
     pub resharding_manager: ReshardingManager,
-    #[allow(unused)]
     validator_signer: MutableValidatorSigner,
 }
 
