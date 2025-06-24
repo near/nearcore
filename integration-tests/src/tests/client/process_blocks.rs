@@ -804,7 +804,7 @@ fn test_bad_chunk_mask() {
     let shard_id = s0;
 
     let tip = env.clients[0].chain.get_block_by_height(0).unwrap();
-    for chunk_header in tip.chunks().iter_raw() {
+    for chunk_header in tip.chunks().iter() {
         tracing::info!(target: "test", ?chunk_header, "chunk header");
     }
 
@@ -834,7 +834,7 @@ fn test_bad_chunk_mask() {
         {
             let mut chunk_header = shard_chunk.cloned_header();
             *chunk_header.height_included_mut() = height;
-            let mut chunk_headers: Vec<_> = block.chunks().iter_raw().cloned().collect();
+            let mut chunk_headers: Vec<_> = block.chunks().iter_all().cloned().collect();
             chunk_headers[0] = chunk_header;
             let mut_block = Arc::make_mut(&mut block);
             mut_block.set_chunks(chunk_headers.clone());
