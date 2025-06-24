@@ -48,7 +48,7 @@ fn build_chain() {
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = TestBlockBuilder::new(clock.clock(), &prev, signer.clone()).build();
-        chain.process_block_test(&None, block).unwrap();
+        chain.process_block_test(block).unwrap();
         assert_eq!(chain.head().unwrap().height, i as u64);
     }
 
@@ -97,22 +97,16 @@ fn build_chain_with_orphans() {
         None,
         None,
     ));
-    assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
-    assert_matches!(
-        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
-        Error::Orphan
-    );
-    assert_matches!(
-        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
-        Error::Orphan
-    );
-    chain.process_block_test(&None, blocks.pop().unwrap()).unwrap();
+    assert_matches!(chain.process_block_test(block).unwrap_err(), Error::Orphan);
+    assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
+    assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
+    chain.process_block_test(blocks.pop().unwrap()).unwrap();
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&None, &mut BlockProcessingArtifact::default(), None);
+        chain.postprocess_ready_blocks(&mut BlockProcessingArtifact::default(), None);
     }
     assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(
-        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
+        chain.process_block_test(blocks.pop().unwrap(),).unwrap_err(),
         Error::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
@@ -130,19 +124,19 @@ fn build_chain_with_skips_and_forks() {
     let b4 = TestBlockBuilder::new(Clock::real(), &b2, signer.clone()).height(4).build();
     let b5 = TestBlockBuilder::new(Clock::real(), &b4, signer.clone()).build();
     let b6 = TestBlockBuilder::new(Clock::real(), &b5, signer.clone()).build();
-    assert!(chain.process_block_test(&None, b1).is_ok());
-    assert!(chain.process_block_test(&None, b2).is_ok());
-    assert!(chain.process_block_test(&None, b3.clone()).is_ok());
-    assert!(chain.process_block_test(&None, b4).is_ok());
-    assert!(chain.process_block_test(&None, b5).is_ok());
-    assert!(chain.process_block_test(&None, b6).is_ok());
+    assert!(chain.process_block_test(b1).is_ok());
+    assert!(chain.process_block_test(b2).is_ok());
+    assert!(chain.process_block_test(b3.clone()).is_ok());
+    assert!(chain.process_block_test(b4).is_ok());
+    assert!(chain.process_block_test(b5).is_ok());
+    assert!(chain.process_block_test(b6).is_ok());
     assert!(chain.get_block_header_by_height(1).is_err());
     assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().height(), 6);
 
     let c4 = TestBlockBuilder::new(Clock::real(), &b3, signer).height(4).build();
     assert_eq!(chain.final_head().unwrap().height, 4);
-    assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
+    assert_matches!(chain.process_block_test(c4), Err(Error::CannotBeFinalized));
 }
 
 /// Verifies that getting block by its height are updated correctly when blocks from different forks are
@@ -194,16 +188,16 @@ fn blocks_at_height() {
 
     assert_ne!(c_3_hash, d_3_hash);
 
-    chain.process_block_test(&None, b_1).unwrap();
-    chain.process_block_test(&None, b_2).unwrap();
+    chain.process_block_test(b_1).unwrap();
+    chain.process_block_test(b_2).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 2);
 
     assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
     assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
 
-    chain.process_block_test(&None, c_1).unwrap();
-    chain.process_block_test(&None, c_3).unwrap();
-    chain.process_block_test(&None, c_4).unwrap();
+    chain.process_block_test(c_1).unwrap();
+    chain.process_block_test(c_3).unwrap();
+    chain.process_block_test(c_4).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 4);
 
     assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &c_1_hash);
@@ -211,9 +205,9 @@ fn blocks_at_height() {
     assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &c_3_hash);
     assert_eq!(chain.get_block_header_by_height(4).unwrap().hash(), &c_4_hash);
 
-    chain.process_block_test(&None, d_3).unwrap();
-    chain.process_block_test(&None, d_5).unwrap();
-    chain.process_block_test(&None, d_6).unwrap();
+    chain.process_block_test(d_3).unwrap();
+    chain.process_block_test(d_5).unwrap();
+    chain.process_block_test(d_6).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 6);
 
     assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
@@ -223,7 +217,7 @@ fn blocks_at_height() {
     assert_eq!(chain.get_block_header_by_height(5).unwrap().hash(), &d_5_hash);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().hash(), &d_6_hash);
 
-    chain.process_block_test(&None, e_7).unwrap();
+    chain.process_block_test(e_7).unwrap();
 
     assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
     for h in 2..=5 {
@@ -245,11 +239,11 @@ fn next_blocks() {
     let b2_hash = *b2.hash();
     let b3_hash = *b3.hash();
     let b4_hash = *b4.hash();
-    assert!(chain.process_block_test(&None, b1).is_ok());
-    assert!(chain.process_block_test(&None, b2).is_ok());
+    assert!(chain.process_block_test(b1).is_ok());
+    assert!(chain.process_block_test(b2).is_ok());
     assert_eq!(chain.mut_chain_store().get_next_block_hash(&b1_hash).unwrap(), b2_hash);
-    assert!(chain.process_block_test(&None, b3).is_ok());
-    assert!(chain.process_block_test(&None, b4).is_ok());
+    assert!(chain.process_block_test(b3).is_ok());
+    assert!(chain.process_block_test(b4).is_ok());
     assert_eq!(chain.mut_chain_store().get_next_block_hash(&b1_hash).unwrap(), b3_hash);
     assert_eq!(chain.mut_chain_store().get_next_block_hash(&b3_hash).unwrap(), b4_hash);
 }
@@ -303,12 +297,11 @@ fn test_pending_block() {
     init_test_logger();
     let clock = Clock::real();
     let (mut chain, _, _, signer) = setup(clock.clone());
-    let me = Some(signer.validator_id().clone());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     // Create block 1
     let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
-    chain.process_block_test(&me, block1.clone()).unwrap();
+    chain.process_block_test(block1.clone()).unwrap();
 
     // Create block 2 (but don't process it yet)
     let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
@@ -324,7 +317,6 @@ fn test_pending_block() {
     );
     chain
         .process_optimistic_block(
-            &me,
             optimistic_block,
             block2.chunks().iter_raw().cloned().collect(),
             None,
@@ -332,7 +324,6 @@ fn test_pending_block() {
         .unwrap();
 
     let result = chain.start_process_block_async(
-        &me,
         block2.clone().into(),
         crate::Provenance::PRODUCED,
         &mut BlockProcessingArtifact::default(),
@@ -351,7 +342,7 @@ fn test_pending_block() {
     // Process optimistic block
     let mut block_processing_artifact = BlockProcessingArtifact::default();
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
+        chain.postprocess_ready_blocks(&mut block_processing_artifact, None);
     }
 
     // Verify the block is no longer in the pending pool
@@ -359,7 +350,7 @@ fn test_pending_block() {
 
     // Wait for the pending block to be processed
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
+        chain.postprocess_ready_blocks(&mut block_processing_artifact, None);
     }
 
     // Verify the block is now in the chain
@@ -382,12 +373,11 @@ fn test_pending_block_same_height() {
     init_test_logger();
     let clock = Clock::real();
     let (mut chain, _, _, signer) = setup(clock.clone());
-    let me = Some(signer.validator_id().clone());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     // Create block 1
     let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
-    chain.process_block_test(&me, block1.clone()).unwrap();
+    chain.process_block_test(block1.clone()).unwrap();
 
     // Create block 2 and its copy
     let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
@@ -416,12 +406,11 @@ fn test_pending_block_same_height() {
 
     // Process the optimistic block
     let chunk_headers = block2.chunks().iter_raw().cloned().collect();
-    chain.process_optimistic_block(&me, optimistic_block, chunk_headers, None).unwrap();
+    chain.process_optimistic_block(optimistic_block, chunk_headers, None).unwrap();
 
     // Check that processing the first copy is failed due to optimistic block
     // in processing.
     let result_a = chain.start_process_block_async(
-        &me,
         block2.into(),
         crate::Provenance::PRODUCED,
         &mut BlockProcessingArtifact::default(),
@@ -433,11 +422,11 @@ fn test_pending_block_same_height() {
     assert_matches!(err, Error::BlockPendingOptimisticExecution);
 
     // Check that the copy is also marked as pending.
-    let result_b = chain.process_block_test(&me, block2a);
+    let result_b = chain.process_block_test(block2a);
     assert_matches!(result_b, Err(Error::BlockPendingOptimisticExecution));
 
     // Check that the copy with different hash is processed.
-    let result_b = chain.process_block_test(&me, block2b);
+    let result_b = chain.process_block_test(block2b);
     assert_matches!(result_b, Ok(_));
     assert_eq!(chain.head().unwrap().height, 2);
 }

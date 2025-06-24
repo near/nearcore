@@ -1560,7 +1560,6 @@ fn test_gc_tail_update() {
     env.clients[1]
         .chain
         .reset_heads_post_state_sync(
-            &None,
             *sync_block.hash(),
             &mut BlockProcessingArtifact::default(),
             None,
@@ -1992,7 +1991,7 @@ fn test_validate_chunk_extra() {
         .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-    env.clients[0].process_blocks_with_missing_chunks(None, &signer);
+    env.clients[0].process_blocks_with_missing_chunks(None);
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
     env.resume_block_processing(block2.hash());
