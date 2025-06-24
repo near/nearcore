@@ -985,7 +985,8 @@ def init_cluster(
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
         apply_genesis_changes(node_dir, genesis_config_changes)
-        overrides = client_config_changes.get(i, DEFAULT_CLIENT_CONFIG_OVERRIDES)
+        overrides = client_config_changes.get(i,
+                                              DEFAULT_CLIENT_CONFIG_OVERRIDES)
         if overrides:
             apply_config_changes(node_dir, overrides)
 
@@ -1213,7 +1214,8 @@ DEFAULT_CONFIG: Config = {
 }
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 DEFAULT_CLIENT_CONFIG_OVERRIDES = {
-    'save_tx_outcomes': True,  # Allow querying transaction outcomes in tests by default.
+    'save_tx_outcomes':
+        True,  # Allow querying transaction outcomes in tests by default.
 }
 
 
