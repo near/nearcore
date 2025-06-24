@@ -45,6 +45,7 @@ use near_chain::types::Tip;
 use near_client::client_actor::ClientActorInner;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::trie_key::TrieKey;
+use near_store::flat::FlatStorageStatus;
 use std::sync::Arc;
 
 /// A config to tell what shards will be tracked by the client at the given index.
@@ -784,6 +785,73 @@ fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId)
         shard_uid_prefixes.insert(shard_uid);
     }
     assert_eq!(shard_uid_prefixes.into_iter().collect_vec(), [the_only_shard_uid]);
+}
+
+/// Loop action testing that resharding is skipped when no children are tracked.
+/// Verifies that parent shard flat storage remains Ready after resharding.
+pub(crate) fn check_resharding_skipped_when_no_children_tracked(
+    parent_shard_uid: ShardUId,
+    tracked_shard_schedule: TrackedShardSchedule,
+) -> LoopAction {
+    let client_index = tracked_shard_schedule.client_index;
+    let latest_height = Cell::new(0);
+    let resharding_height = Cell::new(None);
+    let checked = Cell::new(false);
+
+    let (done, succeeded) = LoopAction::shared_success_flag();
+    let action_fn = Box::new(
+        move |node_datas: &[NodeExecutionData], test_loop_data: &mut TestLoopData, _: AccountId| {
+            if done.get() || checked.get() {
+                return;
+            }
+
+            let client_handle = node_datas[client_index].client_sender.actor_handle();
+            let client = &test_loop_data.get_mut(&client_handle).client;
+            let tip = client.chain.head().unwrap();
+
+            // Run this action only once at every block height.
+            if latest_height.get() == tip.height {
+                return;
+            }
+            latest_height.set(tip.height);
+
+            if resharding_height.get().is_none() {
+                if next_block_has_new_shard_layout(client.epoch_manager.as_ref(), &tip) {
+                    resharding_height.set(Some(tip.height));
+                    tracing::debug!(target: "test", height=tip.height, "resharding height set");
+                }
+            }
+
+            // Check flat storage status after resharding.
+            if let Some(resharding_h) = resharding_height.get() {
+                if tip.height > resharding_h + 3 && !checked.get() {
+                    let flat_store = client.runtime_adapter.store().flat_store();
+                    let status = flat_store.get_flat_storage_status(parent_shard_uid);
+
+                    match status {
+                        Ok(FlatStorageStatus::Ready(_)) => {
+                            // Flat storage should be Ready.
+                        }
+                        Ok(status) => {
+                            panic!(
+                                "Unexpected parent shard status {:?} for shard {:?}",
+                                status, parent_shard_uid
+                            );
+                        }
+                        Err(e) => {
+                            panic!(
+                                "Error checking parent shard {:?} flat storage status: {:?}",
+                                parent_shard_uid, e
+                            );
+                        }
+                    }
+                    checked.set(true);
+                    done.set(true);
+                }
+            }
+        },
+    );
+    LoopAction::new(action_fn, succeeded)
 }
 
 /// Loop action testing state cleanup.

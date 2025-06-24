@@ -105,8 +105,25 @@ impl ReshardingManager {
             return Ok(());
         }
 
+        let tracked_children_shards = split_shard_event
+            .children_shards()
+            .iter()
+            .filter(|child_shard_uid| {
+                self.shard_tracker.cares_about_shard_this_or_next_epoch(
+                    &split_shard_event.resharding_block.hash,
+                    child_shard_uid.shard_id(),
+                )
+            })
+            .copied()
+            .collect_vec();
+
+        if tracked_children_shards.is_empty() {
+            tracing::debug!(target: "resharding", "Not tracking any child shards, skipping");
+            return Ok(());
+        }
+
         // Reshard the State column by setting ShardUId mapping from children to ancestor.
-        self.set_state_shard_uid_mapping(&split_shard_event)?;
+        self.set_state_shard_uid_mapping(&split_shard_event, &tracked_children_shards)?;
 
         // Create temporary children memtries by freezing parent memtrie and referencing it.
         self.process_memtrie_resharding_storage_update(
@@ -129,18 +146,13 @@ impl ReshardingManager {
     fn set_state_shard_uid_mapping(
         &self,
         split_shard_event: &ReshardingSplitShardParams,
+        tracked_children: &[ShardUId],
     ) -> io::Result<()> {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
         let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
-        for child_shard_uid in split_shard_event.children_shards() {
-            // Set the mapping only if we are tracking the child shard.
-            if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                &split_shard_event.resharding_block.hash,
-                child_shard_uid.shard_id(),
-            ) {
-                store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
-            }
+        for &child_shard_uid in tracked_children {
+            store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
         }
         store_update.commit()
     }
