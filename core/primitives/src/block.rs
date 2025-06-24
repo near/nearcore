@@ -521,7 +521,7 @@ impl Block {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ChunkType<'a> {
     New(&'a ShardChunkHeader),
     Old(&'a ShardChunkHeader),
@@ -600,38 +600,40 @@ impl<'a> Chunks<'a> {
 
     /// Deprecated, use `iter` instead. `iter_all` is available if there is no need to
     /// distinguish between old and new headers.
-    pub fn iter_deprecated(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
-        Box::new(self.chunks.iter())
+    pub fn iter_deprecated(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter()
     }
 
     /// Returns an iterator over all shard chunk headers, distinguishing between new and old chunks.
-    pub fn iter(&'a self) -> Box<dyn Iterator<Item = ChunkType<'a>> + 'a> {
-        Box::new(self.chunks.iter().map(|chunk| {
+    pub fn iter(&'a self) -> impl Iterator<Item = ChunkType<'a>> {
+        self.chunks.iter().map(|chunk| {
             if chunk.is_new_chunk(self.block_height) {
                 ChunkType::New(chunk)
             } else {
                 ChunkType::Old(chunk)
             }
-        }))
+        })
     }
 
     /// Returns an iterator over all shard chunk headers, regardless of whether they are new or old.
-    pub fn iter_raw(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
-        Box::new(self.chunks.iter())
+    /// This doesn't have information about whether the chunk is new or old.
+    /// Use `iter` if you need to distinguish between new and old chunks.
+    pub fn iter_raw(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter()
     }
 
     /// Returns an iterator over the shard chunk headers that are old chunks.
-    pub fn iter_old(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
-        Box::new(self.chunks.iter().filter(|chunk| !chunk.is_new_chunk(self.block_height)))
+    pub fn iter_old(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter().filter(|chunk| !chunk.is_new_chunk(self.block_height))
     }
 
     /// Returns an iterator over the shard chunk headers that are new chunks.
-    pub fn iter_new(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
-        Box::new(self.chunks.iter().filter(|chunk| chunk.is_new_chunk(self.block_height)))
+    pub fn iter_new(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter().filter(|chunk| chunk.is_new_chunk(self.block_height))
     }
 
     pub fn min_height_included(&self) -> Option<BlockHeight> {
-        self.iter_raw().map(|chunk| chunk.height_included()).min()
+        self.iter().map(|chunk| chunk.height_included()).min()
     }
 
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
@@ -660,7 +662,7 @@ impl<'a> Chunks<'a> {
         // It's okay to take bandwidth requests from a missing chunk,
         // the chunk was missing so it didn't send anything and still
         // wants to send out the same receipts.
-        for chunk in self.iter_raw() {
+        for chunk in self.iter() {
             let shard_id = chunk.shard_id();
             if let Some(bandwidth_requests) = chunk.bandwidth_requests() {
                 result.insert(shard_id, bandwidth_requests.clone());
