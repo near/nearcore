@@ -327,7 +327,6 @@ pub struct Chain {
     /// Prevents re-application of known-to-be-invalid blocks, so that in case of a
     /// protocol issue we can recover faster by focusing on correct blocks.
     invalid_blocks: LruCache<CryptoHash, ()>,
-
     /// Support for sandbox's patch_state requests.
     ///
     /// Sandbox needs ability to arbitrary modify the state. Blockchains
@@ -341,12 +340,12 @@ pub struct Chain {
     /// was empty and could not hold any records (which it cannot).  It's
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
-
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
-
     /// Manages all tasks related to resharding.
     pub resharding_manager: ReshardingManager,
+    #[allow(unused)]
+    validator_signer: MutableValidatorSigner,
 }
 
 impl Drop for Chain {
@@ -392,6 +391,7 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         save_trie_changes: bool,
+        validator_signer: MutableValidatorSigner,
     ) -> Result<Chain, Error> {
         let store = runtime_adapter.store();
         let transaction_validity_period = chain_genesis.transaction_validity_period;
@@ -446,6 +446,7 @@ impl Chain {
             pending_state_patch: Default::default(),
             snapshot_callbacks: None,
             resharding_manager,
+            validator_signer,
         })
     }
 
@@ -459,7 +460,7 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: ApplyChunksSpawner,
-        #[allow(unused)] validator: MutableValidatorSigner, // we would use this in the next PR
+        validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
@@ -607,6 +608,7 @@ impl Chain {
             pending_state_patch: Default::default(),
             snapshot_callbacks,
             resharding_manager,
+            validator_signer,
         })
     }
 
