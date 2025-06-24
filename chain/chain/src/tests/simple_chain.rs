@@ -300,7 +300,7 @@ fn test_pending_block() {
     chain
         .process_optimistic_block(
             optimistic_block,
-            block2.chunks().iter_raw().cloned().collect(),
+            block2.chunks().iter_all().cloned().collect(),
             None,
         )
         .unwrap();
