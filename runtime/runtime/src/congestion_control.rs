@@ -146,15 +146,12 @@ impl ReceiptSink {
         receipt: Receipt,
         apply_state: &ApplyState,
         state_update: &mut TrieUpdate,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        shard_layout: &ShardLayout,
     ) -> Result<(), RuntimeError> {
         match self {
-            ReceiptSink::V2(inner) => inner.forward_or_buffer_receipt(
-                receipt,
-                apply_state,
-                state_update,
-                epoch_info_provider,
-            ),
+            ReceiptSink::V2(inner) => {
+                inner.forward_or_buffer_receipt(receipt, apply_state, state_update, shard_layout)
+            }
         }
     }
 
@@ -324,10 +321,9 @@ impl ReceiptSinkV2 {
         receipt: Receipt,
         apply_state: &ApplyState,
         state_update: &mut TrieUpdate,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        shard_layout: &ShardLayout,
     ) -> Result<(), RuntimeError> {
-        let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
-        let shard = receipt.receiver_shard_id(&shard_layout)?;
+        let shard = receipt.receiver_shard_id(shard_layout)?;
         let size = compute_receipt_size(&receipt)?;
         let gas = compute_receipt_congestion_gas(&receipt, &apply_state.config)?;
 

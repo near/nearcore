@@ -898,12 +898,15 @@ impl Runtime {
                     ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
                 );
 
-                let res = receipt_sink.forward_or_buffer_receipt(
-                    new_receipt,
-                    apply_state,
-                    state_update,
-                    epoch_info_provider,
-                );
+                let res =
+                    epoch_info_provider.shard_layout(&apply_state.epoch_id).map(|shard_layout| {
+                        receipt_sink.forward_or_buffer_receipt(
+                            new_receipt,
+                            apply_state,
+                            state_update,
+                            &shard_layout,
+                        )
+                    });
                 if let Err(e) = res {
                     Some(Err(e))
                 } else if is_action {
@@ -1659,6 +1662,8 @@ impl Runtime {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
+        let shard_layout =
+            processing_state.epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
 
         let signed_txs = signed_txs.into_par_iter_nonexpired_transactions();
         for (tx_hash, result) in Self::parallel_validate_transactions(
@@ -1694,7 +1699,7 @@ impl Runtime {
                             receipt,
                             apply_state,
                             state_update,
-                            processing_state.epoch_info_provider,
+                            &shard_layout,
                         )?;
                     }
                     let compute = outcome_with_id.outcome.compute_usage;
@@ -2410,11 +2415,13 @@ fn resolve_promise_yield_timeouts(
             // this yield if `yield_resume` was invoked by some receipt which was processed in
             // the current chunk. The ordering will be maintained because the receipts are
             // destined for the same shard; the timeout will be processed second and discarded.
+            let shard_layout =
+                processing_state.epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
             receipt_sink.forward_or_buffer_receipt(
                 resume_receipt,
                 apply_state,
                 &mut state_update,
-                processing_state.epoch_info_provider,
+                &shard_layout,
             )?;
         }
 
