@@ -1,6 +1,6 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
+    BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
     RecvChallenge, StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
@@ -42,8 +42,7 @@ use near_crypto::Signature;
 use near_o11y::{WithSpanContext, handler_debug_span, log_assert};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::EpochId;
+use near_primitives::network::{PeerId};
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolVersion,
