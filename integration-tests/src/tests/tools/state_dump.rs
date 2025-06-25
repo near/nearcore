@@ -122,7 +122,7 @@ fn test_dump_state_preserve_validators() {
     );
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
+        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -195,7 +195,7 @@ fn test_dump_state_respect_select_account_ids() {
     );
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
+        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -254,7 +254,7 @@ fn test_dump_state_preserve_validators_in_memory() {
     );
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
+        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -296,7 +296,7 @@ fn test_dump_state_return_locked() {
     let head = env.clients[0].chain.head().unwrap();
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
+        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -394,11 +394,8 @@ fn test_dump_state_not_track_shard() {
     .unwrap();
 
     let last_block = blocks.pop().unwrap();
-    let state_roots = last_block
-        .chunks()
-        .iter_deprecated()
-        .map(|chunk| chunk.prev_state_root())
-        .collect::<Vec<_>>();
+    let state_roots =
+        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
 
     let records_file = tempfile::NamedTempFile::new().unwrap();
     let _ = state_dump(
@@ -477,7 +474,7 @@ fn test_dump_state_with_delayed_receipt() {
     );
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
+        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -531,7 +528,7 @@ fn test_dump_state_respect_select_whitelist_validators() {
 
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
+        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =

@@ -435,11 +435,7 @@ fn validate_source_receipt_proofs(
         // Collect all receipts coming from this block.
         let mut block_receipt_proofs = Vec::new();
 
-        for chunk in block.chunks().iter_deprecated() {
-            if !chunk.is_new_chunk(block.header().height()) {
-                continue;
-            }
-
+        for chunk in block.chunks().iter_new() {
             // Collect receipts coming from this chunk and validate that they are correct.
             let Some(receipt_proof) = source_receipt_proofs.get(&chunk.chunk_hash()) else {
                 return Err(Error::InvalidChunkStateWitness(format!(
