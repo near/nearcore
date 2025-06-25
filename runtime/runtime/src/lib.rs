@@ -10,7 +10,7 @@ use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_key_state, set_tx_state_changes,
     validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -24,6 +24,7 @@ use global_contracts::{
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
+use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
@@ -63,9 +64,9 @@ use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_account,
-    get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
+    get_gas_key, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
-    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    set_account, set_gas_key, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -353,12 +354,12 @@ impl Runtime {
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
-        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
+        let (mut signer, mut key_state) = get_signer_and_key_state(state_update, &validated_tx)?;
 
         let verification_result = verify_and_charge_tx_ephemeral(
             &apply_state.config,
             &mut signer,
-            &mut access_key,
+            &mut key_state,
             validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
@@ -373,7 +374,7 @@ impl Runtime {
         };
 
         metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-        set_tx_state_changes(state_update, validated_tx, &signer, &access_key);
+        set_tx_state_changes(state_update, validated_tx, &signer, &key_state);
         state_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: validated_tx.get_hash() });
         let receipt_id =
@@ -553,6 +554,15 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
+            Action::FundGasKey(fund_gas_key) => {
+                action_fund_gas_key(
+                    receipt.receiver_id(),
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &fund_gas_key.public_key,
+                    fund_gas_key.deposit,
+                    state_update,
+                )?;
+            }
             Action::Stake(stake) => {
                 action_stake(
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
@@ -573,6 +583,16 @@ impl Runtime {
                     add_key,
                 )?;
             }
+            Action::AddGasKey(add_gas_key) => {
+                action_add_gas_key(
+                    apply_state,
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    add_gas_key,
+                )?;
+            }
             Action::DeleteKey(delete_key) => {
                 action_delete_key(
                     &apply_state.config.fees,
@@ -581,6 +601,16 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_key,
+                )?;
+            }
+            Action::DeleteGasKey(delete_gas_key) => {
+                action_delete_gas_key(
+                    &apply_state.config.fees,
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    delete_gas_key,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
@@ -2265,6 +2295,30 @@ fn action_transfer_or_implicit_account_creation(
             epoch_info_provider,
         );
     })
+}
+
+fn action_fund_gas_key(
+    account_id: &AccountId,
+    account: &mut Account,
+    public_key: &PublicKey,
+    deposit: u128,
+    state_update: &mut TrieUpdate,
+) -> Result<(), RuntimeError> {
+    match get_gas_key(state_update, account_id, public_key)? {
+        Some(mut gas_key) => {
+            gas_key.balance = gas_key.balance.checked_add(deposit).ok_or_else(|| {
+                RuntimeError::StorageError(StorageError::StorageInconsistentState(
+                    "Gas key balance overflow".to_string(),
+                ))
+            })?;
+            set_gas_key(state_update, account_id.clone(), public_key.clone(), &gas_key);
+        }
+        None => {
+            // Gas key doesn't exist, so just give the deposit to the account.
+            action_transfer(account, deposit)?;
+        }
+    }
+    Ok(())
 }
 
 fn missing_chunk_apply_result(
