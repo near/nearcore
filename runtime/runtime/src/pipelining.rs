@@ -242,6 +242,9 @@ impl ReceiptPreparationPipeline {
                 | Action::Stake(_)
                 | Action::AddKey(_)
                 | Action::DeleteKey(_)
+                | Action::AddGasKey(_)
+                | Action::FundGasKey(_)
+                | Action::DeleteGasKey(_)
                 | Action::DeleteAccount(_)
                 | Action::DeployGlobalContract(_) => {}
             }

@@ -12,7 +12,7 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
-use near_primitives_core::types::Compute;
+use near_primitives_core::types::{Compute, NonceIndex};
 use near_schema_checker_lib::ProtocolSchema;
 #[cfg(feature = "schemars")]
 use schemars::json_schema;
@@ -65,6 +65,50 @@ pub struct TransactionV1 {
     pub priority_fee: u64,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
+pub struct TransactionV2 {
+    /// An account on which behalf transaction is signed
+    pub signer_id: AccountId,
+    /// A public key of the access key or gas key which was used to sign an account.
+    pub public_key: PublicKey,
+    /// See `TransactionNonce` for details.
+    pub nonce: TransactionNonce,
+    /// Receiver account for this transaction
+    pub receiver_id: AccountId,
+    /// The hash of the block in the blockchain on top of which the given transaction is valid
+    pub block_hash: CryptoHash,
+    /// A list of actions to be applied
+    pub actions: Vec<Action>,
+    /// Priority fee. Unit is 10^12 yoctoNEAR
+    pub priority_fee: u64,
+}
+
+/// Transactions can specify either an access key or a gas key; for gas keys, it needs to specify
+/// a particular nonce to use.
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, Copy, ProtocolSchema)]
+pub enum TransactionNonce {
+    AccessKey { nonce: Nonce },
+    GasKey { nonce_index: NonceIndex, nonce: Nonce },
+}
+
+impl TransactionNonce {
+    /// Returns the nonce value for the transaction.
+    pub fn nonce(&self) -> Nonce {
+        match self {
+            TransactionNonce::AccessKey { nonce } => *nonce,
+            TransactionNonce::GasKey { nonce, .. } => *nonce,
+        }
+    }
+
+    /// Returns Some if it's a gas key nonce, or None of it's an access key nonce.
+    pub fn nonce_index(&self) -> Option<NonceIndex> {
+        match self {
+            TransactionNonce::AccessKey { .. } => None,
+            TransactionNonce::GasKey { nonce_index, .. } => Some(*nonce_index),
+        }
+    }
+}
+
 impl Transaction {
     /// Computes a hash of the transaction for signing and size of serialized transaction
     pub fn get_hash_and_size(&self) -> (CryptoHash, u64) {
@@ -77,6 +121,7 @@ impl Transaction {
 pub enum Transaction {
     V0(TransactionV0),
     V1(TransactionV1),
+    V2(TransactionV2),
 }
 
 impl Transaction {
@@ -84,6 +129,7 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &tx.signer_id,
             Transaction::V1(tx) => &tx.signer_id,
+            Transaction::V2(tx) => &tx.signer_id,
         }
     }
 
@@ -91,6 +137,7 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &tx.receiver_id,
             Transaction::V1(tx) => &tx.receiver_id,
+            Transaction::V2(tx) => &tx.receiver_id,
         }
     }
 
@@ -98,13 +145,15 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &tx.public_key,
             Transaction::V1(tx) => &tx.public_key,
+            Transaction::V2(tx) => &tx.public_key,
         }
     }
 
-    pub fn nonce(&self) -> Nonce {
+    pub fn nonce(&self) -> TransactionNonce {
         match self {
-            Transaction::V0(tx) => tx.nonce,
-            Transaction::V1(tx) => tx.nonce,
+            Transaction::V0(tx) => TransactionNonce::AccessKey { nonce: tx.nonce },
+            Transaction::V1(tx) => TransactionNonce::AccessKey { nonce: tx.nonce },
+            Transaction::V2(tx) => tx.nonce,
         }
     }
 
@@ -112,6 +161,7 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &tx.actions,
             Transaction::V1(tx) => &tx.actions,
+            Transaction::V2(tx) => &tx.actions,
         }
     }
 
@@ -119,6 +169,7 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => tx.actions,
             Transaction::V1(tx) => tx.actions,
+            Transaction::V2(tx) => tx.actions,
         }
     }
 
@@ -126,6 +177,7 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &tx.block_hash,
             Transaction::V1(tx) => &tx.block_hash,
+            Transaction::V2(tx) => &tx.block_hash,
         }
     }
 
@@ -133,6 +185,7 @@ impl Transaction {
         match self {
             Transaction::V0(_) => None,
             Transaction::V1(tx) => Some(tx.priority_fee),
+            Transaction::V2(tx) => Some(tx.priority_fee),
         }
     }
 }
@@ -143,6 +196,10 @@ impl BorshSerialize for Transaction {
             Transaction::V0(tx) => tx.serialize(writer)?,
             Transaction::V1(tx) => {
                 BorshSerialize::serialize(&1_u8, writer)?;
+                tx.serialize(writer)?;
+            }
+            Transaction::V2(tx) => {
+                BorshSerialize::serialize(&2_u8, writer)?;
                 tx.serialize(writer)?;
             }
         }
@@ -192,7 +249,7 @@ impl BorshDeserialize for Transaction {
                 block_hash,
                 actions,
             }))
-        } else {
+        } else if u2 == 1 {
             let u5 = u8::deserialize_reader(reader)?;
             let signer_id = read_signer_id([u2, u3, u4, u5], reader)?;
             let public_key = PublicKey::deserialize_reader(reader)?;
@@ -202,6 +259,24 @@ impl BorshDeserialize for Transaction {
             let actions = Vec::<Action>::deserialize_reader(reader)?;
             let priority_fee = u64::deserialize_reader(reader)?;
             Ok(Transaction::V1(TransactionV1 {
+                signer_id,
+                public_key,
+                nonce,
+                receiver_id,
+                block_hash,
+                actions,
+                priority_fee,
+            }))
+        } else {
+            let u5 = u8::deserialize_reader(reader)?;
+            let signer_id = read_signer_id([u2, u3, u4, u5], reader)?;
+            let public_key = PublicKey::deserialize_reader(reader)?;
+            let nonce = TransactionNonce::deserialize_reader(reader)?;
+            let receiver_id = AccountId::deserialize_reader(reader)?;
+            let block_hash = CryptoHash::deserialize_reader(reader)?;
+            let actions = Vec::<Action>::deserialize_reader(reader)?;
+            let priority_fee = u64::deserialize_reader(reader)?;
+            Ok(Transaction::V2(TransactionV2 {
                 signer_id,
                 public_key,
                 nonce,
@@ -310,7 +385,7 @@ impl ValidatedTransaction {
         self.to_tx().receiver_id()
     }
 
-    pub fn nonce(&self) -> Nonce {
+    pub fn nonce(&self) -> TransactionNonce {
         self.to_tx().nonce()
     }
 
