@@ -1190,6 +1190,8 @@ impl ClientActorInner {
 
         self.try_process_unfinished_blocks();
 
+        self.client.try_prepare_transactions();
+
         let mut delay = near_async::time::Duration::seconds(1);
         let now = self.clock.now_utc();
 
