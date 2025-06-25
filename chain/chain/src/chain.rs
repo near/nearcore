@@ -1093,8 +1093,7 @@ impl Chain {
             if let Some(encoded_chunk) =
                 self.chain_store.is_invalid_chunk(&chunk_header.chunk_hash())?
             {
-                let merkle_paths =
-                    Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
+                let merkle_paths = block.chunks().compute_chunk_headers_root().1;
                 let merkle_proof =
                     merkle_paths.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
                 let chunk_proof = ChunkProofs {
@@ -3127,8 +3126,7 @@ impl Chain {
                     }
 
                     if let Error::InvalidChunkTransactionsOrder(chunk) = err {
-                        let merkle_paths =
-                            Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
+                        let merkle_paths = block.chunks().compute_chunk_headers_root().1;
                         let chunk_proof = ChunkProofs {
                             block_header: borsh::to_vec(&block.header())
                                 .expect("Failed to serialize"),
