@@ -441,6 +441,7 @@ overflow-checks = true
 panic = 'abort'
 lto = "fat"
 codegen-units = 1
+debug = true
 
 # A much faster to compile version of `release`, for development use.
 [profile.dev-release]
