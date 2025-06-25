@@ -91,6 +91,7 @@ impl ChunkValidator {
             shard_id = %state_witness.chunk_production_key().shard_id,
             validator = %signer.validator_id(),
             tag_block_production = true,
+            tag_witness_distribution = true,
         )
         .entered();
 
@@ -109,6 +110,16 @@ impl ChunkValidator {
         let signer = signer.clone();
 
         self.validation_spawner.spawn("stateless_validation", move || {
+            let _span = tracing::debug_span!(
+                target: "client",
+                "async_validating_chunk",
+                height = %state_witness.chunk_production_key().height_created,
+                shard_id = %state_witness.chunk_production_key().shard_id,
+                validator = %signer.validator_id(),
+                tag_block_production = true,
+                tag_witness_distribution = true,
+            )
+            .entered();
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
                 processing_done_tracker;
