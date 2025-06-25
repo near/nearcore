@@ -120,6 +120,8 @@ class NodeHandle:
         return self.node.neard_runner_post(self.schedule_ctx, body)
 
     def neard_runner_jsonrpc(self, method, params=[]):
+        logger.debug(f"run `neard_runner_jsonrpc` {method} with {params}")
+
         response = self.neard_runner_jsonrpc_nocheck(method, params)
         if response.get('error', None) is not None:
             # TODO: errors should be handled better here in general but just exit for now

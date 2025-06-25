@@ -98,7 +98,7 @@ class RemoteNeardRunner:
             --neard-logs-dir "/home/ubuntu/neard-logs"\
             --port 3000'
 
-        SYSTEMD_RUN_NEARD_RUNNER_CMD = f'sudo systemd-run -u neard-runner\
+        SYSTEMD_RUN_NEARD_RUNNER_CMD = f'sudo systemd-run -u neard-runner \
             --uid={USER} \
             --property=StartLimitIntervalSec=500\
             --property=StartLimitBurst=10\
@@ -106,6 +106,8 @@ class RemoteNeardRunner:
             --property=TimeoutStartSec=300\
             --property=Restart=always\
             --property=RestartSec=5s\
+            --property=StandardOutput=append:{self.neard_runner_home}/runner.log \
+            --property=StandardError=append:{self.neard_runner_home}/runner.log \
             -- {NEARD_RUNNER_CMD}'
 
         self.node.machine.run(SYSTEMD_RUN_NEARD_RUNNER_CMD)

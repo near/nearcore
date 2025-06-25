@@ -344,7 +344,8 @@ def new_genesis_timestamp(node):
     result = version.get('result')
     if result is not None:
         if result.get('node_setup_version') == '1':
-            genesis_time = str(datetime.datetime.now(tz=datetime.timezone.utc))
+            genesis_time = datetime.datetime.now(
+                tz=datetime.timezone.utc).isoformat().replace("+00:00", "Z")
     return genesis_time
 
 

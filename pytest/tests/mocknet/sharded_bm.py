@@ -43,7 +43,7 @@ def fetch_forknet_details(forknet_name, bm_params):
     find_instances_cmd = [
         "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
         f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing'",
-        "--format=get(name,networkInterfaces[0].networkIP)"
+        "--format=table(name,networkInterfaces[0].networkIP,zone)"
     ]
     find_instances_cmd_result = subprocess.run(
         find_instances_cmd,
@@ -51,18 +51,31 @@ def fetch_forknet_details(forknet_name, bm_params):
         text=True,
         check=True,
     )
-    output = find_instances_cmd_result.stdout.splitlines()
+
+    # drop the table header line in the output
+    nodes_data = find_instances_cmd_result.stdout.splitlines()[1:]
 
     num_cp_instances = bm_params['chunk_producers']
-    if len(output) != num_cp_instances + 1:
+    if len(nodes_data) != num_cp_instances + 1:
         logger.error(
-            f"Expected {num_cp_instances + 1} instances, got {len(output)}")
+            f"Expected {num_cp_instances + 1} instances, got {len(nodes_data)}")
         sys.exit(1)
 
-    rpc_instance = output[-1]
-    rpc_instance_name, rpc_instance_ip = rpc_instance.split()
-    cp_instances = list(map(lambda x: x.split(), output[:num_cp_instances]))
+    # cratch to refresh the local keystore
+    for node_data in nodes_data:
+        columns = node_data.split()
+        name, zone = columns[0], columns[2]
+        login_cmd = [
+            "gcloud", "compute", "ssh", "--zone", zone, f"ubuntu@{name}",
+            "--project", "nearone-mocknet", "--command", "pwd"
+        ]
+        subprocess.run(login_cmd, text=True, check=True)
+
+    rpc_instance = nodes_data[-1]
+    rpc_instance_name, rpc_instance_ip, _ = rpc_instance.split()
+    cp_instances = list(map(lambda x: x.split(), nodes_data[:num_cp_instances]))
     cp_instance_names = [instance[0] for instance in cp_instances]
+    cp_instance_zones = [instance[2] for instance in cp_instances]
 
     find_tracing_server_cmd = [
         "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
@@ -86,6 +99,20 @@ def fetch_forknet_details(forknet_name, bm_params):
     }
 
 
+def upload_local_neard(args):
+    """ 
+    uploads the local `neard` binary to every node to the ${BENCHNET_DIR}. 
+    @return the absolute path (local to the remote node) to the uploaded `neard`
+
+    """
+    logger.info("uploading the neard ")
+    upload_file_args = copy.deepcopy(args)
+    upload_file_args.src = args.neard_binary_url
+    upload_file_args.dst = BENCHNET_DIR
+    run_remote_upload_file(CommandContext(upload_file_args))
+    return os.path.join(BENCHNET_DIR, "neard")
+
+
 def upload_json_patches(args):
     """Upload the json patches to the benchmark directory."""
     upload_file_args = copy.deepcopy(args)
@@ -102,6 +129,10 @@ def upload_json_patches(args):
 def handle_init(args):
     """Handle the init command - initialize the benchmark before running it."""
 
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.cmd = f"mkdir -p {BENCHNET_DIR}"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
     if args.neard_binary_url is not None:
         logger.info(f"Using neard binary URL from CLI: {args.neard_binary_url}")
     elif os.environ.get('NEARD_BINARY_URL') is not None:
@@ -115,6 +146,15 @@ def handle_init(args):
         )
         sys.exit(1)
 
+    # if neard_binary_url is a local path - upload the file to each node
+    if os.path.isfile(args.neard_binary_url):
+        logger.info(f"handling local `neard` at {args.neard_binary_url}")
+        local_path_on_remote = upload_local_neard(args)
+        args.neard_binary_url = local_path_on_remote
+        logger.info(f"`neard` local path on remote: {args.neard_binary_url}")
+    else:
+        logger.info("no local `neard` found, continue assuming the remote url")
+
     init_args = SimpleNamespace(
         neard_upgrade_binary_url="",
         **vars(args),
@@ -123,10 +163,6 @@ def handle_init(args):
 
     update_binaries_args = copy.deepcopy(args)
     update_binaries_cmd(CommandContext(update_binaries_args))
-
-    run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = f"mkdir -p {BENCHNET_DIR}"
-    run_remote_cmd(CommandContext(run_cmd_args))
 
     # TODO: check neard binary version
 
