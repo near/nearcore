@@ -5,6 +5,7 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use rayon::iter::{ParallelBridge, ParallelIterator};
 
 /// This function validates the chunk_endorsements present in the block body. Validation does the following:
 ///    - Match number of chunks/shards with number of chunk endorsements vector.
@@ -87,29 +88,54 @@ pub fn validate_chunk_endorsements_in_block(
         // Verify that the signature in block body are valid for given chunk_validator.
         // Signature can be either None, or Some(signature).
         // We calculate the stake of the chunk_validators for who we have the signature present.
-        let mut endorsed_chunk_validators = HashMap::new();
-        for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
-            let Some(signature) = signature else { continue };
-            let validator = epoch_manager.get_validator_by_account_id(&epoch_id, account_id)?;
+        let endorsed_chunk_validators = ordered_chunk_validators
+            .iter()
+            .zip(signatures.iter())
+            .par_bridge()
+            .try_fold(
+                HashMap::new,
+                |mut acc: HashMap<&near_primitives::types::AccountId, near_crypto::Signature>,
+                 (account_id, signature)|
+                 -> Result<
+                    HashMap<&near_primitives::types::AccountId, near_crypto::Signature>,
+                    Error,
+                > {
+                    let Some(signature) = signature else { return Ok(acc) };
+                    let validator =
+                        epoch_manager.get_validator_by_account_id(&epoch_id, account_id)?;
 
-            // Block should not be produced with an invalid signature.
-            if !ChunkEndorsement::validate_signature(
-                chunk_header.chunk_hash().clone(),
-                signature,
-                validator.public_key(),
-            ) {
-                tracing::error!(
-                    target: "chain",
-                    "Invalid chunk endorsement signature for chunk {:?} and validator {:?}",
-                    chunk_header.chunk_hash(),
-                    validator.account_id(),
-                );
-                return Err(Error::InvalidChunkEndorsement);
-            }
+                    // Block should not be produced with an invalid signature.
+                    if !ChunkEndorsement::validate_signature(
+                        chunk_header.chunk_hash().clone(),
+                        signature,
+                        validator.public_key(),
+                    ) {
+                        tracing::error!(
+                            target: "chain",
+                            "Invalid chunk endorsement signature for chunk {:?} and validator {:?}",
+                            chunk_header.chunk_hash(),
+                            validator.account_id(),
+                        );
+                        return Err(Error::InvalidChunkEndorsement);
+                    }
 
-            // Add validators with signature in endorsed_chunk_validators. We later use this to check stake.
-            endorsed_chunk_validators.insert(account_id, *signature.clone());
-        }
+                    // Add validators with signature in endorsed_chunk_validators. We later use this to check stake.
+                    acc.insert(account_id, (**signature).clone());
+                    Ok(acc)
+                },
+            )
+            .try_reduce(
+                HashMap::new,
+                |mut acc,
+                 map|
+                 -> Result<
+                    HashMap<&near_primitives::types::AccountId, near_crypto::Signature>,
+                    Error,
+                > {
+                    acc.extend(map);
+                    Ok(acc)
+                },
+            )?;
 
         let endorsement_state =
             chunk_validator_assignments.compute_endorsement_state(endorsed_chunk_validators);
