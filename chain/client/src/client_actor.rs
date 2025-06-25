@@ -1404,8 +1404,7 @@ impl ClientActorInner {
 
     fn send_block_metrics(&mut self, block: &Block) {
         let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
-        let gas_used =
-            Block::compute_gas_used(block.chunks().iter_deprecated(), block.header().height());
+        let gas_used = block.chunks().compute_gas_used();
 
         let last_final_hash = block.header().last_final_block();
         let last_final_ds_hash = block.header().last_ds_final_block();

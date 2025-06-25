@@ -9,7 +9,7 @@ use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::block::Block;
+use near_primitives::block::{Block, Chunks};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
@@ -150,11 +150,12 @@ fn test_bad_shard_id() {
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
     let mut_block = Arc::make_mut(&mut block);
-    mut_block.mut_header().set_chunk_headers_root(Block::compute_chunk_headers_root(&chunks).0);
-    mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-        Block::compute_chunk_prev_outgoing_receipts_root(&chunks),
-    );
-    mut_block.set_chunks(chunks);
+    mut_block.set_chunks(chunks.clone());
+    let chunks = Chunks::from_chunk_headers(&chunks, mut_block.header().height());
+    mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+    mut_block
+        .mut_header()
+        .set_prev_chunk_outgoing_receipts_root(chunks.compute_chunk_prev_outgoing_receipts_root());
     let body_hash = mut_block.compute_block_body_hash().unwrap();
     mut_block.mut_header().set_block_body_hash(body_hash);
     mut_block.mut_header().resign(&validator_signer);
