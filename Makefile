@@ -35,7 +35,7 @@ neard: neard-release
 
 neard-release: NEAR_RELEASE_BUILD=release
 neard-release:
-	cargo build -p neard --release
+	cargo build --release --config .cargo/config.profiling.toml -p neard
 
 neard-debug:
 	cargo build -p neard
