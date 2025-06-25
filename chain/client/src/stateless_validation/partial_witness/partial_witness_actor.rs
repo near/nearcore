@@ -21,7 +21,9 @@ use near_network::state_witness::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
-use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
+use near_primitives::reed_solomon::{
+    ReedSolomonEncoder, ReedSolomonEncoderCache, reed_solomon_num_data_parts,
+};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -383,8 +385,44 @@ impl PartialWitnessActor {
 
         // Send the parts to the corresponding chunk validator owners.
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
+            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple.clone()),
         ));
+
+        // OPTIMIZATION: Also send required parts directly to validators that need them.
+        // This avoids the relay hop and improves latency/reliability.
+        self.send_witness_parts_directly(validator_witness_tuple, chunk_validators);
+    }
+
+    /// Send witness parts directly to validators that need them, optimizing the distribution.
+    /// This sends the minimum required parts to each validator, avoiding the relay system.
+    fn send_witness_parts_directly(
+        &self,
+        validator_witness_tuple: Vec<(AccountId, PartialEncodedStateWitness)>,
+        chunk_validators: &[AccountId],
+    ) {
+        // Calculate minimum required data parts for reconstruction.
+        let total_parts = validator_witness_tuple.len();
+        let min_data_parts = reed_solomon_num_data_parts(total_parts, WITNESS_RATIO_DATA_PARTS);
+
+        // For each validator that needs to validate this chunk.
+        for target_validator in chunk_validators {
+            for (part_idx, (_, part)) in validator_witness_tuple.iter().enumerate() {
+                // Only send the minimum required data parts.
+                if part_idx >= min_data_parts {
+                    break;
+                }
+
+                // Send this part directly to the target validator
+                // This creates redundant paths: chunk_producer -> part_owner -> all_validators
+                // AND chunk_producer -> target_validator (direct)
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedStateWitnessForward(
+                        vec![target_validator.clone()],
+                        part.clone(),
+                    ),
+                ));
+            }
+        }
     }
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
