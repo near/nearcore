@@ -16,12 +16,7 @@ impl Client {
         tracing::debug!(target: "client", ?block_hash, "shadow validation for block chunks");
         let prev_block = self.chain.get_block(block.header().prev_hash())?;
         let prev_block_chunks = prev_block.chunks();
-        for (shard_index, chunk) in block
-            .chunks()
-            .iter_deprecated()
-            .enumerate()
-            .filter(|(_, chunk)| chunk.is_new_chunk(block.header().height()))
-        {
+        for (shard_index, chunk) in block.chunks().iter_new().enumerate() {
             let chunk = get_chunk_clone_from_header(&self.chain.chain_store, chunk)?;
             // TODO(resharding) This doesn't work if shard layout changes.
             let prev_chunk_header = prev_block_chunks.get(shard_index).unwrap();

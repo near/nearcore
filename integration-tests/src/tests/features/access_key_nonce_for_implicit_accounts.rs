@@ -241,7 +241,7 @@ fn test_chunk_transaction_validity() {
             let Ok(block) = env.clients[0].chain.get_block(&h) else {
                 panic!("did not find block from result!");
             };
-            for chunk_hdr in block.chunks().iter() {
+            for chunk_hdr in block.chunks().iter_all() {
                 let hash = chunk_hdr.chunk_hash();
                 let Ok(chunk) = env.clients[0].chain.mut_chain_store().get_chunk(&hash) else {
                     continue;
@@ -473,7 +473,7 @@ fn test_processing_chunks_sanity() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         let chunks = block
             .chunks()
-            .iter_deprecated()
+            .iter()
             .map(|chunk| format!("{:?}", chunk.chunk_hash()))
             .collect::<Vec<_>>();
         debug!(target: "chunks", "Block #{} has chunks {:?}", i, chunks.join(", "));

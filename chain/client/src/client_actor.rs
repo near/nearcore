@@ -1340,7 +1340,7 @@ impl ClientActorInner {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::Block { block: Arc::clone(&block) },
         ));
-        // We’ve produced the block so that counts as validated block.
+        // We've produced the block so that counts as validated block.
         let block = MaybeValidated::from_validated(block);
         let res = self.client.start_process_block(
             block,
@@ -1397,6 +1397,7 @@ impl ClientActorInner {
             },
         ));
 
+        // We've produced the optimistic block, mark it as done so we don't produce it again.
         // We’ve produced the optimistic block, mark it as done so we don't produce it again.
         self.client.save_optimistic_block(&optimistic_block);
         self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
@@ -1413,7 +1414,7 @@ impl ClientActorInner {
 
     fn send_chunks_metrics(&self, block: &Block) {
         let chunks = block.chunks();
-        for (chunk, &included) in chunks.iter_deprecated().zip(block.header().chunk_mask().iter()) {
+        for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
             if included {
                 self.info_helper.chunk_processed(
                     chunk.shard_id(),

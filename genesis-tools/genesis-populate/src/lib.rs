@@ -272,9 +272,7 @@ impl GenesisBuilder {
         let genesis = Arc::new(genesis);
         store_update.save_block(Arc::clone(&genesis));
 
-        for (chunk_header, &state_root) in
-            genesis.chunks().iter_deprecated().zip(self.roots.values())
-        {
+        for (chunk_header, &state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             let shard_layout = &self.genesis.config.shard_layout;
             let shard_id = chunk_header.shard_id();
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);

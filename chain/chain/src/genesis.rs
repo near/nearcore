@@ -222,8 +222,7 @@ impl Chain {
         store_update: &mut ChainStoreUpdate,
     ) -> Result<(), Error> {
         let genesis_protocol_version = genesis.header().latest_protocol_version();
-        for (chunk_header, state_root) in genesis.chunks().iter_deprecated().zip(state_roots.iter())
-        {
+        for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
             let chunk_extra = if genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
                 Self::create_prod_genesis_chunk_extra(state_root, chunk_header.gas_limit())
             } else {

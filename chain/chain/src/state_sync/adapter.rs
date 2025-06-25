@@ -102,7 +102,7 @@ impl ChainStateSyncAdapter {
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
                 .chunks()
-                .iter_deprecated()
+                .iter()
                 .map(|shard_chunk| {
                     ChunkHashHeight(shard_chunk.chunk_hash().clone(), shard_chunk.height_included())
                 })
@@ -132,7 +132,7 @@ impl ChainStateSyncAdapter {
                     let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
                         &prev_block
                             .chunks()
-                            .iter_deprecated()
+                            .iter()
                             .map(|shard_chunk| {
                                 ChunkHashHeight(
                                     shard_chunk.chunk_hash().clone(),
@@ -183,9 +183,8 @@ impl ChainStateSyncAdapter {
             let (block_receipts_root, block_receipts_proofs) = merklize(
                 &block
                     .chunks()
-                    .iter_deprecated()
-                    .map(|chunk| chunk.prev_outgoing_receipts_root())
-                    .copied()
+                    .iter()
+                    .map(|chunk| *chunk.prev_outgoing_receipts_root())
                     .collect::<Vec<CryptoHash>>(),
             );
 

@@ -205,13 +205,11 @@ fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountI
 }
 
 fn check_block_does_not_have_missing_chunks(block: &Block) {
-    for chunk in block.chunks().iter_deprecated() {
-        if !chunk.is_new_chunk(block.header().height()) {
-            panic!(
-                "Block at height {} is produced without all chunks; the test setup is faulty",
-                block.header().height()
-            );
-        }
+    if block.chunks().iter_old().count() > 0 {
+        panic!(
+            "Block at height {} is produced without all chunks; the test setup is faulty",
+            block.header().height()
+        );
     }
 }
 
@@ -334,7 +332,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
             }
         }
 
-        for chunk in block_processed.chunks().iter_deprecated() {
+        for chunk in block_processed.chunks().iter() {
             let mut chunks_found = 0;
             for i in 0..env.clients.len() {
                 let client = &env.clients[i];
