@@ -394,15 +394,6 @@ impl PartialEncodedStateWitnessTracker {
         create_if_not_exists: bool,
         update: CacheUpdate,
     ) -> Result<(), Error> {
-        if self.processed_witnesses.contains(&key) {
-            tracing::debug!(
-                target: "client",
-                ?key,
-                "Received data for the already processed witness"
-            );
-            return Ok(());
-        }
-
         let parts_cache_by_shard_mutex = {
             let mut map = self.parts_cache.lock();
             Arc::clone(map.entry(key.shard_id).or_insert_with(|| {
@@ -412,6 +403,16 @@ impl PartialEncodedStateWitnessTracker {
             }))
         };
         let mut parts_cache_by_shard = parts_cache_by_shard_mutex.lock();
+
+        if self.processed_witnesses.contains(&key) {
+            tracing::debug!(
+                target: "client",
+                ?key,
+                "Received data for already processed witness"
+            );
+            return Ok(());
+        }
+
         if create_if_not_exists {
             Self::maybe_insert_new_entry_in_parts_cache(&mut parts_cache_by_shard, &key);
         }
