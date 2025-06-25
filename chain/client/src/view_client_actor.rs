@@ -1467,6 +1467,7 @@ impl Handler<AnnounceAccountRequest> for ViewClientActorInner {
         &mut self,
         msg: AnnounceAccountRequest,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
+        std::thread::sleep(std::time::Duration::from_secs(1));
         tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["AnnounceAccountRequest"])
