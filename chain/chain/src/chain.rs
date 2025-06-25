@@ -227,7 +227,7 @@ pub fn check_known(
 }
 
 pub struct ApplyChunksResultCache {
-    cache: LruCache<CachedShardUpdateKey, Arc<ShardUpdateResult>>,
+    cache: LruCache<CachedShardUpdateKey, ShardUpdateResult>,
     /// We use Cell to record access statistics even if we don't have
     /// mutability.
     hits: Cell<usize>,
@@ -269,7 +269,7 @@ impl ApplyChunksResultCache {
         None
     }
 
-    pub fn push(&mut self, key: CachedShardUpdateKey, result: Arc<ShardUpdateResult>) {
+    pub fn push(&mut self, key: CachedShardUpdateKey, result: ShardUpdateResult) {
         self.cache.put(key, result);
     }
 
@@ -2037,7 +2037,7 @@ impl Chain {
                         %shard_id, ?cached_shard_update_key,
                         "Caching ShardUpdate result from OptimisticBlock"
                     );
-                    self.apply_chunk_results_cache.push(cached_shard_update_key, result.into());
+                    self.apply_chunk_results_cache.push(cached_shard_update_key, result);
                 }
                 Err(e) => {
                     warn!(
