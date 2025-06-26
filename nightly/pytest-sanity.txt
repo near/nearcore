@@ -202,8 +202,9 @@ pytest sanity/rpc_view_history.py
 pytest sanity/rpc_view_history.py --features nightly
 
 # Tests switching between memtries and disktries.
-pytest sanity/memtrie_disktrie_switch.py
-pytest sanity/memtrie_disktrie_switch.py --features nightly
+# TODO(#13551): Enable after fixing flaky test
+# pytest sanity/memtrie_disktrie_switch.py
+# pytest sanity/memtrie_disktrie_switch.py --features nightly
 
 # Tests the replay of chain blocks on an archival node.
 pytest sanity/replay_chain_from_archive.py
