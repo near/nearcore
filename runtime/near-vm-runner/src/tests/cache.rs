@@ -132,7 +132,7 @@ fn make_cached_contract_call_vm(
 }
 
 #[test]
-#[cfg(feature = "near_vm")]
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 fn test_near_vm_artifact_output_stability() {
     use crate::near_vm_runner::NearVM;
     use crate::prepare;
