@@ -49,9 +49,10 @@ pytest --timeout=270 sanity/single_shard_tracking.py
 pytest --timeout=270 sanity/single_shard_tracking.py --features nightly
 
 pytest --timeout=3600 sanity/state_sync_massive.py
-pytest --timeout=3600 sanity/state_sync_massive_validator.py
 pytest --timeout=3600 sanity/state_sync_massive.py --features nightly
-pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly
+# TODO(#13551): Enable after fixing flaky test. state_sync_massive_validator sometimes take 1 hour to run and timeout
+# pytest --timeout=15m sanity/state_sync_massive_validator.py
+# pytest --timeout=15m sanity/state_sync_massive_validator.py --features nightly
 
 # TODO(#12108): Enable the test again once decentralized state sync is implemented.
 # pytest sanity/state_sync_decentralized.py
