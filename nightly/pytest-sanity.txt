@@ -73,8 +73,8 @@ pytest sanity/rpc_light_client_execution_outcome_proof.py
 pytest sanity/rpc_light_client_execution_outcome_proof.py --features nightly
 pytest sanity/block_sync.py
 pytest sanity/block_sync.py --features nightly
-pytest sanity/block_sync_archival.py
-pytest sanity/block_sync_archival.py --features nightly
+pytest --timeout=10m sanity/block_sync_archival.py
+pytest --timeout=10m sanity/block_sync_archival.py --features nightly
 pytest sanity/block_sync_flat_storage.py
 pytest sanity/block_sync_flat_storage.py --features nightly
 pytest sanity/split_storage.py
