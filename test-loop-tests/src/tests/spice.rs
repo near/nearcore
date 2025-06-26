@@ -122,7 +122,7 @@ fn test_spice_chain() {
             let chunk_mask = block.header().chunk_mask();
             assert_eq!(chunk_mask, vec![true; chunk_mask.len()]);
 
-            for chunk in block.chunks().iter_raw() {
+            for chunk in block.chunks().iter() {
                 for client in &clients {
                     let Ok(chunk) = client.chain.get_chunk(&chunk.chunk_hash()) else {
                         continue;
