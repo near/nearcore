@@ -20,7 +20,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
 use std::borrow::Cow;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, RwLock};
 use wasmtime::{Engine, ExternType, Instance, Linker, Memory, MemoryType, Module, Store, Strategy};
 
 const GUEST_PAGE_SIZE: usize = 1 << 16;
@@ -148,11 +149,6 @@ impl IntoVMError for anyhow::Error {
     }
 }
 
-#[allow(clippy::needless_pass_by_ref_mut)]
-pub fn get_engine(config: &wasmtime::Config) -> Engine {
-    Engine::new(config).unwrap()
-}
-
 pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
     let features = crate::features::WasmFeatures::new(c);
 
@@ -189,6 +185,7 @@ pub(crate) fn wasmtime_vm_hash() -> u64 {
     64
 }
 
+#[derive(Clone)]
 pub(crate) struct WasmtimeVM {
     config: Arc<Config>,
     engine: Engine,
@@ -196,7 +193,20 @@ pub(crate) struct WasmtimeVM {
 
 impl WasmtimeVM {
     pub(crate) fn new(config: Arc<Config>) -> Self {
-        Self { engine: get_engine(&default_wasmtime_config(&config)), config }
+        static VMS: LazyLock<RwLock<HashMap<Arc<Config>, WasmtimeVM>>> =
+            LazyLock::new(RwLock::default);
+        {
+            if let Some(vm) = VMS.read().expect("failed to read-lock VM pool").get(&config) {
+                return vm.clone();
+            }
+        }
+        let engine = Engine::new(&default_wasmtime_config(&config))
+            .expect("failed to construct Wasmtime engine");
+        VMS.write()
+            .expect("failed to write-lock VM pool")
+            .entry(Arc::clone(&config))
+            .or_insert(Self { config, engine })
+            .clone()
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
