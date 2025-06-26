@@ -41,16 +41,14 @@ impl Client {
     ///                         the produced chunk content.
     fn process_block_sync_with_produce_chunk_options(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         should_produce_chunk: bool,
         allow_errors: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        let signer = self.validator_signer.get();
-        self.start_process_block(block, provenance, None, &signer)?;
+        self.start_process_block(block, provenance, None)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) =
-            self.postprocess_ready_blocks(None, should_produce_chunk, &signer);
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk);
         if !allow_errors {
             assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         }
@@ -59,7 +57,7 @@ impl Client {
 
     pub fn process_block_test(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.process_block_sync_with_produce_chunk_options(block, provenance, true, false)
@@ -67,7 +65,7 @@ impl Client {
 
     pub fn process_block_test_no_produce_chunk(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.process_block_sync_with_produce_chunk_options(block, provenance, false, false)
@@ -75,7 +73,7 @@ impl Client {
 
     pub fn process_block_test_no_produce_chunk_allow_errors(
         &mut self,
-        block: MaybeValidated<Block>,
+        block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.process_block_sync_with_produce_chunk_options(block, provenance, false, true)
@@ -83,10 +81,9 @@ impl Client {
 
     /// This function finishes processing all blocks that started being processed.
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
-        let signer = self.validator_signer.get();
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(None, true, &signer).0);
+            accepted_blocks.extend(self.postprocess_ready_blocks(None, true).0);
         }
         accepted_blocks
     }
@@ -95,8 +92,7 @@ impl Client {
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
-            let signer = self.validator_signer.get();
-            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true, &signer);
+            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true);
             return accepted_blocks;
         }
         vec![]
@@ -123,7 +119,6 @@ impl Client {
             prev_block.header(),
             &prev_chunk_header,
             &shard_chunk,
-            &signer,
         )
         .unwrap();
         shard_chunk
@@ -147,7 +142,7 @@ fn create_chunk_on_height_for_shard(
             next_height,
             shard_id,
             &signer,
-            &client.chain.transaction_validity_check(last_block.header().clone()),
+            &client.chain.transaction_validity_check(last_block.header().clone().into()),
         )
         .unwrap()
         .unwrap()
@@ -161,7 +156,7 @@ pub fn create_chunk_on_height(client: &mut Client, next_height: BlockHeight) -> 
 pub fn create_chunk(
     client: &mut Client,
     validated_txs: Vec<ValidatedTransaction>,
-) -> (ProduceChunkResult, Block) {
+) -> (ProduceChunkResult, Arc<Block>) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
     let signer = client.validator_signer.get().unwrap();
@@ -175,7 +170,7 @@ pub fn create_chunk(
                 next_height,
                 ShardId::new(0),
                 &signer,
-                &client.chain.transaction_validity_check(last_block.header().clone()),
+                &client.chain.transaction_validity_check(last_block.header().clone().into()),
             )
             .unwrap()
             .unwrap();
@@ -236,7 +231,7 @@ pub fn create_chunk(
     let endorsement =
         ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
-    let block = Block::produce(
+    let block = Arc::new(Block::produce(
         PROTOCOL_VERSION,
         last_block.header(),
         next_height,
@@ -257,7 +252,7 @@ pub fn create_chunk(
         client.clock.clone(),
         None,
         None,
-    );
+    ));
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
@@ -277,8 +272,7 @@ pub fn run_catchup(
     });
     let _ = System::new();
     loop {
-        let signer = client.validator_signer.get();
-        client.run_catchup(highest_height_peers, &block_catch_up, None, &signer)?;
+        client.run_catchup(highest_height_peers, &block_catch_up, None)?;
         let mut catchup_done = true;
         for msg in block_messages.write().drain(..) {
             let results =

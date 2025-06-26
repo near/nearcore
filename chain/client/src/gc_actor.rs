@@ -5,7 +5,7 @@ use near_async::messaging::Actor;
 use near_async::messaging::Handler;
 use near_chain::ChainGenesis;
 use near_chain::{ChainStore, ChainStoreAccess, types::RuntimeAdapter};
-use near_chain_configs::{GCConfig, MutableValidatorSigner};
+use near_chain_configs::GCConfig;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_store::Store;
@@ -20,7 +20,6 @@ pub struct GCActor {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    validator_signer: MutableValidatorSigner,
     gc_config: GCConfig,
     is_archive: bool,
     /// In some tests we may want to temporarily disable GC
@@ -34,7 +33,6 @@ impl GCActor {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        validator_signer: MutableValidatorSigner,
         gc_config: GCConfig,
         is_archive: bool,
     ) -> Self {
@@ -44,15 +42,12 @@ impl GCActor {
             gc_config,
             epoch_manager,
             shard_tracker,
-            validator_signer,
             is_archive,
             no_gc: false,
         }
     }
 
     fn clear_data(&mut self) -> Result<(), near_chain::Error> {
-        let signer = self.validator_signer.get();
-        let me = signer.as_ref().map(|signer| signer.validator_id());
         // A RPC node should do regular garbage collection.
         if !self.is_archive {
             return self.store.clear_data(
@@ -60,7 +55,6 @@ impl GCActor {
                 self.runtime_adapter.clone(),
                 self.epoch_manager.clone(),
                 &self.shard_tracker,
-                me,
             );
         }
         // The ReshardingV3 mapping for archival nodes (#12578) was built under the assumption that
@@ -81,7 +75,6 @@ impl GCActor {
                 self.runtime_adapter.clone(),
                 self.epoch_manager.clone(),
                 &self.shard_tracker,
-                me,
             );
         }
 

@@ -126,7 +126,6 @@ fn test_empty_method() {
 fn test_trap_contract() {
     test_builder()
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 80976092 used gas 80976092
@@ -146,7 +145,6 @@ fn test_trap_initializer() {
                 )
             "#,
         )
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 98404812 used gas 98404812
@@ -170,7 +168,6 @@ fn test_div_by_zero_contract() {
                 )
             "#,
         )
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 88068079 used gas 88068079
@@ -194,7 +191,6 @@ fn test_float_to_int_contract() {
                     )
                 "#,
             ))
-            .skip_wasmtime()
             .expects(&[
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 92691798 used gas 92691798
@@ -221,7 +217,6 @@ fn test_indirect_call_to_null_contract() {
             "#,
         )
         .opaque_error()
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 109031223 used gas 109031223
@@ -250,7 +245,6 @@ fn test_indirect_call_to_wrong_signature_contract() {
                 )
             "#,
         )
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 134085008 used gas 134085008
@@ -334,7 +328,6 @@ fn test_panic_re_export() {
 fn test_stack_overflow() {
     test_builder()
         .wat(r#"(module (func $f (export "main") (call $f)))"#)
-        .skip_wasmtime()
         .opaque_error()
         .expects(&[
             expect![[r#"
@@ -360,7 +353,6 @@ fn test_stack_instrumentation_protocol_upgrade() {
             "#,
         )
         .method("f1")
-        .skip_wasmtime()
         .opaque_error()
         .expects(&[
             expect![[r#"
@@ -384,7 +376,6 @@ fn test_stack_instrumentation_protocol_upgrade() {
         )
         .method("f2")
         .opaque_error()
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 29757263944 used gas 29757263944
@@ -611,7 +602,6 @@ fn test_address_overflow() {
 
     test_builder()
         .wat(code)
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97048978 used gas 97048978

@@ -17,7 +17,7 @@ use std::cell::{RefCell, UnsafeCell};
 use std::ffi::c_void;
 use std::sync::Arc;
 use wasmtime::ExternType::Func;
-use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store};
+use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store, Strategy};
 
 type Caller = wasmtime::Caller<'static, ()>;
 thread_local! {
@@ -129,8 +129,32 @@ pub fn get_engine(config: &wasmtime::Config) -> Engine {
 
 pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
     let features = crate::features::WasmFeatures::new(c);
+
+    // NOTE: Configuration values are based on:
+    // - https://docs.wasmtime.dev/examples-fast-execution.html
+    // - https://docs.wasmtime.dev/examples-fast-instantiation.html
+
     let mut config = wasmtime::Config::from(features);
-    config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+    config
+        // From official documentation:
+        // > Note that systems loading many modules may wish to disable this
+        // > configuration option instead of leaving it on-by-default.
+        // > Some platforms exhibit quadratic behavior when registering/unregistering
+        // > unwinding information which can greatly slow down the module loading/unloading process.
+        // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
+        .native_unwind_info(false)
+        .wasm_backtrace(false)
+        // Enable copy-on-write heap images.
+        .memory_init_cow(true)
+        // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+        .max_wasm_stack(1024 * 1024 * 1024)
+        // enable the Cranelift optimizing compiler.
+        .strategy(Strategy::Cranelift)
+        // Enable signals-based traps. This is required to elide explicit bounds-checking.
+        .signals_based_traps(true)
+        // Configure linear memories such that explicit bounds-checking can be elided.
+        .memory_reservation(1 << 32)
+        .memory_guard_size(1 << 32);
     config
 }
 

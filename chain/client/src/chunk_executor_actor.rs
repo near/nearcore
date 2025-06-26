@@ -17,7 +17,6 @@ use near_chain::{
     Block, Chain, ChainGenesis, ChainStore, ChainUpdate, DoomslugThresholdMode, Error,
     collect_receipts, get_chunk_clone_from_header,
 };
-use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -32,7 +31,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardProof;
-use near_primitives::types::{AccountId, EpochId, ShardId, ShardIndex};
+use near_primitives::types::{EpochId, ShardId, ShardIndex};
 use near_store::Store;
 use node_runtime::SignedValidPeriodTransactions;
 use tracing::instrument;
@@ -41,10 +40,6 @@ pub struct ChunkExecutorActor {
     chain_store: ChainStore,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    /// Contains validator info about this node. This field is mutable and optional. Use with caution!
-    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
-    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    validator_signer: MutableValidatorSigner,
     shard_tracker: ShardTracker,
     network_adapter: PeerManagerAdapter,
 
@@ -64,7 +59,6 @@ impl ChunkExecutorActor {
         genesis_hash: CryptoHash,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        validator_signer: MutableValidatorSigner,
         shard_tracker: ShardTracker,
         network_adapter: PeerManagerAdapter,
         block_receipts_cache_capacity: NonZeroUsize,
@@ -74,7 +68,6 @@ impl ChunkExecutorActor {
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
             runtime_adapter,
             epoch_manager,
-            validator_signer,
             shard_tracker,
             network_adapter,
             block_receipts_cache: LruCache::new(block_receipts_cache_capacity),
@@ -115,8 +108,6 @@ impl Handler<ExecutorIncomingReceipts> for ChunkExecutorActor {
             block_receipts.insert((proof.1.from_shard_id, proof.1.to_shard_id), proof);
         }
 
-        let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
-
         let Some(next_block_hashes) = self.next_block_hashes.get(&block_hash) else {
             // Next block wasn't processed yet.
             tracing::debug!(target: "chunk_executor", %block_hash, "no next block hash is available");
@@ -126,13 +117,11 @@ impl Handler<ExecutorIncomingReceipts> for ChunkExecutorActor {
             // TODO(spice): Avoid storing the same incoming receipts several times.. With many
             // forks we would be saving the same incoming receipts associated with different blocks
             // which is redundant.
-            if let Err(err) =
-                self.try_save_incoming_receipts(me.as_ref(), &block_hash, &next_block_hash)
-            {
+            if let Err(err) = self.try_save_incoming_receipts(&block_hash, &next_block_hash) {
                 tracing::warn!(target: "chunk_executor", %block_hash, ?err, "failed to save incoming receipts");
             }
 
-            if let Err(err) = self.try_apply_chunks(&next_block_hash, me.as_ref()) {
+            if let Err(err) = self.try_apply_chunks(&next_block_hash) {
                 tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to apply chunk for block hash");
             };
         }
@@ -141,7 +130,6 @@ impl Handler<ExecutorIncomingReceipts> for ChunkExecutorActor {
 
 impl Handler<ExecutorBlock> for ChunkExecutorActor {
     fn handle(&mut self, ExecutorBlock { block_hash }: ExecutorBlock) {
-        let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
         // We may have received receipts before the corresponding block.
         let block = match self.chain_store.get_block(&block_hash) {
             Ok(block) => block,
@@ -155,25 +143,19 @@ impl Handler<ExecutorBlock> for ChunkExecutorActor {
 
         self.next_block_hashes.get_or_insert_mut(*prev_block_hash, || Vec::new()).push(block_hash);
 
-        if let Err(err) =
-            self.try_save_incoming_receipts(me.as_ref(), &prev_block_hash, &block_hash)
-        {
+        if let Err(err) = self.try_save_incoming_receipts(&prev_block_hash, &block_hash) {
             tracing::warn!(target: "chunk_executor", %prev_block_hash, ?err, "failed to save incoming receipts");
         }
 
-        if let Err(err) = self.try_apply_chunks(&block_hash, me.as_ref()) {
+        if let Err(err) = self.try_apply_chunks(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to apply chunk for block hash");
         };
     }
 }
 
 impl ChunkExecutorActor {
-    #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash, ?me))]
-    fn try_apply_chunks(
-        &mut self,
-        block_hash: &CryptoHash,
-        me: Option<&AccountId>,
-    ) -> Result<(), Error> {
+    #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
+    fn try_apply_chunks(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
         let block = self.chain_store.get_block(block_hash)?;
         let header = block.header();
@@ -181,10 +163,7 @@ impl ChunkExecutorActor {
         // Genesis block has no outgoing receipts.
         if *prev_block_hash != self.genesis_hash {
             for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
-                let is_me = true;
-                if self
-                    .shard_tracker
-                    .cares_about_shard_this_or_next_epoch(me, block_hash, shard_id, is_me)
+                if self.shard_tracker.cares_about_shard_this_or_next_epoch(block_hash, shard_id)
                     && !self.chain_store.incoming_receipts_exist(&block_hash, shard_id)?
                 {
                     tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing receipts to apply all tracked chunks for a block");
@@ -192,7 +171,7 @@ impl ChunkExecutorActor {
                 }
             }
         }
-        self.apply_chunks(me, block, SandboxStatePatch::default())
+        self.apply_chunks(block, SandboxStatePatch::default())
     }
 
     fn get_incoming_receipts(
@@ -211,8 +190,7 @@ impl ChunkExecutorActor {
     // Logic here is based on Chain::apply_chunk_preprocessing
     fn apply_chunks(
         &mut self,
-        me: Option<&AccountId>,
-        block: Block,
+        block: Arc<Block>,
         mut state_patch: SandboxStatePatch,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
@@ -243,11 +221,7 @@ impl ChunkExecutorActor {
             )?;
 
             // If we don't care about shard we wouldn't have relevant incoming receipts.
-            let is_me = true;
-            if !self
-                .shard_tracker
-                .cares_about_shard_this_or_next_epoch(me, block_hash, shard_id, is_me)
-            {
+            if !self.shard_tracker.cares_about_shard_this_or_next_epoch(block_hash, shard_id) {
                 continue;
             }
             // TODO(spice-resharding): We may need to take resharding into account here.
@@ -261,7 +235,6 @@ impl ChunkExecutorActor {
                 Chain::get_cached_shard_update_key(&block_context, chunk_headers, shard_id)?;
 
             let job = self.get_update_shard_job(
-                me,
                 cached_shard_update_key,
                 block_context,
                 chunk_headers,
@@ -328,7 +301,6 @@ impl ChunkExecutorActor {
 
     fn get_update_shard_job(
         &self,
-        me: Option<&AccountId>,
         cached_shard_update_key: CachedShardUpdateKey,
         block: ApplyChunkBlockContext,
         chunk_headers: &Chunks,
@@ -347,8 +319,7 @@ impl ChunkExecutorActor {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_id = shard_layout.get_shard_id(shard_index)?;
-        let shard_context =
-            self.get_shard_context(me, prev_block_hash, &epoch_id, shard_id, mode)?;
+        let shard_context = self.get_shard_context(prev_block_hash, &epoch_id, shard_id, mode)?;
 
         if !shard_context.should_apply_chunk {
             return Ok(None);
@@ -393,18 +364,17 @@ impl ChunkExecutorActor {
 
     fn get_shard_context(
         &self,
-        me: Option<&AccountId>,
         prev_hash: &CryptoHash,
         epoch_id: &EpochId,
         shard_id: ShardId,
         mode: ApplyChunksMode,
     ) -> Result<ShardContext, Error> {
         let cares_about_shard_this_epoch =
-            self.shard_tracker.cares_about_shard(me, prev_hash, shard_id, true);
+            self.shard_tracker.cares_about_shard(prev_hash, shard_id);
         let cares_about_shard_next_epoch =
-            self.shard_tracker.will_care_about_shard(me, prev_hash, shard_id, true);
+            self.shard_tracker.will_care_about_shard(prev_hash, shard_id);
         let cared_about_shard_prev_epoch =
-            self.shard_tracker.cared_about_shard_in_prev_epoch(me, prev_hash, shard_id, true);
+            self.shard_tracker.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
         let should_apply_chunk = get_should_apply_chunk(
             mode,
             cares_about_shard_this_epoch,
@@ -430,7 +400,6 @@ impl ChunkExecutorActor {
     /// Returns None if some of the receipts are still missing.
     fn all_incoming_receipts_keys(
         &mut self,
-        me: Option<&AccountId>,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
     ) -> Result<Option<Vec<(ShardId, ShardId)>>, Error> {
@@ -442,16 +411,10 @@ impl ChunkExecutorActor {
 
         let mut keys = Vec::<(ShardId, ShardId)>::new();
         for to_shard_id in &shard_ids {
-            let is_me = true;
             // We cannot filter out correctly when receiving receipts since we may receive them
             // before we know about the corresponding block and can decide which receipts we care
             // about.
-            if !self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                me,
-                &block_hash,
-                *to_shard_id,
-                is_me,
-            ) {
+            if !self.shard_tracker.cares_about_shard_this_or_next_epoch(&block_hash, *to_shard_id) {
                 continue;
             }
             for from_shard_id in &shard_ids {
@@ -464,15 +427,13 @@ impl ChunkExecutorActor {
         Ok(Some(keys))
     }
 
-    #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%prev_block_hash, %block_hash, ?me))]
+    #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%prev_block_hash, %block_hash))]
     fn try_save_incoming_receipts(
         &mut self,
-        me: Option<&AccountId>,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
     ) -> Result<(), Error> {
-        let Some(receipt_keys) =
-            self.all_incoming_receipts_keys(me, prev_block_hash, block_hash)?
+        let Some(receipt_keys) = self.all_incoming_receipts_keys(prev_block_hash, block_hash)?
         else {
             tracing::debug!(target: "chunk_executor", ?prev_block_hash, ?block_hash, "haven't received all receipts yet");
             return Ok(());

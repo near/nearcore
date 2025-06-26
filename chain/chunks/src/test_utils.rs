@@ -1,7 +1,7 @@
 use near_async::messaging::CanSend;
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
-use near_chain_configs::TrackedShardsConfig;
+use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
 use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
@@ -92,6 +92,7 @@ impl ChunkTestFixture {
                 TrackedShardsConfig::NoShards
             },
             Arc::new(epoch_manager.clone()),
+            MutableConfigValue::new(None, "validator_signer"),
         );
         let mock_network = Arc::new(MockPeerManagerAdapter::default());
         let mock_client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
@@ -128,17 +129,12 @@ impl ChunkTestFixture {
                 if v == &&mock_chunk_producer {
                     false
                 } else {
-                    let tracks_shard = shard_tracker.cares_about_shard(
-                        Some(*v),
-                        &mock_ancestor_hash,
-                        mock_shard_id,
-                        false,
-                    ) || shard_tracker.will_care_about_shard(
-                        Some(*v),
-                        &mock_ancestor_hash,
-                        mock_shard_id,
-                        false,
-                    );
+                    let tracks_shard = shard_tracker
+                        .cares_about_shard_this_or_next_epoch_for_account_id(
+                            *v,
+                            &mock_ancestor_hash,
+                            mock_shard_id,
+                        );
                     tracks_shard
                 }
             })

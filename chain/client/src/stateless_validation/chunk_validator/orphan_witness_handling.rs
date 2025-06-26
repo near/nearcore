@@ -92,9 +92,13 @@ impl Client {
                 witness_prev_block = ?header.prev_block_hash(),
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
             );
-            if let Err(err) =
-                self.process_chunk_state_witness_with_prev_block(witness, new_block, None, signer)
-            {
+            if let Err(err) = self.process_chunk_state_witness_with_prev_block(
+                witness,
+                new_block,
+                None,
+                signer,
+                self.config.save_invalid_witnesses,
+            ) {
                 tracing::error!(target: "client", ?err, "Error processing orphan chunk state witness");
             }
         }
@@ -103,13 +107,9 @@ impl Client {
     /// Once a new block arrives, we can process the orphaned chunk state witnesses that were waiting
     /// for this block. This function takes the ready witnesses out of the orphan pool and process them.
     /// It also removes old witnesses (below final height) from the orphan pool to save memory.
-    pub fn process_ready_orphan_witnesses_and_clean_old(
-        &mut self,
-        new_block: &Block,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) {
-        if let Some(signer) = signer {
-            self.process_ready_orphan_witnesses(new_block, signer);
+    pub fn process_ready_orphan_witnesses_and_clean_old(&mut self, new_block: &Block) {
+        if let Some(signer) = self.validator_signer.get() {
+            self.process_ready_orphan_witnesses(new_block, &signer);
         }
 
         // Remove all orphan witnesses that are below the last final block of the new block.

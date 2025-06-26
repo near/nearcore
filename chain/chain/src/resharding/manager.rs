@@ -5,6 +5,7 @@ use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
@@ -22,6 +23,7 @@ use std::sync::Arc;
 pub struct ReshardingManager {
     store: Store,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
     resharding_sender: ReshardingSender,
 }
 
@@ -29,9 +31,10 @@ impl ReshardingManager {
     pub fn new(
         store: Store,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
         resharding_sender: ReshardingSender,
     ) -> Self {
-        Self { store, epoch_manager, resharding_sender }
+        Self { store, epoch_manager, shard_tracker, resharding_sender }
     }
 
     /// Trigger resharding if shard layout changes after the given block.
@@ -102,8 +105,25 @@ impl ReshardingManager {
             return Ok(());
         }
 
+        let tracked_children_shards = split_shard_event
+            .children_shards()
+            .iter()
+            .filter(|child_shard_uid| {
+                self.shard_tracker.cares_about_shard_this_or_next_epoch(
+                    &split_shard_event.resharding_block.hash,
+                    child_shard_uid.shard_id(),
+                )
+            })
+            .copied()
+            .collect_vec();
+
+        if tracked_children_shards.is_empty() {
+            tracing::debug!(target: "resharding", "Not tracking any child shards, skipping");
+            return Ok(());
+        }
+
         // Reshard the State column by setting ShardUId mapping from children to ancestor.
-        self.set_state_shard_uid_mapping(&split_shard_event)?;
+        self.set_state_shard_uid_mapping(&split_shard_event, &tracked_children_shards)?;
 
         // Create temporary children memtries by freezing parent memtrie and referencing it.
         self.process_memtrie_resharding_storage_update(
@@ -126,11 +146,12 @@ impl ReshardingManager {
     fn set_state_shard_uid_mapping(
         &self,
         split_shard_event: &ReshardingSplitShardParams,
+        tracked_children: &[ShardUId],
     ) -> io::Result<()> {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
         let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
-        for child_shard_uid in split_shard_event.children_shards() {
+        for &child_shard_uid in tracked_children {
             store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
         }
         store_update.commit()
@@ -163,7 +184,6 @@ impl ReshardingManager {
             self.store.chain_store().get_chunk_extra(block_hash, parent_shard_uid)?;
         let mut store_update = self.store.trie_store().store_update();
 
-        // TODO(resharding): leave only tracked shards.
         for (new_shard_uid, retain_mode) in
             [(left_child_shard, RetainMode::Left), (right_child_shard, RetainMode::Right)]
         {
@@ -217,7 +237,11 @@ impl ReshardingManager {
             *child_chunk_extra.state_root_mut() = trie_changes.new_root;
             *child_chunk_extra.congestion_info_mut() = child_congestion_info;
 
-            chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
+            chain_store_update.save_chunk_extra(
+                block_hash,
+                &new_shard_uid,
+                child_chunk_extra.into(),
+            );
             chain_store_update.save_state_transition_data(
                 *block_hash,
                 new_shard_uid.shard_id(),

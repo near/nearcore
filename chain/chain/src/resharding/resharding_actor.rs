@@ -5,6 +5,7 @@ use super::event_type::ReshardingSplitShardParams;
 use super::flat_storage_resharder::FlatStorageResharder;
 use super::trie_state_resharder::TrieStateResharder;
 use super::types::ScheduleResharding;
+use crate::resharding::trie_state_resharder::ResumeAllowed;
 use crate::types::RuntimeAdapter;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, HandlerWithContext};
@@ -66,8 +67,12 @@ impl ReshardingActor {
             resharding_handle.clone(),
             resharding_config.clone(),
         );
-        let trie_state_resharder =
-            TrieStateResharder::new(runtime_adapter, resharding_handle, resharding_config);
+        let trie_state_resharder = TrieStateResharder::new(
+            runtime_adapter,
+            resharding_handle,
+            resharding_config,
+            ResumeAllowed::No,
+        );
         Self {
             chain_store,
             resharding_events: HashMap::new(),
@@ -196,6 +201,13 @@ impl ReshardingActor {
         resharding_event: ReshardingSplitShardParams,
     ) {
         self.resharding_started.insert(parent_shard_uid);
+
+        if let Err(err) =
+            self.trie_state_resharder.initialize_trie_state_resharding_status(&resharding_event)
+        {
+            tracing::error!(target: "resharding", ?err, "Failed to initialize trie state resharding status");
+            return;
+        }
 
         // This is a long running task and would block the actor
         if let Err(err) = self.flat_storage_resharder.start_resharding_blocking(&resharding_event) {

@@ -100,6 +100,7 @@ pub fn setup_mock_node(
     let shard_tracker = ShardTracker::new(
         near_config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
+        near_config.validator_signer.clone(),
     );
     let runtime =
         NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
@@ -114,6 +115,7 @@ pub fn setup_mock_node(
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         near_config.client_config.save_trie_changes,
+        near_config.validator_signer.clone(),
     )
     .context("failed creating Chain")?;
 

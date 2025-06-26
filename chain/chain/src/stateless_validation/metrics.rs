@@ -42,6 +42,43 @@ pub static SAVED_LATEST_WITNESSES_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub static SAVE_INVALID_WITNESS_GENERATE_UPDATE_TIME: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_save_invalid_witness_generate_update_time",
+            "Time taken to generate an update of invalid witnesses",
+            &["shard_id"],
+            Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+        )
+        .unwrap()
+    });
+
+pub static SAVE_INVALID_WITNESS_COMMIT_UPDATE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_save_invalid_witness_commit_update_time",
+        "Time taken to commit the update of invalid witnesses",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub static SAVED_INVALID_WITNESSES_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_saved_invalid_witnesses_count",
+        "Total number of saved invalid witnesses",
+    )
+    .unwrap()
+});
+
+pub static SAVED_INVALID_WITNESSES_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_saved_invalid_witnesses_size",
+        "Total size of saved invalid witnesses (in bytes)",
+    )
+    .unwrap()
+});
+
 pub static CHUNK_STATE_WITNESS_ENCODE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_encode_time",
