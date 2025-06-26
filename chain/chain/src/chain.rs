@@ -269,6 +269,32 @@ impl ApplyChunksResultCache {
         None
     }
 
+    pub fn remove(
+        &mut self,
+        key: &CachedShardUpdateKey,
+        shard_id: ShardId,
+        record_metric: bool,
+    ) -> Option<ShardUpdateResult> {
+        let shard_id_label = shard_id.to_string();
+        if let Some(result) = self.cache.pop(key) {
+            self.hits.set(self.hits.get() + 1);
+            if record_metric {
+                metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
+                    .with_label_values(&[shard_id_label.as_str()])
+                    .inc();
+            }
+            return Some(result);
+        }
+
+        self.misses.set(self.misses.get() + 1);
+        if record_metric {
+            metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
+                .with_label_values(&[shard_id_label.as_str()])
+                .inc();
+        }
+        None
+    }
+
     pub fn push(&mut self, key: CachedShardUpdateKey, result: ShardUpdateResult) {
         self.cache.put(key, result);
     }
@@ -2256,7 +2282,7 @@ impl Chain {
     /// to process the block and the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
     fn preprocess_block(
-        &self,
+        &mut self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Arc<Block>>,
         provenance: &Provenance,
@@ -3060,7 +3086,7 @@ impl Chain {
     /// Creates jobs which will update shards for the given block and incoming
     /// receipts aggregated for it.
     fn apply_chunks_preprocessing(
-        &self,
+        &mut self,
         me: &Option<AccountId>,
         block: &Block,
         prev_block: &Block,
@@ -3232,7 +3258,7 @@ impl Chain {
 
     /// This method returns the closure that is responsible for updating a shard.
     fn get_update_shard_job(
-        &self,
+        &mut self,
         me: &Option<AccountId>,
         cached_shard_update_key: CachedShardUpdateKey,
         block: ApplyChunkBlockContext,
@@ -3262,13 +3288,12 @@ impl Chain {
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
         if !cfg!(feature = "sandbox") {
-            if let Some(result) = self.apply_chunk_results_cache.peek(
+            if let Some(result) = self.apply_chunk_results_cache.remove(
                 &cached_shard_update_key,
                 shard_id,
                 matches!(block.block_type, BlockType::Normal),
             ) {
                 debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
-                let result = result.clone();
                 return Ok(Some((
                     shard_id,
                     cached_shard_update_key,
