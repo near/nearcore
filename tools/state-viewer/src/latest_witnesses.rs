@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
-use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::EpochId;
@@ -13,6 +14,7 @@ use near_store::Store;
 use near_time::Clock;
 use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 #[derive(clap::Subcommand)]
 pub enum StateWitnessCmd {
@@ -137,11 +139,15 @@ impl ValidateWitnessCmd {
         .unwrap();
         let processing_done_tracker = ProcessingDoneTracker::new();
         let waiter = processing_done_tracker.make_waiter();
+        let data_parts = epoch_manager.num_data_parts();
+        let parity_parts = epoch_manager.num_total_parts() - data_parts;
+        let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
         chain
             .shadow_validate_state_witness(
                 witness,
                 epoch_manager.as_ref(),
                 Some(processing_done_tracker),
+                rs,
             )
             .unwrap();
         waiter.wait();

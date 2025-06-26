@@ -307,6 +307,7 @@ pub enum ProtocolFeature {
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
     SaturatingFloatToInt,
+    ChunkPartChecks,
 }
 
 impl ProtocolFeature {
@@ -400,6 +401,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
             | ProtocolFeature::VersionedStateWitness
+            | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             // Nightly features:

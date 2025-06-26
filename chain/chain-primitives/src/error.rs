@@ -97,6 +97,12 @@ pub enum Error {
     /// Invalid state root hash.
     #[error("Invalid State Root Hash")]
     InvalidStateRoot,
+    /// Invalid merkle root hash.
+    #[error("Invalid Chunk Encoded Merkle Root Hash")]
+    InvalidChunkEncodedMerkleRoot,
+    /// Invalid merkle root hash.
+    #[error("Invalid Chunk Encoded Merkle Length")]
+    InvalidChunkEncodedLength,
     /// Invalid block tx root hash.
     #[error("Invalid Block Tx Root Hash")]
     InvalidTxRoot,
@@ -302,6 +308,8 @@ impl Error {
             | Error::InvalidChunkEndorsementBitmap(_)
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
+            | Error::InvalidChunkEncodedMerkleRoot
+            | Error::InvalidChunkEncodedLength
             | Error::InvalidTxRoot
             | Error::InvalidChunkReceiptsRoot
             | Error::InvalidOutcomesProof
@@ -382,6 +390,8 @@ impl Error {
             Error::InvalidChunkEndorsementBitmap(_) => "invalid_chunk_endorsement_bitmap",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",
+            Error::InvalidChunkEncodedMerkleRoot => "invalid_chunk_encoded_merkle_root",
+            Error::InvalidChunkEncodedLength => "invalid_chunk_encoded_length",
             Error::InvalidTxRoot => "invalid_tx_root",
             Error::InvalidChunkReceiptsRoot => "invalid_chunk_receipts_root",
             Error::InvalidOutcomesProof => "invalid_outcomes_proof",
