@@ -50,6 +50,7 @@ protocol_feature_spice = [
     "near-client/protocol_feature_spice",
     "near-epoch-manager/protocol_feature_spice",
     "nearcore/protocol_feature_spice",
+    "near-store/protocol_feature_spice",
 ]
 test_features = [
     "nearcore/test_features",
