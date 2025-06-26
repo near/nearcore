@@ -360,8 +360,9 @@ impl ClientActorInner {
                 block
                     .chunks()
                     .iter()
-                    .map(|chunk| {
-                        let shard_id = chunk.shard_id();
+                    .enumerate()
+                    .map(|(shard_index, chunk)| {
+                        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                         let state_root_node = self.client.runtime_adapter.get_state_root_node(
                             shard_id,
                             epoch_start_block_header.hash(),

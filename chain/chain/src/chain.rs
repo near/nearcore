@@ -3053,8 +3053,8 @@ impl Chain {
         let chunk_headers = &block.chunks();
         let mut update_shard_args = vec![];
 
-        for chunk_header in chunk_headers.iter() {
-            let shard_id = chunk_header.shard_id();
+        for (shard_index, chunk_header) in chunk_headers.iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
             let block_context = Self::get_apply_chunk_block_context_from_block_header(
                 block.header(),
                 &chunk_headers,
