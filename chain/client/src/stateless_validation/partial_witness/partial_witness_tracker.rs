@@ -404,6 +404,10 @@ impl PartialEncodedStateWitnessTracker {
         };
         let mut parts_cache_by_shard = parts_cache_by_shard_mutex.lock();
 
+        // We must check processed_witnesses while holding the parts_cache_by_shard lock.
+        // Without this ordering, two threads could:
+        // 1. Both check processed_witnesses and find the key is not present
+        // 2. Proceed to process the same witness twice, wasting resources
         if self.processed_witnesses.contains(&key) {
             tracing::debug!(
                 target: "client",
