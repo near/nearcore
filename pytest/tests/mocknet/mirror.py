@@ -344,7 +344,8 @@ def new_genesis_timestamp(node):
     result = version.get('result')
     if result is not None:
         if result.get('node_setup_version') == '1':
-            genesis_time = str(datetime.datetime.now(tz=datetime.timezone.utc))
+            genesis_time = datetime.datetime.now(
+                tz=datetime.timezone.utc).isoformat().replace("+00:00", "Z")
     return genesis_time
 
 
@@ -679,6 +680,17 @@ def run_remote_upload_file(ctx: CommandContext):
     )
     pmap(lambda node: print_result(
         node, node.upload_file(ctx.args.src, ctx.args.dst)),
+         targeted,
+         on_exception="")
+
+
+def run_remote_download_file(ctx: CommandContext):
+    targeted = ctx.get_targeted()
+    logger.info(
+        f'Downloading {ctx.args.src} to {ctx.args.dst} on {",".join([h.name() for h in targeted])}'
+    )
+    pmap(lambda node: print_result(
+        node, node.download_file(ctx.args.src, ctx.args.dst)),
          targeted,
          on_exception="")
 

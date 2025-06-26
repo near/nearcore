@@ -186,7 +186,6 @@ pub fn setup_client(
         };
     let view_client_actor = ViewClientActorInner::new(
         test_loop.clock(),
-        validator_signer.clone(),
         chain_genesis.clone(),
         view_epoch_manager.clone(),
         view_shard_tracker,
@@ -194,6 +193,7 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         client_config.clone(),
         near_client::adversarial::Controls::default(),
+        validator_signer.clone(),
     )
     .unwrap();
 
@@ -297,7 +297,6 @@ pub fn setup_client(
         *client_actor.client.chain.genesis().hash(),
         runtime_adapter.clone(),
         epoch_manager.clone(),
-        validator_signer.clone(),
         shard_tracker.clone(),
         network_adapter.as_multi_sender(),
         NonZeroUsize::new(1000).unwrap(),

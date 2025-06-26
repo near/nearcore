@@ -1406,10 +1406,7 @@ fn prepare_transactions(
 
     env.runtime.prepare_transactions(
         storage_config,
-        PrepareTransactionsChunkContext {
-            shard_id,
-            gas_limit: env.runtime.genesis_config.gas_limit,
-        },
+        shard_id,
         PrepareTransactionsBlockContext {
             next_gas_price: env.runtime.genesis_config.min_gas_price,
             height: env.head.height,

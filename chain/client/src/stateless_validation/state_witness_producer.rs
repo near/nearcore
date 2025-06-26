@@ -7,8 +7,6 @@ use near_chain::stateless_validation::state_witness::CreateWitnessResult;
 use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::EpochId;
-use near_primitives::validator_signer::ValidatorSigner;
-use std::sync::Arc;
 
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
@@ -19,7 +17,6 @@ impl Client {
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
-        validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
@@ -35,6 +32,7 @@ impl Client {
         )
         .entered();
 
+        let validator_signer = self.validator_signer.get();
         let my_signer = validator_signer
             .as_ref()
             .ok_or_else(|| Error::NotAValidator(format!("send state witness")))?;

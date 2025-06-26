@@ -1569,7 +1569,6 @@ fn test_gc_tail_update() {
     env.clients[1]
         .chain
         .reset_heads_post_state_sync(
-            &None,
             *sync_block.hash(),
             &mut BlockProcessingArtifact::default(),
             None,
@@ -2001,7 +2000,7 @@ fn test_validate_chunk_extra() {
         .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-    env.clients[0].process_blocks_with_missing_chunks(None, &signer);
+    env.clients[0].process_blocks_with_missing_chunks(None);
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
     env.resume_block_processing(block2.hash());
@@ -2273,6 +2272,48 @@ fn test_block_execution_outcomes() {
         .unwrap();
     assert_eq!(execution_outcomes_from_block.len(), 1);
     assert!(execution_outcomes_from_block[0].outcome_with_id.id == delayed_receipt_id[0]);
+}
+
+#[test]
+fn test_save_tx_outcomes_false() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let min_gas_price = 10000;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.min_gas_price = min_gas_price;
+    genesis.config.gas_limit = 1000000000000;
+    let mut env = TestEnv::builder(&genesis.config)
+        .save_tx_outcomes(false)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let mut tx_hashes = vec![];
+    for i in 0..3 {
+        // send transaction to the same account to generate local receipts
+        let tx = SignedTransaction::send_money(
+            i + 1,
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
+            &signer,
+            1,
+            *genesis_block.hash(),
+        );
+        tx_hashes.push(tx.get_hash());
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    }
+    for i in 1..4 {
+        env.produce_block(0, i);
+    }
+
+    // Check that the execution outcomes are not saved in the chain store.
+    for id in tx_hashes {
+        let execution_outcome = env.clients[0].chain.get_execution_outcome(&id);
+        assert_matches!(execution_outcome, Err(Error::DBNotFoundErr(_)));
+    }
 }
 
 // This test verifies that gas consumed for processing refund receipts is taken into account

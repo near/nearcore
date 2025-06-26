@@ -14,11 +14,9 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::HighestHeightPeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::validator_signer::ValidatorSigner;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 // A small helper macro to unwrap a result of some state sync operation. If the
 // result is an error this macro will log it and return from the function.
@@ -89,7 +87,6 @@ impl SyncHandler {
         shard_tracker: &ShardTracker,
         highest_height: u64,
         highest_height_peers: &[HighestHeightPeerInfo],
-        signer: &Option<Arc<ValidatorSigner>>,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Option<SyncHandlerRequest> {
         // Run epoch sync first; if this is applicable then nothing else is.
@@ -130,7 +127,6 @@ impl SyncHandler {
             _ => return None,
         };
 
-        let me = signer.as_ref().map(|x| x.validator_id().clone());
         let block_header = chain.get_block_header(&sync_hash);
         let block_header = unwrap_and_report_state_sync_result!(block_header);
         let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
@@ -170,7 +166,6 @@ impl SyncHandler {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let reset_heads_result = chain.reset_heads_post_state_sync(
-            &me,
             sync_hash,
             &mut block_processing_artifacts,
             apply_chunks_done_sender,

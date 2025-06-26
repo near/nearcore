@@ -71,6 +71,9 @@ class NodeHandle:
     def upload_file(self, src, dst):
         return self.node.upload_file(src, dst)
 
+    def download_file(self, src, dst):
+        return self.node.download_file(src, dst)
+
     def init_neard_runner(self, config, remove_home_dir=False):
         self.node.stop_neard_runner()
         self.node.init()
@@ -117,6 +120,8 @@ class NodeHandle:
         return self.node.neard_runner_post(self.schedule_ctx, body)
 
     def neard_runner_jsonrpc(self, method, params=[]):
+        logger.debug(f"run `neard_runner_jsonrpc` {method} with {params}")
+
         response = self.neard_runner_jsonrpc_nocheck(method, params)
         if response.get('error', None) is not None:
             # TODO: errors should be handled better here in general but just exit for now

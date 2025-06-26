@@ -72,6 +72,7 @@ pub struct TestEnv {
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
     pub(crate) archive: bool,
     pub(crate) save_trie_changes: bool,
+    pub(crate) save_tx_outcomes: bool,
 }
 
 pub struct StateWitnessPropagationOutput {
@@ -336,8 +337,7 @@ impl TestEnv {
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg.span_unwrap() {
                 ShardsManagerResponseInner::ChunkCompleted { partial_chunk, shard_chunk } => {
-                    let signer = self.clients[id].validator_signer.get();
-                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None, &signer);
+                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
                 }
                 ShardsManagerResponseInner::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);
@@ -679,6 +679,7 @@ impl TestEnv {
             rng_seed,
             self.archive,
             self.save_trie_changes,
+            self.save_tx_outcomes,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.clone(),

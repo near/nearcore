@@ -94,8 +94,6 @@ impl TestBuilder {
         self
     }
 
-    // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
-    // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
     pub(crate) fn skip_wasmtime(mut self) -> Self {
         self.skip.insert(VMKind::Wasmtime);
         self

@@ -641,6 +641,8 @@ pub struct ClientConfig {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     pub save_trie_changes: bool,
+    /// Whether to persist transaction outcomes to disk or not.
+    pub save_tx_outcomes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Number of seconds between state requests for view client.
@@ -765,6 +767,7 @@ impl ClientConfig {
             tracked_shards_config: TrackedShardsConfig::NoShards,
             archive,
             save_trie_changes,
+            save_tx_outcomes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             view_client_throttle_period: Duration::seconds(1),
