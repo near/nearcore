@@ -104,6 +104,7 @@ impl Handler<ExecutorIncomingReceipts> for ChunkExecutorActor {
         ExecutorIncomingReceipts { block_hash, receipt_proofs }: ExecutorIncomingReceipts,
     ) {
         for proof in receipt_proofs {
+            // TODO(spice): receipt proof should be saved to the db by the data distribution layer
             if let Err(err) = save_receipt_proof(&self.chain_store.store(), &block_hash, &proof) {
                 tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to save receipt proof");
                 return;
@@ -214,9 +215,11 @@ impl ChunkExecutorActor {
                 continue;
             }
             // TODO(spice-resharding): We may need to take resharding into account here.
-            let receipt_proofs = incoming_receipts.get_mut(&shard_id).unwrap();
+            let mut receipt_proofs = incoming_receipts
+                .remove(&shard_id)
+                .expect("expected receipts for all tracked shards");
             let shuffle_salt = block_hash;
-            shuffle_receipt_proofs(receipt_proofs, shuffle_salt);
+            shuffle_receipt_proofs(&mut receipt_proofs, shuffle_salt);
 
             let storage_context =
                 StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
@@ -231,7 +234,7 @@ impl ChunkExecutorActor {
                 shard_index,
                 &prev_block,
                 ApplyChunksMode::IsCaughtUp,
-                receipt_proofs,
+                &receipt_proofs,
                 storage_context,
             );
             match job {
@@ -278,9 +281,6 @@ impl ChunkExecutorActor {
             results,
             should_save_state_transition_data,
         )?;
-        for (shard_id, receipt_proofs) in incoming_receipts {
-            chain_update.save_incoming_receipt(block.hash(), shard_id, Arc::new(receipt_proofs));
-        }
         chain_update.commit()?;
         Ok(())
     }

@@ -329,9 +329,11 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: `ChunkApplyStats`
     ChunkApplyStats,
-    /// Mapping from Block + Target Shard + Source Shard to the corresponding receipt proof
-    /// Each proof might prove multiple receipts.
-    /// - *Rows*: (block, shard, shard)
+    /// Mapping from Block Hash + Target Shard Id + Source Shard Id to Receipt Proof.
+    /// The receipts result from applying the chunk on the source shard of the corresponding block.
+    /// The key includes the target shard first to enable prefix queries for retrieving all incoming
+    /// receipts to the given shard.
+    /// - *Rows*: (BlockHash || ShardId || ShardId)
     /// - *Content type*: `near_primitives::sharding::ReceiptProof`
     #[cfg(feature = "protocol_feature_spice")]
     ReceiptProofs,
