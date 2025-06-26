@@ -429,7 +429,7 @@ impl PartialEncodedStateWitnessTracker {
             return Ok(());
         }
 
-        let (decode_result_and_contracts, entry_created_at) = {
+        let (entry_update_result, entry_created_at) = {
             if create_if_not_exists {
                 Self::maybe_insert_new_entry_in_parts_cache(&mut shard_tracker.parts_cache, &key);
             }
@@ -448,7 +448,7 @@ impl PartialEncodedStateWitnessTracker {
         };
 
         let total_size: usize = if let Some((decode_result, accessed_contracts)) =
-            decode_result_and_contracts
+            entry_update_result
         {
             // Record the time taken from receiving first part to decoding partial witness.
             let time_to_last_part = Instant::now().signed_duration_since(entry_created_at);
