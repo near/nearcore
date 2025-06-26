@@ -437,7 +437,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         // TODO: config could be accessed through `logic.result_state`, without this code having to
         // figure it out...
         link(&mut linker, memory_copy, &store, &config, &mut logic);
-        let res = instantiate_and_call(&mut store, &mut linker, &module, &method);
+        let res = instantiate_and_call(&mut store, &linker, &module, &method);
         lazy_drop(Box::new((linker, module, store)));
         match res? {
             RunOutcome::Ok => Ok(VMOutcome::ok(logic.result_state)),
