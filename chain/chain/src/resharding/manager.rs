@@ -11,8 +11,8 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
@@ -229,6 +229,16 @@ impl ReshardingManager {
             let trie_changes = parent_trie.retain_split_shard(boundary_account, retain_mode)?;
             tries.apply_insertions(&trie_changes, *parent_shard_uid, &mut store_update);
             tries.apply_memtrie_changes(&trie_changes, *parent_shard_uid, block_height);
+
+            // Save the child shard's trie change in the store. It is needed by
+            // the cold store and garbage collection. Warning: the changes are
+            // stored under the child shard's shard uid which does not exist at
+            // the resharding block. This requires special handling.
+            store_update.trie_store_update().set_trie_changes(
+                *new_shard_uid,
+                block_hash,
+                &trie_changes,
+            );
 
             // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
             // typing. Clarify where it should happen when `State` and

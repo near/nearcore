@@ -233,9 +233,13 @@ impl TrieStateResharder {
             next_key
         };
 
-        // Take the recorded trie changes and apply them to the State column of the child shard.
-        let trie_changes =
-            trie.recorded_trie_changes(state_root).expect("trie changes should be available");
+        // Take the recorded trie changes and apply them to the State column of
+        // the child shard.
+        //
+        // Please note that we do not save trie changes to the db. That is
+        // because it should already be done by the memtrie resharding.
+        let trie_changes = trie.recorded_trie_changes(state_root);
+        let trie_changes = trie_changes.expect("trie changes should be available");
         tries.apply_all(&trie_changes, child_shard_uid, store_update);
         Ok(next_key)
     }
