@@ -373,6 +373,15 @@ enum PreparationResult {
     Ready(ReadyContract),
 }
 
+/// This enum allows us to replicate the various [`VMOutcome`] states without moving [`VMLogic`]
+///
+/// If function like [`call`] where to rely on [`VMOutcome::ok`], for example, it would require
+/// ownership of [`VMLogic`], to acquire the inner [`ExecutionResultState`].
+/// `run`, however, owns [`VMLogic`] and creates a mutable borrow,
+/// which is then stored in a thread-local static as a raw pointer.
+/// This means that we need to be very careful to ensure that the reference created is only dropped
+/// after the module method call has returned.
+/// Moving the [`VMLogic`] would break this assertion.
 enum RunOutcome {
     Ok,
     AbortNop(FunctionCallError),
