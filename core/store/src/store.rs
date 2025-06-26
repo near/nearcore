@@ -240,7 +240,8 @@ impl Store {
                 }
             }
         }
-        let result = self.storage.write(transaction);
+        // XXX: Lifetime hack, should move spawning of async writes here where we control the lifetime.
+        let result = self.storage.write_async(transaction, self.storage.clone());
         for col in DBCol::iter() {
             let flushed = keys_flushed[col];
             if flushed != 0 {
