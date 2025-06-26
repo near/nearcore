@@ -236,6 +236,9 @@ pub trait Database: Sync + Send {
 
     /// Atomically apply all operations in given batch at once.
     fn write(&self, batch: DBTransaction) -> io::Result<()>;
+    fn write_async(&self, batch: DBTransaction, _db_clone: Arc<dyn Database>) -> io::Result<()> {
+        self.write(batch)
+    }
 
     /// Flush all in-memory data to disk.
     ///
