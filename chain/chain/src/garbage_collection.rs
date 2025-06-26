@@ -747,16 +747,6 @@ impl<'a> ChainStoreUpdate<'a> {
         gc_mode: &GCMode,
         store_update: &mut near_store::adapter::trie_store::TrieStoreUpdateAdapter<'_>,
     ) -> Result<(), Error> {
-        // let shard_uids_to_gc = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
-
-        // for shard_uid in shard_uids_to_gc {
-        // let trie_changes_key = get_block_shard_uid(&block_hash, &shard_uid);
-        // let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key)?;
-
-        // let Some(trie_changes) = trie_changes else {
-        //     continue;
-        // };
-
         // Technically we should only need to iterate over the shard uids in the
         // current shard layout. However during resharding we write trie changes at
         // the resharding block, using the children shard uids that are not present
@@ -766,14 +756,8 @@ impl<'a> ChainStoreUpdate<'a> {
         for key_and_trie_changes in
             self.store().iter_prefix_ser::<TrieChanges>(DBCol::TrieChanges, block_hash.as_ref())
         {
-            // Assert that the key consists of BlockHash and ShardUId.
-            // debug_assert_eq!(
-            //     DBCol::TrieChanges.key_type(),
-            //     &[DBKeyType::BlockHash, DBKeyType::ShardUId]
-            // );
-
-            let (key, trie_changes) = key_and_trie_changes?;
-            let block_hash_and_shard_uid = get_block_shard_uid_rev(&key);
+            let (trie_changes_key, trie_changes) = key_and_trie_changes?;
+            let block_hash_and_shard_uid = get_block_shard_uid_rev(&trie_changes_key);
             let block_hash_and_shard_uid = block_hash_and_shard_uid.map_err(|err| {
                 Error::StorageError(near_store::StorageError::StorageInconsistentState(format!(
                     "Failed to parse block hash and shard uid: {err}"
@@ -795,7 +779,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
             }
 
-            self.gc_col(DBCol::TrieChanges, &key);
+            self.gc_col(DBCol::TrieChanges, &trie_changes_key);
         }
         Ok(())
     }

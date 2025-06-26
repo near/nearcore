@@ -233,7 +233,11 @@ impl ReshardingManager {
             // Save the child shard's trie change in the store. It is needed by
             // the cold store and garbage collection. Warning: the changes are
             // stored under the child shard's shard uid which does not exist at
-            // the resharding block. This requires special handling.
+            // the resharding block. This requires special handling when reading
+            // TrieChanges. In particular it's not sufficient to read trie
+            // changes for the shard uids of the current shard layout. The
+            // better practice is to ready trie changes by iter prefix using the
+            // block hash as the prefix.
             store_update.trie_store_update().set_trie_changes(
                 *new_shard_uid,
                 block_hash,
