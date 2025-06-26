@@ -438,6 +438,7 @@ impl Client {
     pub fn remove_transactions_for_block(&mut self, block: &Block) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
         for chunk_header in block.chunks().iter_new() {
+            // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
             let shard_id = chunk_header.shard_id();
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
             if self
@@ -460,6 +461,7 @@ impl Client {
         let config = self.runtime_adapter.get_runtime_config(protocol_version);
 
         for chunk_header in block.chunks().iter_new() {
+            // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
             let shard_id = chunk_header.shard_id();
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
             if self

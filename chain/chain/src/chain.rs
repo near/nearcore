@@ -718,8 +718,11 @@ impl Chain {
         genesis_block: &Block,
         block: &Block,
     ) -> Result<(), Error> {
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+
         for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_id = chunk_header.shard_id();
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
             if chunk_header.is_genesis() {
                 // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
                 // We must verify that content matches and signature is empty.
@@ -1063,9 +1066,11 @@ impl Chain {
             return Ok(());
         }
         let mut missing = vec![];
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         // Check for invalid chunks (all chunks)
         for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_id = chunk_header.shard_id();
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
             // Check if any chunks are invalid in this block.
             if let Some(encoded_chunk) =
                 self.chain_store.is_invalid_chunk(&chunk_header.chunk_hash())?
@@ -1084,8 +1089,8 @@ impl Chain {
             }
         }
         // Only new chunks for missing logic
-        for chunk_header in block.chunks().iter_new() {
-            let shard_id = chunk_header.shard_id();
+        for (shard_index, chunk_header) in block.chunks().iter_new().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
             let chunk_hash = chunk_header.chunk_hash();
             if let Err(_) = self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()) {
                 missing.push(chunk_header.clone());
