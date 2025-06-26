@@ -116,19 +116,13 @@ impl TrieIterationBenchmarkCmd {
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis_config, None);
         let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            if chunk_header.height_included() != block.header().height() {
-                println!("chunk for shard {shard_id} is missing and will be skipped");
-            }
+        for chunk_header in block.chunks().iter_old() {
+            let shard_id = chunk_header.shard_id();
+            println!("chunk for shard {shard_id} is missing and will be skipped");
         }
 
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            if chunk_header.height_included() != block.header().height() {
-                println!("chunk for shard {shard_id} is missing, skipping it");
-                continue;
-            }
+        for chunk_header in block.chunks().iter_new() {
+            let shard_id = chunk_header.shard_id();
             let trie = self.get_trie(shard_id, &shard_layout, &chunk_header, &store);
 
             println!("shard id    {shard_id:#?} benchmark starting");

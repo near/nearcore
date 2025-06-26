@@ -8,10 +8,8 @@ use near_primitives::{
 pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
     let chunk_headers = vec![prev_block.chunks()[0].clone()];
     let mut balance_burnt = 0;
-    for chunk in block.chunks().iter_deprecated() {
-        if chunk.height_included() == block.header().height() {
-            balance_burnt += chunk.prev_balance_burnt();
-        }
+    for chunk in block.chunks().iter_new() {
+        balance_burnt += chunk.prev_balance_burnt();
     }
     block.set_chunks(chunk_headers.clone());
     block.set_chunk_endorsements(vec![vec![]; chunk_headers.len()]);

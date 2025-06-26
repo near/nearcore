@@ -730,7 +730,7 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             if chunk_header.is_genesis() {
                 // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
@@ -759,7 +759,7 @@ impl Chain {
                         chunk_header.signature()
                     )));
                 }
-            } else if chunk_header.is_new_chunk(block.header().height()) {
+            } else if chunk_header.is_new_chunk() {
                 if chunk_header.shard_id() != shard_id {
                     return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
@@ -1021,7 +1021,7 @@ impl Chain {
     fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
         let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(prev_block)?;
         for (chunk_header, prev_chunk_header) in
-            block.chunks().iter_deprecated().zip(prev_chunk_headers.iter())
+            block.chunks().iter().zip(prev_chunk_headers.iter())
         {
             if chunk_header.height_included() == block.header().height() {
                 // new chunk
@@ -1035,7 +1035,7 @@ impl Chain {
                 }
             } else {
                 // old chunk
-                if prev_chunk_header != chunk_header {
+                if prev_chunk_header != &*chunk_header {
                     return Err(Error::InvalidChunk(format!(
                         "Invalid chunk header, prev chunk hash {:?}, chunk hash {:?}",
                         prev_chunk_header.chunk_hash(),
@@ -1046,11 +1046,9 @@ impl Chain {
         }
 
         // Verify that proposals from chunks match block header proposals.
-        let block_height = block.header().height();
         for pair in block
             .chunks()
-            .iter_deprecated()
-            .filter(|chunk| chunk.is_new_chunk(block_height))
+            .iter_new()
             .flat_map(|chunk| chunk.prev_validator_proposals())
             .zip_longest(block.header().prev_validator_proposals())
         {
@@ -1082,12 +1080,10 @@ impl Chain {
             return Ok(());
         }
         let mut missing = vec![];
-        let block_height = block.header().height();
-
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
+        // Check for invalid chunks (all chunks)
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             // Check if any chunks are invalid in this block.
             if let Some(encoded_chunk) =
@@ -1105,18 +1101,19 @@ impl Chain {
                 };
                 return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
             }
-            if chunk_header.is_new_chunk(block_height) {
-                let chunk_hash = chunk_header.chunk_hash();
-
-                if let Err(_) = self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()) {
+        }
+        // Only new chunks for missing logic
+        for (shard_index, chunk_header) in block.chunks().iter_new().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
+            let chunk_hash = chunk_header.chunk_hash();
+            if let Err(_) = self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()) {
+                missing.push(chunk_header.clone());
+            } else if self
+                .shard_tracker
+                .cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
+            {
+                if let Err(_) = self.chain_store.get_chunk(&chunk_hash) {
                     missing.push(chunk_header.clone());
-                } else if self
-                    .shard_tracker
-                    .cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
-                {
-                    if let Err(_) = self.chain_store.get_chunk(&chunk_hash) {
-                        missing.push(chunk_header.clone());
-                    }
                 }
             }
         }

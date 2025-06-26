@@ -46,9 +46,7 @@ pub fn validate_chunk_endorsements_in_block(
 
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-    for (chunk_header, signatures) in
-        block.chunks().iter_deprecated().zip(block.chunk_endorsements())
-    {
+    for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
         // For old chunks, we optimize the block by not including the chunk endorsements.
         if chunk_header.height_included() != block.header().height() {
             if !signatures.is_empty() {
