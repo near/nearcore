@@ -19,9 +19,10 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
+use parking_lot::RwLock;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::{Arc, LazyLock};
 use wasmtime::{Engine, ExternType, Instance, Linker, Memory, MemoryType, Module, Store, Strategy};
 
 const GUEST_PAGE_SIZE: usize = 1 << 16;
@@ -196,17 +197,13 @@ impl WasmtimeVM {
         static VMS: LazyLock<RwLock<HashMap<Arc<Config>, WasmtimeVM>>> =
             LazyLock::new(RwLock::default);
         {
-            if let Some(vm) = VMS.read().expect("failed to read-lock VM pool").get(&config) {
+            if let Some(vm) = VMS.read().get(&config) {
                 return vm.clone();
             }
         }
         let engine = Engine::new(&default_wasmtime_config(&config))
             .expect("failed to construct Wasmtime engine");
-        VMS.write()
-            .expect("failed to write-lock VM pool")
-            .entry(Arc::clone(&config))
-            .or_insert(Self { config, engine })
-            .clone()
+        VMS.write().entry(Arc::clone(&config)).or_insert(Self { config, engine }).clone()
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
