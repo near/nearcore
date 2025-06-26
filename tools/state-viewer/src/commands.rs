@@ -755,6 +755,7 @@ pub(crate) fn view_chain(
     let mut chunk_extras = vec![];
     let mut chunks = vec![];
     for chunk_header in block.chunks().iter_new() {
+        // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
         let shard_id = chunk_header.shard_id();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone();
