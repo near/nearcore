@@ -57,6 +57,7 @@ struct TrieStateReshardingStatus {
     right: Option<TrieStateReshardingChildStatus>,
     boundary_account: AccountId,
     resharding_block_height: BlockHeight,
+    resharding_block_hash: CryptoHash,
     parent_state_root: CryptoHash,
 }
 
@@ -67,6 +68,7 @@ impl TrieStateReshardingStatus {
         right: Option<TrieStateReshardingChildStatus>,
         boundary_account: AccountId,
         resharding_block_height: BlockHeight,
+        resharding_block_hash: CryptoHash,
         parent_state_root: CryptoHash,
     ) -> Self {
         Self {
@@ -75,6 +77,7 @@ impl TrieStateReshardingStatus {
             right,
             boundary_account,
             resharding_block_height,
+            resharding_block_hash,
             parent_state_root,
         }
     }
@@ -160,6 +163,7 @@ impl TrieStateResharder {
             child.next_key.clone(),
             &mut store_update.trie_store_update(),
             expect_memtries,
+            &status.resharding_block_hash,
         )?;
 
         if let Some(metrics) = &child.metrics {
@@ -194,6 +198,7 @@ impl TrieStateResharder {
         seek_key: Option<Vec<u8>>,
         store_update: &mut TrieStoreUpdateAdapter,
         expect_memtries: bool,
+        block_hash: &CryptoHash,
     ) -> Result<Option<Vec<u8>>, StorageError> {
         let tries = self.runtime.get_tries();
         let trie =
@@ -233,10 +238,28 @@ impl TrieStateResharder {
             next_key
         };
 
-        // Take the recorded trie changes and apply them to the State column of the child shard.
-        let trie_changes =
-            trie.recorded_trie_changes(state_root).expect("trie changes should be available");
+        // Take the recorded trie changes and apply them to the State column of
+        // the child shard.
+        let trie_changes = trie.recorded_trie_changes(state_root);
+        let trie_changes = trie_changes.expect("trie changes should be available");
         tries.apply_all(&trie_changes, child_shard_uid, store_update);
+
+        // Save the child shard's trie changes in the store. It is needed by the
+        // cold store. The trie changes are stripped of deletions because the
+        // garbage collection should not remove any nodes due to resharding.
+        //
+        // Warning: the changes are stored under the child shard's shard uid
+        // which does not exist at the resharding block. This requires special
+        // handling when reading TrieChanges. In particular it's not sufficient
+        // to read trie changes for the shard uids of the current shard layout.
+        // The better practice is to read trie changes by iter prefix using the
+        // block hash as the prefix.
+        store_update.trie_store_update().set_trie_changes(
+            child_shard_uid,
+            &block_hash,
+            &trie_changes.without_deletions(),
+        );
+
         Ok(next_key)
     }
 
@@ -306,6 +329,7 @@ impl TrieStateResharder {
             right_child,
             event.boundary_account.clone(),
             event.resharding_block.height,
+            event.resharding_block.hash,
             parent_state_root,
         );
 
@@ -546,6 +570,7 @@ mod tests {
         right_root: CryptoHash,
         boundary_account: AccountId,
         resharding_block_height: BlockHeight,
+        resharding_block_hash: CryptoHash,
     }
 
     impl TestSetup {
@@ -556,6 +581,7 @@ mod tests {
                 Some(TrieStateReshardingChildStatus::new(self.right_shard, self.right_root)),
                 self.boundary_account.clone(),
                 self.resharding_block_height,
+                self.resharding_block_hash,
                 self.parent_root,
             )
         }
@@ -624,6 +650,7 @@ mod tests {
         assert_eq!(2, children.len());
 
         let block_height = 1;
+        let block_hash = CryptoHash::default();
         let parent_trie = tries.get_trie_for_shard(parent_shard, parent_root);
         let (left_shard, right_shard) = (children[0], children[1]);
 
@@ -710,6 +737,7 @@ mod tests {
             right_root,
             boundary_account,
             resharding_block_height: block_height,
+            resharding_block_hash: block_hash,
         }
     }
 

@@ -497,6 +497,17 @@ impl TrieChanges {
     pub fn deletions(&self) -> &[TrieRefcountSubtraction] {
         self.deletions.as_slice()
     }
+
+    pub fn without_deletions(self) -> Self {
+        TrieChanges {
+            old_root: self.old_root,
+            new_root: self.new_root,
+            insertions: self.insertions,
+            deletions: vec![],
+            memtrie_changes: self.memtrie_changes,
+            children_memtrie_changes: self.children_memtrie_changes,
+        }
+    }
 }
 
 /// Result of applying state part to Trie.
