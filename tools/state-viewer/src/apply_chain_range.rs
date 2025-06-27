@@ -94,7 +94,7 @@ fn apply_block_from_range(
     let epoch_id = block.header().epoch_id();
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id).unwrap();
     let shard_index = shard_id_to_index(epoch_manager, shard_id, epoch_id).unwrap();
-    assert!(block.chunks().len() > 0);
+    assert!(!block.chunks().is_empty());
     let mut existing_chunk_extra = None;
     let mut prev_chunk_extra = None;
     let mut num_tx = 0;

@@ -403,10 +403,6 @@ impl PeerActor {
         return PeerMessage::deserialize(Encoding::Borsh, msg);
     }
 
-    fn send_message_or_log(&self, msg: &PeerMessage) {
-        self.send_message(msg);
-    }
-
     fn send_message(&self, msg: &PeerMessage) {
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) = (&self.peer_status, msg) {
             conn.last_time_peer_requested.store(Some(self.clock.now()));
@@ -498,7 +494,7 @@ impl PeerActor {
             tcp::Tier::T2 => PeerMessage::Tier2Handshake(handshake),
             tcp::Tier::T3 => PeerMessage::Tier3Handshake(handshake),
         };
-        self.send_message_or_log(&msg);
+        self.send_message(&msg);
     }
 
     fn stop(&mut self, ctx: &mut actix::Context<PeerActor>, reason: ClosingReason) {
@@ -569,7 +565,7 @@ impl PeerActor {
                         target: "network",
                         version = handshake.protocol_version,
                         "Received connection from node with unsupported PROTOCOL_VERSION.");
-                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                    self.send_message(&PeerMessage::HandshakeFailure(
                         self.my_node_info.clone(),
                         HandshakeFailureReason::ProtocolVersionMismatch {
                             version: PROTOCOL_VERSION,
@@ -581,7 +577,7 @@ impl PeerActor {
                 let genesis_id = self.network_state.genesis_id.clone();
                 if handshake.sender_chain_info.genesis_id != genesis_id {
                     tracing::debug!(target: "network", "Received connection from node with different genesis.");
-                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                    self.send_message(&PeerMessage::HandshakeFailure(
                         self.my_node_info.clone(),
                         HandshakeFailureReason::GenesisMismatch(genesis_id),
                     ));
@@ -589,7 +585,7 @@ impl PeerActor {
                 }
                 if handshake.target_peer_id != self.my_node_info.id {
                     tracing::debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.sender_peer_id, handshake.target_peer_id, self.my_node_info.id);
-                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                    self.send_message(&PeerMessage::HandshakeFailure(
                         self.my_node_info.clone(),
                         HandshakeFailureReason::InvalidTarget,
                     ));
@@ -609,7 +605,7 @@ impl PeerActor {
                 {
                     if last_edge.nonce() >= handshake.partial_edge_info.nonce {
                         tracing::debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
-                        self.send_message_or_log(&PeerMessage::LastEdge(last_edge.clone()));
+                        self.send_message(&PeerMessage::LastEdge(last_edge.clone()));
                         return;
                     }
                 }
@@ -862,7 +858,7 @@ impl PeerActor {
             metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
         }
         let known_accounts = self.network_state.account_announcements.get_announcements();
-        self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
+        self.send_message(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
             known_edges,
             known_accounts,
         )));
@@ -871,7 +867,7 @@ impl PeerActor {
     // Send all known snapshot hosts.
     fn sync_snapshot_hosts(&self) {
         let hosts = self.network_state.snapshot_hosts.get_hosts();
-        self.send_message_or_log(&PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts }));
+        self.send_message(&PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts }));
     }
 
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
@@ -1138,7 +1134,7 @@ impl PeerActor {
             |res, act: &mut PeerActor, ctx| {
                 match res {
                     // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
-                    Ok(Some(resp)) => act.send_message_or_log(&resp),
+                    Ok(Some(resp)) => act.send_message(&resp),
                     Ok(None) => {}
                     Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
                 }
@@ -1207,7 +1203,7 @@ impl PeerActor {
 
                 if !peers.is_empty() || !direct_peers.is_empty() {
                     tracing::debug!(target: "network", "Peers request from {}: sending {} peers and {} direct peers.", self.peer_info, peers.len(), direct_peers.len());
-                    self.send_message_or_log(&PeerMessage::PeersResponse(PeersResponse {
+                    self.send_message(&PeerMessage::PeersResponse(PeersResponse {
                         peers,
                         direct_peers,
                     }));
@@ -1319,7 +1315,7 @@ impl PeerActor {
                 // In case a full sync is requested, immediately send what we got.
                 // It is a micro optimization: we do not send back the data we just received.
                 if msg.requesting_full_sync {
-                    self.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData {
+                    self.send_message(&PeerMessage::SyncAccountsData(SyncAccountsData {
                         requesting_full_sync: false,
                         incremental: false,
                         accounts_data: network_state
@@ -1600,7 +1596,7 @@ impl actix::Actor for PeerActor {
                 let remove_from_connection_store =
                     self.peer_type == PeerType::Inbound && reason.remove_from_connection_store();
 
-                self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
+                self.send_message(&PeerMessage::Disconnect(Disconnect {
                     remove_from_connection_store,
                 }));
             }
@@ -1767,7 +1763,7 @@ impl actix::Handler<WithSpanContext<SendMessage>> for PeerActor {
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
         let (_span, msg) = handler_debug_span!(target: "network", msg);
-        self.send_message_or_log(&msg.message);
+        self.send_message(&msg.message);
     }
 }
 
