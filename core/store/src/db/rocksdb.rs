@@ -933,9 +933,17 @@ impl Drop for RocksDB {
             self.write_tracker.wait_for_all_column_writes();
             for col in DBCol::iter() {
                 if self.cleared_columns.get(&col).is_some() {
+                    warn!(target: "store::db::rocksdb", "Column family {col} was cleared, skipping flush.");
                     continue;
                 }
-                self.db.flush_cf(self.cf_handle(col).unwrap()).map_err(io::Error::other).unwrap();
+                if let Ok(handle) = self.cf_handle(col) {
+                    if let Err(e) = self.db.flush_cf(handle).map_err(io::Error::other) {
+                        warn!(target: "store::db::rocksdb", "Failed to flush column family {col}: {e}");
+                    }
+                } else {
+                    warn!(target: "store::db::rocksdb", "Column family {col} was not cleared, but it is not present in the database.");
+                    continue;
+                }
             }
         }
         self.db.cancel_all_background_work(true);
