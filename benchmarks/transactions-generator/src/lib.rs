@@ -374,7 +374,7 @@ impl TxGenerator {
         let _ = tokio::time::timeout(duration, ld).await;
     }
 
-    async fn run_load(
+async fn run_load(
         client_sender: ClientSender,
         accounts: Arc<Vec<Account>>,
         load: Load,
@@ -402,8 +402,55 @@ impl TxGenerator {
         tasks.join_all().await;
     }
 
-    async fn run_controlled_loop() {
+    /// return channel with total tx rate updates
+    async fn start_controller_loop(
+        controller: FilteredRateController,
+        initial_rate: u64,
+        mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+    )-> tokio::sync::watch::Receiver<f64>
+    {
+        let rate = initial_rate as f64;
+        let (tx_tps_updates, rx_tps_updates) = tokio::sync::watch::channel(rate);
 
+        let _ = rx_block.wait_for(|(hash, _)| *hash != CryptoHash::default()).await.is_ok();
+        let (_, height) = *rx_block.borrow_and_update();
+        controller.register(height);
+        
+        tokio::spawn( async move {
+            loop {
+                tokio::select! {
+                    _ = rx_block.changed() => {
+                        (_, height) = *rx_block.borrow_and_update();
+                        if let Some(rate_change) = controller.register(height) {
+                            rate += rate_change;
+                            tx_tps_updates.send(rate).unwrap();
+                        }
+                    }
+                } 
+            }               
+        });
+        
+        rx_tps_updates
+    }
+
+    async fn run_controlled_loop(
+        client_sender: ClientSender,
+        accounts: Arc<Vec<Account>>,
+        mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+        stats: Arc<Stats>,
+    ) {
+        tracing::info!(target: "transaction-generator", "starting the controlled loop");
+
+        const TASK_COUNT: u64 = 4;
+        for _ in 0..TASK_COUNT {
+            tokio::spawn(Self::controlled_loop_task(
+                client_sender.clone(),
+                Arc::clone(&accounts),
+                rx_block.clone(),
+                
+                Arc::clone(&stats),
+            );
+        }
     }
 
     async fn controlled_loop_task(
@@ -413,8 +460,6 @@ impl TxGenerator {
         mut tx_rates: tokio::sync::watch::Receiver<u64>,
         stats: Arc<Stats>,
     ) {
-        tracing::info!(target: "transaction-generator", "starting the controlled loop");
-
         let mut rnd: StdRng = SeedableRng::from_entropy();
 
         let _ = rx_block.wait_for(|(hash, _)| *hash != CryptoHash::default()).await.is_ok();
