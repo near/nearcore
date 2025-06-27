@@ -1849,14 +1849,16 @@ impl<'a> ChainStoreUpdate<'a> {
                     }
                 };
 
-                // Increase transaction refcounts for all included txs
-                for tx in chunk.to_transactions() {
-                    let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
-                    store_update.increment_refcount(
-                        DBCol::Transactions,
-                        tx.get_hash().as_ref(),
-                        &bytes,
-                    );
+                if self.chain_store.save_tx_outcomes {
+                    // Increase transaction refcounts for all included txs
+                    for tx in chunk.to_transactions() {
+                        let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
+                        store_update.increment_refcount(
+                            DBCol::Transactions,
+                            tx.get_hash().as_ref(),
+                            &bytes,
+                        );
+                    }
                 }
 
                 store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
