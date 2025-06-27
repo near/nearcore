@@ -23,7 +23,6 @@ near-chain-primitives.workspace = true
 near-chain-configs.workspace = true
 near-chunks-primitives.workspace = true
 near-crypto.workspace = true
-near-o11y.workspace = true
 near-primitives.workspace = true
 
 [features]

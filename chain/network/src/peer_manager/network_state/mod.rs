@@ -1,7 +1,7 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApprovalInner, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
+    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
     TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
@@ -727,10 +727,7 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
-                self.client
-                    .send_async(BlockApprovalInner(approval, prev_hop).span_wrap())
-                    .await
-                    .ok();
+                self.client.send_async(BlockApproval(approval, prev_hop).span_wrap()).await.ok();
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {

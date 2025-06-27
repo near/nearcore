@@ -9,7 +9,7 @@ use near_async::messaging::CanSend;
 use near_async::time::Instant;
 use near_cache::SyncLruCache;
 use near_chain::Error;
-use near_chain::chain::ChunkStateWitnessMessageInner;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::hash::CryptoHash;
@@ -513,7 +513,7 @@ impl PartialEncodedStateWitnessTracker {
             )
             .entered();
             self.client_sender
-                .send(ChunkStateWitnessMessageInner { witness, raw_witness_size }.span_wrap());
+                .send(ChunkStateWitnessMessage { witness, raw_witness_size }.span_wrap());
 
             total_size
         } else {

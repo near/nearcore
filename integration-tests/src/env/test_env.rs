@@ -8,7 +8,7 @@ use near_chain::stateless_validation::processing_tracker::{
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig};
-use near_chunks::client::ShardsManagerResponseInner;
+use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandler};
 use near_crypto::{InMemorySigner, Signer};
@@ -336,13 +336,13 @@ impl TestEnv {
         let mut any_processed = false;
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg.span_unwrap() {
-                ShardsManagerResponseInner::ChunkCompleted { partial_chunk, shard_chunk } => {
+                ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
                     self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
                 }
-                ShardsManagerResponseInner::InvalidChunk(encoded_chunk) => {
+                ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);
                 }
-                ShardsManagerResponseInner::ChunkHeaderReadyForInclusion {
+                ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                     chunk_header,
                     chunk_producer,
                 } => {

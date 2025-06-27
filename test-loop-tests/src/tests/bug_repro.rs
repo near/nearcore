@@ -11,7 +11,7 @@ use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::ProcessTxRequest;
 use near_crypto::InMemorySigner;
-use near_network::client::{BlockApprovalInner, BlockResponseInner};
+use near_network::client::{BlockApproval, BlockResponse};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
@@ -77,7 +77,7 @@ fn slow_test_repro_1183() {
                 if let Some(last_block) = last_block.clone() {
                     for node in &node_datas {
                         node.client_sender.send(
-                            BlockResponseInner {
+                            BlockResponse {
                                 block: last_block.clone(),
                                 peer_id: peer_id.clone(),
                                 was_requested: false,
@@ -225,7 +225,7 @@ fn slow_test_sync_from_archival_node() {
                         for (i, sender) in client_senders.iter().enumerate() {
                             if i != 3 {
                                 sender.send(
-                                    BlockResponseInner {
+                                    BlockResponse {
                                         block: block.clone(),
                                         peer_id: peer_id.clone(),
                                         was_requested: false,
@@ -243,7 +243,7 @@ fn slow_test_sync_from_archival_node() {
                         for (i, sender) in client_senders.iter().enumerate() {
                             if i != 3 {
                                 sender.send(
-                                    BlockApprovalInner(
+                                    BlockApproval(
                                         approval_message.approval.clone(),
                                         peer_id.clone(),
                                     )
@@ -261,12 +261,8 @@ fn slow_test_sync_from_archival_node() {
                 }
                 for (_, block) in blocks.write().drain() {
                     client_senders[3].send(
-                        BlockResponseInner {
-                            block,
-                            peer_id: peer_id.clone(),
-                            was_requested: false,
-                        }
-                        .span_wrap(),
+                        BlockResponse { block, peer_id: peer_id.clone(), was_requested: false }
+                            .span_wrap(),
                     );
                 }
                 match &request {

@@ -58,7 +58,7 @@ async fn check_network_identifier(
 
     let status = client_addr
         .send(
-            near_client::StatusInner { is_health_check: false, detailed: false }
+            near_client::Status { is_health_check: false, detailed: false }
                 .span_wrap()
                 .with_span_context(),
         )
@@ -85,7 +85,7 @@ async fn network_list(
 ) -> Result<Json<models::NetworkListResponse>, models::Error> {
     let status = client_addr
         .send(
-            near_client::StatusInner { is_health_check: false, detailed: false }
+            near_client::Status { is_health_check: false, detailed: false }
                 .span_wrap()
                 .with_span_context(),
         )
@@ -116,7 +116,7 @@ async fn network_status(
     let status = check_network_identifier(&client_addr, network_identifier).await?;
 
     let (network_info, earliest_block) = tokio::try_join!(
-        client_addr.send(near_client::GetNetworkInfoInner {}.span_wrap().with_span_context()),
+        client_addr.send(near_client::GetNetworkInfo {}.span_wrap().with_span_context()),
         view_client_addr.send(
             near_client::GetBlock(near_primitives::types::BlockReference::SyncCheckpoint(
                 near_primitives::types::SyncCheckpoint::EarliestAvailable

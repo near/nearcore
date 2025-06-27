@@ -15,7 +15,7 @@ use std::collections::HashMap;
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
 #[allow(clippy::large_enum_variant)]
-pub enum ShardsManagerResponseInner {
+pub enum ShardsManagerResponse {
     /// Notifies the client that the ShardsManager has collected a complete chunk.
     /// Note that this does NOT mean that the chunk is fully constructed. If we are
     /// not tracking the shard this chunk is in, then being complete only means that
@@ -33,7 +33,8 @@ pub enum ShardsManagerResponseInner {
     ChunkHeaderReadyForInclusion { chunk_header: ShardChunkHeader, chunk_producer: AccountId },
 }
 
-pub type ShardsManagerResponse = SpanWrapped<ShardsManagerResponseInner>;
+pub(crate) type ShardsManagerResponseSender =
+    near_async::messaging::Sender<SpanWrapped<ShardsManagerResponse>>;
 
 pub struct ShardedTransactionPool {
     tx_pools: HashMap<ShardUId, TransactionPool>,

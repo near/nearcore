@@ -22,7 +22,7 @@ pub(crate) async fn fetch_status(
     tracing::debug!(target: INDEXER, "Fetching status");
     client
         .send(
-            near_client::StatusInner { is_health_check: false, detailed: false }
+            near_client::Status { is_health_check: false, detailed: false }
                 .span_wrap()
                 .with_span_context(),
         )

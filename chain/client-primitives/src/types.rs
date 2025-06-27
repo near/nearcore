@@ -1,6 +1,5 @@
 use actix::Message;
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
-use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
@@ -457,13 +456,11 @@ pub enum QueryError {
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "Result<StatusResponse, StatusError>")]
-pub struct StatusInner {
+pub struct Status {
     pub is_health_check: bool,
     // If true - return more detailed information about the current status (recent blocks etc).
     pub detailed: bool,
 }
-
-pub type Status = SpanWrapped<StatusInner>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StatusError {
@@ -551,9 +548,7 @@ impl Message for GetNextLightClientBlock {
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "Result<NetworkInfoResponse, String>")]
-pub struct GetNetworkInfoInner {}
-
-pub type GetNetworkInfo = SpanWrapped<GetNetworkInfoInner>;
+pub struct GetNetworkInfo {}
 
 #[derive(Debug)]
 pub struct GetGasPrice {
@@ -993,9 +988,7 @@ impl From<near_chain_primitives::Error> for GetMaintenanceWindowsError {
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "Result<ClientConfig, GetClientConfigError>")]
-pub struct GetClientConfigInner {}
-
-pub type GetClientConfig = SpanWrapped<GetClientConfigInner>;
+pub struct GetClientConfig {}
 
 #[derive(thiserror::Error, Debug)]
 pub enum GetClientConfigError {

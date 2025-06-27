@@ -36,19 +36,15 @@ pub struct BlockRequest(pub CryptoHash);
 /// Block response.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct BlockResponseInner {
+pub struct BlockResponse {
     pub block: Arc<Block>,
     pub peer_id: PeerId,
     pub was_requested: bool,
 }
 
-pub type BlockResponse = SpanWrapped<BlockResponseInner>;
-
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct BlockApprovalInner(pub Approval, pub PeerId);
-
-pub type BlockApproval = SpanWrapped<BlockApprovalInner>;
+pub struct BlockApproval(pub Approval, pub PeerId);
 
 /// Request headers.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
@@ -58,9 +54,7 @@ pub struct BlockHeadersRequest(pub Vec<CryptoHash>);
 /// Headers response.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "Result<(),ReasonForBan>")]
-pub struct BlockHeadersResponseInner(pub Vec<Arc<BlockHeader>>, pub PeerId);
-
-pub type BlockHeadersResponse = SpanWrapped<BlockHeadersResponseInner>;
+pub struct BlockHeadersResponse(pub Vec<Arc<BlockHeader>>, pub PeerId);
 
 /// State request header.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
@@ -86,18 +80,14 @@ pub struct StateResponse(pub Box<StateResponseInfo>);
 /// Response to state request.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct StateResponseReceivedInner {
+pub struct StateResponseReceived {
     pub peer_id: PeerId,
     pub state_response_info: Box<StateResponseInfo>,
 }
 
-pub type StateResponseReceived = SpanWrapped<StateResponseReceivedInner>;
-
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct SetNetworkInfoInner(pub NetworkInfo);
-
-pub type SetNetworkInfo = SpanWrapped<SetNetworkInfoInner>;
+pub struct SetNetworkInfo(pub NetworkInfo);
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "ProcessTxResponse")]
@@ -148,12 +138,10 @@ pub struct EpochSyncResponseMessage {
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct OptimisticBlockMessageInner {
+pub struct OptimisticBlockMessage {
     pub optimistic_block: OptimisticBlock,
     pub from_peer: PeerId,
 }
-
-pub type OptimisticBlockMessage = SpanWrapped<OptimisticBlockMessageInner>;
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
@@ -164,17 +152,17 @@ pub struct ClientSenderForNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
     pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
-    pub state_response: AsyncSender<StateResponseReceived, ()>,
-    pub block_approval: AsyncSender<BlockApproval, ()>,
+    pub state_response: AsyncSender<SpanWrapped<StateResponseReceived>, ()>,
+    pub block_approval: AsyncSender<SpanWrapped<BlockApproval>, ()>,
     pub block_request: AsyncSender<BlockRequest, Option<Arc<Block>>>,
     pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>>,
-    pub block: AsyncSender<BlockResponse, ()>,
-    pub block_headers: AsyncSender<BlockHeadersResponse, Result<(), ReasonForBan>>,
-    pub network_info: AsyncSender<SetNetworkInfo, ()>,
+    pub block: AsyncSender<SpanWrapped<BlockResponse>, ()>,
+    pub block_headers: AsyncSender<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>>,
+    pub network_info: AsyncSender<SpanWrapped<SetNetworkInfo>, ()>,
     pub announce_account:
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
-    pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
+    pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
 }

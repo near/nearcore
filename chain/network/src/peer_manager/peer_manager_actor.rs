@@ -1,6 +1,4 @@
-use crate::client::{
-    ClientSenderForNetwork, SetNetworkInfoInner, StateRequestHeader, StateRequestPart,
-};
+use crate::client::{ClientSenderForNetwork, SetNetworkInfo, StateRequestHeader, StateRequestPart};
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol;
@@ -756,7 +754,7 @@ impl PeerManagerActor {
         let state = self.state.clone();
         ctx.spawn(wrap_future(
             async move {
-                state.client.send_async(SetNetworkInfoInner(network_info).span_wrap()).await.ok();
+                state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await.ok();
             }
             .instrument(
                 tracing::trace_span!(target: "network", "push_network_info_trigger_future"),

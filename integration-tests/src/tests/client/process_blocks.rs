@@ -20,7 +20,7 @@ use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE};
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
-use near_network::client::{BlockApprovalInner, BlockResponseInner, SetNetworkInfoInner};
+use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::{MockPeerManagerAdapter, wait_or_panic};
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
@@ -163,7 +163,7 @@ fn receive_network_block() {
                 None,
             );
             actor_handles.client_actor.do_send(
-                BlockResponseInner {
+                BlockResponse {
                     block: block.into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: false,
@@ -256,7 +256,7 @@ fn produce_block_with_approvals() {
                 None,
             );
             actor_handles.client_actor.do_send(
-                BlockResponseInner {
+                BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: false,
@@ -280,9 +280,7 @@ fn produce_block_with_approvals() {
                     &signer,
                 );
                 actor_handles.client_actor.do_send(
-                    BlockApprovalInner(approval, PeerInfo::random().id)
-                        .span_wrap()
-                        .with_span_context(),
+                    BlockApproval(approval, PeerInfo::random().id).span_wrap().with_span_context(),
                 );
             }
 
@@ -371,7 +369,7 @@ fn invalid_blocks_common(is_requested: bool) {
             block.mut_header().set_chunk_mask(vec![]);
             block.mut_header().init();
             actor_handles.client_actor.do_send(
-                BlockResponseInner {
+                BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
@@ -385,7 +383,7 @@ fn invalid_blocks_common(is_requested: bool) {
             block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
             block.mut_header().init();
             actor_handles.client_actor.do_send(
-                BlockResponseInner {
+                BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
@@ -411,7 +409,7 @@ fn invalid_blocks_common(is_requested: bool) {
             };
             block.set_chunks(chunks);
             actor_handles.client_actor.do_send(
-                BlockResponseInner {
+                BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
@@ -423,7 +421,7 @@ fn invalid_blocks_common(is_requested: bool) {
             // Send proper block.
             let block2 = valid_block;
             actor_handles.client_actor.do_send(
-                BlockResponseInner {
+                BlockResponse {
                     block: block2.clone().into(),
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
@@ -436,7 +434,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 block3.mut_header().set_chunk_headers_root(hash(&[1]));
                 block3.mut_header().init();
                 actor_handles.client_actor.do_send(
-                    BlockResponseInner {
+                    BlockResponse {
                         block: block3.clone().into(),
                         peer_id: PeerInfo::random().id,
                         was_requested: is_requested,
@@ -518,7 +516,7 @@ fn client_sync_headers() {
             }),
         );
         actor_handles.client_actor.do_send(
-            SetNetworkInfoInner(NetworkInfo {
+            SetNetworkInfo(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo {
                     full_peer_info: FullPeerInfo {
                         peer_info: peer_info2.clone(),

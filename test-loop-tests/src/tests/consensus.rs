@@ -12,7 +12,7 @@ use near_chain::Block;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::client_actor::ClientActorInner;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::client::{BlockApprovalInner, BlockResponseInner};
+use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::NetworkRequests;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
@@ -151,7 +151,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         if delayed_block.header().height() <= block.header().height() + 2 {
                             for (_, sender) in &handler.client_senders {
                                 sender.send(
-                                    BlockResponseInner {
+                                    BlockResponse {
                                         block: delayed_block.clone().into(),
                                         peer_id: peer_id.clone(),
                                         was_requested: true,
@@ -262,7 +262,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                             .get_block_producer(&handler.current_epoch, target_height)
                             .unwrap();
                         let sender = handler.client_senders.get(&recipient).unwrap();
-                        sender.send(BlockApprovalInner(approval, peer_id.clone()).span_wrap());
+                        sender.send(BlockApproval(approval, peer_id.clone()).span_wrap());
 
                         // Do not send the endorsement for couple block producers in each epoch
                         // This is needed because otherwise the block with enough endorsements

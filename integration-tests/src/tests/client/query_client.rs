@@ -6,9 +6,9 @@ use near_async::time::{Clock, Duration};
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, TxStatus,
 };
-use near_client_primitives::types::StatusInner;
+use near_client_primitives::types::Status;
 use near_crypto::InMemorySigner;
-use near_network::client::{BlockResponseInner, ProcessTxRequest, ProcessTxResponse};
+use near_network::client::{BlockResponse, ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
 use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
@@ -107,7 +107,7 @@ fn query_status_not_crash() {
                 actor_handles
                     .client_actor
                     .send(
-                        BlockResponseInner {
+                        BlockResponse {
                             block: next_block.into(),
                             peer_id: PeerInfo::random().id,
                             was_requested: false,
@@ -120,7 +120,7 @@ fn query_status_not_crash() {
                             actor_handles
                                 .client_actor
                                 .send(
-                                    StatusInner { is_health_check: true, detailed: false }
+                                    Status { is_health_check: true, detailed: false }
                                         .span_wrap()
                                         .with_span_context(),
                                 )

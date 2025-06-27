@@ -4408,7 +4408,6 @@ dependencies = [
  "near-chain-primitives",
  "near-chunks-primitives",
  "near-crypto",
- "near-o11y",
  "near-primitives",
  "near-time",
  "serde",
