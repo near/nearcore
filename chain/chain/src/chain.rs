@@ -50,6 +50,7 @@ use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::MutableValidatorSigner;
+use near_chain_primitives::ApplyChunksMode;
 use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -63,7 +64,7 @@ use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::{
     BlockToApply, CachedShardUpdateKey, OptimisticBlock, OptimisticBlockKeySource,
 };
@@ -125,18 +126,6 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
-
-/// apply_chunks may be called in two code paths, through process_block or through catchup_blocks
-/// When it is called through process_block, it is possible that the shard state for the next epoch
-/// has not been caught up yet, thus the two modes IsCaughtUp and NotCaughtUp.
-/// CatchingUp is for when apply_chunks is called through catchup_blocks, this is to catch up the
-/// shard states for the next epoch
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
-pub enum ApplyChunksMode {
-    IsCaughtUp,
-    CatchingUp,
-    NotCaughtUp,
-}
 
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors know that it's time to finish processing the blocks that
@@ -3112,18 +3101,7 @@ impl Chain {
         shard_id: ShardId,
         mode: ApplyChunksMode,
     ) -> Result<ShardContext, Error> {
-        let cares_about_shard_this_epoch =
-            self.shard_tracker.cares_about_shard(prev_hash, shard_id);
-        let cares_about_shard_next_epoch =
-            self.shard_tracker.will_care_about_shard(prev_hash, shard_id);
-        let cared_about_shard_prev_epoch =
-            self.shard_tracker.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
-        let should_apply_chunk = get_should_apply_chunk(
-            mode,
-            cares_about_shard_this_epoch,
-            cares_about_shard_next_epoch,
-            cared_about_shard_prev_epoch,
-        );
+        let should_apply_chunk = self.shard_tracker.should_apply_chunk(mode, prev_hash, shard_id);
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         Ok(ShardContext { shard_uid, should_apply_chunk })
     }
@@ -3357,37 +3335,6 @@ impl Chain {
 
     pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
         self.chain_store.transaction_validity_period = to;
-    }
-}
-
-/// We want to guarantee that transactions are only applied once for each shard,
-/// even though apply_chunks may be called twice, once with
-/// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
-/// that it does not guard whether the children shards are ready or not, see the
-/// comments before `need_to_reshard`
-pub fn get_should_apply_chunk(
-    mode: ApplyChunksMode,
-    cares_about_shard_this_epoch: bool,
-    cares_about_shard_next_epoch: bool,
-    cared_about_shard_prev_epoch: bool,
-) -> bool {
-    match mode {
-        // next epoch's shard states are not ready, only update this epoch's shards plus shards we will care about in the future
-        // and already have state for
-        ApplyChunksMode::NotCaughtUp => {
-            cares_about_shard_this_epoch
-                || (cares_about_shard_next_epoch && cared_about_shard_prev_epoch)
-        }
-        // update both this epoch and next epoch
-        ApplyChunksMode::IsCaughtUp => cares_about_shard_this_epoch || cares_about_shard_next_epoch,
-        // catching up next epoch's shard states, do not update this epoch's shard state
-        // since it has already been updated through ApplyChunksMode::NotCaughtUp
-        ApplyChunksMode::CatchingUp => {
-            let syncing_shard = !cares_about_shard_this_epoch
-                && cares_about_shard_next_epoch
-                && !cared_about_shard_prev_epoch;
-            syncing_shard
-        }
     }
 }
 
@@ -3689,6 +3636,27 @@ impl Chain {
             result_vec.push(hash(&bytes));
         }
         Ok(result_vec)
+    }
+
+    pub fn create_receipts_proofs_from_outgoing_receipts(
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        outgoing_receipts: Vec<Receipt>,
+    ) -> Result<(CryptoHash, Vec<ReceiptProof>), EpochError> {
+        let hashes = Self::build_receipts_hashes(&outgoing_receipts, &shard_layout)?;
+        let (root, proofs) = merklize(&hashes);
+
+        let mut receipts_by_shard =
+            Self::group_receipts_by_shard(outgoing_receipts, &shard_layout)?;
+        let mut receipt_proofs = vec![];
+        for (proof_shard_index, proof) in proofs.into_iter().enumerate() {
+            let proof_shard_id = shard_layout.get_shard_id(proof_shard_index)?;
+            let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
+            let shard_proof =
+                ShardProof { from_shard_id: shard_id, to_shard_id: proof_shard_id, proof };
+            receipt_proofs.push(ReceiptProof(receipts, shard_proof));
+        }
+        Ok((root, receipt_proofs))
     }
 }
 
