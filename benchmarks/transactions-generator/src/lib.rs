@@ -32,15 +32,26 @@ struct Load {
     duration: Duration,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct ControllerConfig {
+    target_bps: u64,
+    starting_tps: u64,
+    smoothing_exponent: u64,
+    gain_proportional: u64,
+    gain_integral: u64,
+    gain_derivative: u64,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Config {
     schedule: Vec<Load>,
+    controller: ControllerConfig,
     accounts_path: PathBuf,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { schedule: Default::default(), accounts_path: "".into() }
+        Self { schedule: Default::default(), controller: Default::default(), accounts_path: "".into() }
     }
 }
 
@@ -122,15 +133,19 @@ impl FilterRateExponentialSmoothing {
     }
 }
 
-struct TxRateController {
+struct FilteredRateController {
     controller: pid_lite::Controller,
     filter: FilterRateExponentialSmoothing,
 }
 
-impl TxRateController {
-    /// given the bps measurement returns the suggested TPS correction.
-    pub fn register(&mut self, bps_measurement: u64)-> u64 {
-        
+impl FilteredRateController {
+    /// given the latest cumulative measurement returns the suggested parameter correction.
+    pub fn register(&mut self, bps_measurement: u64)-> f64 {
+        if let Some(smoothed_rate) = self.filter.register(bps_measurement) {
+            return self.controller.update(smoothed_rate);
+        }
+
+        0.0
     }
 }
 
@@ -177,7 +192,15 @@ impl TxGenerator {
 
         let stats = Arc::new(Stats { pool_accepted: 0.into(), pool_rejected: 0.into() });
 
-        let block_rx = Self::start_block_updates(self.view_client_sender.clone());
+        let controller = FilteredRateController{
+            controller: pid_lite::Controller::new(
+                params.controller.target_bps as f64,
+                params.controller.gain_proportional as f64,
+                params.controller.gain_integral as f64,
+                params.controller.gain_derivative as f64),
+            filter: FilterRateExponentialSmoothing::new(params.controller.smoothing_exponent),
+        };
+        let block_rx = Self::start_block_updates(self.view_client_sender.clone(), controller);
 
         Self::start_transactions_loop(
             &self.params,
@@ -257,6 +280,7 @@ impl TxGenerator {
 
     fn start_block_updates(
         view_client_sender: ViewClientSender,
+        tx_rate_controller: FilteredRateController,
     ) -> tokio::sync::watch::Receiver<CryptoHash> {
         let (tx_latest_block, rx_latest_block) = tokio::sync::watch::channel(Default::default());
 
