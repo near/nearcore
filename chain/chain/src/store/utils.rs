@@ -248,7 +248,7 @@ pub fn retrieve_headers(
         None => return Ok(vec![]),
     };
 
-    if header.hash() == genesis_hash {
+    if header.hash() == genesis_hash && hashes[0] != *genesis_hash {
         return Ok(vec![]);
     }
 
