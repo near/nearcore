@@ -106,7 +106,7 @@ impl AnnounceAccountCache {
     }
 
     /// Get AnnounceAccount for the given AccountIds, that we already broadcasted.
-    pub(crate) fn get_broadcasted_announcements<'a>(
+    pub(crate) fn _get_broadcasted_announcements<'a>(
         &'a self,
         account_ids: impl Iterator<Item = &'a AccountId>,
     ) -> HashMap<AccountId, AnnounceAccount> {

@@ -405,6 +405,7 @@ pub(crate) async fn start(
 
     'main: loop {
         time::sleep(INTERVAL).await;
+        metrics::NUM_STREAMER_LOOPS.inc();
         match indexer_config.await_for_node_synced {
             AwaitForNodeSyncedEnum::WaitForFullSync => {
                 let status = fetch_status(&client).await;
