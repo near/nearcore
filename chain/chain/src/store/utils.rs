@@ -45,7 +45,7 @@ pub fn get_block_header_on_chain_by_height(
     chain_store: &ChainStoreAdapter,
     sync_hash: &CryptoHash,
     height: BlockHeight,
-) -> Result<BlockHeader, Error> {
+) -> Result<Arc<BlockHeader>, Error> {
     let mut header = chain_store.get_block_header(sync_hash)?;
     let mut hash = *sync_hash;
     while header.height() > height {
@@ -218,7 +218,7 @@ pub fn get_incoming_receipts_for_shard(
 fn find_common_header(
     chain_store: &ChainStoreAdapter,
     hashes: &[CryptoHash],
-) -> Option<BlockHeader> {
+) -> Option<Arc<BlockHeader>> {
     for hash in hashes {
         if let Ok(header) = chain_store.get_block_header(hash) {
             if let Ok(header_at_height) = chain_store.get_block_header_by_height(header.height()) {
@@ -241,7 +241,7 @@ pub fn retrieve_headers(
     hashes: Vec<CryptoHash>,
     max_headers_returned: u64,
     max_height: Option<BlockHeight>,
-) -> Result<Vec<BlockHeader>, Error> {
+) -> Result<Vec<Arc<BlockHeader>>, Error> {
     let header = match find_common_header(chain_store, &hashes) {
         Some(header) => header,
         None => return Ok(vec![]),

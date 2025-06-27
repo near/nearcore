@@ -35,8 +35,6 @@ pub struct ViewApplyState {
     pub block_height: BlockHeight,
     /// Prev block hash
     pub prev_block_hash: CryptoHash,
-    /// Currently building block hash
-    pub block_hash: CryptoHash,
     /// To which shard the applied chunk belongs.
     pub shard_id: ShardId,
     /// Current epoch id
@@ -223,7 +221,6 @@ impl TrieViewer {
             block_height: view_state.block_height,
             // Used for legacy reasons
             prev_block_hash: view_state.prev_block_hash,
-            block_hash: view_state.block_hash,
             shard_id: view_state.shard_id,
             epoch_id: view_state.epoch_id,
             epoch_height: view_state.epoch_height,
@@ -276,7 +273,6 @@ impl TrieViewer {
             account,
             empty_hash,
             view_state.epoch_id,
-            view_state.block_hash,
             view_state.block_height,
             epoch_info_provider,
             view_state.current_protocol_version,

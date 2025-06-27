@@ -25,12 +25,7 @@ fn test_pending_approvals() {
     let parent_hash = hash(&[1]);
     let approval = Approval::new(parent_hash, 0, 1, &signer);
     let peer_id = PeerId::random();
-    let client_signer = env.clients[0].validator_signer.get();
-    env.clients[0].collect_block_approval(
-        &approval,
-        ApprovalType::PeerApproval(peer_id.clone()),
-        &client_signer,
-    );
+    env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
     let approvals = env.clients[0].pending_approvals.pop(&ApprovalInner::Endorsement(parent_hash));
     let expected =
         vec![("test0".parse().unwrap(), (approval, ApprovalType::PeerApproval(peer_id)))]
@@ -52,23 +47,14 @@ fn test_invalid_approvals() {
     // Approval not from a validator. Should be dropped
     let approval = Approval::new(parent_hash, 1, 3, &signer);
     let peer_id = PeerId::random();
-    let client_signer = env.clients[0].validator_signer.get();
-    env.clients[0].collect_block_approval(
-        &approval,
-        ApprovalType::PeerApproval(peer_id.clone()),
-        &client_signer,
-    );
+    env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
     assert_eq!(env.clients[0].pending_approvals.len(), 0);
     // Approval with invalid signature. Should be dropped
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "random");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let approval = Approval::new(genesis_hash, 0, 1, &signer);
-    env.clients[0].collect_block_approval(
-        &approval,
-        ApprovalType::PeerApproval(peer_id),
-        &client_signer,
-    );
+    env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
     assert_eq!(env.clients[0].pending_approvals.len(), 0);
 }
 

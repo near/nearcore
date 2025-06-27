@@ -1,3 +1,5 @@
+use crate::env::test_env::TestEnv;
+use crate::env::test_env_builder::TestEnvBuilder;
 use assert_matches::assert_matches;
 use near_chain::test_utils::is_optimistic_block_in_processing;
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -18,9 +20,7 @@ use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::MaybeValidated;
 use near_store::ShardUId;
-
-use crate::env::test_env::TestEnv;
-use crate::env::test_env_builder::TestEnvBuilder;
+use std::sync::Arc;
 
 /// Only process one block per height
 /// Test that if a node receives two blocks at the same height, it doesn't process the second one
@@ -36,10 +36,10 @@ fn test_not_process_height_twice() {
 
     let proposals =
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
-    duplicate_block.mut_header().set_prev_validator_proposals(proposals);
-    duplicate_block.mut_header().resign(&validator_signer);
-    let dup_block_hash = *duplicate_block.hash();
-    let signer = env.clients[0].validator_signer.get();
+    let mut_block = Arc::make_mut(&mut duplicate_block);
+    mut_block.mut_header().set_prev_validator_proposals(proposals);
+    mut_block.mut_header().resign(&validator_signer);
+    let dup_block_hash = *mut_block.hash();
     // we should have dropped the block before we even tried to process it, so the result should be ok
     env.clients[0]
         .receive_block_impl(
@@ -47,7 +47,6 @@ fn test_not_process_height_twice() {
             PeerId::new(PublicKey::empty(KeyType::ED25519)),
             false,
             None,
-            &signer,
         )
         .unwrap();
     // check that the second block is not being processed
@@ -75,7 +74,6 @@ fn test_not_process_same_block_twice() {
 
     // Produce block and optimistic block at height 2. Process optimistic block.
     let signer = env.clients[0].validator_signer.get().unwrap();
-    let me = Some(signer.validator_id().clone());
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let optimistic_block = OptimisticBlock::adv_produce(
         &prev_block.header(),
@@ -88,7 +86,6 @@ fn test_not_process_same_block_twice() {
     env.clients[0]
         .chain
         .process_optimistic_block(
-            &me,
             optimistic_block,
             block.chunks().iter_raw().cloned().collect(),
             None,
@@ -97,13 +94,11 @@ fn test_not_process_same_block_twice() {
 
     // First attempt to process block 2 should return error due to
     // optimistic block in processing.
-    let signer = Some(signer);
     let res = env.clients[0].receive_block_impl(
         block.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         false,
         None,
-        &signer,
     );
     assert_matches!(res, Err(near_chain::Error::BlockPendingOptimisticExecution));
 
@@ -114,7 +109,6 @@ fn test_not_process_same_block_twice() {
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         false,
         None,
-        &signer,
     );
     assert_matches!(res, Ok(_));
 }
@@ -155,14 +149,15 @@ fn test_bad_shard_id() {
     );
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
-    block.mut_header().set_chunk_headers_root(Block::compute_chunk_headers_root(&chunks).0);
-    block.mut_header().set_prev_chunk_outgoing_receipts_root(
+    let mut_block = Arc::make_mut(&mut block);
+    mut_block.mut_header().set_chunk_headers_root(Block::compute_chunk_headers_root(&chunks).0);
+    mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
         Block::compute_chunk_prev_outgoing_receipts_root(&chunks),
     );
-    block.set_chunks(chunks);
-    let body_hash = block.compute_block_body_hash().unwrap();
-    block.mut_header().set_block_body_hash(body_hash);
-    block.mut_header().resign(&validator_signer);
+    mut_block.set_chunks(chunks);
+    let body_hash = mut_block.compute_block_body_hash().unwrap();
+    mut_block.mut_header().set_block_body_hash(body_hash);
+    mut_block.mut_header().resign(&validator_signer);
 
     let err = env.clients[0]
         .process_block_test(MaybeValidated::from(block), Provenance::NONE)
@@ -185,17 +180,10 @@ fn test_bad_block_content_vrf() {
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
-    bad_block.set_vrf_value(Value([0u8; 32]));
-    let signer = env.clients[0].validator_signer.get();
+    Arc::make_mut(&mut bad_block).set_vrf_value(Value([0u8; 32]));
 
     let err = env.clients[0]
-        .receive_block_impl(
-            bad_block,
-            PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            false,
-            None,
-            &signer,
-        )
+        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -214,17 +202,10 @@ fn test_bad_block_signature() {
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
-    bad_block.mut_header().set_signature(Signature::default());
-    let signer = env.clients[0].validator_signer.get();
+    Arc::make_mut(&mut bad_block).mut_header().set_signature(Signature::default());
 
     let err = env.clients[0]
-        .receive_block_impl(
-            bad_block,
-            PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            false,
-            None,
-            &signer,
-        )
+        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -389,11 +370,9 @@ fn test_process_optimistic_block() {
 
     // Start processing block and then optimistic block.
     // Check that optimistic block is not in processing.
-    let signer = env.clients[0].validator_signer.get();
-    let me = signer.as_ref().map(|signer| signer.validator_id().clone());
-    env.clients[0].start_process_block(block.into(), Provenance::NONE, None, &signer).unwrap();
+    env.clients[0].start_process_block(block.into(), Provenance::NONE, None).unwrap();
     let optimistic_block_height = optimistic_block.inner.block_height;
-    env.clients[0].chain.preprocess_optimistic_block(optimistic_block, &me, None);
+    env.clients[0].chain.preprocess_optimistic_block(optimistic_block, None);
     assert!(
         !is_optimistic_block_in_processing(&env.clients[0].chain, optimistic_block_height),
         "Optimistic block should not be in processing because block processing already started"

@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use anyhow::Context;
 use borsh::BorshDeserialize;
 use near_chain::{Block, Error, Provenance};
@@ -10,9 +12,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
+use std::sync::Arc;
 
 const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";
 const BLOCK_NOT_PARSED_MSG: &str = "Corrupt block didn't parse";
@@ -80,12 +80,13 @@ fn change_shard_id_to_invalid() {
         };
         new_chunks.push(new_chunk);
     }
-    block.set_chunks(new_chunks);
+    let mut_block = Arc::make_mut(&mut block);
+    mut_block.set_chunks(new_chunks);
 
     // 2. Rehash and resign
-    let body_hash = block.compute_block_body_hash().unwrap();
-    block.mut_header().set_block_body_hash(body_hash);
-    block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+    let body_hash = mut_block.compute_block_body_hash().unwrap();
+    mut_block.mut_header().set_block_body_hash(body_hash);
+    mut_block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
         "test0",
@@ -125,7 +126,7 @@ fn is_breaking_block_change(original: &Block, corrupt: &Block) -> bool {
 fn check_corrupt_block(
     env: &mut TestEnv,
     corrupt_block_vec: Vec<u8>,
-    correct_block: Block,
+    correct_block: Arc<Block>,
     corrupted_bit_idx: usize,
 ) -> Result<anyhow::Error, anyhow::Error> {
     macro_rules! process_correct_block {
@@ -150,7 +151,7 @@ fn check_corrupt_block(
             return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));
         }
 
-        match env.clients[0].process_block_test(corrupt_block.into(), Provenance::NONE) {
+        match env.clients[0].process_block_test(Arc::new(corrupt_block).into(), Provenance::NONE) {
             Ok(_) => Err(anyhow::anyhow!(
                 "Was able to process default block with {} bit switched.",
                 corrupted_bit_idx

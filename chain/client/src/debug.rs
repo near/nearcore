@@ -355,38 +355,32 @@ impl ClientActorInner {
             None => epoch_start_block_header.hash(),
         };
 
-        let shards_size_and_parts: Vec<(u64, u64)> = if let Ok(block) =
-            self.client.chain.get_block(hash_to_compute_shard_sizes)
-        {
-            block
-                .chunks()
-                .iter_raw()
-                .enumerate()
-                .map(|(shard_index, chunk)| {
-                    let shard_id = shard_layout.get_shard_id(shard_index);
-                    let Ok(shard_id) = shard_id else {
-                        tracing::error!("Failed to get shard id for shard index {}", shard_index);
-                        return (0, 0);
-                    };
-
-                    let state_root_node = self.client.runtime_adapter.get_state_root_node(
-                        shard_id,
-                        epoch_start_block_header.hash(),
-                        &chunk.prev_state_root(),
-                    );
-                    if let Ok(state_root_node) = state_root_node {
-                        (
-                            state_root_node.memory_usage,
-                            get_num_state_parts(state_root_node.memory_usage),
-                        )
-                    } else {
-                        (0, 0)
-                    }
-                })
-                .collect()
-        } else {
-            epoch_start_block_header.chunk_mask().iter().map(|_| (0, 0)).collect()
-        };
+        let shards_size_and_parts: Vec<(u64, u64)> =
+            if let Ok(block) = self.client.chain.get_block(hash_to_compute_shard_sizes) {
+                block
+                    .chunks()
+                    .iter()
+                    .enumerate()
+                    .map(|(shard_index, chunk)| {
+                        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+                        let state_root_node = self.client.runtime_adapter.get_state_root_node(
+                            shard_id,
+                            epoch_start_block_header.hash(),
+                            &chunk.prev_state_root(),
+                        );
+                        if let Ok(state_root_node) = state_root_node {
+                            (
+                                state_root_node.memory_usage,
+                                get_num_state_parts(state_root_node.memory_usage),
+                            )
+                        } else {
+                            (0, 0)
+                        }
+                    })
+                    .collect()
+            } else {
+                epoch_start_block_header.chunk_mask().iter().map(|_| (0, 0)).collect()
+            };
 
         let state_header_exists: Vec<bool> = shard_layout
             .shard_ids()
@@ -479,29 +473,14 @@ impl ClientActorInner {
     fn get_tracked_shards_view(&self) -> Result<TrackedShardsView, near_chain_primitives::Error> {
         let epoch_id = self.client.chain.header_head()?.epoch_id;
         let fetch_hash = self.client.chain.header_head()?.last_block_hash;
-        let me = self.client.validator_signer.get().map(|x| x.validator_id().clone());
         let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
         let shards_tracked_this_epoch = shard_ids
             .iter()
-            .map(|&shard_id| {
-                self.client.shard_tracker.cares_about_shard(
-                    me.as_ref(),
-                    &fetch_hash,
-                    shard_id,
-                    true,
-                )
-            })
+            .map(|&shard_id| self.client.shard_tracker.cares_about_shard(&fetch_hash, shard_id))
             .collect();
         let shards_tracked_next_epoch = shard_ids
             .into_iter()
-            .map(|shard_id| {
-                self.client.shard_tracker.will_care_about_shard(
-                    me.as_ref(),
-                    &fetch_hash,
-                    shard_id,
-                    true,
-                )
-            })
+            .map(|shard_id| self.client.shard_tracker.will_care_about_shard(&fetch_hash, shard_id))
             .collect();
         Ok(TrackedShardsView { shards_tracked_this_epoch, shards_tracked_next_epoch })
     }
@@ -597,7 +576,7 @@ impl ClientActorInner {
                     continue;
                 }
                 let block_header = if block_hash == CryptoHash::default() {
-                    self.client.chain.genesis().clone()
+                    self.client.chain.genesis().clone().into()
                 } else {
                     self.client.chain.get_block_header(&block_hash)?
                 };
@@ -618,7 +597,7 @@ impl ClientActorInner {
                     .get_block_producer(block_header.epoch_id(), block_header.height())
                     .ok();
 
-                let chunk_endorsements = self.compute_chunk_endorsements_ratio(&block);
+                let chunk_endorsements = self.compute_chunk_endorsements_ratio(block.as_deref());
                 let congestion_control_config = self
                     .client
                     .runtime_adapter
@@ -849,7 +828,7 @@ impl ClientActorInner {
     /// The logic is based on `validate_chunk_endorsements_in_block`.
     fn compute_chunk_endorsements_ratio(
         &self,
-        block: &Option<Block>,
+        block: Option<&Block>,
     ) -> Option<HashMap<ChunkHash, f64>> {
         let Some(block) = block else {
             return None;

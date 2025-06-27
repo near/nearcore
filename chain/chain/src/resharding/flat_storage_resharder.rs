@@ -2,6 +2,7 @@
 //!
 //! See [FlatStorageResharder] for more details about how the resharding takes place.
 
+use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::iter;
 use std::sync::Arc;
@@ -124,15 +125,16 @@ impl FlatStorageResharder {
             }
         }
 
-        for child_shard in [left_child_shard, right_child_shard] {
-            match self.shard_catchup_task_blocking(child_shard) {
-                // All good.
-                FlatStorageReshardingTaskResult::Successful { .. } => {}
+        // Process both children in an interleaved manner
+        match self.shard_catchup_task_interleaved(&[left_child_shard, right_child_shard]) {
+            FlatStorageReshardingTaskResult::Failed => {
+                panic!("impossible to recover from a flat storage shard catchup failure!")
+            }
+            FlatStorageReshardingTaskResult::Successful { .. } => {
+                // Success: All good!
+            }
+            FlatStorageReshardingTaskResult::Cancelled => {
                 // The task has been cancelled. Nothing else to do.
-                FlatStorageReshardingTaskResult::Cancelled => {}
-                FlatStorageReshardingTaskResult::Failed => {
-                    panic!("impossible to recover from a flat storage shard catchup failure!")
-                }
             }
         }
     }
@@ -163,17 +165,35 @@ impl FlatStorageResharder {
             }
             FlatStorageReshardingStatus::SplittingParent(status) => {
                 let parent_shard_uid = shard_uid;
-                info!(target: "resharding", ?parent_shard_uid, ?status, "resuming flat storage shard split");
-                // On resume, flat storage status is already set correctly and read from DB.
-                // Thus, we don't need to care about cancelling other existing resharding events.
-                // However, we don't know the current state of children shards,
-                // so it's better to clean them.
-                self.clean_children_shards(&status)?;
-                self.start_resharding_blocking_impl(parent_shard_uid, status);
+
+                // Check if children's flat storages are already in Ready status to skip flat storage resharding
+                // and go directly to Trie resharding.
+                let all_children_done = [status.left_child_shard, status.right_child_shard]
+                    .iter()
+                    .all(|&child_shard| {
+                        matches!(
+                            self.runtime
+                                .get_flat_storage_manager()
+                                .get_flat_storage_status(child_shard),
+                            FlatStorageStatus::Ready(_)
+                        )
+                    });
+
+                if all_children_done {
+                    info!(target: "resharding", ?parent_shard_uid, ?status, "all children shards are ready, skipping resharding");
+                    return Ok(());
+                } else {
+                    info!(target: "resharding", ?parent_shard_uid, ?status, "resuming flat storage shard split");
+                    // On resume, flat storage status is already set correctly and read from DB.
+                    // Thus, we don't need to care about cancelling other existing resharding events.
+                    // Children are not both ready, so we need to clean them and restart resharding.
+                    self.clean_children_shards(&status)?;
+                    self.start_resharding_blocking_impl(parent_shard_uid, status);
+                }
             }
             FlatStorageReshardingStatus::CatchingUp(_) => {
                 info!(target: "resharding", ?shard_uid, ?resharding_status, "resuming flat storage shard catchup");
-                match self.shard_catchup_task_blocking(shard_uid) {
+                match self.shard_catchup_task_interleaved(&[shard_uid]) {
                     // All good.
                     FlatStorageReshardingTaskResult::Successful { .. } => {}
                     FlatStorageReshardingTaskResult::Failed => {
@@ -401,16 +421,15 @@ impl FlatStorageResharder {
         match task_status {
             FlatStorageReshardingTaskResult::Successful { .. } => {
                 // Split shard completed successfully.
-                // Parent flat storage can be deleted from the FlatStoreManager.
-                // If FlatStoreManager has no reference to the shard, delete it manually.
-                if !self
-                    .runtime
-                    .get_flat_storage_manager()
-                    .remove_flat_storage_for_shard(parent_shard, &mut store_update)
-                    .unwrap()
-                {
-                    store_update.remove_flat_storage(parent_shard);
-                }
+
+                // NOTE: Parent flat storage cleanup has been moved to trie state resharder
+                // to ensure proper ordering.
+                //
+                // This change ensures that:
+                // 1. Flat storage resharding completes first
+                // 2. Trie state resharding can safely access/create child memtries
+                // 3. Parent flat storage is cleaned up only after all operations complete
+
                 // Children must perform catchup.
                 for child_shard in [left_child_shard, right_child_shard] {
                     store_update.set_flat_storage_status(
@@ -503,40 +522,205 @@ impl FlatStorageResharder {
         Ok(iter)
     }
 
-    /// Task to perform catchup and creation of a flat storage shard spawned from a previous
-    /// resharding operation. May be a long operation time-wise. This task can't be cancelled
-    fn shard_catchup_task_blocking(&self, shard_uid: ShardUId) -> FlatStorageReshardingTaskResult {
-        // Exit early if the task has already been cancelled.
-        if self.handle.is_cancelled() {
-            return FlatStorageReshardingTaskResult::Cancelled;
+    /// Performs catchup for multiple shards in an interleaved manner.
+    ///
+    /// This function processes multiple shards simultaneously by rotating between them in a
+    /// round-robin fashion, allowing all shards to make progress concurrently. This is done
+    /// to avoid running into deadlocks with the state snapshot actor logic.
+    fn shard_catchup_task_interleaved(
+        &self,
+        shard_uids: &[ShardUId],
+    ) -> FlatStorageReshardingTaskResult {
+        if shard_uids.is_empty() {
+            return FlatStorageReshardingTaskResult::Successful { num_batches_done: 0 };
         }
-        info!(target: "resharding", ?shard_uid, "flat storage shard catchup task started");
-        let metrics = FlatStorageReshardingShardCatchUpMetrics::new(&shard_uid);
-        // Apply deltas and then create the flat storage.
-        let (num_batches_done, flat_head) = match self
-            .shard_catchup_apply_deltas_blocking(shard_uid, &metrics)
-        {
-            Ok(ShardCatchupApplyDeltasOutcome::Succeeded(num_batches_done, tip)) => {
-                (num_batches_done, tip)
-            }
-            Ok(ShardCatchupApplyDeltasOutcome::Cancelled) => {
+
+        info!(target: "resharding", ?shard_uids, "flat storage interleaved shard catchup task started");
+        // Delay between every batch.
+        let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
+
+        // Create state trackers to track catchup progress of all shards.
+        let mut shard_states =
+            shard_uids.iter().map(|&shard_uid| ShardCatchupState::new(shard_uid)).collect_vec();
+
+        // Create metrics for each shard
+        let metrics = shard_uids
+            .iter()
+            .map(|&shard_uid| FlatStorageReshardingShardCatchUpMetrics::new(&shard_uid))
+            .collect_vec();
+
+        // We want to process all shards in round-robin and for this we use a queue.
+        let mut shard_queue: VecDeque<usize> = (0..shard_states.len()).collect();
+        let mut total_batches = 0;
+
+        loop {
+            if self.handle.is_cancelled() {
                 return FlatStorageReshardingTaskResult::Cancelled;
             }
-            Err(err) => {
-                error!(target: "resharding", ?shard_uid, ?err, "flat storage shard catchup delta application failed!");
-                return FlatStorageReshardingTaskResult::Failed;
+
+            // If all shards are done the task is finished.
+            if shard_queue.is_empty() {
+                break;
             }
+
+            // Get the next shard to process.
+            let current_idx = shard_queue.pop_front().unwrap();
+
+            match self
+                .process_shard_catchup_batch(&mut shard_states[current_idx], &metrics[current_idx])
+            {
+                Ok(ShardCatchupBatchResult::BatchCompleted) => {
+                    total_batches += 1;
+                    // Re-add to back of queue for next round.
+                    shard_queue.push_back(current_idx);
+                }
+                Ok(ShardCatchupBatchResult::ShardCompleted) => {
+                    total_batches += 1;
+                    info!(target: "resharding", shard_uid = ?shard_states[current_idx].shard_uid, "shard catchup completed");
+                }
+                Err(err) => {
+                    error!(target: "resharding", shard_uid = ?shard_states[current_idx].shard_uid, ?err, "shard catchup batch failed");
+                    return FlatStorageReshardingTaskResult::Failed;
+                }
+            }
+
+            std::thread::sleep(batch_delay);
+        }
+
+        info!(target: "resharding", ?shard_uids, total_batches, "interleaved shard catchup completed");
+        FlatStorageReshardingTaskResult::Successful { num_batches_done: total_batches }
+    }
+
+    /// Process a single batch for a shard during interleaved catchup.
+    fn process_shard_catchup_batch(
+        &self,
+        state: &mut ShardCatchupState,
+        metrics: &FlatStorageReshardingShardCatchUpMetrics,
+    ) -> Result<ShardCatchupBatchResult, Error> {
+        match state.phase {
+            ShardCatchupPhase::ApplyingDeltas => {
+                if let Some(flat_head) = self.process_delta_batch(state, metrics)? {
+                    state.flat_head = Some(flat_head);
+                    state.phase = ShardCatchupPhase::Finalizing;
+                }
+                state.num_batches_done += 1;
+                Ok(ShardCatchupBatchResult::BatchCompleted)
+            }
+            ShardCatchupPhase::Finalizing => {
+                let flat_head = state.flat_head.as_ref().unwrap();
+                let chain_store = self.runtime.store().chain_store();
+                let header = chain_store.get_block_header(&flat_head.hash)?;
+                let tip = Tip::from_header(&header);
+                self.shard_catchup_finalize_storage(state.shard_uid, &tip, metrics)?;
+                state.phase = ShardCatchupPhase::Completed;
+                Ok(ShardCatchupBatchResult::ShardCompleted)
+            }
+            ShardCatchupPhase::Completed => Ok(ShardCatchupBatchResult::ShardCompleted),
+        }
+    }
+
+    /// Processes a single batch of flat storage deltas for a shard during interleaved catchup.
+    ///
+    /// This function processes up to `catch_up_blocks` worth of deltas in a single batch,
+    /// updating the shard's flat head and applying state changes to storage.
+    ///
+    /// Returns `Some(BlockInfo)` if all deltas have been processed (shard caught up to chain head),
+    /// or `None` if more deltas remain to be processed.
+    fn process_delta_batch(
+        &self,
+        state: &ShardCatchupState,
+        metrics: &FlatStorageReshardingShardCatchUpMetrics,
+    ) -> Result<Option<BlockInfo>, Error> {
+        let catch_up_blocks = self.resharding_config.get().catch_up_blocks;
+        let shard_uid = state.shard_uid;
+
+        info!(target: "resharding", ?shard_uid, ?catch_up_blocks, "flat storage shard catchup: delta application");
+
+        let status = self
+            .runtime
+            .store()
+            .flat_store()
+            .get_flat_storage_status(shard_uid)
+            .map_err(|e| Into::<StorageError>::into(e))?;
+
+        let FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(mut flat_head)) =
+            status
+        else {
+            return Err(Error::Other(format!(
+                "unexpected resharding catchup flat storage status for {}: {:?}",
+                shard_uid, &status
+            )));
         };
-        match self.shard_catchup_finalize_storage(shard_uid, &flat_head, &metrics) {
-            Ok(_) => {
-                let task_status = FlatStorageReshardingTaskResult::Successful { num_batches_done };
-                info!(target: "resharding", ?shard_uid, ?task_status, "flat storage shard catchup task finished");
-                task_status
+
+        let chain_store = self.runtime.store().chain_store();
+        let chain_final_head = chain_store.final_head()?;
+
+        // If we reached the desired new flat head, we're done with deltas.
+        if is_flat_head_on_par_with_chain(&flat_head.hash, &chain_final_head) {
+            return Ok(Some(flat_head));
+        }
+
+        let mut merged_changes = FlatStateChanges::default();
+        let store = self.runtime.store().flat_store();
+        let mut store_update = store.store_update();
+
+        // Merge deltas from the next blocks until we reach the batch limit.
+        for _ in 0..catch_up_blocks {
+            let _span = tracing::debug_span!(
+                target: "resharding",
+                "shard_catchup_apply_deltas/batch",
+                ?shard_uid,
+                ?flat_head,
+                batch_id = ?state.num_batches_done)
+            .entered();
+
+            debug_assert!(
+                flat_head.height <= chain_final_head.height,
+                "flat head: {:?}",
+                &flat_head,
+            );
+
+            if is_flat_head_on_par_with_chain(&flat_head.hash, &chain_final_head) {
+                break;
             }
-            Err(err) => {
-                error!(target: "resharding", ?shard_uid, ?err, "flat storage shard catchup finalize failed!");
-                FlatStorageReshardingTaskResult::Failed
+            if self.coordinate_snapshot(flat_head.height) {
+                debug!(target: "resharding", ?shard_uid, "shard catchup on pause because of snapshot coordination");
+                break;
             }
+
+            let next_hash = chain_store.get_next_block_hash(&flat_head.hash)?;
+            let next_header = chain_store.get_block_header(&next_hash)?;
+            flat_head = BlockInfo {
+                hash: *next_header.hash(),
+                height: next_header.height(),
+                prev_hash: *next_header.prev_hash(),
+            };
+
+            if let Some(changes) = store
+                .get_delta(shard_uid, flat_head.hash)
+                .map_err(|err| Into::<StorageError>::into(err))?
+            {
+                merged_changes.merge(changes);
+                store_update.remove_delta(shard_uid, flat_head.hash);
+            }
+        }
+
+        // Commit all changes to store.
+        merged_changes.apply_to_flat_state(&mut store_update, shard_uid);
+        store_update.set_flat_storage_status(
+            shard_uid,
+            FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(flat_head)),
+        );
+        store_update.commit()?;
+
+        // Update metrics with current head height progress.
+        metrics.set_head_height(flat_head.height);
+
+        // Check if we've reached the chain head after this batch.
+        if is_flat_head_on_par_with_chain(&flat_head.hash, &chain_final_head) {
+            Ok(Some(flat_head))
+        } else {
+            Ok(None)
         }
     }
 
@@ -549,115 +733,6 @@ impl FlatStorageResharder {
             return false;
         };
         height >= min_chunk_prev_height
-    }
-
-    /// Applies flat storage deltas in batches on a shard that is in catchup status.
-    ///
-    /// This function can either:
-    /// - Finish successfully, returning the number of delta batches applied and the final tip of the flat storage.
-    /// - Be cancelled
-    /// - Be postponed, to let other operations run on this intermediate state of flat storage (example state sync snapshot).
-    fn shard_catchup_apply_deltas_blocking(
-        &self,
-        shard_uid: ShardUId,
-        metrics: &FlatStorageReshardingShardCatchUpMetrics,
-    ) -> Result<ShardCatchupApplyDeltasOutcome, Error> {
-        // How many block heights of deltas are applied in a single commit.
-        let catch_up_blocks = self.resharding_config.get().catch_up_blocks;
-        // Delay between every batch.
-        let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
-
-        info!(target: "resharding", ?shard_uid, ?batch_delay, ?catch_up_blocks, "flat storage shard catchup: starting delta apply");
-
-        let mut num_batches_done: usize = 0;
-
-        let status = self
-            .runtime
-            .store()
-            .flat_store()
-            .get_flat_storage_status(shard_uid)
-            .map_err(|e| Into::<StorageError>::into(e))?;
-        let FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(mut flat_head)) =
-            status
-        else {
-            return Err(Error::Other(format!(
-                "unexpected resharding catchup flat storage status for {}: {:?}",
-                shard_uid, &status
-            )));
-        };
-
-        let chain_store = self.runtime.store().chain_store();
-        loop {
-            let _span = tracing::debug_span!(
-                target: "resharding",
-                "shard_catchup_apply_deltas/batch",
-                ?shard_uid,
-                ?flat_head,
-                batch_id = ?num_batches_done)
-            .entered();
-            let chain_final_head = chain_store.final_head()?;
-
-            // If we reached the desired new flat head, we can terminate the delta application step.
-            if is_flat_head_on_par_with_chain(&flat_head.hash, &chain_final_head) {
-                return Ok(ShardCatchupApplyDeltasOutcome::Succeeded(
-                    num_batches_done,
-                    Tip::from_header(&chain_store.get_block_header(&flat_head.hash)?),
-                ));
-            }
-
-            let mut merged_changes = FlatStateChanges::default();
-            let store = self.runtime.store().flat_store();
-            let mut store_update = store.store_update();
-
-            // Merge deltas from the next blocks until we reach chain final head.
-            for _ in 0..catch_up_blocks {
-                debug_assert!(
-                    flat_head.height <= chain_final_head.height,
-                    "flat head: {:?}",
-                    &flat_head,
-                );
-                // Stop if we reached the desired new flat head.
-                if is_flat_head_on_par_with_chain(&flat_head.hash, &chain_final_head) {
-                    break;
-                }
-                if self.coordinate_snapshot(flat_head.height) {
-                    break;
-                }
-                let next_hash = chain_store.get_next_block_hash(&flat_head.hash)?;
-                let next_header = chain_store.get_block_header(&next_hash)?;
-                flat_head = BlockInfo {
-                    hash: *next_header.hash(),
-                    height: next_header.height(),
-                    prev_hash: *next_header.prev_hash(),
-                };
-                if let Some(changes) = store
-                    .get_delta(shard_uid, flat_head.hash)
-                    .map_err(|err| Into::<StorageError>::into(err))?
-                {
-                    merged_changes.merge(changes);
-                    store_update.remove_delta(shard_uid, flat_head.hash);
-                }
-            }
-
-            // Commit all changes to store.
-            merged_changes.apply_to_flat_state(&mut store_update, shard_uid);
-            store_update.set_flat_storage_status(
-                shard_uid,
-                FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(flat_head)),
-            );
-            store_update.commit()?;
-
-            num_batches_done += 1;
-            metrics.set_head_height(flat_head.height);
-
-            if self.handle.is_cancelled() {
-                return Ok(ShardCatchupApplyDeltasOutcome::Cancelled);
-            }
-
-            // Sleep between batches in order to throttle resharding and leave some resource for the
-            // regular node operation.
-            std::thread::sleep(batch_delay);
-        }
     }
 
     /// Creates a flat storage entry for a shard that completed catchup. Also clears leftover data.
@@ -877,11 +952,36 @@ enum FlatStorageReshardingTaskResult {
     Cancelled,
 }
 
-/// Outcome of the task that applies deltas during shard catchup.
-enum ShardCatchupApplyDeltasOutcome {
-    /// Contains the number of delta batches applied and the final tip of the flat storage.
-    Succeeded(usize, Tip),
-    Cancelled,
+/// State tracker for a single shard during interleaved catchup processing.
+struct ShardCatchupState {
+    shard_uid: ShardUId,
+    phase: ShardCatchupPhase,
+    flat_head: Option<BlockInfo>,
+    num_batches_done: usize,
+}
+
+impl ShardCatchupState {
+    fn new(shard_uid: ShardUId) -> Self {
+        Self {
+            shard_uid,
+            phase: ShardCatchupPhase::ApplyingDeltas,
+            flat_head: None,
+            num_batches_done: 0,
+        }
+    }
+}
+
+/// The current phase of shard catchup processing.
+enum ShardCatchupPhase {
+    ApplyingDeltas,
+    Finalizing,
+    Completed,
+}
+
+/// Result of processing a single batch for a shard.
+enum ShardCatchupBatchResult {
+    BatchCompleted,
+    ShardCompleted,
 }
 
 #[cfg(test)]
@@ -942,8 +1042,12 @@ mod tests {
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-        let shard_tracker =
-            ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
+        let validator_signer = MutableConfigValue::new(None, "validator_signer");
+        let shard_tracker = ShardTracker::new(
+            TrackedShardsConfig::AllShards,
+            epoch_manager.clone(),
+            validator_signer.clone(),
+        );
         let runtime =
             NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
         let chain_genesis = ChainGenesis::new(&genesis.config);
@@ -957,7 +1061,7 @@ mod tests {
             ChainConfig::test(),
             None,
             Default::default(),
-            MutableConfigValue::new(None, "validator_signer"),
+            validator_signer,
             noop().into_multi_sender(),
         )
         .unwrap();
@@ -1135,7 +1239,7 @@ mod tests {
         flat_storage_resharder.handle.stop();
 
         // Execute task - should be cancelled
-        let task_result = flat_storage_resharder.shard_catchup_task_blocking(parent_shard);
+        let task_result = flat_storage_resharder.shard_catchup_task_interleaved(&[parent_shard]);
         assert_matches!(task_result, FlatStorageReshardingTaskResult::Cancelled);
 
         // Verify both left and right child shards are still in CatchingUp state to allow resume
@@ -1400,8 +1504,12 @@ mod tests {
         // Do the resharding.
         flat_storage_resharder.start_resharding_blocking_impl(parent_shard, split_params.clone());
 
-        // Verify parent shard is gone
-        assert_matches!(store.get_flat_storage_status(parent_shard), Ok(FlatStorageStatus::Empty));
+        // Verify parent shard is still in resharding state (not deleted yet).
+        // Parent flat storage cleanup happens in trie_state_resharder, not here.
+        assert_matches!(
+            store.get_flat_storage_status(parent_shard),
+            Ok(FlatStorageStatus::Resharding(_))
+        );
 
         // Both children shards should be in Ready state
         for child_shard in [split_params.left_child_shard, split_params.right_child_shard] {

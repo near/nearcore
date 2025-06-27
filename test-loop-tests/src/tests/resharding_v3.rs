@@ -935,6 +935,44 @@ fn slow_test_resharding_v3_sync_child() {
     );
 }
 
+// Track parent shard before resharding, but do not track any child shard after resharding.
+// This test verifies that resharding is completely skipped when no children are tracked.
+#[test]
+fn slow_test_resharding_v3_skip_when_no_children_tracked() {
+    let account_in_stable_shard: AccountId = "account0".parse().unwrap();
+    let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let base_shard_layout = get_base_shard_layout();
+    let new_shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, split_boundary_account.clone());
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let unrelated_shard_id = new_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
+
+    // Track parent before resharding, then immediately switch to unrelated shard (no children tracked).
+    let tracked_shard_sequence =
+        vec![parent_shard_id, parent_shard_id, unrelated_shard_id, unrelated_shard_id];
+    let num_clients = 8;
+    let num_epochs_to_wait = DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT;
+    let tracked_shard_schedule = TrackedShardSchedule {
+        client_index: (num_clients - 1) as usize,
+        schedule: shard_sequence_to_schedule(tracked_shard_sequence, num_epochs_to_wait),
+    };
+
+    let parent_shard_uid = base_shard_layout.account_id_to_shard_uid(&split_boundary_account);
+
+    test_resharding_v3_base(
+        TestReshardingParametersBuilder::default()
+            .num_clients(num_clients)
+            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
+            .add_loop_action(
+                crate::utils::resharding::check_resharding_skipped_when_no_children_tracked(
+                    parent_shard_uid,
+                    tracked_shard_schedule,
+                ),
+            )
+            .build(),
+    );
+}
+
 #[test]
 fn slow_test_resharding_v3_track_all_shards() {
     test_resharding_v3_base(

@@ -28,7 +28,7 @@ impl ChunkStoreAdapter {
         chunk_hash: &ChunkHash,
     ) -> Result<Arc<PartialEncodedChunk>, ChunkAccessError> {
         self.store
-            .get_ser(DBCol::PartialChunks, chunk_hash.as_ref())
+            .caching_get_ser(DBCol::PartialChunks, chunk_hash.as_ref())
             .expect("Borsh should not have failed here")
             .ok_or_else(|| ChunkAccessError::ChunkMissing(chunk_hash.clone()))
     }

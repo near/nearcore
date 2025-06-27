@@ -12,12 +12,12 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId,
-};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
-    get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, index_to_bytes,
+    get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, get_receipt_proof_key,
+    index_to_bytes,
 };
+use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
@@ -48,21 +48,11 @@ impl fmt::Debug for GCMode {
 /// TODO - the reset_data_pre_state_sync function seems to also be used in
 /// production code. It's used in update_sync_status <- handle_sync_needed <- run_sync_step
 impl Chain {
-    pub fn clear_data(
-        &mut self,
-        gc_config: &GCConfig,
-        me: Option<&AccountId>,
-    ) -> Result<(), Error> {
+    pub fn clear_data(&mut self, gc_config: &GCConfig) -> Result<(), Error> {
         let runtime_adapter = self.runtime_adapter.clone();
         let epoch_manager = self.epoch_manager.clone();
         let shard_tracker = self.shard_tracker.clone();
-        self.mut_chain_store().clear_data(
-            gc_config,
-            runtime_adapter,
-            epoch_manager,
-            &shard_tracker,
-            me,
-        )
+        self.mut_chain_store().clear_data(gc_config, runtime_adapter, epoch_manager, &shard_tracker)
     }
 
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
@@ -161,7 +151,6 @@ impl ChainStore {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: &ShardTracker,
-        me: Option<&AccountId>,
     ) -> Result<(), Error> {
         // We clear state transition data separately without respecting gc configs because it gets
         // accumulated too quickly for regular gc process.
@@ -174,7 +163,6 @@ impl ChainStore {
             runtime_adapter,
             epoch_manager,
             shard_tracker,
-            me,
         ))
     }
 
@@ -184,7 +172,6 @@ impl ChainStore {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: &ShardTracker,
-        me: Option<&AccountId>,
     ) -> Result<(), Error> {
         let _span =
             tracing::debug_span!(target: "garbage_collection", "clear_old_blocks_data").entered();
@@ -278,7 +265,6 @@ impl ChainStore {
                     epoch_manager.as_ref(),
                     block_hash,
                     shard_tracker,
-                    me,
                 )?;
 
                 gc_blocks_remaining -= 1;
@@ -682,6 +668,15 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
             self.gc_col(DBCol::ChunkApplyStats, &block_shard_id);
 
+            if cfg!(feature = "protocol_feature_spice") {
+                for to_shard_id in shard_layout.shard_ids() {
+                    self.gc_col(
+                        DBCol::receipt_proofs(),
+                        &get_receipt_proof_key(&block_hash, shard_id, to_shard_id),
+                    );
+                }
+            }
+
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is mostly for outgoing State Parts.
             // However, if node crashes while State Syncing, it may never clear
@@ -1075,10 +1070,20 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::LatestWitnessesByIndex => {
                 store_update.delete(col, key);
             }
+            DBCol::InvalidChunkStateWitnesses => {
+                store_update.delete(col, key);
+            }
+            DBCol::InvalidWitnessesByIndex => {
+                store_update.delete(col, key);
+            }
             DBCol::StateSyncNewChunks => {
                 store_update.delete(col, key);
             }
             DBCol::ChunkApplyStats => {
+                store_update.delete(col, key);
+            }
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ReceiptProofs => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion
@@ -1155,10 +1160,22 @@ fn gc_parent_shard_after_resharding(
     let shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
     let mut trie_store_update = store.trie_store().store_update();
     for parent_shard_uid in shard_layout.get_split_parent_shard_uids() {
-        // Delete the state of the parent shard
-        tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup");
-        trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
+        // Check if any child shard still map to this parent shard
+        let children_shards =
+            shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap();
+        let has_active_mapping = children_shards.into_iter().any(|child_shard_uid| {
+            let mapped_shard_uid = get_shard_uid_mapping(&store, child_shard_uid);
+            mapped_shard_uid == parent_shard_uid && mapped_shard_uid != child_shard_uid
+        });
+        if !has_active_mapping {
+            // Delete the state of the parent shard
+            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup");
+            trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
+        } else {
+            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "skipping parent shard cleanup - active mappings exist");
+        }
     }
+
     chain_store_update.merge(trie_store_update.into());
     Ok(())
 }
@@ -1175,7 +1192,6 @@ fn gc_state(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
     shard_tracker: &ShardTracker,
-    me: Option<&AccountId>,
 ) -> Result<(), Error> {
     // Return if we are not dealing with the last block of the epoch
     if !epoch_manager.is_last_block_in_finished_epoch(block_hash)? {
@@ -1193,12 +1209,8 @@ fn gc_state(
 
     // Remove shards that we are currently tracking from shards_to_cleanup
     shards_to_cleanup.retain(|shard_uid| {
-        !shard_tracker.cares_about_shard_this_or_next_epoch(
-            me,
-            &latest_block_hash,
-            shard_uid.shard_id(),
-            true,
-        )
+        !shard_tracker
+            .cares_about_shard_this_or_next_epoch(&latest_block_hash, shard_uid.shard_id())
     });
 
     // reverse iterate over the epochs starting from epoch of latest_block_hash upto gc_epoch

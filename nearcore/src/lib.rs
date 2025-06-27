@@ -282,6 +282,7 @@ pub fn start_with_config_and_synchronization(
     let shard_tracker = ShardTracker::new(
         config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
+        config.validator_signer.clone(),
     );
     let runtime = NightshadeRuntime::from_config(
         home_dir,
@@ -304,6 +305,7 @@ pub fn start_with_config_and_synchronization(
             let view_shard_tracker = ShardTracker::new(
                 config.client_config.tracked_shards_config.clone(),
                 epoch_manager.clone(),
+                config.validator_signer.clone(),
             );
             let view_runtime = NightshadeRuntime::from_config(
                 home_dir,
@@ -344,7 +346,6 @@ pub fn start_with_config_and_synchronization(
 
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         Clock::real(),
-        config.validator_signer.clone(),
         chain_genesis.clone(),
         view_epoch_manager.clone(),
         view_shard_tracker.clone(),
@@ -352,6 +353,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         config.client_config.clone(),
         adv.clone(),
+        config.validator_signer.clone(),
     );
 
     let state_snapshot_sender = LateBoundSender::new();
@@ -390,7 +392,6 @@ pub fn start_with_config_and_synchronization(
         runtime.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
-        config.validator_signer.clone(),
         config.client_config.gc.clone(),
         config.client_config.archive,
     ));
