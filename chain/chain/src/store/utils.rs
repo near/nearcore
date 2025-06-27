@@ -240,7 +240,6 @@ pub fn retrieve_headers(
     chain_store: &ChainStoreAdapter,
     hashes: Vec<CryptoHash>,
     max_headers_returned: u64,
-    max_height: Option<BlockHeight>,
 ) -> Result<Vec<Arc<BlockHeader>>, Error> {
     let header = match find_common_header(chain_store, &hashes) {
         Some(header) => header,
@@ -248,15 +247,14 @@ pub fn retrieve_headers(
     };
 
     let mut headers = vec![];
-    let header_head_height = chain_store.header_head()?.height;
-    let max_height = max_height.unwrap_or(header_head_height);
     // TODO: this may be inefficient if there are a lot of skipped blocks.
-    for h in header.height() + 1..=max_height {
-        if let Ok(header) = chain_store.get_block_header_by_height(h) {
-            headers.push(header.clone());
-            if headers.len() >= max_headers_returned as usize {
-                break;
-            }
+    for i in 1..=max_headers_returned {
+        match chain_store
+            .get_block_hash_from_ordinal(header.block_ordinal().saturating_add(i))
+            .and_then(|block_hash| chain_store.get_block_header(&block_hash))
+        {
+            Ok(h) => headers.push(h),
+            Err(_) => break,
         }
     }
     Ok(headers)
