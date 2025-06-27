@@ -299,7 +299,7 @@ impl MockPeer {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_config: MockNetworkConfig,
         block_production_delay: Duration,
-        head_block: Block,
+        head_block: Arc<Block>,
         genesis_hash: CryptoHash,
     ) -> Self {
         let current_height = head_block.header().height();

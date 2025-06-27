@@ -651,7 +651,7 @@ impl ViewClientActorInner {
     fn retrieve_headers(
         &self,
         hashes: Vec<CryptoHash>,
-    ) -> Result<Vec<BlockHeader>, near_chain::Error> {
+    ) -> Result<Vec<Arc<BlockHeader>>, near_chain::Error> {
         retrieve_headers(
             self.chain.chain_store(),
             hashes,
