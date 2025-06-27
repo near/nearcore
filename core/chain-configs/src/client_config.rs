@@ -519,6 +519,10 @@ pub fn default_view_client_threads() -> usize {
     4
 }
 
+pub fn default_chunk_validation_threads() -> usize {
+    2
+}
+
 pub fn default_log_summary_period() -> Duration {
     Duration::seconds(10)
 }
@@ -694,6 +698,8 @@ pub struct ClientConfig {
     pub save_tx_outcomes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
+    /// Number of threads for ChunkValidationActor pool.
+    pub chunk_validation_threads: usize,
     /// Number of seconds between state requests for view client.
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub view_client_throttle_period: Duration,
@@ -819,6 +825,7 @@ impl ClientConfig {
             save_tx_outcomes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
+            chunk_validation_threads: 1,
             view_client_throttle_period: Duration::seconds(1),
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,

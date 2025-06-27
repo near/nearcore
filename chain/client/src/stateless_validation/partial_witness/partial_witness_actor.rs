@@ -43,8 +43,8 @@ use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::{ContractCode, ContractRuntimeCache, get_contract_cache_key};
 use rand::Rng;
 
-use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
+use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
     ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
@@ -165,15 +165,17 @@ impl PartialWitnessActor {
     pub fn new(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
-        client_sender: ClientSenderForPartialWitness,
+        chunk_validation_sender: ChunkValidationSenderForPartialWitness,
         my_signer: MutableValidatorSigner,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
         compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
         partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
-        let partial_witness_tracker =
-            Arc::new(PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone()));
+        let partial_witness_tracker = Arc::new(PartialEncodedStateWitnessTracker::new(
+            chunk_validation_sender,
+            epoch_manager.clone(),
+        ));
         Self {
             network_adapter,
             my_signer,
