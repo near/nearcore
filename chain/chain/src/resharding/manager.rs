@@ -223,33 +223,22 @@ impl ReshardingManager {
                 retain_mode,
             )?;
 
-            // Split the parent trie and create a new child trie. Save the trie nodes in store and memtrie.
-            // Note that we only apply the insertions from the trie changes as we don't want to delete
-            // nodes associated with retain_split_shard operation for the child.
+            // Split the parent trie and create a new child trie. Save the trie
+            // nodes in store and memtrie. Note that we only apply the
+            // insertions from the trie changes as we don't want to delete nodes
+            // associated with retain_split_shard operation for the child.
+            //
+            // Please note that the trie_changes are not stored into the store.
+            // The trie_changes are stored later in the state resharding.
             let trie_changes = parent_trie.retain_split_shard(boundary_account, retain_mode)?;
             tries.apply_insertions(&trie_changes, *parent_shard_uid, &mut store_update);
             tries.apply_memtrie_changes(&trie_changes, *parent_shard_uid, block_height);
-            let new_root = trie_changes.new_root;
-
-            // // Save the child shard's trie change in the store. It is needed by
-            // // the cold store and garbage collection. Warning: the changes are
-            // // stored under the child shard's shard uid which does not exist at
-            // // the resharding block. This requires special handling when reading
-            // // TrieChanges. In particular it's not sufficient to read trie
-            // // changes for the shard uids of the current shard layout. The
-            // // better practice is to ready trie changes by iter prefix using the
-            // // block hash as the prefix.
-            // store_update.trie_store_update().set_trie_changes(
-            //     *new_shard_uid,
-            //     block_hash,
-            //     &trie_changes.without_deletions(),
-            // );
 
             // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
             // typing. Clarify where it should happen when `State` and
             // `FlatState` update is implemented.
             let mut child_chunk_extra = ChunkExtra::clone(&parent_chunk_extra);
-            *child_chunk_extra.state_root_mut() = new_root;
+            *child_chunk_extra.state_root_mut() = trie_changes.new_root;
             *child_chunk_extra.congestion_info_mut() = child_congestion_info;
 
             chain_store_update.save_chunk_extra(
@@ -267,7 +256,7 @@ impl ReshardingManager {
                 Default::default(),
             );
 
-            tracing::info!(target: "resharding", ?new_shard_uid, ?new_root, "Child trie created");
+            tracing::info!(target: "resharding", ?new_shard_uid, ?trie_changes.new_root, "Child trie created");
         }
 
         // After committing the split changes, the parent trie has the state root of both the children.

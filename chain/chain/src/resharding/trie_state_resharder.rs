@@ -244,9 +244,10 @@ impl TrieStateResharder {
         let trie_changes = trie_changes.expect("trie changes should be available");
         tries.apply_all(&trie_changes, child_shard_uid, store_update);
 
-        // Save the child shard's trie changes in the store. It is needed by the
-        // cold store. The trie changes are stripped of deletions because the
-        // garbage collection should not remove any nodes due to resharding.
+        // Save the child shard's TrieChanges into the store. The TrieChanges
+        // are needed by the cold store. The trie changes are stripped of
+        // deletions because the garbage collection should not remove any nodes
+        // due to resharding.
         //
         // Warning: the changes are stored under the child shard's shard uid
         // which does not exist at the resharding block. This requires special
