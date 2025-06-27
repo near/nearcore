@@ -403,7 +403,7 @@ async fn run_load(
     }
 
     /// return channel with total tx rate updates
-    async fn start_controller_loop(
+    async fn run_controller_loop(
         controller: FilteredRateController,
         initial_rate: u64,
         mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
