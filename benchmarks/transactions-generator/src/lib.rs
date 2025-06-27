@@ -32,15 +32,26 @@ struct Load {
     duration: Duration,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+struct ControllerConfig {
+    target_bps: f64,
+    starting_tps: f64,
+    smoothing_exponent: f64,
+    gain_proportional: f64,
+    gain_integral: f64,
+    gain_derivative: f64,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Config {
     schedule: Vec<Load>,
+    controller: ControllerConfig,
     accounts_path: PathBuf,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { schedule: Default::default(), accounts_path: "".into() }
+        Self { schedule: Default::default(), controller: Default::default(), accounts_path: "".into() }
     }
 }
 
@@ -73,6 +84,69 @@ struct StatsLocal {
     pool_rejected: u64,
     included_in_chunk: u64,
     failed: u64,
+}
+
+enum FilterStage {
+    Init0,
+    Init1{data: u64, at_time: std::time::Instant},
+    Ready{data: u64, rate: f64, at_time: std::time::Instant},
+}
+
+/// Exponential smoothing filter
+struct FilterRateExponentialSmoothing {  
+    gain: f64,
+    stage: FilterStage,
+}
+
+impl FilterRateExponentialSmoothing {
+    pub fn new(gain: f64)-> Self {
+        Self {
+            gain,
+            stage: FilterStage::Init0,
+        }
+    }
+
+    /// Given the cumulative value measurements returns the smoothed rate estimate.
+    /// Assumes the value is measured at a time of a call.
+    pub fn register(&mut self, new_data: u64)-> Option<f64> {
+        let now = std::time::Instant::now();
+
+        match &mut self.stage {
+            FilterStage::Init0 => {
+                self.stage = FilterStage::Init1 { data: new_data, at_time: now };
+                None
+            }
+            FilterStage::Init1 { data, at_time } => {
+                let rate = (new_data - *data) as f64 / now.duration_since(*at_time).as_secs_f64();
+                self.stage = FilterStage::Ready { data: new_data, rate, at_time: now };
+                Some(rate)
+            }
+            FilterStage::Ready { data, rate, at_time } => {
+                let new_rate = (new_data - *data) as f64 / now.duration_since(*at_time).as_secs_f64();
+                let smoothed_rate = self.gain * new_rate + (1.0 - self.gain) * *rate;
+                *data = new_data;
+                *rate = smoothed_rate;
+                *at_time = now;
+                Some(smoothed_rate)
+            }
+        }
+    }
+}
+
+struct FilteredRateController {
+    controller: pid_lite::Controller,
+    filter: FilterRateExponentialSmoothing,
+}
+
+impl FilteredRateController {
+    /// given the latest cumulative measurement returns the suggested parameter correction.
+    pub fn register(&mut self, bps_measurement: u64)-> f64 {
+        if let Some(smoothed_rate) = self.filter.register(bps_measurement) {
+            return self.controller.update(smoothed_rate);
+        }
+
+        0.0
+    }
 }
 
 impl From<&Stats> for StatsLocal {
@@ -118,7 +192,16 @@ impl TxGenerator {
 
         let stats = Arc::new(Stats { pool_accepted: 0.into(), pool_rejected: 0.into() });
 
-        let block_rx = Self::start_block_updates(self.view_client_sender.clone());
+        let controller_config = &self.params.controller;
+        let controller = FilteredRateController{
+            controller: pid_lite::Controller::new(
+                controller_config.target_bps,
+                controller_config.gain_proportional,
+                controller_config.gain_integral,
+                controller_config.gain_derivative),
+            filter: FilterRateExponentialSmoothing::new(self.params.controller.smoothing_exponent),
+        };
+        let block_rx = Self::start_block_updates(self.view_client_sender.clone(), controller);
 
         Self::start_transactions_loop(
             &self.params,
@@ -180,13 +263,16 @@ impl TxGenerator {
         }
     }
 
-    async fn get_latest_block(view_client_sender: &ViewClientSender) -> anyhow::Result<CryptoHash> {
+    async fn get_latest_block(view_client_sender: &ViewClientSender) -> anyhow::Result<(CryptoHash, u64)> {
         match view_client_sender
             .block_request_sender
             .send_async(GetBlock(BlockReference::latest()))
             .await
         {
-            Ok(rsp) => Ok(rsp?.header.hash),
+            Ok(rsp) => {
+                let rsp = rsp?;
+                Ok((rsp.header.hash, rsp.header.height))
+            },
             Err(err) => {
                 anyhow::bail!("async send error: {err}");
             }
@@ -195,16 +281,17 @@ impl TxGenerator {
 
     fn start_block_updates(
         view_client_sender: ViewClientSender,
-    ) -> tokio::sync::watch::Receiver<CryptoHash> {
+        tx_rate_controller: FilteredRateController,
+    ) -> tokio::sync::watch::Receiver<(CryptoHash, u64)> {
         let (tx_latest_block, rx_latest_block) = tokio::sync::watch::channel(Default::default());
 
         tokio::spawn(async move {
             let view_client = &view_client_sender;
             loop {
                 match Self::get_latest_block(view_client).await {
-                    Ok(new_hash) => {
-                        let _ = tx_latest_block.send(new_hash);
-                        tokio::time::interval(Duration::from_secs(3)).tick().await;
+                    Ok((new_hash, new_height)) => {
+                        let _ = tx_latest_block.send((new_hash, new_height));
+                        tokio::time::interval(Duration::from_millis(500)).tick().await;
                     }
                     Err(err) => {
                         tracing::warn!(target: "transaction-generator", "block_hash update failed: {err}");
@@ -251,19 +338,19 @@ impl TxGenerator {
         accounts: Arc<Vec<Account>>,
         mut tx_interval: tokio::time::Interval,
         duration: tokio::time::Duration,
-        mut rx_block: tokio::sync::watch::Receiver<CryptoHash>,
+        mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
         stats: Arc<Stats>,
     ) {
         let mut rnd: StdRng = SeedableRng::from_entropy();
 
-        let _ = rx_block.wait_for(|hash| *hash != CryptoHash::default()).await.is_ok();
-        let mut latest_block_hash = *rx_block.borrow();
+        let _ = rx_block.wait_for(|(hash,_)| *hash != CryptoHash::default()).await.is_ok();
+        let (mut latest_block_hash, _) = *rx_block.borrow_and_update();
 
         let ld = async {
             loop {
                 tokio::select! {
                     _ = rx_block.changed() => {
-                        latest_block_hash = *rx_block.borrow();
+                        (latest_block_hash, _) = *rx_block.borrow_and_update();
                     }
                     _ = tx_interval.tick() => {
                         let ok = Self::generate_send_transaction(
@@ -287,11 +374,11 @@ impl TxGenerator {
         let _ = tokio::time::timeout(duration, ld).await;
     }
 
-    async fn run_load(
+async fn run_load(
         client_sender: ClientSender,
         accounts: Arc<Vec<Account>>,
         load: Load,
-        rx_block: tokio::sync::watch::Receiver<CryptoHash>,
+        rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
         stats: Arc<Stats>,
     ) {
         tracing::info!(target: "transaction-generator", ?load, "starting the load");
@@ -315,12 +402,107 @@ impl TxGenerator {
         tasks.join_all().await;
     }
 
+    /// return channel with total tx rate updates
+    async fn run_controller_loop(
+        controller: FilteredRateController,
+        initial_rate: u64,
+        mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+    )-> tokio::sync::watch::Receiver<f64>
+    {
+        let rate = initial_rate as f64;
+        let (tx_tps_updates, rx_tps_updates) = tokio::sync::watch::channel(rate);
+
+        let _ = rx_block.wait_for(|(hash, _)| *hash != CryptoHash::default()).await.is_ok();
+        let (_, height) = *rx_block.borrow_and_update();
+        controller.register(height);
+        
+        tokio::spawn( async move {
+            loop {
+                tokio::select! {
+                    _ = rx_block.changed() => {
+                        (_, height) = *rx_block.borrow_and_update();
+                        if let Some(rate_change) = controller.register(height) {
+                            rate += rate_change;
+                            tx_tps_updates.send(rate).unwrap();
+                        }
+                    }
+                } 
+            }               
+        });
+        
+        rx_tps_updates
+    }
+
+    async fn run_controlled_loop(
+        client_sender: ClientSender,
+        accounts: Arc<Vec<Account>>,
+        mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+        stats: Arc<Stats>,
+    ) {
+        tracing::info!(target: "transaction-generator", "starting the controlled loop");
+
+        const TASK_COUNT: u64 = 4;
+        for _ in 0..TASK_COUNT {
+            tokio::spawn(Self::controlled_loop_task(
+                client_sender.clone(),
+                Arc::clone(&accounts),
+                rx_block.clone(),
+                
+                Arc::clone(&stats),
+            );
+        }
+    }
+
+    async fn controlled_loop_task(
+        client_sender: ClientSender,
+        accounts: Arc<Vec<Account>>,
+        mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
+        mut tx_rates: tokio::sync::watch::Receiver<u64>,
+        stats: Arc<Stats>,
+    ) {
+        let mut rnd: StdRng = SeedableRng::from_entropy();
+
+        let _ = rx_block.wait_for(|(hash, _)| *hash != CryptoHash::default()).await.is_ok();
+        let (mut latest_block_hash, _) = *rx_block.borrow_and_update();
+        let tx_rate = *tx_rates.borrow_and_update();
+        let mut tx_interval = tokio::time::interval(Duration::from_micros(1_000_000/tx_rate));
+
+        async {
+            loop {
+                tokio::select! {
+                    _ = rx_block.changed() => {
+                        (latest_block_hash, _) = *rx_block.borrow_and_update();
+                    }
+                    _ = tx_rates.changed() => {
+                            let tx_rate = *tx_rates.borrow_and_update();
+                            tx_interval = tokio::time::interval(Duration::from_micros(1_000_000/tx_rate));
+                        }
+                    _ = tx_interval.tick() => {
+                        let ok = Self::generate_send_transaction(
+                            &mut rnd,
+                            &accounts,
+                            &latest_block_hash,
+                            &client_sender,
+                        )
+                        .await;
+
+                        if ok {
+                            stats.pool_accepted.fetch_add(1, atomic::Ordering::Relaxed);
+                        } else {
+                            stats.pool_rejected.fetch_add(1, atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
+        }.await;
+    }
+
     fn start_transactions_loop(
         config: &Config,
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
         stats: Arc<Stats>,
-        rx_block: tokio::sync::watch::Receiver<CryptoHash>,
+        rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
     ) -> anyhow::Result<()> {
         let rx_accounts = Self::prepare_accounts(&config.accounts_path, view_client_sender)?;
 
