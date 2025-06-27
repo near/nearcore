@@ -2,12 +2,12 @@
    "schedule": [
       { "tps": 1000, "duration_s": 180 },
       { "tps": 2000, "duration_s": 180 },
-      { "tps": 3900, "duration_s": 400 },
-      { "tps": 3950, "duration_s": 400 },
-      { "tps": 4000, "duration_s": 400 },
-      { "tps": 4050, "duration_s": 400 },
-      { "tps": 4100, "duration_s": 400 },
       { "tps": 4200, "duration_s": 400 },
-      { "tps": 4400, "duration_s": 400 }
+      { "tps": 4300, "duration_s": 400 },
+      { "tps": 4400, "duration_s": 400 },
+      { "tps": 4500, "duration_s": 400 },
+      { "tps": 4600, "duration_s": 400 },
+      { "tps": 4700, "duration_s": 400 },
+      { "tps": 4800, "duration_s": 400 }
    ]	
 }
