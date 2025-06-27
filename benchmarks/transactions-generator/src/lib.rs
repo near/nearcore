@@ -17,7 +17,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, atomic};
 use std::time::Duration;
 use tokio::task::{self, JoinSet};
-use pid_lite::Controller;
 
 pub mod account;
 #[cfg(feature = "with_actix")]
@@ -79,36 +78,61 @@ struct StatsLocal {
 enum FilterStage {
     Init0,
     Init1{data: u64, at_time: std::time::Instant},
-    Ready{data: u64, rate: u64, at_time: std::time::Instant},
+    Ready{data: u64, rate: f64, at_time: std::time::Instant},
 }
 
+/// Exponential smoothing filter
 struct FilterRateExponentialSmoothing {  
     gain: f64,
     stage: FilterStage,
 }
 
 impl FilterRateExponentialSmoothing {
-    pub fn new(gain: f64) {
-       FilterRateExponentialSmoothing {
-        
-        } 
+    pub fn new(gain: f64)-> Self {
+        Self {
+            gain,
+            stage: FilterStage::Init0,
+        }
     }
 
-    pub fn register(&mut self, data_point: u64)-> f64 {
+    /// Given the cumulative value measurements returns the smoothed rate estimate.
+    /// Assumes the value is measured at a time of a call.
+    pub fn register(&mut self, new_data: u64)-> Option<f64> {
         let now = std::time::Instant::now();
-        let rate = (data_point - self.last_data) as f64 / now.duration_since(self.time_last_data).as_secs_f64();
-        self.time_last_data = now;
-        self.last_data = data_point;
-        self.rate = gain*diff + (1.0 - gain)*last_rate;
-        self.rate
+
+        match &mut self.stage {
+            FilterStage::Init0 => {
+                self.stage = FilterStage::Init1 { data: new_data, at_time: now };
+                None
+            }
+            FilterStage::Init1 { data, at_time } => {
+                let rate = (new_data - *data) as f64 / now.duration_since(*at_time).as_secs_f64();
+                self.stage = FilterStage::Ready { data: new_data, rate, at_time: now };
+                Some(rate)
+            }
+            FilterStage::Ready { data, rate, at_time } => {
+                let new_rate = (new_data - *data) as f64 / now.duration_since(*at_time).as_secs_f64();
+                let smoothed_rate = self.gain * new_rate + (1.0 - self.gain) * *rate;
+                *data = new_data;
+                *rate = smoothed_rate;
+                *at_time = now;
+                Some(smoothed_rate)
+            }
+        }
     }
 }
 
 struct TxRateController {
     controller: pid_lite::Controller,
-    filter: FilterExponentialSmoothing,
+    filter: FilterRateExponentialSmoothing,
 }
 
+impl TxRateController {
+    /// given the bps measurement returns the suggested TPS correction.
+    pub fn register(&mut self, bps_measurement: u64)-> u64 {
+        
+    }
+}
 
 impl From<&Stats> for StatsLocal {
     fn from(x: &Stats) -> Self {
