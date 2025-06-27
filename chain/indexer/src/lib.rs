@@ -133,6 +133,7 @@ impl Indexer {
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
     pub fn streamer(&self) -> mpsc::Receiver<StreamerMessage> {
         let (sender, receiver) = mpsc::channel(100);
+        tracing::info!(target: INDEXER, "spawning streamer");
         actix::spawn(streamer::start(
             self.view_client.clone(),
             self.client.clone(),
