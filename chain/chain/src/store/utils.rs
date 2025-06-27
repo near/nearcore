@@ -256,7 +256,7 @@ pub fn retrieve_headers(
             .and_then(|block_hash| chain_store.get_block_header(&block_hash))
         {
             Ok(h) => headers.push(h),
-            Err(_) => break,
+            Err(_) => break, // This is either the last block that we know of, or we don't have these block headers because of epoch sync.
         }
     }
     Ok(headers)
