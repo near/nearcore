@@ -15,6 +15,7 @@ use arc_swap::ArcSwap;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
@@ -185,7 +186,7 @@ impl Connection {
     }
 
     pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
-        self.addr.do_send(peer_actor::Stop { ban_reason }.with_span_context());
+        self.addr.do_send(peer_actor::Stop { ban_reason }.span_wrap().with_span_context());
     }
 
     // TODO(gprusak): embed Stream directly in Connection,
@@ -193,7 +194,7 @@ impl Connection {
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
-        self.addr.do_send(SendMessage { message: msg }.with_span_context());
+        self.addr.do_send(SendMessage { message: msg }.span_wrap().with_span_context());
     }
 
     pub fn send_accounts_data(
