@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use crate::client_actor::ClientSenderForPartialWitness;
+use crate::metrics;
 use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_async::time::Instant;
@@ -9,6 +11,7 @@ use near_cache::SyncLruCache;
 use near_chain::Error;
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_epoch_manager::EpochManagerAdapter;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonEncoderCache, ReedSolomonPartsTracker,
@@ -21,15 +24,11 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
 use near_primitives::types::ShardId;
+use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::ProtocolFeature;
 use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 use time::ext::InstantExt as _;
-
-use crate::client_actor::ClientSenderForPartialWitness;
-use crate::metrics;
-
-use near_primitives::utils::compression::CompressedData;
 
 use super::encoding::WITNESS_RATIO_DATA_PARTS;
 
@@ -513,7 +512,8 @@ impl PartialEncodedStateWitnessTracker {
                 tag_witness_distribution = true,
             )
             .entered();
-            self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
+            self.client_sender
+                .send(ChunkStateWitnessMessage { witness, raw_witness_size }.span_wrap());
 
             total_size
         } else {

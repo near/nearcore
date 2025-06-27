@@ -335,7 +335,7 @@ impl TestEnv {
     pub fn process_shards_manager_responses(&mut self, id: usize) -> bool {
         let mut any_processed = false;
         while let Some(msg) = self.client_adapters[id].pop() {
-            match msg {
+            match msg.span_unwrap() {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
                     self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
                 }

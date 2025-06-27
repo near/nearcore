@@ -4,7 +4,7 @@ use super::header::HeaderSync;
 use super::state::StateSync;
 use crate::sync::state::StateSyncResult;
 use near_async::time::{Clock, Utc};
-use near_chain::chain::ApplyChunksDoneMessage;
+use near_chain::chain::ApplyChunksDoneSender;
 use near_chain::types::Tip;
 use near_chain::{BlockHeader, BlockProcessingArtifact, Chain};
 use near_chain_configs::ClientConfig;
@@ -87,7 +87,7 @@ impl SyncHandler {
         shard_tracker: &ShardTracker,
         highest_height: u64,
         highest_height_peers: &[HighestHeightPeerInfo],
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Option<SyncHandlerRequest> {
         // Run epoch sync first; if this is applicable then nothing else is.
         let epoch_sync_result = self.epoch_sync.run(

@@ -2,24 +2,25 @@ use std::cmp::max;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::setup::builder::TestLoopBuilder;
 use itertools::Itertools as _;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{BlockApproval, BlockResponse, ProcessTxRequest};
+use near_client::ProcessTxRequest;
 use near_crypto::InMemorySigner;
+use near_network::client::{BlockApproval, BlockResponse};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
-
-use crate::setup::builder::TestLoopBuilder;
 
 #[test]
 fn slow_test_repro_1183() {
@@ -75,11 +76,14 @@ fn slow_test_repro_1183() {
 
                 if let Some(last_block) = last_block.clone() {
                     for node in &node_datas {
-                        node.client_sender.send(BlockResponse {
-                            block: last_block.clone(),
-                            peer_id: peer_id.clone(),
-                            was_requested: false,
-                        })
+                        node.client_sender.send(
+                            BlockResponse {
+                                block: last_block.clone(),
+                                peer_id: peer_id.clone(),
+                                was_requested: false,
+                            }
+                            .span_wrap(),
+                        )
                     }
                 }
                 for delayed_message in delayed_one_parts.iter() {
@@ -220,11 +224,14 @@ fn slow_test_sync_from_archival_node() {
                     NetworkRequests::Block { block } => {
                         for (i, sender) in client_senders.iter().enumerate() {
                             if i != 3 {
-                                sender.send(BlockResponse {
-                                    block: block.clone(),
-                                    peer_id: peer_id.clone(),
-                                    was_requested: false,
-                                })
+                                sender.send(
+                                    BlockResponse {
+                                        block: block.clone(),
+                                        peer_id: peer_id.clone(),
+                                        was_requested: false,
+                                    }
+                                    .span_wrap(),
+                                )
                             }
                         }
                         if block.header().height() <= 10 {
@@ -235,10 +242,13 @@ fn slow_test_sync_from_archival_node() {
                     NetworkRequests::Approval { approval_message } => {
                         for (i, sender) in client_senders.iter().enumerate() {
                             if i != 3 {
-                                sender.send(BlockApproval(
-                                    approval_message.approval.clone(),
-                                    peer_id.clone(),
-                                ))
+                                sender.send(
+                                    BlockApproval(
+                                        approval_message.approval.clone(),
+                                        peer_id.clone(),
+                                    )
+                                    .span_wrap(),
+                                )
                             }
                         }
                         None
@@ -250,11 +260,10 @@ fn slow_test_sync_from_archival_node() {
                     panic!("incorrect rebroadcasting of blocks");
                 }
                 for (_, block) in blocks.write().drain() {
-                    client_senders[3].send(BlockResponse {
-                        block,
-                        peer_id: peer_id.clone(),
-                        was_requested: false,
-                    });
+                    client_senders[3].send(
+                        BlockResponse { block, peer_id: peer_id.clone(), was_requested: false }
+                            .span_wrap(),
+                    );
                 }
                 match &request {
                     NetworkRequests::Block { block } => {
