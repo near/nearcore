@@ -65,6 +65,7 @@ impl Cache {
                 | DBCol::Chunks => ColumnCache::new(512),
                 | DBCol::ChunkExtra => ColumnCache::new(1024),
                 | DBCol::PartialChunks => ColumnCache::new(512),
+                | DBCol::StateShardUIdMapping => ColumnCache::new(32),
                 _ => ColumnCache::disabled(),
             },
         }
