@@ -9,7 +9,6 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::block::MaybeNew;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -126,10 +125,7 @@ pub fn apply_chunk(
     let mut shards_bandwidth_requests = BTreeMap::new();
     let mut shards_congestion_info = BTreeMap::new();
     for prev_chunk in prev_block.chunks().iter() {
-        let shard_id = match prev_chunk {
-            MaybeNew::New(new_chunk) => new_chunk.shard_id(),
-            MaybeNew::Old(missing_chunk) => missing_chunk.shard_id(),
-        };
+        let shard_id = prev_chunk.shard_id();
         let shard_uid =
             shard_id_to_uid(epoch_manager, shard_id, prev_block.header().epoch_id()).unwrap();
         let Ok(chunk_extra) = chain_store.get_chunk_extra(&prev_block_hash, &shard_uid) else {

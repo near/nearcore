@@ -23,6 +23,7 @@
 * Add RPC query for viewing global contract code. ([#13547](https://github.com/near/nearcore/pull/13547))
 * Add promise batch host functions for global contracts. ([#13565](https://github.com/near/nearcore/pull/13565))
 * Stabilize `EXPERIMENTAL_changes` RPC method and rename it to `changes`. ([#13722](https://github.com/near/nearcore/pull/13722))
+* Rename `TxRequestHandlerActor` to `RpcHandlerActor` to reflect the change in the scope of its responsibilities. Otherwise its API change is fully backward-compatible, so the dependent services can handle it by simply renaming the type where it is mentioned explicitly. ([#13259](https://github.com/near/nearcore/pull/13259))
 
 ## [2.6.0]
 

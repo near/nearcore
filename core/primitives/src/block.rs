@@ -24,11 +24,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 #[cfg(feature = "clock")]
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::types::ShardIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
 use std::collections::BTreeMap;
-use std::ops::Index;
+use std::ops::Deref;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
@@ -522,22 +521,50 @@ impl Block {
     }
 }
 
-#[derive(Clone)]
-pub enum MaybeNew<'a, T> {
-    New(&'a T),
-    Old(&'a T),
+/// Distinguishes between new and old chunks.
+/// Note: Some of the data of the cold chunk may be incompatible with the current protocol version.
+/// Example in case of resharding, if the child shard chunk is missing in the first block.
+/// the shard_id of the old chunk may be different from the shard_id of the new chunk.
+#[derive(Clone, Debug)]
+pub enum ChunkType<'a> {
+    New(&'a ShardChunkHeader),
+    Old(&'a ShardChunkHeader),
 }
 
-fn annotate_chunk(
-    chunk: &ShardChunkHeader,
-    block_height: BlockHeight,
-) -> MaybeNew<ShardChunkHeader> {
-    if chunk.is_new_chunk(block_height) { MaybeNew::New(chunk) } else { MaybeNew::Old(chunk) }
+/// Implements Deref for ChunkType to allow access to ShardChunkHeader methods directly.
+impl Deref for ChunkType<'_> {
+    type Target = ShardChunkHeader;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            ChunkType::New(chunk) => chunk,
+            ChunkType::Old(chunk) => chunk,
+        }
+    }
 }
 
-pub enum ChunksCollection<'a> {
+impl ChunkType<'_> {
+    pub fn is_new_chunk(&self) -> bool {
+        matches!(self, ChunkType::New(_))
+    }
+}
+
+// For BlockV1, we store the chunks in a Vec, else we use a slice reference.
+enum ChunksCollection<'a> {
     V1(Vec<ShardChunkHeader>),
     V2(&'a [ShardChunkHeader]),
+}
+
+/// Implements Deref for ChunksCollection to allow access to [ShardChunkHeader] methods directly.
+impl Deref for ChunksCollection<'_> {
+    type Target = [ShardChunkHeader];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            ChunksCollection::V1(chunks) => chunks.as_ref(),
+            ChunksCollection::V2(chunks) => chunks,
+        }
+    }
 }
 
 pub struct Chunks<'a> {
@@ -545,15 +572,12 @@ pub struct Chunks<'a> {
     block_height: BlockHeight,
 }
 
-impl<'a> Index<ShardIndex> for Chunks<'a> {
-    type Output = ShardChunkHeader;
+/// Implements Deref for Chunks to allow access to [ShardChunkHeader] methods directly.
+impl Deref for Chunks<'_> {
+    type Target = [ShardChunkHeader];
 
-    /// Deprecated. Please use get instead, it's safer.
-    fn index(&self, index: usize) -> &Self::Output {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => &chunks[index],
-            ChunksCollection::V2(chunks) => &chunks[index],
-        }
+    fn deref(&self) -> &Self::Target {
+        &self.chunks
     }
 }
 
@@ -578,50 +602,42 @@ impl<'a> Chunks<'a> {
         Self { chunks: ChunksCollection::V2(chunk_headers), block_height }
     }
 
-    pub fn len(&self) -> usize {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => chunks.len(),
-            ChunksCollection::V2(chunks) => chunks.len(),
-        }
-    }
-
-    /// Deprecated, use `iter` instead. `iter_raw` is available if there is no need to
+    /// Deprecated, use `iter` instead. `iter_all` is available if there is no need to
     /// distinguish between old and new headers.
-    pub fn iter_deprecated(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
-            ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
-        }
+    pub fn iter_deprecated(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter()
     }
 
-    pub fn iter_raw(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
-            ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
-        }
-    }
-
-    /// Returns an iterator over the shard chunk headers, differentiating between new and old chunks.
-    pub fn iter(&'a self) -> Box<dyn Iterator<Item = MaybeNew<'a, ShardChunkHeader>> + 'a> {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => {
-                Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))
+    /// Returns an iterator over all shard chunk headers, distinguishing between new and old chunks.
+    pub fn iter(&'a self) -> impl Iterator<Item = ChunkType<'a>> {
+        self.chunks.iter().map(|chunk| {
+            if chunk.is_new_chunk(self.block_height) {
+                ChunkType::New(chunk)
+            } else {
+                ChunkType::Old(chunk)
             }
-            ChunksCollection::V2(chunks) => {
-                Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))
-            }
-        }
+        })
     }
 
-    pub fn get(&self, index: ShardIndex) -> Option<&ShardChunkHeader> {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => chunks.get(index),
-            ChunksCollection::V2(chunks) => chunks.get(index),
-        }
+    /// Returns an iterator over all shard chunk headers, regardless of whether they are new or old.
+    /// This doesn't have information about whether the chunk is new or old.
+    /// Use `iter` if you need to distinguish between new and old chunks.
+    pub fn iter_raw(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter()
+    }
+
+    /// Returns an iterator over the shard chunk headers that are old chunks.
+    pub fn iter_old(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter().filter(|chunk| !chunk.is_new_chunk(self.block_height))
+    }
+
+    /// Returns an iterator over the shard chunk headers that are new chunks.
+    pub fn iter_new(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+        self.chunks.iter().filter(|chunk| chunk.is_new_chunk(self.block_height))
     }
 
     pub fn min_height_included(&self) -> Option<BlockHeight> {
-        self.iter_raw().map(|chunk| chunk.height_included()).min()
+        self.iter().map(|chunk| chunk.height_included()).min()
     }
 
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
@@ -647,17 +663,11 @@ impl<'a> Chunks<'a> {
     pub fn block_bandwidth_requests(&self) -> BlockBandwidthRequests {
         let mut result = BTreeMap::new();
 
+        // It's okay to take bandwidth requests from a missing chunk,
+        // the chunk was missing so it didn't send anything and still
+        // wants to send out the same receipts.
         for chunk in self.iter() {
-            // It's okay to take bandwidth requests from a missing chunk,
-            // the chunk was missing so it didn't send anything and still
-            // wants to send out the same receipts.
-            let chunk = match chunk {
-                MaybeNew::New(new_chunk) => new_chunk,
-                MaybeNew::Old(missing_chunk) => missing_chunk,
-            };
-
             let shard_id = chunk.shard_id();
-
             if let Some(bandwidth_requests) = chunk.bandwidth_requests() {
                 result.insert(shard_id, bandwidth_requests.clone());
             }

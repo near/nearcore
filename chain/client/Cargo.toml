@@ -75,7 +75,8 @@ byzantine_asserts = ["near-chain/byzantine_asserts"]
 shadow_chunk_validation = ["near-chain/shadow_chunk_validation"]
 protocol_feature_spice = [
     "near-chain/protocol_feature_spice",
-    "near-epoch-manager/protocol_feature_spice"
+    "near-epoch-manager/protocol_feature_spice",
+    "near-store/protocol_feature_spice",
 ]
 test_features = [
     "near-network/test_features",
