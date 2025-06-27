@@ -50,8 +50,11 @@ static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
 /// Columns that support background writes
 /// These are typically columns that can handle delayed writes without affecting correctness
 const ASYNC_WRITE_COLUMNS: &[DBCol] = &[
-    DBCol::State,       // State data can be written asynchronously
-    DBCol::TrieChanges, // Trie change data
+    DBCol::State,            // State data can be written asynchronously
+    DBCol::TrieChanges,      // Trie change data
+    DBCol::FlatState,        // Flat state data
+    DBCol::FlatStateChanges, // Flat state changes
+    DBCol::Transactions,     // Transaction data
 ];
 
 /// Tracks write operations that are in progress for specific columns
