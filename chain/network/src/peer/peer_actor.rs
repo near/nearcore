@@ -1759,11 +1759,11 @@ impl actix::Handler<stream::Frame> for PeerActor {
     }
 }
 
-impl actix::Handler<SendMessage> for PeerActor {
+impl actix::Handler<WithSpanContext<SpanWrapped<SendMessage>>> for PeerActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
+    fn handle(&mut self, msg: WithSpanContext<SpanWrapped<SendMessage>>, _: &mut Self::Context) {
         let (_span, msg) = handler_debug_span!(target: "network", msg);
         let msg = msg.span_unwrap();
         self.send_message(&msg.message);
@@ -1773,17 +1773,19 @@ impl actix::Handler<SendMessage> for PeerActor {
 /// Messages from PeerManager to Peer
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct StopInner {
+pub(crate) struct Stop {
     pub ban_reason: Option<ReasonForBan>,
 }
 
-pub(crate) type Stop = WithSpanContext<SpanWrapped<StopInner>>;
-
-impl actix::Handler<Stop> for PeerActor {
+impl actix::Handler<WithSpanContext<SpanWrapped<Stop>>> for PeerActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: Stop, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<SpanWrapped<Stop>>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "network", msg);
         let msg = msg.span_unwrap();
         self.stop(

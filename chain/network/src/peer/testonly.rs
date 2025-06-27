@@ -9,7 +9,7 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
-use crate::private_actix::SendMessageInner;
+use crate::private_actix::SendMessage;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::state_witness::{
     PartialWitnessSenderForNetworkInput, PartialWitnessSenderForNetworkMessage,
@@ -62,7 +62,7 @@ impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
         self.actix
             .addr
-            .send(SendMessageInner { message: Arc::new(message) }.span_wrap().with_span_context())
+            .send(SendMessage { message: Arc::new(message) }.span_wrap().with_span_context())
             .await
             .unwrap();
     }
