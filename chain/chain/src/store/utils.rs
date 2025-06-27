@@ -246,9 +246,11 @@ pub fn retrieve_headers(
         None => return Ok(vec![]),
     };
 
+    // Block ordinals stored in db are off by one so adding 0 will return the next block after `header`.
+    // get_block_hash_from_ordinal(i).block_ordinal() == i + 1
+    // See #8177
     let mut headers = vec![];
-    // TODO: this may be inefficient if there are a lot of skipped blocks.
-    for i in 1..=max_headers_returned {
+    for i in 0..max_headers_returned {
         match chain_store
             .get_block_hash_from_ordinal(header.block_ordinal().saturating_add(i))
             .and_then(|block_hash| chain_store.get_block_header(&block_hash))
