@@ -52,3 +52,16 @@ pub(crate) static LOCAL_RECEIPT_LOOKUP_IN_HISTORY_BLOCKS_BACK: LazyLock<IntGauge
         )
         .unwrap()
     });
+
+pub(crate) static NUM_STREAMER_LOOPS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter("near_indexer_num_streamer_loops", "Number of times the Streamer looped")
+        .unwrap()
+});
+
+pub(crate) static NUM_QUERIES_VIEW_CLIENT: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_indexer_num_streamer_queries_to_view_client",
+        "Number of times the Streamer queried the view client",
+    )
+    .unwrap()
+});
