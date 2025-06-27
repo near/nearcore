@@ -924,7 +924,7 @@ impl Drop for RocksDB {
             let mut env = Env::new().unwrap();
             env.set_background_threads(4);
         }
-        self.write_tracker.wait_for_all_column_writes();
+        self.flush().unwrap();
         self.db.cancel_all_background_work(true);
     }
 }
