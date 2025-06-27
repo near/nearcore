@@ -635,7 +635,6 @@ fn test_nan_sign() {
 
     test_builder()
         .wat(code)
-        .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 110433335 used gas 110433335

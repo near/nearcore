@@ -153,7 +153,8 @@ pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
         .signals_based_traps(true)
         // Configure linear memories such that explicit bounds-checking can be elided.
         .memory_reservation(1 << 32)
-        .memory_guard_size(1 << 32);
+        .memory_guard_size(1 << 32)
+        .cranelift_nan_canonicalization(true);
     config
 }
 
