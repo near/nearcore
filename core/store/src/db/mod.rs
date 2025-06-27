@@ -49,6 +49,7 @@ pub const INVALID_WITNESSES_INFO: &[u8] = b"INVALID_WITNESSES_INFO";
 #[derive(Default, Debug)]
 pub struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,
+    pub(crate) is_async: bool,
 }
 
 pub(crate) enum DBOp {
@@ -130,7 +131,7 @@ impl std::fmt::Debug for DBOp {
 
 impl DBTransaction {
     pub fn new() -> Self {
-        Self { ops: Vec::new() }
+        Self { ops: Vec::new(), is_async: false }
     }
 
     pub fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {

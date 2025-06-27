@@ -546,6 +546,7 @@ impl Database for RocksDB {
     )]
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
         let write_batch_start = std::time::Instant::now();
+        let is_async = transaction.is_async;
         let batch = self.build_write_batch(transaction)?;
         let elapsed = write_batch_start.elapsed();
         if elapsed.as_secs_f32() > 0.15 {
@@ -555,6 +556,9 @@ impl Database for RocksDB {
                 ?elapsed,
                 backtrace = %std::backtrace::Backtrace::force_capture()
             );
+        }
+        if is_async {
+            return self.db.write_without_wal(batch).map_err(io::Error::other);
         }
         self.db.write(batch).map_err(io::Error::other)
     }
@@ -599,7 +603,8 @@ impl Database for RocksDB {
                 );
 
                 // Now write each batch
-                for (col, batch) in async_batches {
+                for (col, mut batch) in async_batches {
+                    batch.is_async = true;
                     if let Err(e) = db_clone.write(batch) {
                         tracing::error!(
                             target: "store::db::rocksdb",
