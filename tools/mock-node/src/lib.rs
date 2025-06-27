@@ -290,6 +290,7 @@ struct MockPeer {
     network_config: MockNetworkConfig,
     block_production: tokio::time::Interval,
     incoming_requests: IncomingRequests,
+    genesis_hash: CryptoHash,
 }
 
 impl MockPeer {
@@ -298,7 +299,8 @@ impl MockPeer {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_config: MockNetworkConfig,
         block_production_delay: Duration,
-        head_block: Arc<Block>,
+        head_block: Block,
+        genesis_hash: CryptoHash,
     ) -> Self {
         let current_height = head_block.header().height();
         let incoming_requests =
@@ -310,6 +312,7 @@ impl MockPeer {
             network_config,
             block_production: tokio::time::interval(block_production_delay),
             incoming_requests,
+            genesis_hash,
         }
     }
 
@@ -341,6 +344,7 @@ impl MockPeer {
                             hashes,
                             MAX_BLOCK_HEADERS,
                             Some(self.current_height),
+                            &self.genesis_hash,
                         )
                         .with_context(|| {
                             format!("failed retrieving block headers up to {}", self.current_height)
@@ -459,6 +463,7 @@ struct MockNode {
     network_start_height: BlockHeight,
     network_config: MockNetworkConfig,
     block_production_delay: Duration,
+    genesis_hash: CryptoHash,
 }
 
 impl MockNode {
@@ -495,6 +500,7 @@ impl MockNode {
             network_start_height,
             network_config,
             block_production_delay,
+            genesis_hash,
         })
     }
 
@@ -521,6 +527,7 @@ impl MockNode {
                 self.network_config.clone(),
                 self.block_production_delay,
                 head_block.clone(),
+                self.genesis_hash,
             );
 
             tokio::spawn(async move {
