@@ -248,10 +248,6 @@ pub fn retrieve_headers(
     };
 
     let mut headers = vec![];
-    // let header_head_height = chain_store.header_head()?.height;
-    // let max_height = max_height.unwrap_or(header_head_height);
-    // TODO: this may be inefficient if there are a lot of skipped blocks.
-    // for h in header.height() + 1..=max_height {
     for i in 1..max_headers_returned {
         let h = header.height() + i;
         if h > max_height.unwrap_or(u64::MAX) {
@@ -260,9 +256,6 @@ pub fn retrieve_headers(
 
         if let Ok(header) = chain_store.get_block_header_by_height(h) {
             headers.push(header.clone());
-            if headers.len() >= max_headers_returned as usize {
-                break;
-            }
         }
     }
     Ok(headers)
