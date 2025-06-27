@@ -476,7 +476,7 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
     let updated_nodes = &changes.updated_nodes;
     let node_ids_with_hashes = &changes.node_ids_with_hashes;
     for (node_id, node_hash) in node_ids_with_hashes {
-        let node = updated_nodes.get(*node_id).unwrap().clone().unwrap();
+        let node = updated_nodes.get(*node_id).unwrap().as_ref().unwrap();
         let node = match &node.node {
             UpdatedMemTrieNode::Empty => unreachable!(),
             UpdatedMemTrieNode::Branch { children, value } => {
