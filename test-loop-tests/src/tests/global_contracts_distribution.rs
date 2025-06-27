@@ -7,7 +7,6 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
-use near_primitives::block::MaybeNew;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::receipt::ReceiptEnum;
 use near_primitives::shard_layout::ShardLayout;
@@ -87,10 +86,9 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
             .shard_layout;
         assert_eq!(block_shard_layout, env.new_shard_layout);
         let chunks = block.chunks();
-        let MaybeNew::New(chunk_header) = chunks.iter().nth(0).unwrap() else {
-            panic!("expected new chunk");
-        };
-        let chunk = env.client().chain.get_chunk(&chunk_header.compute_hash()).unwrap();
+        // Expect new chunk
+        assert!(chunks[0].is_new_chunk(block.header().height()));
+        let chunk = env.client().chain.get_chunk(&chunks[0].compute_hash()).unwrap();
         let [distribution_receipt] = chunk
             .prev_outgoing_receipts()
             .iter()

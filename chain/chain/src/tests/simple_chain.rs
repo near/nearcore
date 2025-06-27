@@ -6,10 +6,7 @@ use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::OptimisticBlock;
-use near_primitives::{
-    block::MaybeNew, hash::CryptoHash, sharding::ShardChunkHeader, test_utils::TestBlockBuilder,
-    version::PROTOCOL_VERSION,
-};
+use near_primitives::{hash::CryptoHash, test_utils::TestBlockBuilder, version::PROTOCOL_VERSION};
 use num_rational::Ratio;
 use std::sync::Arc;
 
@@ -265,28 +262,13 @@ fn block_chunk_headers_iter() {
     Arc::make_mut(&mut block).set_chunks(fake_headers);
 
     let chunks = block.chunks();
+    let old_headers_count = chunks.iter_old().count();
+    let new_headers_count = chunks.iter_new().count();
+    let raw_headers_count = chunks.iter().count();
 
-    let new_headers: Vec<&ShardChunkHeader> = chunks
-        .iter()
-        .filter_map(|chunk| match chunk {
-            MaybeNew::New(chunk) => Some(chunk),
-            _ => None,
-        })
-        .collect();
-
-    let old_headers: Vec<&ShardChunkHeader> = chunks
-        .iter()
-        .filter_map(|chunk| match chunk {
-            MaybeNew::Old(chunk) => Some(chunk),
-            _ => None,
-        })
-        .collect();
-
-    let raw_headers = chunks.iter_raw();
-
-    assert_eq!(old_headers.len(), 8);
-    assert_eq!(new_headers.len(), 8);
-    assert_eq!(raw_headers.count(), old_headers.len() + new_headers.len());
+    assert_eq!(old_headers_count, 8);
+    assert_eq!(new_headers_count, 8);
+    assert_eq!(raw_headers_count, old_headers_count + new_headers_count);
 }
 
 /// Check that if block is processed while optimistic block is in processing,

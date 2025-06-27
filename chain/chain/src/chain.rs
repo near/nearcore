@@ -56,7 +56,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::validate::validate_optimistic_block_relevant;
 use near_primitives::block::{
-    Block, BlockValidityError, Chunks, MaybeNew, Tip, compute_bp_hash_from_validator_stakes,
+    Block, BlockValidityError, Chunks, Tip, compute_bp_hash_from_validator_stakes,
 };
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
@@ -1156,10 +1156,7 @@ impl Chain {
         }
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
-        for chunk_header in chunks.iter() {
-            let MaybeNew::New(chunk_header) = chunk_header else {
-                continue;
-            };
+        for chunk_header in chunks.iter_new() {
             let partial_encoded_chunk =
                 self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
             for receipt in partial_encoded_chunk.prev_outgoing_receipts() {
@@ -3017,13 +3014,11 @@ impl Chain {
 
         for (shard_index, chunk_header) in chunk_headers.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
-            let is_new_chunk = matches!(chunk_header, MaybeNew::New(_));
-
             let block_context = Self::get_apply_chunk_block_context_from_block_header(
                 block.header(),
                 &chunk_headers,
                 prev_block.header(),
-                is_new_chunk,
+                chunk_header.is_new_chunk(),
             )?;
 
             let cached_shard_update_key =

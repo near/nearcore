@@ -32,7 +32,6 @@ use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthSchedulerParams,
 };
-use near_primitives::block::MaybeNew;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -270,10 +269,7 @@ fn analyze_workload_blocks(
             .unwrap();
 
         // Go over all new chunks in a block
-        for chunk_header in block.chunks().iter() {
-            let MaybeNew::New(new_chunk) = chunk_header else {
-                continue;
-            };
+        for new_chunk in block.chunks().iter_new() {
             let shard_id = new_chunk.shard_id();
             let shard_index = cur_shard_layout.get_shard_index(shard_id).unwrap();
             let shard_uid = ShardUId::new(cur_shard_layout.version(), shard_id);
