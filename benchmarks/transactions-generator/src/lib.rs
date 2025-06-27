@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, atomic};
 use std::time::Duration;
 use tokio::task::{self, JoinSet};
+use pid_lite::Controller;
 
 pub mod account;
 #[cfg(feature = "with_actix")]
@@ -74,6 +75,31 @@ struct StatsLocal {
     included_in_chunk: u64,
     failed: u64,
 }
+
+struct FilterRateExponentialSmoothing {
+    gain: f64,
+    time_last_data: std::time::Instant,
+    last_data: u64,
+    last_rate: f64,
+}
+
+impl FilterRateExponentialSmoothing {
+    pub fn new()
+
+    pub fn register(&mut self, data_point: u64)-> f64 {
+        let now = std::time::Instant::now();
+        let rate = (data_point - last_data) as f64 /  ;
+        last_rate = gain*diff + (1.0 - gain)*last_rate;
+        last_data = data_point;
+        last_rate
+    }
+}
+
+struct TxRateController {
+    controller: pid_lite::Controller,
+    filter: FilterExponentialSmoothing,
+}
+
 
 impl From<&Stats> for StatsLocal {
     fn from(x: &Stats) -> Self {
@@ -180,13 +206,16 @@ impl TxGenerator {
         }
     }
 
-    async fn get_latest_block(view_client_sender: &ViewClientSender) -> anyhow::Result<CryptoHash> {
+    async fn get_latest_block(view_client_sender: &ViewClientSender) -> anyhow::Result<(CryptoHash, u64)> {
         match view_client_sender
             .block_request_sender
             .send_async(GetBlock(BlockReference::latest()))
             .await
         {
-            Ok(rsp) => Ok(rsp?.header.hash),
+            Ok(rsp) => {
+                let rsp = rsp?;
+                Ok((rsp.header.hash, rsp.header.height))
+            },
             Err(err) => {
                 anyhow::bail!("async send error: {err}");
             }
@@ -202,9 +231,9 @@ impl TxGenerator {
             let view_client = &view_client_sender;
             loop {
                 match Self::get_latest_block(view_client).await {
-                    Ok(new_hash) => {
+                    Ok((new_hash, _new_height)) => {
                         let _ = tx_latest_block.send(new_hash);
-                        tokio::time::interval(Duration::from_secs(3)).tick().await;
+                        tokio::time::interval(Duration::from_millis(500)).tick().await;
                     }
                     Err(err) => {
                         tracing::warn!(target: "transaction-generator", "block_hash update failed: {err}");
