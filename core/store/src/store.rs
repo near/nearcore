@@ -81,30 +81,36 @@ impl Store {
         {
             let mut lock = cache.lock();
             if let Some(value) = lock.values.get(key) {
-                match Arc::downcast::<T>(Arc::clone(value)) {
-                    Ok(result) => return Ok(Some(result)),
-                    Err(_) => {
-                        tracing::debug!(
-                            target: "store",
-                            requested = std::any::type_name::<T>(),
-                            "could not downcast an available cached deserialized value"
-                        );
-                    }
+                match value {
+                    Some(value) => match Arc::downcast::<T>(Arc::clone(value)) {
+                        Ok(result) => return Ok(Some(result)),
+                        Err(_) => {
+                            tracing::debug!(
+                                target: "store",
+                                requested = std::any::type_name::<T>(),
+                                "could not downcast an available cached deserialized value"
+                            );
+                        }
+                    },
+                    None => return Ok(None),
                 }
             }
         }
 
         let value = match self.get_ser::<T>(column, key) {
-            Ok(Some(value)) => Arc::from(value),
-            Ok(None) => return Ok(None),
+            Ok(Some(value)) => Some(Arc::from(value)),
+            Ok(None) => None,
             Err(e) => return Err(e),
         };
 
         let mut lock = cache.lock();
         if lock.active_flushes == 0 {
-            lock.values.put(key.into(), Arc::clone(&value) as _);
+            match &value {
+                Some(value) => lock.values.put(key.into(), Some(Arc::clone(&value) as _)),
+                None => lock.values.put(key.into(), None),
+            };
         }
-        Ok(Some(value))
+        Ok(value)
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
