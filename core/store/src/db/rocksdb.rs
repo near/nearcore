@@ -143,6 +143,7 @@ impl WaitGroup {
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
+    read_only: bool,
     cache: Arc<deserialized_column::Cache>,
 
     /// Map from [`DBCol`] to a column family handler in the RocksDB.
@@ -230,6 +231,7 @@ impl RocksDB {
         Ok(Self {
             db,
             db_opt,
+            read_only: mode.read_only(),
             cf_handles,
             write_tracker,
             _instance_tracker: counter,
@@ -924,7 +926,9 @@ impl Drop for RocksDB {
             let mut env = Env::new().unwrap();
             env.set_background_threads(4);
         }
-        self.flush().unwrap();
+        if !self.read_only {
+            self.flush().expect("Failed to flush RocksDB on drop");
+        }
         self.db.cancel_all_background_work(true);
     }
 }
