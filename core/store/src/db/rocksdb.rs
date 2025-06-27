@@ -916,6 +916,7 @@ impl RocksDB {
                 .drop_cf(col_name(*col))
                 .with_context(|| format!("failed to drop column family {:?}", col,))?;
             self.cleared_columns.insert(*col, true);
+            warn!(target: "store::db::rocksdb", "Cleared column family {col} from RocksDB at {}", self.db.path().display());
         }
         Ok(())
     }
@@ -923,6 +924,7 @@ impl RocksDB {
 
 impl Drop for RocksDB {
     fn drop(&mut self) {
+        warn!(target: "store::db::rocksdb", "Dropping RocksDB instance at {}", self.db.path().display());
         if cfg!(feature = "single_thread_rocksdb") {
             // RocksDB with only one thread stuck on wait some condition var
             // Turn on additional threads to proceed
@@ -932,11 +934,12 @@ impl Drop for RocksDB {
         if !self.read_only {
             self.write_tracker.wait_for_all_column_writes();
             for col in DBCol::iter() {
-                if self.cleared_columns.get(&col).is_some() {
-                    warn!(target: "store::db::rocksdb", "Column family {col} was cleared, skipping flush.");
+                if self.cleared_columns.len() > 0 {
+                    warn!("Some column families were cleared, skipping flush.");
                     continue;
                 }
                 if let Ok(handle) = self.cf_handle(col) {
+                    warn!(target: "store::db::rocksdb", "Flushing column family {col} before dropping RocksDB instance.");
                     if let Err(e) = self.db.flush_cf(handle).map_err(io::Error::other) {
                         warn!(target: "store::db::rocksdb", "Failed to flush column family {col}: {e}");
                     }
