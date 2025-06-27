@@ -21,6 +21,7 @@ ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 finite-wasm-6 = { workspace = true, features = ["instrument"], optional = true }
+libc.workspace = true
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
@@ -63,6 +64,9 @@ near-vm-2-compiler-singlepass = { workspace = true, optional = true }
 near-vm-2-engine = { workspace = true, optional = true }
 near-vm-2-types = { workspace = true, optional = true }
 near-vm-2-vm = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi.workspace = true
 
 [dev-dependencies]
 arbitrary.workspace = true

@@ -1,42 +1,70 @@
+// cspell:ignore miri sysconf sysinfoapi
+
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
-    CacheError, CompilationError, FunctionCallError, MethodResolveError, PrepareError,
-    VMLogicError, VMRunnerError, WasmTrap,
+    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
+    VMRunnerError, WasmTrap,
 };
-use crate::logic::{Config, ExecutionResultState, GasCounter};
-use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
+use crate::logic::{
+    Config, ExecutionResultState, External, GasCounter, MemSlice, MemoryLike, VMContext, VMLogic,
+    VMOutcome,
+};
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
-    NoContractRuntimeCache, get_contract_cache_key, imports, prepare,
+    NoContractRuntimeCache, get_contract_cache_key, imports, lazy_drop, prepare,
 };
+use core::cell::{RefCell, UnsafeCell};
+use core::ffi::c_void;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
+use parking_lot::RwLock;
 use std::borrow::Cow;
-use std::cell::{RefCell, UnsafeCell};
-use std::ffi::c_void;
-use std::sync::Arc;
-use wasmtime::ExternType::Func;
-use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store, Strategy};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
+use wasmtime::{Engine, ExternType, Instance, Linker, Memory, MemoryType, Module, Store, Strategy};
+
+const GUEST_PAGE_SIZE: usize = 1 << 16;
+
+/// Returns the host OS page size, in bytes.
+/// Adapted from
+/// https://github.com/bytecodealliance/wasmtime/blob/69c2fca39d8069d180d708d0babc35666d728824/crates/wasmtime/src/runtime/vm.rs#L473-L487
+fn host_page_size() -> usize {
+    static PAGE_SIZE: AtomicUsize = AtomicUsize::new(0);
+
+    return match PAGE_SIZE.load(Ordering::Relaxed) {
+        0 => {
+            let size = {
+                #[cfg(miri)]
+                {
+                    4096
+                }
+                #[cfg(unix)]
+                {
+                    unsafe { libc::sysconf(libc::_SC_PAGESIZE).try_into().unwrap() }
+                }
+                #[cfg(windows)]
+                unsafe {
+                    let mut info = core::mem::MaybeUninit::uninit();
+                    winapi::um::sysinfoapi::GetSystemInfo(info.as_mut_ptr());
+                    info.assume_init_ref().dwPageSize as _;
+                }
+            };
+            assert!(size != 0);
+            PAGE_SIZE.store(size, Ordering::Relaxed);
+            size
+        }
+        n => n,
+    };
+}
 
 type Caller = wasmtime::Caller<'static, ()>;
 thread_local! {
     pub(crate) static CALLER: RefCell<Option<Caller>> = const { RefCell::new(None) };
 }
-pub struct WasmtimeMemory(Memory);
 
-impl WasmtimeMemory {
-    pub fn new(
-        store: &mut Store<()>,
-        initial_memory_bytes: u32,
-        max_memory_bytes: u32,
-    ) -> Result<Self, FunctionCallError> {
-        Ok(WasmtimeMemory(
-            Memory::new(store, MemoryType::new(initial_memory_bytes, Some(max_memory_bytes)))
-                .map_err(|_| PrepareError::Memory)?,
-        ))
-    }
-}
+pub struct WasmtimeMemory(Memory);
 
 fn with_caller<T>(func: impl FnOnce(&mut Caller) -> T) -> T {
     CALLER.with(|caller| func(caller.borrow_mut().as_mut().unwrap()))
@@ -122,11 +150,6 @@ impl IntoVMError for anyhow::Error {
     }
 }
 
-#[allow(clippy::needless_pass_by_ref_mut)]
-pub fn get_engine(config: &wasmtime::Config) -> Engine {
-    Engine::new(config).unwrap()
-}
-
 pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
     let features = crate::features::WasmFeatures::new(c);
 
@@ -163,14 +186,24 @@ pub(crate) fn wasmtime_vm_hash() -> u64 {
     64
 }
 
+#[derive(Clone)]
 pub(crate) struct WasmtimeVM {
     config: Arc<Config>,
-    engine: wasmtime::Engine,
+    engine: Engine,
 }
 
 impl WasmtimeVM {
     pub(crate) fn new(config: Arc<Config>) -> Self {
-        Self { engine: get_engine(&default_wasmtime_config(&config)), config }
+        static VMS: LazyLock<RwLock<HashMap<Arc<Config>, WasmtimeVM>>> =
+            LazyLock::new(RwLock::default);
+        {
+            if let Some(vm) = VMS.read().get(&config) {
+                return vm.clone();
+            }
+        }
+        let engine = Engine::new(&default_wasmtime_config(&config))
+            .expect("failed to construct Wasmtime engine");
+        VMS.write().entry(Arc::clone(&config)).or_insert(Self { config, engine }).clone()
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
@@ -320,47 +353,22 @@ impl crate::runner::VM for WasmtimeVM {
             method,
             |gas_counter, module| {
                 let config = Arc::clone(&self.config);
-                match module.get_export(method) {
-                    Some(export) => match export {
-                        Func(func_type) => {
-                            if func_type.params().len() != 0 || func_type.results().len() != 0 {
-                                let e = FunctionCallError::MethodResolveError(
-                                    MethodResolveError::MethodInvalidSignature,
-                                );
-                                let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
-                                return Ok(PreparedContract { config, gas_counter, result });
-                            }
-                        }
-                        _ => {
-                            let e = FunctionCallError::MethodResolveError(
-                                MethodResolveError::MethodNotFound,
-                            );
-                            let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
-                            return Ok(PreparedContract { config, gas_counter, result });
-                        }
-                    },
-                    None => {
-                        let e = FunctionCallError::MethodResolveError(
-                            MethodResolveError::MethodNotFound,
-                        );
-                        let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
-                        return Ok(PreparedContract { config, gas_counter, result });
-                    }
+                let Some(ExternType::Func(func_type)) = module.get_export(method) else {
+                    let e =
+                        FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound);
+                    let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                    return Ok(PreparedContract { config, gas_counter, result });
+                };
+                if func_type.params().len() != 0 || func_type.results().len() != 0 {
+                    let e = FunctionCallError::MethodResolveError(
+                        MethodResolveError::MethodInvalidSignature,
+                    );
+                    let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                    return Ok(PreparedContract { config, gas_counter, result });
                 }
 
-                let mut store = Store::new(module.engine(), ());
-                let memory = WasmtimeMemory::new(
-                    &mut store,
-                    self.config.limit_config.initial_memory_pages,
-                    self.config.limit_config.max_memory_pages,
-                )
-                .unwrap();
-                let result = PreparationResult::Ready(ReadyContract {
-                    store,
-                    memory,
-                    module,
-                    method: method.into(),
-                });
+                let result =
+                    PreparationResult::Ready(ReadyContract { module, method: method.into() });
                 Ok(PreparedContract { config, gas_counter, result })
             },
         );
@@ -369,10 +377,8 @@ impl crate::runner::VM for WasmtimeVM {
 }
 
 struct ReadyContract {
-    store: Store<()>,
-    memory: WasmtimeMemory,
     module: Module,
-    method: String,
+    method: Box<str>,
 }
 
 struct PreparedContract {
@@ -388,6 +394,52 @@ enum PreparationResult {
     Ready(ReadyContract),
 }
 
+/// This enum allows us to replicate the various [`VMOutcome`] states without moving [`VMLogic`]
+///
+/// If function like [`call`] where to rely on [`VMOutcome::ok`], for example, it would require
+/// ownership of [`VMLogic`], to acquire the inner [`ExecutionResultState`].
+/// `run`, however, owns [`VMLogic`] and creates a mutable borrow,
+/// which is then stored in a thread-local static as a raw pointer.
+/// This means that we need to be very careful to ensure that the reference created is only dropped
+/// after the module method call has returned.
+/// Moving the [`VMLogic`] would break this assertion.
+enum RunOutcome {
+    Ok,
+    AbortNop(FunctionCallError),
+    Abort(FunctionCallError),
+}
+
+fn call(
+    mut store: &mut Store<()>,
+    instance: Instance,
+    method: &str,
+) -> Result<RunOutcome, VMRunnerError> {
+    let Some(func) = instance.get_func(&mut store, method) else {
+        return Ok(RunOutcome::AbortNop(FunctionCallError::MethodResolveError(
+            MethodResolveError::MethodNotFound,
+        )));
+    };
+    match func.typed(&mut store) {
+        Ok(run) => match run.call(store, ()) {
+            Ok(()) => Ok(RunOutcome::Ok),
+            Err(err) => err.into_vm_error().map(RunOutcome::Abort),
+        },
+        Err(err) => err.into_vm_error().map(RunOutcome::Abort),
+    }
+}
+
+fn instantiate_and_call(
+    mut store: &mut Store<()>,
+    linker: &Linker<()>,
+    module: &Module,
+    method: &str,
+) -> Result<RunOutcome, VMRunnerError> {
+    match linker.instantiate(&mut store, module) {
+        Ok(instance) => call(store, instance, method),
+        Err(err) => err.into_vm_error().map(RunOutcome::Abort),
+    }
+}
+
 impl crate::PreparedContract for VMResult<PreparedContract> {
     fn run(
         self: Box<Self>,
@@ -397,7 +449,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { mut store, mut memory, module, method } = match result {
+        let ReadyContract { module, method } = match result {
             PreparationResult::Ready(r) => r,
             PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
@@ -407,31 +459,55 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             }
         };
 
-        let memory_copy = memory.0;
         let config = Arc::clone(&result_state.config);
-        let mut logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
-        let engine = store.engine();
+        let engine = module.engine();
+        let mut store = Store::new(engine, ());
+        let mut minimum_mem = config
+            .limit_config
+            .initial_memory_pages
+            .try_into()
+            .unwrap_or(usize::MAX)
+            .saturating_mul(GUEST_PAGE_SIZE);
+        let maximum_mem = config
+            .limit_config
+            .max_memory_pages
+            .try_into()
+            .unwrap_or(usize::MAX)
+            .saturating_mul(GUEST_PAGE_SIZE);
+        let mut initial_memory_pages = config.limit_config.initial_memory_pages;
+        let host_page_size = host_page_size();
+        while minimum_mem < maximum_mem {
+            let host_rem = minimum_mem % host_page_size;
+            let guest_rem = minimum_mem % GUEST_PAGE_SIZE;
+            if host_rem == 0 && guest_rem == 0 {
+                // Ensure that the mmap-ed memory region size is a multiple of host page size to ensure CoW is used
+                // https://github.com/bytecodealliance/wasmtime/blob/18b42ef4e48e498026237013df8ed5af9da0d72d/crates/wasmtime/src/runtime/vm/memory.rs#L526-L530
+                initial_memory_pages =
+                    u32::try_from(minimum_mem.saturating_div(GUEST_PAGE_SIZE)).unwrap_or(u32::MAX);
+                break;
+            }
+            minimum_mem = minimum_mem.saturating_add(host_rem.max(guest_rem)).min(maximum_mem);
+        }
+        let memory = Memory::new(
+            &mut store,
+            MemoryType::new(initial_memory_pages, Some(config.limit_config.max_memory_pages)),
+        )
+        .expect("failed to construct memory");
+
+        let mut logic_memory = WasmtimeMemory(memory);
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, &mut logic_memory);
         let mut linker = Linker::new(engine);
         // TODO: config could be accessed through `logic.result_state`, without this code having to
         // figure it out...
-        link(&mut linker, memory_copy, &store, &config, &mut logic);
-        match linker.instantiate(&mut store, &module) {
-            Ok(instance) => match instance.get_func(&mut store, &method) {
-                Some(func) => match func.typed::<(), ()>(&mut store) {
-                    Ok(run) => match run.call(&mut store, ()) {
-                        Ok(_) => Ok(VMOutcome::ok(logic.result_state)),
-                        Err(err) => Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?)),
-                    },
-                    Err(err) => Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?)),
-                },
-                None => {
-                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                        logic.result_state,
-                        FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
-                    ));
-                }
-            },
-            Err(err) => Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?)),
+        link(&mut linker, memory, &store, &config, &mut logic);
+        let res = instantiate_and_call(&mut store, &linker, &module, &method);
+        lazy_drop(Box::new((linker, module, store)));
+        match res? {
+            RunOutcome::Ok => Ok(VMOutcome::ok(logic.result_state)),
+            RunOutcome::AbortNop(error) => {
+                Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic.result_state, error))
+            }
+            RunOutcome::Abort(error) => Ok(VMOutcome::abort(logic.result_state, error)),
         }
     }
 }
