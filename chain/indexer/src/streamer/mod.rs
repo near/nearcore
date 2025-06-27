@@ -25,7 +25,7 @@ use self::fetchers::{
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::INDEXER;
-use crate::streamer::fetchers::fetch_protocol_config;
+use crate::streamer::fetchers::{fetch_protocol_config, fetch_tail_block_height};
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 use near_epoch_manager::shard_tracker::ShardTracker;
 
@@ -395,18 +395,41 @@ pub(crate) async fn start(
             AwaitForNodeSyncedEnum::StreamWhileSyncing => {}
         };
 
-        let block =
-            if let Ok(block) = fetch_latest_block(&view_client, &indexer_config.finality).await {
-                block
-            } else {
+        let block = match fetch_latest_block(&view_client, &indexer_config.finality).await {
+            Ok(block) => block,
+            Err(err) => {
+                tracing::warn!(target: INDEXER, "Failed to fetch latest block {:?}", err);
                 continue;
-            };
+            }
+        };
 
         let latest_block_height = block.header.height;
         let start_syncing_block_height = if let Some(last_synced_block_height) =
             last_synced_block_height
         {
-            last_synced_block_height + 1
+            // If the tail head is later than our last synced height, it means state sync happened
+            // and there's a gap in the heights. Specifically if we bootstrapped the node with
+            // epoch sync, we may be jumping directly from genesis to the epoch sync boundary.
+            // So in these cases, just skip to the tail height and don't bother querying anything in
+            // between that we know are missing.
+            let tail_height = match fetch_tail_block_height(&view_client).await {
+                Ok(height) => height,
+                Err(err) => {
+                    error!(target: INDEXER, "Failed to fetch tail height: {:?}", err);
+                    continue;
+                }
+            };
+            if tail_height > last_synced_block_height + 1 {
+                info!(
+                    target: INDEXER,
+                    "Tail height {} is greater than the next block {} we were going to fetch, skipping to tail height",
+                    tail_height,
+                    last_synced_block_height
+                );
+                tail_height
+            } else {
+                last_synced_block_height + 1
+            }
         } else {
             match indexer_config.sync_mode {
                 crate::SyncModeEnum::FromInterruption => {

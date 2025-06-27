@@ -24,8 +24,8 @@ use near_client_primitives::types::{
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
     GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
     GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
-    TxStatus, TxStatusError,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetTailBlockHeight, GetValidatorInfoError,
+    Query, QueryError, TxStatus, TxStatusError,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -1538,5 +1538,13 @@ impl Handler<GetSplitStorageInfo> for ViewClientActorInner {
             cold_head_height: cold_head.map(|tip| tip.height),
             hot_db_kind,
         })
+    }
+}
+
+impl Handler<GetTailBlockHeight> for ViewClientActorInner {
+    #[perf]
+    fn handle(&mut self, msg: GetTailBlockHeight) -> Result<u64, near_chain_primitives::Error> {
+        tracing::debug!(target: "client", ?msg);
+        self.chain.chain_store().tail()
     }
 }

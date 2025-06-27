@@ -4,8 +4,9 @@ pub use near_client_primitives::types::{
     GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
     GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetShardChunk, GetSplitStorageInfo,
     GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
-    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetTailBlockHeight, GetValidatorInfo,
+    GetValidatorOrdered, Query, QueryError, Status, StatusResponse, SyncStatus, TxStatus,
+    TxStatusError,
 };
 
 pub use crate::client::{AsyncComputationMultiSpawner, Client};
