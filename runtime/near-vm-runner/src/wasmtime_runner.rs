@@ -174,7 +174,10 @@ impl WasmtimeVM {
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
-    fn compile_uncached(&self, code: &ContractCode) -> Result<Vec<u8>, CompilationError> {
+    pub(crate) fn compile_uncached(
+        &self,
+        code: &ContractCode,
+    ) -> Result<Vec<u8>, CompilationError> {
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;
