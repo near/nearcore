@@ -10,7 +10,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{get_block_shard_uid, get_block_shard_uid_rev};
+use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
@@ -18,7 +18,8 @@ use near_primitives::utils::{
 };
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId, TrieChanges};
+use near_store::archive::cold_storage::join_two_keys;
+use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
@@ -747,23 +748,8 @@ impl<'a> ChainStoreUpdate<'a> {
         gc_mode: &GCMode,
         store_update: &mut near_store::adapter::trie_store::TrieStoreUpdateAdapter<'_>,
     ) -> Result<(), Error> {
-        // Technically we should only need to iterate over the shard uids in the
-        // current shard layout. However during resharding we write trie changes at
-        // the resharding block, using the children shard uids that are not present
-        // in the shard layout. So instead we iterate over all trie changes using
-        // the iter prefix serialized method.
-        // TODO(wacban) refactor iter_prefix for TrieChanges
-        for key_and_trie_changes in
-            self.store().iter_prefix_ser::<TrieChanges>(DBCol::TrieChanges, block_hash.as_ref())
-        {
-            let (trie_changes_key, trie_changes) = key_and_trie_changes?;
-            let block_hash_and_shard_uid = get_block_shard_uid_rev(&trie_changes_key);
-            let block_hash_and_shard_uid = block_hash_and_shard_uid.map_err(|err| {
-                Error::StorageError(near_store::StorageError::StorageInconsistentState(format!(
-                    "Failed to parse block hash and shard uid: {err}"
-                )))
-            })?;
-            let (_, shard_uid) = block_hash_and_shard_uid;
+        for shard_uid_and_trie_changes in self.store().chain_store().get_trie_changes(&block_hash) {
+            let (shard_uid, trie_changes) = shard_uid_and_trie_changes?;
 
             match gc_mode.clone() {
                 GCMode::Fork(tries) => {
@@ -779,6 +765,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
             }
 
+            let trie_changes_key = join_two_keys(block_hash.as_ref(), &shard_uid.to_bytes());
             self.gc_col(DBCol::TrieChanges, &trie_changes_key);
         }
         Ok(())

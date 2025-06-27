@@ -1,7 +1,7 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 use crate::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
+    LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, TrieChanges, get_genesis_height,
 };
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
@@ -9,7 +9,7 @@ use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid, get_block_shard_uid_rev};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
 };
@@ -411,6 +411,34 @@ impl ChainStoreAdapter {
     /// Get height of genesis
     pub fn get_genesis_height(&self) -> BlockHeight {
         self.genesis_height
+    }
+
+    // Get all the TrieChanges for a given block hash.
+    //
+    // Technically TrieChanges users should only need to iterate over the shard
+    // uids in the current shard layout. However during resharding we write trie
+    // changes at the resharding block, using the children shard uids that are
+    // not present in the shard layout. So instead we iterate over all trie
+    // changes using the iter_prefix_ser method.
+    pub fn get_trie_changes<'a>(
+        &'a self,
+        block_hash: &'a CryptoHash,
+    ) -> impl Iterator<Item = Result<(ShardUId, TrieChanges), Error>> + 'a {
+        self.store.iter_prefix_ser::<TrieChanges>(DBCol::TrieChanges, block_hash.as_ref()).map(
+            |key_and_trie_changes| {
+                let (block_hash_and_shard_uid, trie_changes) = key_and_trie_changes?;
+                let block_hash_and_shard_uid = get_block_shard_uid_rev(&block_hash_and_shard_uid);
+                let block_hash_and_shard_uid = block_hash_and_shard_uid.map_err(|err| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Failed to parse block hash and shard uid when reading TrieChanges: {err}"),
+                    )
+                })?;
+                let (_, shard_uid) = block_hash_and_shard_uid;
+
+                Ok((shard_uid, trie_changes))
+            },
+        )
     }
 }
 

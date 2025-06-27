@@ -1,14 +1,14 @@
-use crate::adapter::StoreUpdateAdapter;
 use crate::adapter::trie_store::get_shard_uid_mapping;
+use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::columns::DBKeyType;
 use crate::db::{COLD_HEAD_KEY, ColdDB, HEAD_KEY};
-use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, metrics};
+use crate::{DBCol, DBTransaction, Database, Store, metrics};
 
 use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid_rev};
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::{BlockHeight, ShardId};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
@@ -92,6 +92,8 @@ pub fn update_cold_db(
     let height_key = height.to_le_bytes();
     let block_hash_vec = hot_store.get_or_err_for_cold(DBCol::BlockHeight, &height_key)?;
     let block_hash_key = block_hash_vec.as_slice();
+    let block_hash = CryptoHash::try_from_slice(block_hash_key)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid block hash key"))?;
 
     let key_type_to_keys =
         get_keys_from_store(&hot_store, shard_layout, tracked_shards, &height_key, block_hash_key)?;
@@ -119,7 +121,7 @@ pub fn update_cold_db(
                         copy_state_from_store(
                             shard_layout,
                             &tracked_shards,
-                            block_hash_key,
+                            &block_hash,
                             cold_db,
                             &hot_store,
                         )
@@ -205,7 +207,7 @@ fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) 
 fn copy_state_from_store(
     shard_layout: &ShardLayout,
     tracked_shards: &Vec<ShardUId>,
-    block_hash_key: &[u8],
+    block_hash: &CryptoHash,
     cold_db: &ColdDB,
     hot_store: &Store,
 ) -> io::Result<()> {
@@ -224,24 +226,10 @@ fn copy_state_from_store(
     // the resharding block, using the children shard uids that are not present
     // in the shard layout. So instead we iterate over all trie changes using
     // the iter prefix serialized method.
-    let trie_changes_iter =
-        hot_store.iter_prefix_ser::<TrieChanges>(DBCol::TrieChanges, block_hash_key);
-    for key_and_trie_changes in trie_changes_iter {
-        // Assert that the key consists of BlockHash and ShardUId.
-        debug_assert_eq!(
-            DBCol::TrieChanges.key_type(),
-            &[DBKeyType::BlockHash, DBKeyType::ShardUId]
-        );
-
-        let (block_hash_and_shard_uid, trie_changes) = key_and_trie_changes?;
-        let block_hash_and_shard_uid = get_block_shard_uid_rev(&block_hash_and_shard_uid);
-        let block_hash_and_shard_uid = block_hash_and_shard_uid.map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Failed to parse block hash and shard uid: {err}"),
-            )
+    for shard_uid_and_trie_changes in hot_store.chain_store().get_trie_changes(block_hash) {
+        let (shard_uid, trie_changes) = shard_uid_and_trie_changes.map_err(|err| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("Failed to get TrieChanges {err}"))
         })?;
-        let (_, shard_uid) = block_hash_and_shard_uid;
 
         copied_shards.insert(shard_uid);
         total_keys += trie_changes.insertions().len();
