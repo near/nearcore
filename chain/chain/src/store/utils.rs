@@ -241,20 +241,6 @@ pub fn retrieve_headers(
     hashes: Vec<CryptoHash>,
     max_headers_returned: u64,
     max_height: Option<BlockHeight>,
-) -> Result<Vec<BlockHeader>, Error> {
-    let header = match find_common_header(chain_store, &hashes) {
-        Some(header) => header,
-        None => return Ok(vec![]),
-    };
-
-    retrieve_headers_inner(chain_store, max_headers_returned, max_height, header)
-}
-
-pub fn retrieve_headers_with_genesis(
-    chain_store: &ChainStoreAdapter,
-    hashes: Vec<CryptoHash>,
-    max_headers_returned: u64,
-    max_height: Option<BlockHeight>,
     genesis_hash: &CryptoHash,
 ) -> Result<Vec<BlockHeader>, Error> {
     let header = match find_common_header(chain_store, &hashes) {
@@ -266,15 +252,6 @@ pub fn retrieve_headers_with_genesis(
         return Ok(vec![]);
     }
 
-    retrieve_headers_inner(chain_store, max_headers_returned, max_height, header)
-}
-
-pub fn retrieve_headers_inner(
-    chain_store: &ChainStoreAdapter,
-    max_headers_returned: u64,
-    max_height: Option<BlockHeight>,
-    header: BlockHeader,
-) -> Result<Vec<BlockHeader>, Error> {
     let mut headers = vec![];
     let header_head_height = chain_store.header_head()?.height;
     let max_height = max_height.unwrap_or(header_head_height);
