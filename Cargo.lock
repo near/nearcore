@@ -4149,6 +4149,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-actix-bench"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "anyhow",
+ "futures",
+ "tokio",
+]
+
+[[package]]
 name = "near-actix-test-utils"
 version = "0.0.0"
 dependencies = [
