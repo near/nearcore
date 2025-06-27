@@ -9,7 +9,7 @@ pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;
 pub use store::utils::{
     check_transaction_validity_period, get_chunk_clone_from_header,
-    get_incoming_receipts_for_shard, retrieve_headers,
+    get_incoming_receipts_for_shard, retrieve_headers, retrieve_headers_with_genesis,
 };
 pub use store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, LatestWitnessesInfo, MerkleProofAccess,

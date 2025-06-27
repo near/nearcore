@@ -12,7 +12,7 @@ use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, MerkleProofAccess,
-    get_epoch_block_producers_view, retrieve_headers,
+    get_epoch_block_producers_view, retrieve_headers_with_genesis,
 };
 
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
@@ -647,7 +647,13 @@ impl ViewClientActorInner {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
-        retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS, None)
+        retrieve_headers_with_genesis(
+            self.chain.chain_store(),
+            hashes,
+            sync::header::MAX_BLOCK_HEADERS,
+            None,
+            self.chain.genesis().hash(),
+        )
     }
 
     fn check_signature_account_announce(
