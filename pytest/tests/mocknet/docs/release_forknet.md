@@ -6,7 +6,7 @@ The `release_forknet.py` script is used to run release test scenarios.
 * GCP access (SRE)
 * Infra-ops access (SRE)
 * Install gcloud tools locally [link](https://cloud.google.com/sdk/docs/install)
-* Undestand the basics of forknet from [mirror](mirror.md)
+* Understand the basics of forknet from [mirror](mirror.md)
 
 ## Usage
 
@@ -14,17 +14,17 @@ The `release_forknet.py` script is used to run release test scenarios.
 2. Create the nodes:
 
 ```bash
-python python tests/mocknet/release_forknet.py --unique-id tttest --test-case test2.7 create
+python python tests/mocknet/release_forknet.py --unique-id token --test-case test2.7 create
 ```
 
 3. Start the test
 ```bash
-python python tests/mocknet/release_forknet.py --unique-id tttest --test-case test2.7 start_test --neard-upgrade-binary-url $NEARD_UPGRADE_BINARY_URL
+python python tests/mocknet/release_forknet.py --unique-id token --test-case test2.7 start_test --neard-upgrade-binary-url $NEARD_UPGRADE_BINARY_URL
 ```
 
 4. Stop the test and free the nodes
 ```bash
-python python tests/mocknet/release_forknet.py --unique-id tttest --test-case test2.7 destroy
+python python tests/mocknet/release_forknet.py --unique-id token --test-case test2.7 destroy
 ```
 
 ## Adding testcase

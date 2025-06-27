@@ -88,7 +88,7 @@ class TestSetup:
         """
         # TODO: move this to a helper script on the hosts.
         cfg_args = copy.deepcopy(self.args)
-        cfg_args.host_filter = '.*archiv.*'
+        cfg_args.host_filter = '.*archival.*'
         cfg_args.set = ';'.join([
             'archive=true', 'gc_num_epochs_to_keep=3', 'save_trie_changes=true',
             'split_storage.enable_split_storage_view_client=true',
@@ -98,7 +98,7 @@ class TestSetup:
         update_config_cmd(CommandContext(cfg_args))
 
         run_args = copy.deepcopy(self.args)
-        run_args.host_filter = '.*archiv.*'
+        run_args.host_filter = '.*archival.*'
         run_args.cmd = "rm -rf /home/ubuntu/.near/cold /home/ubuntu/.near/validator_key.json && /home/ubuntu/.near/neard-runner/binaries/neard0 database change-db-kind --new-kind Hot change-hot"
         run_remote_cmd(CommandContext(run_args))
 
@@ -178,7 +178,7 @@ class TestSetup:
 
     def _reduce_chunk_validators_stake(self):
         """
-        Reduce the stake of the chunk validators to avoid accidntally becoming the block producers.
+        Reduce the stake of the chunk validators to avoid accidentally becoming the block producers.
         """
         # TODO: install the near validator tools and setup the environment.
         # TODO: run the validator tools to reduce the stake of the chunk validators.
