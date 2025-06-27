@@ -76,22 +76,31 @@ struct StatsLocal {
     failed: u64,
 }
 
-struct FilterRateExponentialSmoothing {
+enum FilterStage {
+    Init0,
+    Init1{data: u64, at_time: std::time::Instant},
+    Ready{data: u64, rate: u64, at_time: std::time::Instant},
+}
+
+struct FilterRateExponentialSmoothing {  
     gain: f64,
-    time_last_data: std::time::Instant,
-    last_data: u64,
-    last_rate: f64,
+    stage: FilterStage,
 }
 
 impl FilterRateExponentialSmoothing {
-    pub fn new()
+    pub fn new(gain: f64) {
+       FilterRateExponentialSmoothing {
+        
+        } 
+    }
 
     pub fn register(&mut self, data_point: u64)-> f64 {
         let now = std::time::Instant::now();
-        let rate = (data_point - last_data) as f64 /  ;
-        last_rate = gain*diff + (1.0 - gain)*last_rate;
-        last_data = data_point;
-        last_rate
+        let rate = (data_point - self.last_data) as f64 / now.duration_since(self.time_last_data).as_secs_f64();
+        self.time_last_data = now;
+        self.last_data = data_point;
+        self.rate = gain*diff + (1.0 - gain)*last_rate;
+        self.rate
     }
 }
 
