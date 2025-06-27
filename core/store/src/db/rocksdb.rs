@@ -6,7 +6,7 @@ use ::rocksdb::{
 };
 use anyhow::Context;
 use itertools::Itertools;
-use parking_lot::{Condvar, Mutex, RwLock};
+use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -144,6 +144,7 @@ pub struct RocksDB {
     db: DB,
     db_opt: Options,
     read_only: bool,
+    cleared_columns: HashMap<DBCol, bool>,
     cache: Arc<deserialized_column::Cache>,
 
     /// Map from [`DBCol`] to a column family handler in the RocksDB.
@@ -236,6 +237,7 @@ impl RocksDB {
             write_tracker,
             _instance_tracker: counter,
             cache: Arc::clone(cache),
+            cleared_columns: HashMap::new(),
         })
     }
 
@@ -913,6 +915,7 @@ impl RocksDB {
             self.db
                 .drop_cf(col_name(*col))
                 .with_context(|| format!("failed to drop column family {:?}", col,))?;
+            self.cleared_columns.insert(*col, true);
         }
         Ok(())
     }
@@ -927,7 +930,13 @@ impl Drop for RocksDB {
             env.set_background_threads(4);
         }
         if !self.read_only {
-            self.flush().expect("Failed to flush RocksDB on drop");
+            self.write_tracker.wait_for_all_column_writes();
+            for col in DBCol::iter() {
+                if self.cleared_columns.get(&col).is_some() {
+                    continue;
+                }
+                self.db.flush_cf(self.cf_handle(col).unwrap()).map_err(io::Error::other).unwrap();
+            }
         }
         self.db.cancel_all_background_work(true);
     }
