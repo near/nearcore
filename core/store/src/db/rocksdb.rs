@@ -6,7 +6,7 @@ use ::rocksdb::{
 };
 use anyhow::Context;
 use itertools::Itertools;
-use parking_lot::{Condvar, Mutex, RwLock};
+use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -143,6 +143,8 @@ impl WaitGroup {
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
+    read_only: bool,
+    cleared_columns: HashMap<DBCol, bool>,
     cache: Arc<deserialized_column::Cache>,
 
     /// Map from [`DBCol`] to a column family handler in the RocksDB.
@@ -230,10 +232,12 @@ impl RocksDB {
         Ok(Self {
             db,
             db_opt,
+            read_only: mode.read_only(),
             cf_handles,
             write_tracker,
             _instance_tracker: counter,
             cache: Arc::clone(cache),
+            cleared_columns: HashMap::new(),
         })
     }
 
@@ -546,6 +550,7 @@ impl Database for RocksDB {
     )]
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
         let write_batch_start = std::time::Instant::now();
+        let is_async = transaction.is_async;
         let batch = self.build_write_batch(transaction)?;
         let elapsed = write_batch_start.elapsed();
         if elapsed.as_secs_f32() > 0.15 {
@@ -555,6 +560,9 @@ impl Database for RocksDB {
                 ?elapsed,
                 backtrace = %std::backtrace::Backtrace::force_capture()
             );
+        }
+        if is_async {
+            return self.db.write_without_wal(batch).map_err(io::Error::other);
         }
         self.db.write(batch).map_err(io::Error::other)
     }
@@ -599,7 +607,8 @@ impl Database for RocksDB {
                 );
 
                 // Now write each batch
-                for (col, batch) in async_batches {
+                for (col, mut batch) in async_batches {
+                    batch.is_async = true;
                     if let Err(e) = db_clone.write(batch) {
                         tracing::error!(
                             target: "store::db::rocksdb",
@@ -906,6 +915,8 @@ impl RocksDB {
             self.db
                 .drop_cf(col_name(*col))
                 .with_context(|| format!("failed to drop column family {:?}", col,))?;
+            self.cleared_columns.insert(*col, true);
+            warn!(target: "store::db::rocksdb", "Cleared column family {col} from RocksDB at {}", self.db.path().display());
         }
         Ok(())
     }
@@ -913,11 +924,30 @@ impl RocksDB {
 
 impl Drop for RocksDB {
     fn drop(&mut self) {
+        warn!(target: "store::db::rocksdb", "Dropping RocksDB instance at {}", self.db.path().display());
         if cfg!(feature = "single_thread_rocksdb") {
             // RocksDB with only one thread stuck on wait some condition var
             // Turn on additional threads to proceed
             let mut env = Env::new().unwrap();
             env.set_background_threads(4);
+        }
+        if !self.read_only {
+            self.write_tracker.wait_for_all_column_writes();
+            for col in DBCol::iter() {
+                if self.cleared_columns.len() > 0 {
+                    warn!("Some column families were cleared, skipping flush.");
+                    continue;
+                }
+                if let Ok(handle) = self.cf_handle(col) {
+                    warn!(target: "store::db::rocksdb", "Flushing column family {col} before dropping RocksDB instance.");
+                    if let Err(e) = self.db.flush_cf(handle).map_err(io::Error::other) {
+                        warn!(target: "store::db::rocksdb", "Failed to flush column family {col}: {e}");
+                    }
+                } else {
+                    warn!(target: "store::db::rocksdb", "Column family {col} was not cleared, but it is not present in the database.");
+                    continue;
+                }
+            }
         }
         self.db.cancel_all_background_work(true);
     }

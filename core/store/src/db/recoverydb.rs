@@ -162,12 +162,12 @@ mod test {
 
     fn assert_op_writes_only_once(generate_op: impl Fn() -> DBOp, db: RecoveryDB, col: DBCol) {
         // The first time the operation is allowed.
-        db.write(DBTransaction { ops: vec![generate_op()] }).unwrap();
+        db.write(DBTransaction { ops: vec![generate_op()], is_async: false }).unwrap();
         let got = db.cold.get_raw_bytes(col, HASH).unwrap();
         assert_eq!(got.as_deref(), Some([VALUE, ONE].concat().as_slice()));
 
         // Repeat the same operation: DB write should get dropped.
-        let mut tx = DBTransaction { ops: vec![generate_op()] };
+        let mut tx = DBTransaction { ops: vec![generate_op()], is_async: false };
         db.filter_db_ops(&mut tx);
         assert_eq!(tx.ops.len(), 0);
     }
@@ -182,7 +182,7 @@ mod test {
         let delete_all = DBOp::DeleteAll { col };
         let delete_range = DBOp::DeleteRange { col, from: HASH.to_vec(), to: HASH.to_vec() };
 
-        let mut tx = DBTransaction { ops: vec![delete, delete_all, delete_range] };
+        let mut tx = DBTransaction { ops: vec![delete, delete_all, delete_range], is_async: false };
         db.filter_db_ops(&mut tx);
         assert_eq!(tx.ops.len(), 0);
     }
@@ -194,7 +194,7 @@ mod test {
 
         let op = DBOp::Set { col, key: HASH.to_vec(), value: [VALUE, ONE].concat() };
 
-        let mut tx = DBTransaction { ops: vec![op] };
+        let mut tx = DBTransaction { ops: vec![op], is_async: false };
         db.filter_db_ops(&mut tx);
         assert_eq!(tx.ops.len(), 0);
     }
