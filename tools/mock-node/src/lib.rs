@@ -336,15 +336,13 @@ impl MockPeer {
             Message::Direct(msg) => {
                 match msg {
                     DirectMessage::BlockHeadersRequest(hashes) => {
-                        let headers = retrieve_headers(
-                            &self.chain,
-                            hashes,
-                            MAX_BLOCK_HEADERS,
-                            Some(self.current_height),
-                        )
-                        .with_context(|| {
-                            format!("failed retrieving block headers up to {}", self.current_height)
-                        })?;
+                        let headers = retrieve_headers(&self.chain, hashes, MAX_BLOCK_HEADERS)
+                            .with_context(|| {
+                                format!(
+                                    "failed retrieving block headers up to {}",
+                                    self.current_height
+                                )
+                            })?;
                         outbound
                             .queue_message(Message::Direct(DirectMessage::BlockHeaders(headers)));
                     }
