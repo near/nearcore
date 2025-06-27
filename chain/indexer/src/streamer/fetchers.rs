@@ -11,6 +11,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::{types, views};
 
+use crate::streamer::metrics;
+
 use super::INDEXER;
 use super::errors::FailedToFetchData;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -32,6 +34,7 @@ pub(crate) async fn fetch_latest_block(
     finality: &near_primitives::types::Finality,
 ) -> Result<views::BlockView, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching latest block");
+    metrics::NUM_QUERIES_VIEW_CLIENT.inc();
     client
         .send(
             near_client::GetBlock(near_primitives::types::BlockReference::Finality(
