@@ -241,11 +241,16 @@ pub fn retrieve_headers(
     hashes: Vec<CryptoHash>,
     max_headers_returned: u64,
     max_height: Option<BlockHeight>,
+    genesis_hash: &CryptoHash,
 ) -> Result<Vec<BlockHeader>, Error> {
     let header = match find_common_header(chain_store, &hashes) {
         Some(header) => header,
         None => return Ok(vec![]),
     };
+
+    if header.hash() == genesis_hash {
+        return Ok(vec![]);
+    }
 
     let mut headers = vec![];
     let header_head_height = chain_store.header_head()?.height;
