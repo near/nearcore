@@ -938,7 +938,7 @@ async fn get_processing_epoch_information(
 
     let block_reference = BlockReference::BlockId(BlockId::Hash(latest_block_response.header.hash));
     let protocol_config = rpc_client
-        .EXPERIMENTAL_protocol_config(RpcProtocolConfigRequest { block_reference })
+        .protocol_config(RpcProtocolConfigRequest { block_reference })
         .await
         .or_else(|err| Err(anyhow!("get protocol config failed: {err}")))?;
 
