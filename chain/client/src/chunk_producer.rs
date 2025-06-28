@@ -2,7 +2,9 @@ use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
 use itertools::Itertools;
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::types::{PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig};
+use near_chain::types::{
+    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+};
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
 use near_chunks::client::ShardedTransactionPool;
@@ -20,7 +22,7 @@ use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId, StateRoot};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -221,8 +223,16 @@ impl ChunkProducer {
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let prev_block_hash = *prev_block.hash();
+
+        let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
+        if prev_block_header.is_genesis() {
+            // We need prev prev block. I guess we produce chunks only since
+            // 2nd block, but let's return early anyway.
+            return Ok(None);
+        }
+        let prev_prev_hash = *prev_block_header.prev_hash();
+
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
-            let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
             // If we are to start new epoch, check if the previous block is
             // caught up. If it is not the case, we wouldn't be able to
             // apply block with the new chunk, so we also skip chunk production.
@@ -249,6 +259,10 @@ impl ChunkProducer {
         };
 
         let prepared_transactions = {
+            let prev_prev_chunk_extra =
+                self.chain.get_chunk_extra(&prev_prev_hash, &shard_uid).map_err(|err| {
+                    Error::ChunkProducer(format!("No chunk extra available: {}", err))
+                })?;
             #[cfg(feature = "test_features")]
             match self.adv_produce_chunks {
                 Some(AdvProduceChunksMode::ProduceWithoutTx) => {
@@ -256,13 +270,18 @@ impl ChunkProducer {
                 }
                 _ => self.prepare_transactions(
                     shard_uid,
-                    prev_block,
-                    chunk_extra.as_ref(),
+                    prev_block.into(),
+                    prev_prev_chunk_extra.state_root(),
                     chain_validate,
                 )?,
             }
             #[cfg(not(feature = "test_features"))]
-            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref(), chain_validate)?
+            self.prepare_transactions(
+                shard_uid,
+                prev_block.into(),
+                prev_prev_chunk_extra.state_root(),
+                chain_validate,
+            )?
         };
 
         #[cfg(feature = "test_features")]
@@ -355,11 +374,15 @@ impl ChunkProducer {
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
-    fn prepare_transactions(
+    pub fn prepare_transactions(
         &self,
         shard_uid: ShardUId,
-        prev_block: &Block,
-        chunk_extra: &ChunkExtra,
+        prev_block: PrepareTransactionsBlockContext,
+        // WARNING(logunov): this moves state root 1 block back and requires careful
+        // switch on protocol upgrade.
+        // Also we should think how bad is it for that info to lag behind - on
+        // execution, transaction may get invalid.
+        prev_block_prev_state_root: &StateRoot,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
@@ -376,15 +399,15 @@ impl ChunkProducer {
             }
 
             let storage_config = RuntimeStorageConfig {
-                state_root: *chunk_extra.state_root(),
-                use_flat_storage: true,
+                state_root: *prev_block_prev_state_root,
+                use_flat_storage: false,
                 source: near_chain::types::StorageDataSource::Db,
                 state_patch: Default::default(),
             };
             self.runtime_adapter.prepare_transactions(
                 storage_config,
                 shard_id,
-                prev_block.into(),
+                prev_block,
                 &mut iter,
                 chain_validate,
                 self.chunk_transactions_time_limit.get(),

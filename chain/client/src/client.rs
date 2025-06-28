@@ -2210,6 +2210,42 @@ impl Client {
 
         Ok(())
     }
+
+    pub fn try_prepare_transactions(&mut self) {
+        let Some((block, chunks)) = self.chain.optimistic_block_for_prepare_transactions else {
+            return;
+        };
+        let validator_id = self.validator_signer.get().unwrap().validator_id().clone();
+        let prev_block_hash = *block.prev_block_hash();
+        let prev_block_header = self.chain.get_block_header(&prev_block_hash).unwrap();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
+        for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
+            let next_height = block.height() + 1;
+            let epoch_manager = self.epoch_manager.as_ref();
+            let chunk_proposer = epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id,
+                    height_created: next_height,
+                    shard_id,
+                })
+                .unwrap()
+                .take_account_id();
+            if &chunk_proposer != &validator_id {
+                continue;
+            }
+
+            let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id).unwrap();
+            let transaction_validity_check =
+                self.chain.transaction_validity_check(prev_block_header.clone());
+            let chain_validate: &dyn Fn(&SignedTransaction) -> bool = &transaction_validity_check;
+            let _ = self.chunk_producer.prepare_transactions(
+                shard_uid,
+                prev_block.into(),
+                prev_prev_chunk_extra.state_root(),
+                chain_validate,
+            );
+        }
+    }
 }
 
 /* implements functions used to communicate with network */
