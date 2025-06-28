@@ -858,6 +858,57 @@ mod tests {
                 trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
                 account_id
             );
+            let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(&account_id);
+            assert!(raw_key.starts_with(&prefix));
+        }
+    }
+
+    #[test]
+    fn test_key_for_gas_key_consistency() {
+        let public_key = PublicKey::empty(KeyType::ED25519);
+        for index in [None, Some(2)] {
+            for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+                let key = TrieKey::GasKey {
+                    account_id: account_id.clone(),
+                    public_key: public_key.clone(),
+                    index,
+                };
+                let raw_key = key.to_vec();
+                assert_eq!(raw_key.len(), key.len());
+                assert_eq!(
+                    trie_key_parsers::parse_trie_key_gas_key_from_raw_key(&raw_key).unwrap(),
+                    key
+                );
+                assert_eq!(
+                    trie_key_parsers::parse_account_id_from_gas_key_key(&raw_key).unwrap(),
+                    account_id
+                );
+                assert_eq!(
+                    trie_key_parsers::parse_public_key_from_gas_key_key(&raw_key, &account_id)
+                        .unwrap(),
+                    public_key
+                );
+                assert_eq!(
+                    trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                    account_id
+                );
+                assert_eq!(
+                    trie_key_parsers::parse_nonce_index_from_gas_key_key(
+                        &raw_key,
+                        &account_id,
+                        &public_key
+                    )
+                    .unwrap(),
+                    index
+                );
+                let prefix_for_key =
+                    trie_key_parsers::get_raw_prefix_for_gas_key(&account_id, &public_key);
+                assert!(raw_key.starts_with(&prefix_for_key));
+                let prefix = trie_key_parsers::get_raw_prefix_for_gas_keys(&account_id);
+                assert!(raw_key.starts_with(&prefix));
+                assert!(prefix_for_key.starts_with(&prefix));
+                assert!(prefix_for_key.len() > prefix.len());
+            }
         }
     }
 
@@ -1025,6 +1076,24 @@ mod tests {
                 TrieKey::AccessKey {
                     account_id: account_id.clone(),
                     public_key: PublicKey::empty(KeyType::ED25519)
+                }
+                .get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::GasKey {
+                    account_id: account_id.clone(),
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                    index: None
+                }
+                .get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::GasKey {
+                    account_id: account_id.clone(),
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                    index: Some(2)
                 }
                 .get_account_id(),
                 Some(account_id.clone())

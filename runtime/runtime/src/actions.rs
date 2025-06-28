@@ -7,8 +7,9 @@ use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract, GasKey};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::action::{AddGasKeyAction, DeleteGasKeyAction};
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
@@ -21,15 +22,16 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, Nonce, NonceIndex, StorageUsage,
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::{
-    StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
-    get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
+    StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_access_key, get_gas_key,
+    get_promise_yield_indices, remove_access_key, remove_account, remove_gas_key,
+    remove_gas_key_nonce, set_access_key, set_gas_key, set_gas_key_nonce,
     set_promise_yield_indices,
 };
 use near_vm_runner::logic::errors::{
@@ -716,6 +718,63 @@ pub(crate) fn action_delete_key(
     Ok(())
 }
 
+pub(crate) fn action_delete_gas_key(
+    fee_config: &RuntimeFeesConfig,
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    result: &mut ActionResult,
+    account_id: &AccountId,
+    delete_gas_key: &DeleteGasKeyAction,
+) -> Result<(), StorageError> {
+    let gas_key = get_gas_key(state_update, account_id, &delete_gas_key.public_key)?;
+    if let Some(gas_key) = gas_key {
+        if gas_key.num_nonces != delete_gas_key.num_nonces {
+            result.result = Err(ActionErrorKind::DeleteGasKeyNumNoncesMismatch {
+                public_key: delete_gas_key.public_key.clone().into(),
+                account_id: account_id.clone(),
+                action_num_nonces: delete_gas_key.num_nonces,
+                actual_num_nonces: gas_key.num_nonces,
+            }
+            .into());
+            return Ok(());
+        }
+        let storage_config = &fee_config.storage_usage_config;
+
+        let gas_key_storage_usage = borsh::object_length(&delete_gas_key.public_key).unwrap()
+            as u64
+            + borsh::object_length(&None::<NonceIndex>).unwrap() as u64
+            + borsh::object_length(&gas_key).unwrap() as u64
+            + storage_config.num_extra_bytes_record;
+        let gas_key_nonces_storage_usage = (gas_key.num_nonces as u64).saturating_mul(
+            borsh::object_length(&Some(0 as NonceIndex)).unwrap() as u64
+                + borsh::object_length(&(0 as Nonce)).unwrap() as u64
+                + storage_config.num_extra_bytes_record,
+        );
+        let total_gas_key_storage_usage =
+            gas_key_storage_usage.saturating_add(gas_key_nonces_storage_usage);
+        account
+            .set_storage_usage(account.storage_usage().saturating_sub(total_gas_key_storage_usage));
+        // Remove gas key
+        remove_gas_key(state_update, account_id.clone(), delete_gas_key.public_key.clone());
+        for i in 0..gas_key.num_nonces {
+            // Remove gas key nonce
+            remove_gas_key_nonce(
+                state_update,
+                account_id.clone(),
+                delete_gas_key.public_key.clone(),
+                i,
+            );
+        }
+    } else {
+        result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
+            account_id: account_id.clone(),
+            public_key: delete_gas_key.public_key.clone().into(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
 pub(crate) fn action_add_key(
     apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
@@ -746,6 +805,73 @@ pub(crate) fn action_add_key(
                     + borsh::object_length(&add_key.access_key).unwrap() as u64
                     + storage_config.num_extra_bytes_record,
             )
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Storage usage integer overflow for account {}",
+                    account_id
+                ))
+            })?,
+    );
+    Ok(())
+}
+
+pub(crate) fn action_add_gas_key(
+    apply_state: &ApplyState,
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    result: &mut ActionResult,
+    account_id: &AccountId,
+    add_gas_key: &AddGasKeyAction,
+) -> Result<(), StorageError> {
+    if get_gas_key(state_update, account_id, &add_gas_key.public_key)?.is_some() {
+        result.result = Err(ActionErrorKind::AddKeyAlreadyExists {
+            account_id: account_id.to_owned(),
+            public_key: add_gas_key.public_key.clone().into(),
+        }
+        .into());
+        return Ok(());
+    }
+    let gas_key = GasKey {
+        balance: 0,
+        num_nonces: add_gas_key.num_nonces,
+        permission: add_gas_key.permission.clone(),
+    };
+    let starting_nonce = (apply_state.block_height - 1)
+        * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    set_gas_key(state_update, account_id.clone(), add_gas_key.public_key.clone(), &gas_key);
+
+    for i in 0..gas_key.num_nonces {
+        set_gas_key_nonce(
+            state_update,
+            account_id.clone(),
+            add_gas_key.public_key.clone(),
+            i,
+            starting_nonce,
+        );
+    }
+
+    let storage_config = &apply_state.config.fees.storage_usage_config;
+    let gas_key_storage_usage = borsh::object_length(&add_gas_key.public_key).unwrap() as u64
+        + borsh::object_length(&None::<NonceIndex>).unwrap() as u64
+        + borsh::object_length(&gas_key).unwrap() as u64
+        + storage_config.num_extra_bytes_record;
+    let gas_key_nonces_storage_usage = (gas_key.num_nonces as u64)
+        .checked_mul(
+            borsh::object_length(&Some(0 as NonceIndex)).unwrap() as u64
+                + borsh::object_length(&starting_nonce).unwrap() as u64
+                + storage_config.num_extra_bytes_record,
+        )
+        .ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Storage usage integer overflow for account {}",
+                account_id
+            ))
+        })?;
+    account.set_storage_usage(
+        account
+            .storage_usage()
+            .checked_add(gas_key_storage_usage)
+            .and_then(|usage| usage.checked_add(gas_key_nonces_storage_usage))
             .ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
                     "Storage usage integer overflow for account {}",
@@ -980,7 +1106,9 @@ pub(crate) fn check_actor_permissions(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_) => {
+        | Action::UseGlobalContract(_)
+        | Action::AddGasKey(_)
+        | Action::DeleteGasKey(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1005,7 +1133,10 @@ pub(crate) fn check_actor_permissions(
                 .into());
             }
         }
-        Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
+        Action::CreateAccount(_)
+        | Action::FunctionCall(_)
+        | Action::Transfer(_)
+        | Action::FundGasKey(_) => (),
         Action::Delegate(_) => (),
     };
     Ok(())
@@ -1063,7 +1194,10 @@ pub(crate) fn check_account_existence(
         | Action::DeleteAccount(_)
         | Action::Delegate(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_) => {
+        | Action::UseGlobalContract(_)
+        | Action::AddGasKey(_)
+        | Action::DeleteGasKey(_)
+        | Action::FundGasKey(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

@@ -568,6 +568,43 @@ pub struct FunctionCallPermission {
     pub method_names: Vec<String>,
 }
 
+/// The current state of either an access key, or a specific nonce of a gas key. It's used to validate
+/// and charge transactions.
+pub enum AccountKeyState {
+    AccessKey(AccessKey),
+    GasKey { gas_key: GasKey, nonce_index: NonceIndex, nonce: Nonce },
+}
+
+impl AccountKeyState {
+    pub fn nonce(&self) -> Nonce {
+        match self {
+            AccountKeyState::AccessKey(access_key) => access_key.nonce,
+            AccountKeyState::GasKey { nonce, .. } => *nonce,
+        }
+    }
+
+    pub fn nonce_mut(&mut self) -> &mut Nonce {
+        match self {
+            AccountKeyState::AccessKey(access_key) => &mut access_key.nonce,
+            AccountKeyState::GasKey { nonce, .. } => nonce,
+        }
+    }
+
+    pub fn permission(&self) -> &AccessKeyPermission {
+        match self {
+            AccountKeyState::AccessKey(access_key) => &access_key.permission,
+            AccountKeyState::GasKey { gas_key, .. } => &gas_key.permission,
+        }
+    }
+
+    pub fn permission_mut(&mut self) -> &mut AccessKeyPermission {
+        match self {
+            AccountKeyState::AccessKey(access_key) => &mut access_key.permission,
+            AccountKeyState::GasKey { gas_key, .. } => &mut gas_key.permission,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

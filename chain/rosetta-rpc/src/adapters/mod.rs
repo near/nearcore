@@ -487,6 +487,11 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 | near_primitives::transaction::Action::UseGlobalContract(_) => {
                     // TODO(#12639): Implement global contracts support, ignored for now.
                 }
+                near_primitives::action::Action::AddGasKey(_)
+                | near_primitives::action::Action::DeleteGasKey(_)
+                | near_primitives::action::Action::FundGasKey(_) => {
+                    // TODO(#12639): Implement gas key support, ignored for now.
+                }
             }
         }
         operations
