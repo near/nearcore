@@ -1212,7 +1212,7 @@ impl BlockView {
         BlockView {
             author,
             header: block.header().into(),
-            chunks: block.chunks().iter_all().cloned().map(Into::into).collect(),
+            chunks: block.chunks().iter_raw().cloned().map(Into::into).collect(),
         }
     }
 }

@@ -3123,7 +3123,7 @@ impl Chain {
         };
         bytes.extend_from_slice(&hash(&borsh::to_vec(&block)?).0);
 
-        let chunks_key_source: Vec<_> = chunk_headers.iter_all().map(|c| c.chunk_hash()).collect();
+        let chunks_key_source: Vec<_> = chunk_headers.iter_raw().map(|c| c.chunk_hash()).collect();
         bytes.extend_from_slice(&hash(&borsh::to_vec(&chunks_key_source)?).0);
         bytes.extend_from_slice(&shard_id.to_le_bytes());
 

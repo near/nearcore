@@ -536,7 +536,7 @@ impl<'a> Chunks<'a> {
     /// Returns an iterator over all shard chunk headers, regardless of whether they are new or old.
     /// This doesn't have information about whether the chunk is new or old.
     /// Use `iter` if you need to distinguish between new and old chunks.
-    pub fn iter_all(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+    pub fn iter_raw(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
         self.chunks.iter()
     }
 
@@ -557,7 +557,7 @@ impl<'a> Chunks<'a> {
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
         let mut result = BTreeMap::new();
 
-        for chunk in self.iter_all() {
+        for chunk in self.iter_raw() {
             let shard_id = chunk.shard_id();
 
             let congestion_info = chunk.congestion_info();

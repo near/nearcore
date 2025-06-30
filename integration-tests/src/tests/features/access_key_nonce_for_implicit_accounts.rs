@@ -241,7 +241,7 @@ fn test_chunk_transaction_validity() {
             let Ok(block) = env.clients[0].chain.get_block(&h) else {
                 panic!("did not find block from result!");
             };
-            for chunk_hdr in block.chunks().iter_all() {
+            for chunk_hdr in block.chunks().iter_raw() {
                 let hash = chunk_hdr.chunk_hash();
                 let Ok(chunk) = env.clients[0].chain.mut_chain_store().get_chunk(&hash) else {
                     continue;
