@@ -592,8 +592,7 @@ impl RoutedMessageBody {
         match self {
             RoutedMessageBody::PartialEncodedStateWitness(_)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
-            | RoutedMessageBody::VersionedChunkEndorsement(_)
-            | RoutedMessageBody::ChunkStateWitnessAck(_) => true,
+            | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }
     }
