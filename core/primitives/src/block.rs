@@ -20,7 +20,6 @@ use crate::{
     utils::get_block_metadata,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "clock")]
 use itertools::Itertools;
 #[cfg(feature = "clock")]
 use near_primitives_core::types::ProtocolVersion;
