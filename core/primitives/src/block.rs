@@ -20,7 +20,6 @@ use crate::{
     utils::get_block_metadata,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "clock")]
 use itertools::Itertools;
 #[cfg(feature = "clock")]
 use near_primitives_core::types::ProtocolVersion;
@@ -205,13 +204,19 @@ impl Block {
                 .collect_vec(),
         ));
 
-        let body = BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements);
+        let chunks_wrapper = Chunks::from_chunk_headers(&chunks, height);
         let prev_state_root = if cfg!(feature = "protocol_feature_spice") {
             // TODO(spice): include state root from the relevant previous executed block.
             CryptoHash::default()
         } else {
-            Block::compute_state_root(body.chunks())
+            chunks_wrapper.compute_state_root()
         };
+        let prev_chunk_outgoing_receipts_root =
+            chunks_wrapper.compute_chunk_prev_outgoing_receipts_root();
+        let chunk_headers_root = chunks_wrapper.compute_chunk_headers_root();
+        let chunk_tx_root = chunks_wrapper.compute_chunk_tx_root();
+        let outcome_root = chunks_wrapper.compute_outcome_root();
+        let body = BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements);
 
         let header = BlockHeader::new(
             latest_protocol_version,
@@ -219,10 +224,10 @@ impl Block {
             *prev.hash(),
             body.compute_hash(),
             prev_state_root,
-            Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
-            Block::compute_chunk_headers_root(body.chunks()).0,
-            Block::compute_chunk_tx_root(body.chunks()),
-            Block::compute_outcome_root(body.chunks()),
+            prev_chunk_outgoing_receipts_root,
+            chunk_headers_root.0,
+            chunk_tx_root,
+            outcome_root,
             time,
             random_value,
             prev_validator_proposals,
@@ -270,10 +275,8 @@ impl Block {
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
     ) -> bool {
-        let gas_used =
-            Self::compute_gas_used(self.chunks().iter_deprecated(), self.header().height());
-        let gas_limit =
-            Self::compute_gas_limit(self.chunks().iter_deprecated(), self.header().height());
+        let gas_used = self.chunks().compute_gas_used();
+        let gas_limit = self.chunks().compute_gas_limit();
         let expected_price = Self::compute_next_gas_price(
             gas_price,
             gas_used,
@@ -316,82 +319,6 @@ impl Block {
             U256::from(gas_price) * U256::from(numerator) / U256::from(denominator);
 
         next_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128()
-    }
-
-    pub fn compute_state_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-    ) -> CryptoHash {
-        merklize(
-            &chunks.into_iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<CryptoHash>>(),
-        )
-        .0
-    }
-
-    pub fn compute_chunk_prev_outgoing_receipts_root<
-        'a,
-        T: IntoIterator<Item = &'a ShardChunkHeader>,
-    >(
-        chunks: T,
-    ) -> CryptoHash {
-        merklize(
-            &chunks
-                .into_iter()
-                .map(|chunk| chunk.prev_outgoing_receipts_root())
-                .copied()
-                .collect::<Vec<CryptoHash>>(),
-        )
-        .0
-    }
-
-    pub fn compute_chunk_headers_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-    ) -> (CryptoHash, Vec<MerklePath>) {
-        merklize(
-            &chunks
-                .into_iter()
-                .map(|chunk| ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()))
-                .collect::<Vec<ChunkHashHeight>>(),
-        )
-    }
-
-    pub fn compute_chunk_tx_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-    ) -> CryptoHash {
-        merklize(
-            &chunks.into_iter().map(|chunk| chunk.tx_root()).copied().collect::<Vec<CryptoHash>>(),
-        )
-        .0
-    }
-
-    pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-    ) -> CryptoHash {
-        merklize(
-            &chunks
-                .into_iter()
-                .map(|chunk| chunk.prev_outcome_root())
-                .copied()
-                .collect::<Vec<CryptoHash>>(),
-        )
-        .0
-    }
-
-    pub fn compute_gas_used<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-        height: BlockHeight,
-    ) -> Gas {
-        chunks.into_iter().fold(0, |acc, chunk| {
-            if chunk.height_included() == height { acc + chunk.prev_gas_used() } else { acc }
-        })
-    }
-
-    pub fn compute_gas_limit<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
-        chunks: T,
-        height: BlockHeight,
-    ) -> Gas {
-        chunks.into_iter().fold(0, |acc, chunk| {
-            if chunk.height_included() == height { acc + chunk.gas_limit() } else { acc }
-        })
     }
 
     pub fn validate_chunk_header_proof(
@@ -476,33 +403,31 @@ impl Block {
         // TODO(spice): check that block's state_root matches state_root corresponding to chunks of
         // the appropriate executed block from the past.
         if !cfg!(feature = "protocol_feature_spice") {
-            let state_root = Block::compute_state_root(self.chunks().iter_deprecated());
+            let state_root = self.chunks().compute_state_root();
             if self.header().prev_state_root() != &state_root {
                 return Err(InvalidStateRoot);
             }
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
-        let chunk_receipts_root =
-            Block::compute_chunk_prev_outgoing_receipts_root(self.chunks().iter_deprecated());
+        let chunk_receipts_root = self.chunks().compute_chunk_prev_outgoing_receipts_root();
         if self.header().prev_chunk_outgoing_receipts_root() != &chunk_receipts_root {
             return Err(InvalidReceiptRoot);
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
-        let chunk_headers_root =
-            Block::compute_chunk_headers_root(self.chunks().iter_deprecated()).0;
+        let chunk_headers_root = self.chunks().compute_chunk_headers_root().0;
         if self.header().chunk_headers_root() != &chunk_headers_root {
             return Err(InvalidChunkHeaderRoot);
         }
 
         // Check that chunk tx root stored in the header matches the tx root of the chunks
-        let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks().iter_deprecated());
+        let chunk_tx_root = self.chunks().compute_chunk_tx_root();
         if self.header().chunk_tx_root() != &chunk_tx_root {
             return Err(InvalidTransactionRoot);
         }
 
-        let outcome_root = Block::compute_outcome_root(self.chunks().iter_deprecated());
+        let outcome_root = self.chunks().compute_outcome_root();
         if self.header().outcome_root() != &outcome_root {
             return Err(InvalidTransactionRoot);
         }
@@ -674,6 +599,40 @@ impl<'a> Chunks<'a> {
         }
 
         BlockBandwidthRequests { shards_bandwidth_requests: result }
+    }
+
+    // Instance methods that use self's iterator methods
+    pub fn compute_state_root(&self) -> CryptoHash {
+        merklize(&self.iter().map(|chunk| chunk.prev_state_root()).collect_vec()).0
+    }
+
+    pub fn compute_chunk_prev_outgoing_receipts_root(&self) -> CryptoHash {
+        merklize(&self.iter().map(|chunk| *chunk.prev_outgoing_receipts_root()).collect_vec()).0
+    }
+
+    pub fn compute_chunk_headers_root(&self) -> (CryptoHash, Vec<MerklePath>) {
+        merklize(
+            &self
+                .iter()
+                .map(|chunk| ChunkHashHeight(chunk.chunk_hash().clone(), chunk.height_included()))
+                .collect_vec(),
+        )
+    }
+
+    pub fn compute_chunk_tx_root(&self) -> CryptoHash {
+        merklize(&self.iter().map(|chunk| *chunk.tx_root()).collect_vec()).0
+    }
+
+    pub fn compute_outcome_root(&self) -> CryptoHash {
+        merklize(&self.iter().map(|chunk| *chunk.prev_outcome_root()).collect_vec()).0
+    }
+
+    pub fn compute_gas_used(&self) -> Gas {
+        self.iter_new().fold(0, |acc, chunk| acc + chunk.prev_gas_used())
+    }
+
+    pub fn compute_gas_limit(&self) -> Gas {
+        self.iter_new().fold(0, |acc, chunk| acc + chunk.gas_limit())
     }
 }
 
