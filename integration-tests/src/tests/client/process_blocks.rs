@@ -841,7 +841,7 @@ fn test_bad_chunk_mask() {
         {
             let mut chunk_header = shard_chunk.cloned_header();
             *chunk_header.height_included_mut() = height;
-            let mut chunk_headers: Vec<_> = block.chunks().iter_all().cloned().collect();
+            let mut chunk_headers: Vec<_> = block.chunks().iter_raw().cloned().collect();
             chunk_headers[0] = chunk_header;
             let mut_block = Arc::make_mut(&mut block);
             mut_block.set_chunks(chunk_headers.clone());

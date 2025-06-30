@@ -622,7 +622,7 @@ impl<'a> Chunks<'a> {
     /// Returns an iterator over all shard chunk headers, regardless of whether they are new or old.
     /// This doesn't have information about whether the chunk is new or old.
     /// Use `iter` if you need to distinguish between new and old chunks.
-    pub fn iter_all(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
+    pub fn iter_raw(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
         self.chunks.iter()
     }
 
