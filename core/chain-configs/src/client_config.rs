@@ -134,12 +134,15 @@ pub struct GCConfig {
 }
 
 impl Default for GCConfig {
+    // Garbage Collection should be faster than the block production. As a rule
+    // o thumb it should be set to be two times faster, plus a small margin. At
+    // the current min block time of 600ms that means 2 blocks per 500ms.
     fn default() -> Self {
         Self {
             gc_blocks_limit: 2,
             gc_fork_clean_step: 100,
             gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            gc_step_period: Duration::seconds(1),
+            gc_step_period: Duration::milliseconds(500),
         }
     }
 }
