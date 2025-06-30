@@ -436,11 +436,6 @@ impl PartialWitnessActor {
                 runtime_adapter.store(),
             ) {
                 Ok(ChunkRelevance::Relevant) => {
-                    // Store the part locally (as part owner) to avoid need for self-forwarding.
-                    if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness.clone()) {
-                        tracing::error!(target: "client", "Failed to store partial encoded state witness: {}", err);
-                    }
-
                     // Forward to other validators (excluding ourselves to avoid duplicate processing).
                     let other_validators: Vec<_> = target_chunk_validators
                         .into_iter()
@@ -451,9 +446,13 @@ impl PartialWitnessActor {
                         network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::PartialEncodedStateWitnessForward(
                                 other_validators,
-                                partial_witness,
+                                partial_witness.clone(),
                             ),
                         ));
+                    }
+                    // Store the part locally (as part owner) to avoid need for self-forwarding.
+                    if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
+                        tracing::error!(target: "client", "Failed to store partial encoded state witness: {}", err);
                     }
                 }
                 Ok(_) => {
