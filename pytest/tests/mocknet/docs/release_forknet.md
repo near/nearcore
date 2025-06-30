@@ -14,7 +14,7 @@ The `release_forknet.py` script is used to run release test scenarios.
 2. Create the nodes:
 
 ```bash
-python python tests/mocknet/release_forknet.py --unique-id token --test-case test2.7 create
+python tests/mocknet/release_forknet.py --unique-id UNIQUE-ID --test-case test2.7 create
 ```
 
 3. Start the test
