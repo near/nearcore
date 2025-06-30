@@ -115,7 +115,6 @@ fn test_invalid_transactions_no_panic() {
                     prev_block.header(),
                     &prev_chunk_header,
                     &shard_chunk,
-                    &client.validator_signer.get(),
                 )
                 .unwrap();
 
@@ -233,7 +232,6 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
             prev_block.header(),
             &prev_chunk_header,
             &shard_chunk,
-            &client.validator_signer.get(),
         )
         .unwrap();
 
@@ -244,10 +242,9 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     env.propagate_chunk_state_witnesses_and_endorsements(true);
     let block = env.client(&block_producer).produce_block(1).unwrap().unwrap();
     for client in &mut env.clients {
-        let signer = client.validator_signer.get();
-        client.start_process_block(block.clone().into(), Provenance::NONE, None, &signer).unwrap();
+        client.start_process_block(block.clone().into(), Provenance::NONE, None).unwrap();
         near_chain::test_utils::wait_for_all_blocks_in_processing(&mut client.chain);
-        let (accepted_blocks, _errors) = client.postprocess_ready_blocks(None, true, &signer);
+        let (accepted_blocks, _errors) = client.postprocess_ready_blocks(None, true);
         assert_eq!(accepted_blocks.len(), 1);
     }
 
@@ -258,10 +255,9 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     env.propagate_chunk_state_witnesses_and_endorsements(true);
     let block = env.client(&block_producer).produce_block(2).unwrap().unwrap();
     for client in &mut env.clients {
-        let signer = client.validator_signer.get();
-        client.start_process_block(block.clone().into(), Provenance::NONE, None, &signer).unwrap();
+        client.start_process_block(block.clone().into(), Provenance::NONE, None).unwrap();
         near_chain::test_utils::wait_for_all_blocks_in_processing(&mut client.chain);
-        let (accepted_blocks, _errors) = client.postprocess_ready_blocks(None, true, &signer);
+        let (accepted_blocks, _errors) = client.postprocess_ready_blocks(None, true);
         assert_eq!(accepted_blocks.len(), 1);
     }
     env.propagate_chunk_state_witnesses_and_endorsements(true);

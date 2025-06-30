@@ -100,7 +100,7 @@ impl Machine {
         Self::pick_one_in(!self.used_gprs & REGS).map(|r| GPR::from_repr(r).unwrap())
     }
 
-    fn get_gpr_used(&self, r: GPR) -> bool {
+    pub(crate) fn get_gpr_used(&self, r: GPR) -> bool {
         if 0 != (self.used_gprs & bitset_of_regs!(r)) { true } else { false }
     }
 

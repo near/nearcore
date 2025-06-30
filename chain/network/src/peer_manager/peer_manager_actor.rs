@@ -28,6 +28,7 @@ use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
 use near_async::messaging::{SendAsync, Sender};
 use near_async::time;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::{WithSpanContext, handler_debug_span, handler_trace_span};
 use near_performance_metrics_macros::perf;
 use near_primitives::genesis::GenesisId;
@@ -753,7 +754,7 @@ impl PeerManagerActor {
         let state = self.state.clone();
         ctx.spawn(wrap_future(
             async move {
-                state.client.send_async(SetNetworkInfo(network_info)).await.ok();
+                state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await.ok();
             }
             .instrument(
                 tracing::trace_span!(target: "network", "push_network_info_trigger_future"),

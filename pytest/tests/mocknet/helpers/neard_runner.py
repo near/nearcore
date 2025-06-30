@@ -310,7 +310,6 @@ class NeardRunner:
     # if force is set to true all binaries will be downloaded, otherwise only the missing ones
     def download_binaries(self, force):
         binaries = self.parse_binaries_config()
-
         try:
             os.mkdir(self.home_path('binaries'))
         except FileExistsError:
@@ -330,13 +329,22 @@ class NeardRunner:
         for i in range(start_index, len(binaries)):
             b = binaries[i]
             logging.info(f'downloading binary from {b["url"]}')
-            with open(b['system_path'], 'wb') as f:
-                r = requests.get(b['url'], stream=True)
-                r.raise_for_status()
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
+            url = b['url']
+            if os.path.isfile(url):
+                binary_dst = b['system_path']
+                logging.info(f"linking the `neard` binary to {binary_dst}")
+                if os.path.exists(binary_dst):
+                    os.remove(binary_dst)
+                os.symlink(url, binary_dst)
+            else:
+                with open(b['system_path'], 'wb') as binary_dst:
+                    r = requests.get(b['url'], stream=True)
+                    r.raise_for_status()
+                    for chunk in r.iter_content(chunk_size=8192):
+                        binary_dst.write(chunk)
+                    logging.info(f'downloaded binary from {b["url"]}')
+
             os.chmod(b['system_path'], 0o755)
-            logging.info(f'downloaded binary from {b["url"]}')
 
             self.data['binaries'].append(b)
             if self.data['current_neard_path'] is None:
@@ -1148,7 +1156,7 @@ class NeardRunner:
             '--epoch-length',
             str(n['epoch_length']),
             '--genesis-time',
-            str(n['genesis_time']),
+            n['genesis_time'],
             '--num-seats',
             str(n['num_seats']),
         ]

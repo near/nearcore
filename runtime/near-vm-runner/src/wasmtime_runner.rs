@@ -8,7 +8,7 @@ use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
-    NoContractRuntimeCache, get_contract_cache_key, imports, prepare,
+    NoContractRuntimeCache, get_contract_cache_key, imports, lazy_drop, prepare,
 };
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
@@ -16,8 +16,7 @@ use std::borrow::Cow;
 use std::cell::{RefCell, UnsafeCell};
 use std::ffi::c_void;
 use std::sync::Arc;
-use wasmtime::ExternType::Func;
-use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store};
+use wasmtime::{Engine, ExternType, Instance, Linker, Memory, MemoryType, Module, Store, Strategy};
 
 type Caller = wasmtime::Caller<'static, ()>;
 thread_local! {
@@ -129,8 +128,33 @@ pub fn get_engine(config: &wasmtime::Config) -> Engine {
 
 pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
     let features = crate::features::WasmFeatures::new(c);
+
+    // NOTE: Configuration values are based on:
+    // - https://docs.wasmtime.dev/examples-fast-execution.html
+    // - https://docs.wasmtime.dev/examples-fast-instantiation.html
+
     let mut config = wasmtime::Config::from(features);
-    config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+    config
+        // From official documentation:
+        // > Note that systems loading many modules may wish to disable this
+        // > configuration option instead of leaving it on-by-default.
+        // > Some platforms exhibit quadratic behavior when registering/unregistering
+        // > unwinding information which can greatly slow down the module loading/unloading process.
+        // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
+        .native_unwind_info(false)
+        .wasm_backtrace(false)
+        // Enable copy-on-write heap images.
+        .memory_init_cow(true)
+        // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+        .max_wasm_stack(1024 * 1024 * 1024)
+        // enable the Cranelift optimizing compiler.
+        .strategy(Strategy::Cranelift)
+        // Enable signals-based traps. This is required to elide explicit bounds-checking.
+        .signals_based_traps(true)
+        // Configure linear memories such that explicit bounds-checking can be elided.
+        .memory_reservation(1 << 32)
+        .memory_guard_size(1 << 32)
+        .cranelift_nan_canonicalization(true);
     config
 }
 
@@ -150,7 +174,10 @@ impl WasmtimeVM {
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
-    fn compile_uncached(&self, code: &ContractCode) -> Result<Vec<u8>, CompilationError> {
+    pub(crate) fn compile_uncached(
+        &self,
+        code: &ContractCode,
+    ) -> Result<Vec<u8>, CompilationError> {
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;
@@ -296,32 +323,18 @@ impl crate::runner::VM for WasmtimeVM {
             method,
             |gas_counter, module| {
                 let config = Arc::clone(&self.config);
-                match module.get_export(method) {
-                    Some(export) => match export {
-                        Func(func_type) => {
-                            if func_type.params().len() != 0 || func_type.results().len() != 0 {
-                                let e = FunctionCallError::MethodResolveError(
-                                    MethodResolveError::MethodInvalidSignature,
-                                );
-                                let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
-                                return Ok(PreparedContract { config, gas_counter, result });
-                            }
-                        }
-                        _ => {
-                            let e = FunctionCallError::MethodResolveError(
-                                MethodResolveError::MethodNotFound,
-                            );
-                            let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
-                            return Ok(PreparedContract { config, gas_counter, result });
-                        }
-                    },
-                    None => {
-                        let e = FunctionCallError::MethodResolveError(
-                            MethodResolveError::MethodNotFound,
-                        );
-                        let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
-                        return Ok(PreparedContract { config, gas_counter, result });
-                    }
+                let Some(ExternType::Func(func_type)) = module.get_export(method) else {
+                    let e =
+                        FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound);
+                    let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                    return Ok(PreparedContract { config, gas_counter, result });
+                };
+                if func_type.params().len() != 0 || func_type.results().len() != 0 {
+                    let e = FunctionCallError::MethodResolveError(
+                        MethodResolveError::MethodInvalidSignature,
+                    );
+                    let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                    return Ok(PreparedContract { config, gas_counter, result });
                 }
 
                 let mut store = Store::new(module.engine(), ());
@@ -348,7 +361,7 @@ struct ReadyContract {
     store: Store<()>,
     memory: WasmtimeMemory,
     module: Module,
-    method: String,
+    method: Box<str>,
 }
 
 struct PreparedContract {
@@ -362,6 +375,52 @@ enum PreparationResult {
     OutcomeAbortButNopInOldProtocol(FunctionCallError),
     OutcomeAbort(FunctionCallError),
     Ready(ReadyContract),
+}
+
+/// This enum allows us to replicate the various [`VMOutcome`] states without moving [`VMLogic`]
+///
+/// If function like [`call`] where to rely on [`VMOutcome::ok`], for example, it would require
+/// ownership of [`VMLogic`], to acquire the inner [`ExecutionResultState`].
+/// `run`, however, owns [`VMLogic`] and creates a mutable borrow,
+/// which is then stored in a thread-local static as a raw pointer.
+/// This means that we need to be very careful to ensure that the reference created is only dropped
+/// after the module method call has returned.
+/// Moving the [`VMLogic`] would break this assertion.
+enum RunOutcome {
+    Ok,
+    AbortNop(FunctionCallError),
+    Abort(FunctionCallError),
+}
+
+fn call(
+    mut store: &mut Store<()>,
+    instance: Instance,
+    method: &str,
+) -> Result<RunOutcome, VMRunnerError> {
+    let Some(func) = instance.get_func(&mut store, method) else {
+        return Ok(RunOutcome::AbortNop(FunctionCallError::MethodResolveError(
+            MethodResolveError::MethodNotFound,
+        )));
+    };
+    match func.typed(&mut store) {
+        Ok(run) => match run.call(store, ()) {
+            Ok(()) => Ok(RunOutcome::Ok),
+            Err(err) => err.into_vm_error().map(RunOutcome::Abort),
+        },
+        Err(err) => err.into_vm_error().map(RunOutcome::Abort),
+    }
+}
+
+fn instantiate_and_call(
+    mut store: &mut Store<()>,
+    linker: &Linker<()>,
+    module: &Module,
+    method: &str,
+) -> Result<RunOutcome, VMRunnerError> {
+    match linker.instantiate(&mut store, module) {
+        Ok(instance) => call(store, instance, method),
+        Err(err) => err.into_vm_error().map(RunOutcome::Abort),
+    }
 }
 
 impl crate::PreparedContract for VMResult<PreparedContract> {
@@ -391,23 +450,14 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         // TODO: config could be accessed through `logic.result_state`, without this code having to
         // figure it out...
         link(&mut linker, memory_copy, &store, &config, &mut logic);
-        match linker.instantiate(&mut store, &module) {
-            Ok(instance) => match instance.get_func(&mut store, &method) {
-                Some(func) => match func.typed::<(), ()>(&mut store) {
-                    Ok(run) => match run.call(&mut store, ()) {
-                        Ok(_) => Ok(VMOutcome::ok(logic.result_state)),
-                        Err(err) => Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?)),
-                    },
-                    Err(err) => Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?)),
-                },
-                None => {
-                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                        logic.result_state,
-                        FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
-                    ));
-                }
-            },
-            Err(err) => Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?)),
+        let res = instantiate_and_call(&mut store, &linker, &module, &method);
+        lazy_drop(Box::new((linker, module, store)));
+        match res? {
+            RunOutcome::Ok => Ok(VMOutcome::ok(logic.result_state)),
+            RunOutcome::AbortNop(error) => {
+                Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic.result_state, error))
+            }
+            RunOutcome::Abort(error) => Ok(VMOutcome::abort(logic.result_state, error)),
         }
     }
 }

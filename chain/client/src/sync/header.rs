@@ -476,7 +476,6 @@ mod test {
                 .build();
             process_block_sync(
                 &mut chain,
-                &None,
                 block.into(),
                 Provenance::PRODUCED,
                 &mut BlockProcessingArtifact::default(),
@@ -493,7 +492,6 @@ mod test {
                 .build();
             process_block_sync(
                 &mut chain2,
-                &None,
                 block.into(),
                 Provenance::PRODUCED,
                 &mut BlockProcessingArtifact::default(),
@@ -565,7 +563,6 @@ mod test {
                 let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone()).build();
                 process_block_sync(
                     chain,
-                    &None,
                     block.into(),
                     Provenance::PRODUCED,
                     &mut BlockProcessingArtifact::default(),
@@ -581,7 +578,6 @@ mod test {
                 .build();
             process_block_sync(
                 &mut chain,
-                &None,
                 block.into(),
                 Provenance::PRODUCED,
                 &mut BlockProcessingArtifact::default(),
@@ -597,7 +593,6 @@ mod test {
                 .build();
             process_block_sync(
                 &mut chain2,
-                &None,
                 block.into(),
                 Provenance::PRODUCED,
                 &mut BlockProcessingArtifact::default(),
@@ -822,7 +817,6 @@ mod test {
             chain2.process_block_header(block.header()).unwrap(); // just to validate
             process_block_sync(
                 &mut chain2,
-                &None,
                 block.into(),
                 Provenance::PRODUCED,
                 &mut BlockProcessingArtifact::default(),

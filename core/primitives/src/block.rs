@@ -521,6 +521,10 @@ impl Block {
     }
 }
 
+/// Distinguishes between new and old chunks.
+/// Note: Some of the data of the cold chunk may be incompatible with the current protocol version.
+/// Example in case of resharding, if the child shard chunk is missing in the first block.
+/// the shard_id of the old chunk may be different from the shard_id of the new chunk.
 #[derive(Clone, Debug)]
 pub enum ChunkType<'a> {
     New(&'a ShardChunkHeader),

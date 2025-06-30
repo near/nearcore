@@ -30,6 +30,7 @@ use near_network::types::{
     PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo, StateSyncEvent,
     Tier3Request,
 };
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -40,13 +41,14 @@ use parking_lot::{Mutex, MutexGuard};
 /// We skip over the message handlers from view client.
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForTestLoopNetwork {
-    pub block: AsyncSender<BlockResponse, ()>,
-    pub block_headers: AsyncSender<BlockHeadersResponse, ActixResult<BlockHeadersResponse>>,
-    pub block_approval: AsyncSender<BlockApproval, ()>,
+    pub block: AsyncSender<SpanWrapped<BlockResponse>, ()>,
+    pub block_headers:
+        AsyncSender<SpanWrapped<BlockHeadersResponse>, ActixResult<BlockHeadersResponse>>,
+    pub block_approval: AsyncSender<SpanWrapped<BlockApproval>, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
-    pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
-    pub network_info: AsyncSender<SetNetworkInfo, ()>,
+    pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
+    pub network_info: AsyncSender<SpanWrapped<SetNetworkInfo>, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -166,21 +168,24 @@ impl TestLoopPeerManagerActor {
     ) {
         // Some tests (especially the ones having to do with sync) need NetworkInfo to be up to
         // date to work properly. That's why we're sending it periodically here.
-        let future = self.client_sender.send_async(SetNetworkInfo(NetworkInfo {
-            highest_height_peers: self
-                .last_block_headers
-                .iter()
-                .map(|(peer_info, header)| HighestHeightPeerInfo {
-                    archival: false,
-                    genesis_id: self.genesis_id.clone(),
-                    highest_block_hash: *header.hash(),
-                    highest_block_height: header.height(),
-                    tracked_shards: vec![],
-                    peer_info: peer_info.clone(),
-                })
-                .collect(),
-            ..NetworkInfo::default()
-        }));
+        let future = self.client_sender.send_async(
+            SetNetworkInfo(NetworkInfo {
+                highest_height_peers: self
+                    .last_block_headers
+                    .iter()
+                    .map(|(peer_info, header)| HighestHeightPeerInfo {
+                        archival: false,
+                        genesis_id: self.genesis_id.clone(),
+                        highest_block_hash: *header.hash(),
+                        highest_block_height: header.height(),
+                        tracked_shards: vec![],
+                        peer_info: peer_info.clone(),
+                    })
+                    .collect(),
+                ..NetworkInfo::default()
+            })
+            .span_wrap(),
+        );
         drop(future);
 
         ctx.run_later("TestLoopPeerManagerActor::push_network_info", interval, move |act, ctx| {
@@ -408,11 +413,14 @@ fn network_message_to_client_handler(
 
                 let senders = shared_state.senders_for_account(&my_account_id, &account_id);
 
-                let future = senders.client_sender.send_async(BlockResponse {
-                    block: block.clone(),
-                    peer_id: my_peer_id.clone(),
-                    was_requested: false,
-                });
+                let future = senders.client_sender.send_async(
+                    BlockResponse {
+                        block: block.clone(),
+                        peer_id: my_peer_id.clone(),
+                        was_requested: false,
+                    }
+                    .span_wrap(),
+                );
                 drop(future);
 
                 senders.peer_manager_sender.send(TestLoopNetworkBlockInfo {
@@ -435,7 +443,8 @@ fn network_message_to_client_handler(
                 let msg = OptimisticBlockMessage {
                     optimistic_block: optimistic_block.clone(),
                     from_peer: my_peer_id.clone(),
-                };
+                }
+                .span_wrap();
                 let _ = shared_state
                     .senders_for_account(&my_account_id, &account_id)
                     .client_sender
@@ -451,7 +460,7 @@ fn network_message_to_client_handler(
             let future = shared_state
                 .senders_for_account(&my_account_id, &approval_message.target)
                 .client_sender
-                .send_async(BlockApproval(approval_message.approval, PeerId::random()));
+                .send_async(BlockApproval(approval_message.approval, PeerId::random()).span_wrap());
             drop(future);
             None
         }
@@ -514,7 +523,8 @@ fn network_message_to_view_client_handler(
                 .send_async(BlockHeadersRequest(hashes));
             future_spawner.spawn("wait for ViewClient to handle BlockHeadersRequest", async move {
                 let response = future.await.unwrap().unwrap();
-                let future = responder.send_async(BlockHeadersResponse(response, peer_id));
+                let future =
+                    responder.send_async(BlockHeadersResponse(response, peer_id).span_wrap());
                 drop(future);
             });
             None
@@ -531,11 +541,9 @@ fn network_message_to_view_client_handler(
                 let response = future.await.unwrap().unwrap_or_else(|| {
                     panic!("Expect block with {hash} to be available on {peer_id}")
                 });
-                let future = responder.send_async(BlockResponse {
-                    block: response,
-                    peer_id,
-                    was_requested: true,
-                });
+                let future = responder.send_async(
+                    BlockResponse { block: response, peer_id, was_requested: true }.span_wrap(),
+                );
                 drop(future);
             });
             None

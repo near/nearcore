@@ -14,13 +14,18 @@ use near_primitives::{types, views};
 use super::INDEXER;
 use super::errors::FailedToFetchData;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 
 pub(crate) async fn fetch_status(
     client: &Addr<near_client::ClientActor>,
 ) -> Result<near_primitives::views::StatusResponse, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching status");
     client
-        .send(near_client::Status { is_health_check: false, detailed: false }.with_span_context())
+        .send(
+            near_client::Status { is_health_check: false, detailed: false }
+                .span_wrap()
+                .with_span_context(),
+        )
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }

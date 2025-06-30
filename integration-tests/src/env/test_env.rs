@@ -335,10 +335,9 @@ impl TestEnv {
     pub fn process_shards_manager_responses(&mut self, id: usize) -> bool {
         let mut any_processed = false;
         while let Some(msg) = self.client_adapters[id].pop() {
-            match msg {
+            match msg.span_unwrap() {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                    let signer = self.clients[id].validator_signer.get();
-                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None, &signer);
+                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
                 }
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);

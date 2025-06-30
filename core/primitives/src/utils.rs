@@ -179,6 +179,30 @@ pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8>
     res
 }
 
+pub fn get_receipt_proof_key(
+    block_hash: &CryptoHash,
+    from_shard_id: ShardId,
+    to_shard_id: ShardId,
+) -> Vec<u8> {
+    const BYTES_LEN: usize = size_of::<CryptoHash>() + size_of::<ShardId>() + size_of::<ShardId>();
+    let mut res = Vec::with_capacity(BYTES_LEN);
+    res.extend_from_slice(block_hash.as_ref());
+    res.extend_from_slice(&to_shard_id.to_le_bytes());
+    res.extend_from_slice(&from_shard_id.to_le_bytes());
+    res
+}
+
+pub fn get_receipt_proof_target_shard_prefix(
+    block_hash: &CryptoHash,
+    to_shard_id: ShardId,
+) -> Vec<u8> {
+    const BYTES_LEN: usize = size_of::<CryptoHash>() + size_of::<ShardId>();
+    let mut res = Vec::with_capacity(BYTES_LEN);
+    res.extend_from_slice(block_hash.as_ref());
+    res.extend_from_slice(&to_shard_id.to_le_bytes());
+    res
+}
+
 pub fn get_block_shard_id_rev(
     key: &[u8],
 ) -> Result<(CryptoHash, ShardId), Box<dyn std::error::Error + Send + Sync>> {

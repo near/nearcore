@@ -300,7 +300,6 @@ pub fn setup_client(
         shard_tracker.clone(),
         network_adapter.as_multi_sender(),
         NonZeroUsize::new(1000).unwrap(),
-        NonZeroUsize::new(1000).unwrap(),
     );
 
     let chunk_executor_sender = test_loop.data.register_actor(
