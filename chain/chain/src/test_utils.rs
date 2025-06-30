@@ -225,7 +225,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                 }
             );
             if let Some(block) = maybe_block {
-                for chunk_header in block.chunks().iter_deprecated() {
+                for chunk_header in block.chunks().iter() {
                     let chunk_producer = epoch_manager
                         .get_chunk_producer_info(&ChunkProductionKey {
                             epoch_id,

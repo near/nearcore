@@ -258,10 +258,8 @@ impl Block {
     ) -> bool {
         let mut balance_burnt = 0;
 
-        for chunk in self.chunks().iter_deprecated() {
-            if chunk.height_included() == self.header().height() {
-                balance_burnt += chunk.prev_balance_burnt();
-            }
+        for chunk in self.chunks().iter_new() {
+            balance_burnt += chunk.prev_balance_burnt();
         }
 
         let new_total_supply = prev_total_supply + minted_amount.unwrap_or(0) - balance_burnt;
@@ -433,11 +431,8 @@ impl Block {
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
-        let chunk_mask: Vec<bool> = self
-            .chunks()
-            .iter_deprecated()
-            .map(|chunk| chunk.height_included() == self.header().height())
-            .collect();
+        let chunk_mask: Vec<bool> =
+            self.chunks().iter().map(|chunk| chunk.is_new_chunk()).collect();
         if self.header().chunk_mask() != &chunk_mask[..] {
             return Err(InvalidChunkMask);
         }
@@ -527,12 +522,6 @@ impl<'a> Chunks<'a> {
         Self { chunks: ChunksCollection::V2(chunk_headers), block_height }
     }
 
-    /// Deprecated, use `iter` instead. `iter_all` is available if there is no need to
-    /// distinguish between old and new headers.
-    pub fn iter_deprecated(&'a self) -> impl Iterator<Item = &'a ShardChunkHeader> {
-        self.chunks.iter()
-    }
-
     /// Returns an iterator over all shard chunk headers, distinguishing between new and old chunks.
     pub fn iter(&'a self) -> impl Iterator<Item = ChunkType<'a>> {
         self.chunks.iter().map(|chunk| {
@@ -568,7 +557,7 @@ impl<'a> Chunks<'a> {
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
         let mut result = BTreeMap::new();
 
-        for chunk in self.iter_deprecated() {
+        for chunk in self.iter_raw() {
             let shard_id = chunk.shard_id();
 
             let congestion_info = chunk.congestion_info();

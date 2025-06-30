@@ -297,7 +297,7 @@ impl ChainStore {
         };
         let final_block_chunk_created_heights: HashMap<_, _> = final_block
             .chunks()
-            .iter_raw()
+            .iter()
             .map(|chunk| (chunk.shard_id(), chunk.height_created()))
             .collect();
 
@@ -345,10 +345,10 @@ impl ChainStore {
         Ok(())
     }
 
-    /// Garbage collect data which archival node doesn’t need to keep.
+    /// Garbage collect data which archival node doesn't need to keep.
     ///
     /// Normally, archival nodes keep all the data from the genesis block and
-    /// don’t run garbage collection.  On the other hand, for better performance
+    /// don't run garbage collection.  On the other hand, for better performance
     /// the storage contains some data duplication, i.e. values in some of the
     /// columns can be recomputed from data in different columns.  To save on
     /// storage, archival nodes do garbage collect that data.
@@ -579,7 +579,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// safely removed from archival storage.
     ///
     /// `gc_stop_height` indicates height starting from which no data should be
-    /// garbage collected.  Roughly speaking this represents start of the ‘hot’
+    /// garbage collected.  Roughly speaking this represents start of the 'hot'
     /// data that we want to keep.
     ///
     /// `gt_height_limit` indicates limit of how many non-empty heights to
@@ -600,9 +600,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 for chunk_hash in chunk_hashes {
                     let chunk_hash = chunk_hash.as_bytes();
                     self.gc_col(DBCol::PartialChunks, chunk_hash);
-                    // Data in DBCol::InvalidChunks isn’t technically redundant (it
+                    // Data in DBCol::InvalidChunks isn't technically redundant (it
                     // cannot be calculated from other data) but it is data we
-                    // don’t need for anything so it can be deleted as well.
+                    // don't need for anything so it can be deleted as well.
                     self.gc_col(DBCol::InvalidChunks, chunk_hash);
                 }
             }
@@ -731,7 +731,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 6. Canonical Chain only clearing
                 // Delete chunks, chunk-indexed data and block headers
                 let mut min_chunk_height = self.tail()?;
-                for chunk_header in block.chunks().iter_deprecated() {
+                for chunk_header in block.chunks().iter() {
                     if min_chunk_height > chunk_header.height_created() {
                         min_chunk_height = chunk_header.height_created();
                     }
@@ -950,11 +950,7 @@ impl<'a> ChainStoreUpdate<'a> {
     fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
         let store_update = self.store().store_update();
-        for chunk_header in block
-            .chunks()
-            .iter_deprecated()
-            .filter(|h| h.height_included() == block.header().height())
-        {
+        for chunk_header in block.chunks().iter_new() {
             // It is ok to use the shard id from the header because it is a new
             // chunk. An old chunk may have the shard id from the parent shard.
             let shard_id = chunk_header.shard_id();

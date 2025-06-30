@@ -394,7 +394,7 @@ fn invalid_blocks_common(is_requested: bool) {
 
             // Send block with invalid chunk signature
             let mut block = valid_block.clone();
-            let mut chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
+            let mut chunks: Vec<_> = block.chunks().iter_raw().cloned().collect();
             let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
             match &mut chunks[0] {
                 ShardChunkHeader::V1(chunk) => {
@@ -811,7 +811,7 @@ fn test_bad_chunk_mask() {
     let shard_id = s0;
 
     let tip = env.clients[0].chain.get_block_by_height(0).unwrap();
-    for chunk_header in tip.chunks().iter_raw() {
+    for chunk_header in tip.chunks().iter() {
         tracing::info!(target: "test", ?chunk_header, "chunk header");
     }
 
@@ -1007,7 +1007,7 @@ fn test_archival_save_trie_changes() {
         // Go through chunks and test that trie changes were correctly saved to the store.
         let chunks = block.chunks();
         let version = shard_layout.version();
-        for chunk in chunks.iter_deprecated() {
+        for chunk in chunks.iter() {
             let shard_id = chunk.shard_id();
             let shard_uid = ShardUId::new(version, shard_id);
 

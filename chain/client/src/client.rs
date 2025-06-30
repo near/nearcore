@@ -437,22 +437,19 @@ impl Client {
 
     pub fn remove_transactions_for_block(&mut self, block: &Block) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
-            let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
+        for chunk_header in block.chunks().iter_new() {
+            // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
+            let shard_id = chunk_header.shard_id();
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
-            if block.header().height() == chunk_header.height_included() {
-                if self
-                    .shard_tracker
-                    .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
-                {
-                    // By now the chunk must be in store, otherwise the block would have been orphaned
-                    let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
-                    let transactions = chunk.to_transactions();
-                    let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
-                    pool_guard.remove_transactions(shard_uid, transactions);
-                }
+            if self
+                .shard_tracker
+                .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+            {
+                // By now the chunk must be in store, otherwise the block would have been orphaned
+                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                let transactions = chunk.to_transactions();
+                let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
+                pool_guard.remove_transactions(shard_uid, transactions);
             }
         }
         Ok(())
@@ -461,54 +458,47 @@ impl Client {
     pub fn reintroduce_transactions_for_block(&mut self, block: &Block) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let shard_layout =
-            self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
         let config = self.runtime_adapter.get_runtime_config(protocol_version);
 
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
-            let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
+        for chunk_header in block.chunks().iter_new() {
+            // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
+            let shard_id = chunk_header.shard_id();
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+            if self
+                .shard_tracker
+                .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+            {
+                // By now the chunk must be in store, otherwise the block would have been orphaned
+                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
 
-            if block.header().height() == chunk_header.height_included() {
-                if self
-                    .shard_tracker
-                    .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
-                {
-                    // By now the chunk must be in store, otherwise the block would have been orphaned
-                    let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                let validated_txs = chunk
+                    .to_transactions()
+                    .into_iter()
+                    .cloned()
+                    .filter_map(|signed_tx| match ValidatedTransaction::new(&config, signed_tx) {
+                        Ok(validated_tx) => Some(validated_tx),
+                        Err((err, signed_tx)) => {
+                            debug!(
+                                target: "client",
+                                "Validating signed tx ({:?}) failed with error {:?}",
+                                signed_tx,
+                                err
+                            );
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
-                    let validated_txs = chunk
-                        .to_transactions()
-                        .into_iter()
-                        .cloned()
-                        .filter_map(|signed_tx| {
-                            match ValidatedTransaction::new(&config, signed_tx) {
-                                Ok(validated_tx) => Some(validated_tx),
-                                Err((err, signed_tx)) => {
-                                    debug!(
-                                        target: "client",
-                                        "Validating signed tx ({:?}) failed with error {:?}",
-                                        signed_tx,
-                                        err
-                                    );
-                                    None
-                                }
-                            }
-                        })
-                        .collect::<Vec<_>>();
+                let reintroduced_count = {
+                    let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
+                    pool_guard.reintroduce_transactions(shard_uid, validated_txs)
+                };
 
-                    let reintroduced_count = {
-                        let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
-                        pool_guard.reintroduce_transactions(shard_uid, validated_txs)
-                    };
-
-                    if reintroduced_count < chunk.to_transactions().len() {
-                        debug!(target: "client",
+                if reintroduced_count < chunk.to_transactions().len() {
+                    debug!(target: "client",
                             reintroduced_count,
                             num_tx = chunk.to_transactions().len(),
                             "Reintroduced transactions");
-                    }
                 }
             }
         }
@@ -1184,10 +1174,10 @@ impl Client {
             }
             Err(_) => {
                 // We are ignoring all other errors and proceeding with the
-                // block.  If it is an orphan (i.e. we haven’t processed its
+                // block.  If it is an orphan (i.e. we haven't processed its
                 // previous block) than we will get MissingBlock errors.  In
-                // those cases we shouldn’t reject the block instead passing
-                // it along.  Eventually, it’ll get saved as an orphan.
+                // those cases we shouldn't reject the block instead passing
+                // it along.  Eventually, it'll get saved as an orphan.
                 Ok(())
             }
         }

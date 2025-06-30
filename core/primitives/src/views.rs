@@ -820,7 +820,7 @@ pub struct StatusResponse {
     pub protocol_version: u32,
     /// Latest protocol version that this client supports.
     pub latest_protocol_version: u32,
-    /// Address for RPC server.  None if node doesn’t have RPC endpoint enabled.
+    /// Address for RPC server.  None if node doesn't have RPC endpoint enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rpc_addr: Option<String>,
     /// Current epoch validators.
@@ -1212,7 +1212,7 @@ impl BlockView {
         BlockView {
             author,
             header: block.header().into(),
-            chunks: block.chunks().iter_deprecated().cloned().map(Into::into).collect(),
+            chunks: block.chunks().iter_raw().cloned().map(Into::into).collect(),
         }
     }
 }

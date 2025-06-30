@@ -1,7 +1,7 @@
 use lru::LruCache;
 use near_async::time::{Clock, Instant, Utc};
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block::{Block, Tip};
+use near_primitives::block::{Block, ChunkType, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
@@ -205,18 +205,17 @@ impl BlocksDelayTracker {
         let height = block.header().height();
         let chunks = block
             .chunks()
-            .iter_deprecated()
-            .map(|chunk| {
-                if chunk.height_included() == height {
+            .iter()
+            .map(|chunk| match chunk {
+                ChunkType::New(chunk) => {
                     let chunk_hash = chunk.chunk_hash();
                     self.chunks
                         .entry(chunk_hash.clone())
                         .or_insert_with(|| ChunkTrackingStats::new(chunk));
                     self.floating_chunks.remove(chunk_hash);
                     Some(chunk_hash.clone())
-                } else {
-                    None
                 }
+                ChunkType::Old(_) => None,
             })
             .collect();
         entry.insert(BlockTrackingStats {
