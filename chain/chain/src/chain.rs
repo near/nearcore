@@ -1069,13 +1069,12 @@ impl Chain {
         let mut missing = vec![];
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        // Check for invalid chunks (all chunks)
+
         for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
+            let chunk_hash = chunk_header.chunk_hash();
             // Check if any chunks are invalid in this block.
-            if let Some(encoded_chunk) =
-                self.chain_store.is_invalid_chunk(&chunk_header.chunk_hash())?
-            {
+            if let Some(encoded_chunk) = self.chain_store.is_invalid_chunk(chunk_hash)? {
                 let merkle_paths = block.chunks().compute_chunk_headers_root().1;
                 let merkle_proof =
                     merkle_paths.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
@@ -1088,22 +1087,23 @@ impl Chain {
                 };
                 return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
             }
-        }
-        // Only new chunks for missing logic
-        for (shard_index, chunk_header) in block.chunks().iter_new().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index)?;
-            let chunk_hash = chunk_header.chunk_hash();
-            if let Err(_) = self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()) {
-                missing.push(chunk_header.clone());
-            } else if self
-                .shard_tracker
-                .cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
-            {
-                if let Err(_) = self.chain_store.get_chunk(&chunk_hash) {
-                    missing.push(chunk_header.clone());
+            match chunk_header {
+                ChunkType::New(chunk_header) => {
+                    if let Err(_) = self.chain_store.get_partial_chunk(chunk_hash) {
+                        missing.push(chunk_header.clone());
+                    } else if self
+                        .shard_tracker
+                        .cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
+                    {
+                        if let Err(_) = self.chain_store.get_chunk(chunk_hash) {
+                            missing.push(chunk_header.clone());
+                        }
+                    }
                 }
+                ChunkType::Old(_) => {}
             }
         }
+
         if !missing.is_empty() {
             return Err(Error::ChunksMissing(missing));
         }
