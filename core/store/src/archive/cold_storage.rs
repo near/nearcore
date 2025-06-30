@@ -466,6 +466,7 @@ fn get_keys_from_store(
     let block: Block = store.get_ser_or_err_for_cold(DBCol::Block, &block_hash_key)?;
     let mut chunk_hashes = vec![];
     let mut chunks = vec![];
+    // TODO(archival_v2): Maybe iterate over only new chunks?
     for chunk_header in block.chunks().iter() {
         let chunk_hash = chunk_header.chunk_hash();
         chunk_hashes.push(chunk_hash.clone());

@@ -1389,8 +1389,7 @@ impl ClientActorInner {
     }
 
     fn send_chunks_metrics(&self, block: &Block) {
-        let chunks = block.chunks();
-        for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
+        for (chunk, &included) in block.chunks().iter().zip(block.header().chunk_mask().iter()) {
             if included {
                 self.info_helper.chunk_processed(
                     chunk.shard_id(),

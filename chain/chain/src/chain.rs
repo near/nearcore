@@ -1014,24 +1014,25 @@ impl Chain {
         for (chunk_header, prev_chunk_header) in
             block.chunks().iter().zip(prev_chunk_headers.iter())
         {
-            if chunk_header.height_included() == block.header().height() {
-                // new chunk
-                if chunk_header.prev_block_hash() != block.header().prev_hash() {
-                    return Err(Error::InvalidChunk(format!(
-                        "Invalid prev_block_hash, chunk hash {:?}, chunk prev block hash {}, block prev block hash {}",
-                        chunk_header.chunk_hash(),
-                        chunk_header.prev_block_hash(),
-                        block.header().prev_hash()
-                    )));
+            match chunk_header {
+                ChunkType::New(chunk_header) => {
+                    if chunk_header.prev_block_hash() != block.header().prev_hash() {
+                        return Err(Error::InvalidChunk(format!(
+                            "Invalid prev_block_hash, chunk hash {:?}, chunk prev block hash {}, block prev block hash {}",
+                            chunk_header.chunk_hash(),
+                            chunk_header.prev_block_hash(),
+                            block.header().prev_hash()
+                        )));
+                    }
                 }
-            } else {
-                // old chunk
-                if prev_chunk_header != &*chunk_header {
-                    return Err(Error::InvalidChunk(format!(
-                        "Invalid chunk header, prev chunk hash {:?}, chunk hash {:?}",
-                        prev_chunk_header.chunk_hash(),
-                        chunk_header.chunk_hash()
-                    )));
+                ChunkType::Old(chunk_header) => {
+                    if prev_chunk_header != &*chunk_header {
+                        return Err(Error::InvalidChunk(format!(
+                            "Invalid chunk header, prev chunk hash {:?}, chunk hash {:?}",
+                            prev_chunk_header.chunk_hash(),
+                            chunk_header.chunk_hash()
+                        )));
+                    }
                 }
             }
         }

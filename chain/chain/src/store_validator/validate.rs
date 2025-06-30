@@ -390,26 +390,27 @@ pub(crate) fn block_chunks_exist(
         let shard_id = chunk_header.shard_id();
         let cares_about_shard = sv.shard_tracker.cares_about_shard(prev_hash, shard_id);
         let will_care_about_shard = sv.shard_tracker.will_care_about_shard(prev_hash, shard_id);
-        if cares_about_shard || will_care_about_shard {
+        if !cares_about_shard && !will_care_about_shard {
+            continue;
+        }
+        unwrap_or_err_db!(
+            sv.store.get_ser::<ShardChunk>(DBCol::Chunks, chunk_header.chunk_hash().as_ref()),
+            "Can't get Chunk {:?} from storage",
+            chunk_header
+        );
+        if cares_about_shard {
+            let maybe_shard_uid =
+                shard_id_to_uid(sv.epoch_manager.as_ref(), shard_id, block.header().epoch_id());
+            let shard_uid = maybe_shard_uid.map_err(|err| StoreValidatorError::DBNotFound {
+                func_name: "get_shard_layout",
+                reason: err.to_string(),
+            })?;
+            let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
             unwrap_or_err_db!(
-                sv.store.get_ser::<ShardChunk>(DBCol::Chunks, chunk_header.chunk_hash().as_ref()),
-                "Can't get Chunk {:?} from storage",
+                sv.store.get_ser::<ChunkExtra>(DBCol::ChunkExtra, block_shard_uid.as_ref()),
+                "Can't get chunk extra for chunk {:?} from storage",
                 chunk_header
             );
-            if cares_about_shard {
-                let shard_uid =
-                    shard_id_to_uid(sv.epoch_manager.as_ref(), shard_id, block.header().epoch_id())
-                        .map_err(|err| StoreValidatorError::DBNotFound {
-                            func_name: "get_shard_layout",
-                            reason: err.to_string(),
-                        })?;
-                let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
-                unwrap_or_err_db!(
-                    sv.store.get_ser::<ChunkExtra>(DBCol::ChunkExtra, block_shard_uid.as_ref()),
-                    "Can't get chunk extra for chunk {:?} from storage",
-                    chunk_header
-                );
-            }
         }
     }
     Ok(())
