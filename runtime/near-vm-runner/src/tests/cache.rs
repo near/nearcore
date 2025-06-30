@@ -1,6 +1,3 @@
-//! Tests that `ContractRuntimeCache` is working correctly. Currently testing only wasmer code, so disabled outside of x86_64
-#![cfg(target_arch = "x86_64")]
-
 use super::{create_context, test_vm_config, with_vm_variants};
 use crate::cache::{CompiledContractInfo, ContractRuntimeCache};
 use crate::logic::Config;
@@ -23,8 +20,8 @@ fn test_caches_compilation_error() {
     with_vm_variants(&config, |vm_kind: VMKind| {
         // The cache is currently properly implemented only for NearVM
         match vm_kind {
-            VMKind::NearVm | VMKind::NearVm2 => {}
-            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::Wasmtime => return,
+            VMKind::NearVm | VMKind::NearVm2 | VMKind::Wasmtime => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 => return,
         }
         let cache = MockContractRuntimeCache::default();
         let code = [42; 1000];
@@ -63,8 +60,8 @@ fn test_does_not_cache_io_error() {
     let config = Arc::new(test_vm_config());
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
-            VMKind::NearVm | VMKind::NearVm2 => {}
-            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::Wasmtime => return,
+            VMKind::NearVm | VMKind::NearVm2 | VMKind::Wasmtime => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 => return,
         }
 
         let code = near_test_contracts::trivial_contract();
@@ -135,7 +132,7 @@ fn make_cached_contract_call_vm(
 }
 
 #[test]
-#[cfg(feature = "near_vm")]
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 fn test_near_vm_artifact_output_stability() {
     use crate::near_vm_runner::NearVM;
     use crate::prepare;
