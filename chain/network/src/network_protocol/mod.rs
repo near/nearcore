@@ -555,6 +555,10 @@ impl fmt::Debug for TieredMessageBody {
 }
 
 impl TieredMessageBody {
+    pub fn is_t1(&self) -> bool {
+        matches!(self, TieredMessageBody::T1(_))
+    }
+
     pub fn message_resend_count(&self) -> usize {
         match self {
             TieredMessageBody::T1(body) => body.message_resend_count(),
