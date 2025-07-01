@@ -533,6 +533,7 @@ fn common_rocksdb_options() -> Options {
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
+    opts.set_paranoid_checks(false);
 
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
@@ -598,6 +599,7 @@ fn rocksdb_block_based_options(store_config: &StoreConfig, db_col: DBCol) -> Blo
         block_opts.set_cache_index_and_filter_blocks(false);
     }
     block_opts.set_bloom_filter(10.0, true);
+    block_opts.set_checksum_type(rocksdb::ChecksumType::NoChecksum);
 
     block_opts
 }
@@ -607,6 +609,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
+    opts.set_paranoid_checks(false);
 
     // Note that this function changes a lot of RocksDB parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
