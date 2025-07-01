@@ -252,7 +252,7 @@ pub fn retrieve_headers(
     let block_ordinal = chain_store.get_block_merkle_tree(&header.hash())?.size();
 
     let mut headers = vec![];
-    for i in 1..max_headers_returned {
+    for i in 1..=max_headers_returned {
         match chain_store
             .get_block_hash_from_ordinal(block_ordinal.saturating_add(i))
             .and_then(|block_hash| chain_store.get_block_header(&block_hash))
