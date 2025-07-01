@@ -456,7 +456,6 @@ pub enum PeerMessage {
 
     EpochSyncRequest,
     EpochSyncResponse(CompressedEpochSyncProof),
-    RoutedV3(Box<RoutedMessage>),
 }
 
 impl fmt::Display for PeerMessage {
@@ -522,7 +521,6 @@ impl PeerMessage {
     pub(crate) fn msg_variant(&self) -> &'static str {
         match self {
             PeerMessage::Routed(routed_msg) => routed_msg.body_variant(),
-            PeerMessage::RoutedV3(routed_msg) => routed_msg.body_variant(),
             _ => self.into(),
         }
     }

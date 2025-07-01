@@ -81,7 +81,6 @@ async fn send_and_recv_tier1_message(
     let got = events
         .recv_until(|ev| match ev {
             Event::PeerManager(PME::MessageProcessed(tier, PeerMessage::Routed(got)))
-            | Event::PeerManager(PME::MessageProcessed(tier, PeerMessage::RoutedV3(got)))
                 if tier == recv_tier =>
             {
                 Some(got)

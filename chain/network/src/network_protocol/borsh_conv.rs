@@ -208,9 +208,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::EpochSyncResponse(proof) => {
                 mem::PeerMessage::EpochSyncResponse(proof)
             }
-            net::PeerMessage::RoutedV3(routed_message) => {
-                mem::PeerMessage::RoutedV3(routed_message)
-            }
+            net::PeerMessage::RoutedV3(routed_message) => mem::PeerMessage::Routed(routed_message),
         })
     }
 }
@@ -276,7 +274,6 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::EpochSyncResponse(proof) => {
                 net::PeerMessage::EpochSyncResponse(proof)
             }
-            mem::PeerMessage::RoutedV3(r) => net::PeerMessage::RoutedV3(r),
         }
     }
 }

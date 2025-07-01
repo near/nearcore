@@ -401,16 +401,6 @@ impl From<&PeerMessage> for proto::PeerMessage {
                         ..Default::default()
                     })
                 }
-                PeerMessage::RoutedV3(r) => ProtoMT::RoutedV3(proto::RoutedMessageV3 {
-                    target: MF::some(r.target().into()),
-                    author: MF::some(r.author().public_key().into()),
-                    ttl: r.ttl() as u32,
-                    borsh_body: borsh::to_vec(&r.body()).unwrap(),
-                    signature: MF::from_option(r.signature().map(|s| s.into())),
-                    created_at: r.created_at(),
-                    num_hops: r.num_hops(),
-                    ..Default::default()
-                }),
             }),
             ..Default::default()
         }
@@ -574,7 +564,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     .into(),
                 ))
             }
-            ProtoMT::RoutedV3(r) => PeerMessage::RoutedV3(Box::new(
+            ProtoMT::RoutedV3(r) => PeerMessage::Routed(Box::new(
                 RoutedMessageV3::try_from(r).map_err(Self::Error::RoutedV3)?.into(),
             )),
             ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {

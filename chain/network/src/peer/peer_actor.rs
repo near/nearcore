@@ -1023,7 +1023,7 @@ impl PeerActor {
         let peer_id = conn.peer_info.id.clone();
         let handling_future = async move {
             Ok(match msg {
-                PeerMessage::Routed(msg) | PeerMessage::RoutedV3(msg) => {
+                PeerMessage::Routed(msg) => {
                     let msg_hash = msg.hash();
                     Self::receive_routed_message(
                         &clock,
