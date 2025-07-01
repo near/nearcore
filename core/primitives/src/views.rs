@@ -2554,9 +2554,9 @@ impl From<StateChangeCause> for StateChangeCauseView {
             // unintended removal of enum variants which changes borsch tag for
             // BandwidthSchedulerStateUpdate from 11 to 10. So data written by a
             // node running broken version will have BandwidthSchedulerStateUpdate written
-            // with _Deprecated borsch tag. This is a temporary fix, later it should be
+            // with _UnusedReshardingV2 borsch tag. This is a temporary fix, later it should be
             // changed to => unreachable!()
-            StateChangeCause::_Deprecated => Self::BandwidthSchedulerStateUpdate,
+            StateChangeCause::_UnusedReshardingV2 => Self::BandwidthSchedulerStateUpdate,
             StateChangeCause::BandwidthSchedulerStateUpdate => Self::BandwidthSchedulerStateUpdate,
         }
     }
