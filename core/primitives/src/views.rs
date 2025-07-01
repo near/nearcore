@@ -2550,6 +2550,13 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration => Self::Migration,
+            // Some nodes on testnet were upgraded to #13155 that included
+            // unintended removal of enum variants which changes borsh tag for
+            // BandwidthSchedulerStateUpdate from 11 to 10. So data written by a
+            // node running broken version will have BandwidthSchedulerStateUpdate written
+            // with _UnusedReshardingV2 borsh tag. This is a temporary fix, later it should be
+            // changed to => unreachable!()
+            StateChangeCause::_UnusedReshardingV2 => Self::BandwidthSchedulerStateUpdate,
             StateChangeCause::BandwidthSchedulerStateUpdate => Self::BandwidthSchedulerStateUpdate,
         }
     }
