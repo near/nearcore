@@ -169,7 +169,9 @@ fn setup_network_node(
         network_adapter.as_sender(),
         validator_signer.clone(),
         false,
+        false,
         Arc::new(RayonAsyncComputationSpawner),
+        near_chain_configs::default_orphan_state_witness_max_size().as_u64(),
     ));
     let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
         Clock::real(),

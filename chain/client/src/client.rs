@@ -7,10 +7,10 @@ use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 #[cfg(feature = "test_features")]
 use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
+use crate::chunk_validation_actor::{BlockNotificationMessage, ChunkValidationSender};
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
-use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -158,9 +158,8 @@ pub struct Client {
     pub resharding_sender: ReshardingSender,
     /// Helper module for handling chunk production.
     pub chunk_producer: ChunkProducer,
-    /// Helper module for stateless validation functionality like chunk witness production, validation
-    /// chunk endorsements tracking etc.
-    pub chunk_validator: ChunkValidator,
+    /// Sender to the chunk validation actor for handling chunk witness , chunk endorsements tracking, etc
+    pub chunk_validation_sender: ChunkValidationSender,
     /// Tracks current chunks that are ready to be included in block
     /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
@@ -270,6 +269,7 @@ impl Client {
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
         chain_sender_for_state_sync: ChainSenderForStateSync,
         myself_sender: ClientSenderForClient,
+        chunk_validation_sender: ChunkValidationSender,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
@@ -363,13 +363,7 @@ impl Client {
             rng_seed,
             config.transaction_pool_size_limit,
         );
-        let chunk_validator = ChunkValidator::new(
-            epoch_manager.clone(),
-            network_adapter.clone().into_sender(),
-            runtime_adapter.clone(),
-            config.orphan_state_witness_pool_size,
-            multi_spawner.stateless_validation,
-        );
+
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
             #[cfg(feature = "test_features")]
@@ -409,7 +403,7 @@ impl Client {
             tier1_accounts_cache: None,
             resharding_sender,
             chunk_producer,
-            chunk_validator,
+            chunk_validation_sender,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
             partial_witness_adapter,
@@ -1597,7 +1591,9 @@ impl Client {
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
 
-        self.process_ready_orphan_witnesses_and_clean_old(&block);
+        // Notify chunk validation actor about the new block for orphan witness processing
+        let block_notification = BlockNotificationMessage { block: block.clone() };
+        self.chunk_validation_sender.block_notification.send(block_notification);
     }
 
     /// Reconcile the transaction pool after processing a block.

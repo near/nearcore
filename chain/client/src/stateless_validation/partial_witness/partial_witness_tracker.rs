@@ -513,8 +513,11 @@ impl PartialEncodedStateWitnessTracker {
                 tag_witness_distribution = true,
             )
             .entered();
-            self.chunk_validation_sender
-                .send(ChunkStateWitnessMessage { witness, raw_witness_size });
+            self.chunk_validation_sender.send(ChunkStateWitnessMessage {
+                witness,
+                raw_witness_size,
+                processing_done_tracker: None,
+            });
 
             total_size
         } else {

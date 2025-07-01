@@ -11,11 +11,14 @@ use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::{MutableConfigValue, ReshardingHandle};
+use near_chain_configs::{
+    MutableConfigValue, ReshardingHandle, default_orphan_state_witness_max_size,
+};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
-use near_client::chunk_validation_actor::ChunkValidationActorInner;
-use near_client::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
+use near_client::chunk_validation_actor::{
+    ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
+};
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
@@ -134,6 +137,9 @@ pub fn setup_client(
     let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
         test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
     ));
+
+    let chunk_validation_full_adapter = LateBoundSender::<ChunkValidationSender>::new();
+
     let client = Client::new(
         test_loop.clock(),
         client_config.clone(),
@@ -153,6 +159,7 @@ pub fn setup_client(
         Arc::new(test_loop.future_spawner(identifier)),
         client_adapter.as_multi_sender(),
         client_adapter.as_multi_sender(),
+        chunk_validation_full_adapter.as_multi_sender(),
         upgrade_schedule.clone(),
     )
     .unwrap();
@@ -215,7 +222,7 @@ pub fn setup_client(
         Duration::milliseconds(100),
     );
 
-    let genesis_block = client.chain.get_block_by_height(0).unwrap();
+    let genesis_block = client.chain.genesis_block();
     let chunk_validation_actor = ChunkValidationActorInner::new(
         client.chain.chain_store().clone(),
         genesis_block,
@@ -224,7 +231,9 @@ pub fn setup_client(
         network_adapter.as_sender(),
         validator_signer.clone(),
         client_config.save_latest_witnesses,
+        client_config.save_invalid_witnesses,
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        default_orphan_state_witness_max_size().as_u64(),
     );
     let chunk_executor_sender = if cfg!(feature = "protocol_feature_spice") {
         chunk_executor_adapter.as_sender()
@@ -352,6 +361,15 @@ pub fn setup_client(
     test_loop.data.register_actor(identifier, state_snapshot, Some(state_snapshot_adapter));
     let resharding_sender =
         test_loop.data.register_actor(identifier, resharding_actor, Some(resharding_sender));
+
+    // Register chunk validation actor and bind the late bound sender
+    let chunk_validation_test_adapter = LateBoundSender::new();
+    let chunk_validation_sender = test_loop.data.register_actor(
+        identifier,
+        chunk_validation_actor,
+        Some(chunk_validation_test_adapter.clone()),
+    );
+    chunk_validation_full_adapter.bind(chunk_validation_sender.clone().into_multi_sender());
 
     // State sync dumper is not an Actor, handle starting separately.
     let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();

@@ -3,27 +3,19 @@ pub mod orphan_witness_pool;
 
 use crate::Client;
 use itertools::Itertools;
-use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
-use near_async::messaging::{CanSend, Sender};
-use near_chain::stateless_validation::chunk_validation;
+use near_async::messaging::Sender;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
-use near_chain::types::RuntimeAdapter;
-use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{ApplyChunksSpawner, Block, Chain};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
+    ChunkStateWitness, ChunkStateWitnessSize,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_store::adapter::StoreAdapter;
-use orphan_witness_pool::OrphanStateWitnessPool;
 use std::sync::Arc;
 
 // After validating a chunk state witness, we ideally need to send the chunk endorsement
@@ -32,220 +24,6 @@ use std::sync::Arc;
 // that these later block producers also receive the chunk endorsement.
 // Keeping a threshold of 5 block producers should be sufficient for most scenarios.
 const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: u64 = 5;
-
-/// A module that handles chunk validation logic. Chunk validation refers to a
-/// critical process of stateless validation, where chunk validators (certain
-/// validators selected to validate the chunk) verify that the chunk's state
-/// witness is correct, and then send chunk endorsements to the block producer
-/// so that the chunk can be included in the block.
-pub struct ChunkValidator {
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
-    network_sender: Sender<PeerManagerMessageRequest>,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
-    orphan_witness_pool: OrphanStateWitnessPool,
-    validation_spawner: Arc<dyn AsyncComputationSpawner>,
-    main_state_transition_result_cache: chunk_validation::MainStateTransitionCache,
-}
-
-impl ChunkValidator {
-    pub fn new(
-        epoch_manager: Arc<dyn EpochManagerAdapter>,
-        network_sender: Sender<PeerManagerMessageRequest>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
-        orphan_witness_pool_size: usize,
-        validation_spawner: ApplyChunksSpawner,
-    ) -> Self {
-        // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit. This assumes that:
-        // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
-        // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
-        let max_num_shards =
-            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-        Self {
-            epoch_manager,
-            network_sender,
-            runtime_adapter,
-            orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
-            validation_spawner: validation_spawner.into_spawner(max_num_shards),
-            main_state_transition_result_cache: chunk_validation::MainStateTransitionCache::default(
-            ),
-        }
-    }
-
-    /// Performs the chunk validation logic. When done, it will send the chunk
-    /// endorsement message to the block producer. The actual validation logic
-    /// happens in a separate thread.
-    /// The chunk is validated asynchronously, if you want to wait for the processing to finish
-    /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
-    fn start_validating_chunk(
-        &self,
-        state_witness: ChunkStateWitness,
-        chain: &Chain,
-        processing_done_tracker: Option<ProcessingDoneTracker>,
-        signer: &Arc<ValidatorSigner>,
-        save_witness_if_invalid: bool,
-    ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(
-            target: "client",
-            "start_validating_chunk",
-            height = %state_witness.chunk_production_key().height_created,
-            shard_id = %state_witness.chunk_production_key().shard_id,
-            validator = %signer.validator_id(),
-            tag_block_production = true,
-            tag_witness_distribution = true,
-        )
-        .entered();
-
-        let prev_block_hash = *state_witness.chunk_header().prev_block_hash();
-        let chunk_production_key = state_witness.chunk_production_key();
-        let shard_id = state_witness.chunk_header().shard_id();
-        let chunk_header = state_witness.chunk_header().clone();
-
-        let network_sender = self.network_sender.clone();
-        let epoch_manager = self.epoch_manager.clone();
-        let runtime_adapter = self.runtime_adapter.clone();
-        let chain_store = chain.chain_store.clone();
-        let genesis_block = chain.genesis_block();
-        let store = chain.chain_store.store();
-        let cache = self.main_state_transition_result_cache.clone();
-        let signer = signer.clone();
-
-        self.validation_spawner.spawn("stateless_validation", move || {
-            let _span = tracing::debug_span!(
-                target: "client",
-                "async_validating_chunk",
-                height = %state_witness.chunk_production_key().height_created,
-                shard_id = %state_witness.chunk_production_key().shard_id,
-                validator = %signer.validator_id(),
-                tag_block_production = true,
-                tag_witness_distribution = true,
-            )
-            .entered();
-            // processing_done_tracker must survive until the processing is finished.
-            let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
-                processing_done_tracker;
-
-            // Helper macro to avoid verbose error handling
-            macro_rules! try_or_return {
-                ($expr:expr) => {
-                    match $expr {
-                        Ok(val) => val,
-                        Err(err) => {
-                            tracing::error!(target: "client", ?err, "Async stateless validation error");
-                            return;
-                        }
-                    }
-                };
-            }
-
-            // All expensive operations happen here in async task
-            let expected_epoch_id = try_or_return!(epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash));
-
-            if expected_epoch_id != chunk_production_key.epoch_id {
-                tracing::error!(
-                    target: "client",
-                    "Invalid EpochId {:?} for previous block {}, expected {:?}",
-                    chunk_production_key.epoch_id, prev_block_hash, expected_epoch_id
-                );
-                return;
-            }
-
-            let shard_uid = try_or_return!(shard_id_to_uid(epoch_manager.as_ref(), shard_id, &expected_epoch_id));
-            let prev_block = try_or_return!(chain_store.get_block(&prev_block_hash));
-            let last_header = try_or_return!(epoch_manager.get_prev_chunk_header(&prev_block, shard_id));
-            let chunk_producer_name = try_or_return!(epoch_manager.get_chunk_producer_info(&chunk_production_key)).take_account_id();
-
-            // First check if we can validate using existing chunk extra (fast path)
-            if let Ok(prev_chunk_extra) = chain_store.get_chunk_extra(&prev_block_hash, &shard_uid) {
-                match validate_chunk_with_chunk_extra(
-                    &chain_store,
-                    epoch_manager.as_ref(),
-                    &prev_block_hash,
-                    &prev_chunk_extra,
-                    last_header.height_included(),
-                    &chunk_header,
-                ) {
-                    Ok(()) => {
-                        send_chunk_endorsement_to_block_producers(
-                            &chunk_header,
-                            epoch_manager.as_ref(),
-                            signer.as_ref(),
-                            &network_sender,
-                        );
-                        return;
-                    }
-                    Err(err) => {
-                        tracing::error!(
-                            target: "client",
-                            ?err,
-                            ?chunk_producer_name,
-                            ?chunk_production_key,
-                            "Failed to validate chunk using existing chunk extra",
-                        );
-                        near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                            .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
-                            .inc();
-                        return;
-                    }
-                }
-            }
-
-            // If chunk extra validation failed or wasn't available, do full witness validation
-            let pre_validation_result = match chunk_validation::pre_validate_chunk_state_witness(
-                &state_witness,
-                &chain_store,
-                genesis_block,
-                epoch_manager.as_ref(),
-            ) {
-                Ok(result) => result,
-                Err(err) => {
-                    near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
-                        .inc();
-                    tracing::error!(
-                        target: "client",
-                        ?err,
-                        ?chunk_producer_name,
-                        ?chunk_production_key,
-                        "Failed to pre-validate chunk state witness"
-                    );
-                    return;
-                }
-            };
-
-            match chunk_validation::validate_chunk_state_witness(
-                state_witness,
-                pre_validation_result,
-                epoch_manager.as_ref(),
-                runtime_adapter.as_ref(),
-                &cache,
-                store,
-                save_witness_if_invalid,
-            ) {
-                Ok(()) => {
-                    send_chunk_endorsement_to_block_producers(
-                        &chunk_header,
-                        epoch_manager.as_ref(),
-                        signer.as_ref(),
-                        &network_sender,
-                    );
-                }
-                Err(err) => {
-                    near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
-                        .inc();
-                    tracing::error!(
-                        target: "client",
-                        ?err,
-                        ?chunk_producer_name,
-                        ?chunk_production_key,
-                        "Failed to validate chunk"
-                    );
-                }
-            }
-        });
-        Ok(())
-    }
-}
 
 /// Sends the chunk endorsement to the next
 /// `NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT` block producers.
@@ -333,82 +111,30 @@ impl Client {
             witness
         );
 
-        // Send the acknowledgement for the state witness back to the chunk producer.
-        // This is currently used for network roundtrip time measurement, so we do not need to
-        // wait for validation to finish.
-        self.send_state_witness_ack(&witness, &signer)?;
+        // Shard layout check.
+        let chunk_production_key = witness.chunk_production_key();
+        let epoch_id = witness.epoch_id();
+        if !self
+            .epoch_manager
+            .get_shard_layout(&epoch_id)?
+            .shard_ids()
+            .contains(&chunk_production_key.shard_id)
+        {
+            return Err(Error::InvalidShardId(chunk_production_key.shard_id));
+        }
+
+        // Acknowledgement will be sent by the chunk validation actor.
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
         }
 
-        let signer = signer.unwrap();
-        match self.chain.get_block(witness.chunk_header().prev_block_hash()) {
-            Ok(block) => self.process_chunk_state_witness_with_prev_block(
-                witness,
-                &block,
-                processing_done_tracker,
-                &signer,
-                self.config.save_invalid_witnesses,
-            ),
-            Err(Error::DBNotFoundErr(_)) => {
-                // Previous block isn't available at the moment, add this witness to the orphan pool.
-                self.handle_orphan_state_witness(witness, raw_witness_size)?;
-                Ok(())
-            }
-            Err(err) => Err(err),
-        }
-    }
+        // Delegate all chunk validation to the chunk validation actor
+        // The actor handles both cases: when prev_block is available and when it's not
+        let witness_message =
+            ChunkStateWitnessMessage { witness, raw_witness_size, processing_done_tracker };
+        self.chunk_validation_sender.chunk_state_witness.send(witness_message);
 
-    fn send_state_witness_ack(
-        &self,
-        witness: &ChunkStateWitness,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> Result<(), Error> {
-        let chunk_producer = self
-            .epoch_manager
-            .get_chunk_producer_info(&witness.chunk_production_key())?
-            .account_id()
-            .clone();
-
-        // Skip sending ack to self.
-        if let Some(validator_signer) = signer {
-            if chunk_producer == *validator_signer.validator_id() {
-                return Ok(());
-            }
-        }
-
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitnessAck(
-                chunk_producer,
-                ChunkStateWitnessAck::new(witness),
-            ),
-        ));
         Ok(())
-    }
-
-    pub fn process_chunk_state_witness_with_prev_block(
-        &self,
-        witness: ChunkStateWitness,
-        prev_block: &Block,
-        processing_done_tracker: Option<ProcessingDoneTracker>,
-        signer: &Arc<ValidatorSigner>,
-        save_witness_if_invalid: bool,
-    ) -> Result<(), Error> {
-        if witness.chunk_header().prev_block_hash() != prev_block.hash() {
-            return Err(Error::Other(format!(
-                "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",
-                witness.chunk_header().prev_block_hash(),
-                prev_block.hash()
-            )));
-        }
-
-        self.chunk_validator.start_validating_chunk(
-            witness,
-            &self.chain,
-            processing_done_tracker,
-            signer,
-            save_witness_if_invalid,
-        )
     }
 }
