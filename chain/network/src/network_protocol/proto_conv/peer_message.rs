@@ -5,7 +5,7 @@ use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
 use crate::network_protocol::{
     AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
-    RoutedMessage, RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
+    RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
 };
 use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
