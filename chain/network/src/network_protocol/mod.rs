@@ -884,6 +884,21 @@ impl RoutedMessageBody {
             _ => false,
         }
     }
+
+    pub fn is_t1(&self) -> bool {
+        match self {
+            RoutedMessageBody::BlockApproval(_)
+            | RoutedMessageBody::VersionedPartialEncodedChunk(_)
+            | RoutedMessageBody::PartialEncodedChunkForward(_)
+            | RoutedMessageBody::PartialEncodedStateWitness(_)
+            | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
+            | RoutedMessageBody::VersionedChunkEndorsement(_)
+            | RoutedMessageBody::ChunkContractAccesses(_)
+            | RoutedMessageBody::ContractCodeRequest(_)
+            | RoutedMessageBody::ContractCodeResponse(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Debug for RoutedMessageBody {
@@ -1245,8 +1260,23 @@ impl RoutedMessage {
 
     pub fn signature(&self) -> Option<&Signature> {
         match self {
-            RoutedMessage::V1(msg) => Some(&msg.signature),
-            RoutedMessage::V2(msg) => Some(&msg.msg.signature),
+            RoutedMessage::V1(msg) => {
+                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && msg.body.is_t1()
+                {
+                    None
+                } else {
+                    Some(&msg.signature)
+                }
+            }
+            RoutedMessage::V2(msg) => {
+                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION)
+                    && msg.msg.body.is_t1()
+                {
+                    None
+                } else {
+                    Some(&msg.msg.signature)
+                }
+            }
             RoutedMessage::V3(msg) => msg.signature.as_ref(),
         }
     }
@@ -1271,6 +1301,14 @@ impl RoutedMessage {
         self.upgrade_to_v3();
         let RoutedMessage::V3(msg) = self else { unreachable!() };
         msg.body
+    }
+
+    pub fn tiered_body(&self) -> TieredMessageBody {
+        match self {
+            RoutedMessage::V1(msg) => TieredMessageBody::from_routed(msg.body.clone()),
+            RoutedMessage::V2(msg) => TieredMessageBody::from_routed(msg.msg.body.clone()),
+            RoutedMessage::V3(msg) => msg.body.clone(),
+        }
     }
 
     pub fn created_at(&self) -> Option<i64> {

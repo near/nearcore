@@ -5,7 +5,7 @@ use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
 use crate::network_protocol::{
     AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
-    RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
+    RoutedMessage, RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
 };
 use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
@@ -339,7 +339,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                             target: MF::some(r.target().into()),
                             author: MF::some(r.author().public_key().into()),
                             ttl: r.ttl() as u32,
-                            borsh_body: borsh::to_vec(&r.body()).unwrap(),
+                            borsh_body: borsh::to_vec(&r.tiered_body()).unwrap(),
                             signature: MF::from_option(r.signature().map(|s| s.into())),
                             created_at: r.created_at(),
                             num_hops: r.num_hops(),
