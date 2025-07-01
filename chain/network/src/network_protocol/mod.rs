@@ -555,10 +555,6 @@ impl fmt::Debug for TieredMessageBody {
 }
 
 impl TieredMessageBody {
-    pub fn is_t1(&self) -> bool {
-        matches!(self, TieredMessageBody::T1(_))
-    }
-
     pub fn message_resend_count(&self) -> usize {
         match self {
             TieredMessageBody::T1(body) => body.message_resend_count(),
@@ -1181,27 +1177,6 @@ impl From<RoutedMessageV1> for RoutedMessageV3 {
     }
 }
 
-impl From<RoutedMessageV2> for RoutedMessageV3 {
-    fn from(msg: RoutedMessageV2) -> Self {
-        let body = TieredMessageBody::from_routed(msg.msg.body);
-        let signature =
-            if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && body.is_t1() {
-                None
-            } else {
-                Some(msg.msg.signature)
-            };
-        Self {
-            target: msg.msg.target,
-            author: msg.msg.author,
-            ttl: msg.msg.ttl,
-            body,
-            signature,
-            created_at: msg.created_at.map(|t| t.unix_timestamp()),
-            num_hops: msg.num_hops,
-        }
-    }
-}
-
 impl From<RoutedMessageV3> for RoutedMessage {
     fn from(msg: RoutedMessageV3) -> Self {
         RoutedMessage::V3(msg)
@@ -1255,14 +1230,6 @@ impl RoutedMessage {
                 body: msg.body.into(),
                 signature: msg.signature.unwrap_or_default(),
             },
-        }
-    }
-
-    pub fn msg(&self) -> &RoutedMessageV3 {
-        // Old versions should be upgraded to V3.
-        match self {
-            RoutedMessage::V1(_) | RoutedMessage::V2(_) => unreachable!(),
-            RoutedMessage::V3(msg) => msg,
         }
     }
 

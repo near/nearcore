@@ -34,7 +34,6 @@ pub enum EpochSelection {
 pub struct ShardTracker {
     tracked_shards_config: TrackedShardsConfig,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    #[allow(dead_code)]
     validator_signer: MutableValidatorSigner,
     /// Stores a bitmask of tracked shards for each epoch ID.
     /// This cache is used to avoid recomputing the set of tracked shards.
@@ -199,18 +198,17 @@ impl ShardTracker {
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client tracks.
-    pub fn cared_about_shard_in_prev_epoch(
+    pub fn cared_about_shard_in_prev_epoch_from_prev_hash(
         &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         shard_id: ShardId,
-        is_me: bool,
     ) -> bool {
+        let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
         self.cares_about_shard_in_epoch_from_prev_hash(
-            account_id,
-            parent_hash,
+            account_id.as_ref(),
+            prev_hash,
             shard_id,
-            is_me,
+            true,
             EpochSelection::Previous,
         )
     }
@@ -238,40 +236,59 @@ impl ShardTracker {
     }
 
     /// Whether the client cares about some shard in the next epoch.
-    ///  Note that `shard_id` always refers to a shard in the current epoch
-    ///  If shard layout will change next epoch,
-    ///  returns true if it cares about any shard that `shard_id` will split to
-    /// * If `account_id` is None, `is_me` is not checked and the
-    /// result indicates whether the client will track the shard
-    /// * If `account_id` is not None, it is supposed to be a validator
-    /// account and `is_me` indicates whether we check what shards
-    /// the client will track.
-    pub fn will_care_about_shard(
-        &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
-        shard_id: ShardId,
-        is_me: bool,
-    ) -> bool {
+    ///
+    /// Note that `shard_id` always refers to a shard in the current epoch. If shard layout will
+    /// change next epoch, return true if it cares about any shard that `shard_id` will split to
+    pub fn will_care_about_shard(&self, parent_hash: &CryptoHash, shard_id: ShardId) -> bool {
+        let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
         self.cares_about_shard_in_epoch_from_prev_hash(
-            account_id,
+            account_id.as_ref(),
             parent_hash,
             shard_id,
-            is_me,
+            true,
             EpochSelection::Next,
         )
     }
 
-    // TODO(robin-near): I think we only need the shard_tracker if is_me is false.
+    /// Whether the client cares about some shard in this or next epoch.
+    ///
+    /// Note that `shard_id` always refers to a shard in the current epoch. If shard layout will
+    /// change next epoch, return true if it cares about any shard that `shard_id` will split to
     pub fn cares_about_shard_this_or_next_epoch(
         &self,
-        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
-        is_me: bool,
     ) -> bool {
-        self.cares_about_shard(account_id, parent_hash, shard_id, is_me)
-            || self.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
+        let account_id = self.validator_signer.get().map(|v| v.validator_id().clone());
+        self.cares_about_shard(account_id.as_ref(), parent_hash, shard_id, true)
+            || self.will_care_about_shard(parent_hash, shard_id)
+    }
+
+    /// Whether some client tracking account_id cares about shard_id in this or next epoch.
+    ///
+    /// Note that `shard_id` always refers to a shard in the current epoch. If shard layout will
+    /// change next epoch, return true if it cares about any shard that `shard_id` will split to
+    pub fn cares_about_shard_this_or_next_epoch_for_account_id(
+        &self,
+        account_id: &AccountId,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> bool {
+        let cares_about_shard = self.cares_about_shard_in_epoch_from_prev_hash(
+            Some(account_id),
+            parent_hash,
+            shard_id,
+            false,
+            EpochSelection::Current,
+        );
+        let will_care_about_shard = self.cares_about_shard_in_epoch_from_prev_hash(
+            Some(account_id),
+            parent_hash,
+            shard_id,
+            false,
+            EpochSelection::Next,
+        );
+        cares_about_shard || will_care_about_shard
     }
 
     /// Returns whether the node is configured for all shards tracking.
@@ -327,7 +344,7 @@ impl ShardTracker {
         shard_id: ShardId,
     ) -> Result<bool, Error> {
         // Won't care about it next epoch, no need to state sync it.
-        if !self.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true) {
+        if !self.will_care_about_shard(prev_hash, shard_id) {
             return Ok(false);
         }
         // Currently tracking the shard, so no need to state sync it.
@@ -339,7 +356,7 @@ impl ShardTracker {
         // in which case we don't need to because we already have the state, and can just continue applying chunks
 
         let tracked_before =
-            self.cared_about_shard_in_prev_epoch(me.as_ref(), prev_hash, shard_id, true);
+            self.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
         Ok(!tracked_before)
     }
 
@@ -624,7 +641,7 @@ mod tests {
     ) -> HashSet<ShardId> {
         shard_ids
             .into_iter()
-            .filter(|&&shard_id| tracker.will_care_about_shard(None, parent_hash, shard_id, true))
+            .filter(|&&shard_id| tracker.will_care_about_shard(parent_hash, shard_id))
             .cloned()
             .collect()
     }
@@ -849,6 +866,7 @@ mod tests {
         );
     }
 
+    // here
     #[test]
     fn test_track_schedule() {
         // Creates a ShardTracker that changes every epoch tracked shards.

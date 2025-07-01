@@ -264,12 +264,16 @@ impl PartialWitnessActor {
         chunk_validators: &[AccountId],
         signer: &ValidatorSigner,
     ) -> Vec<(AccountId, PartialEncodedStateWitness)> {
-        tracing::debug!(
+        let _span = tracing::debug_span!(
             target: "client",
-            chunk_hash=?chunk_header.chunk_hash(),
-            ?chunk_validators,
             "generate_state_witness_parts",
-        );
+            chunk_hash = ?chunk_header.chunk_hash(),
+            height = %chunk_header.height_created(),
+            shard_id = %chunk_header.shard_id(),
+            chunk_validators_len = chunk_validators.len(),
+            tag_witness_distribution = true,
+        )
+        .entered();
 
         // Break the state witness into parts using Reed Solomon encoding.
         let encoder = self.witness_encoders.entry(chunk_validators.len());
@@ -341,6 +345,16 @@ impl PartialWitnessActor {
         chunk_validators: &[AccountId],
         signer: &ValidatorSigner,
     ) {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "send_state_witness_parts",
+            chunk_hash = ?chunk_header.chunk_hash(),
+            height = %chunk_header.height_created(),
+            shard_id = %chunk_header.shard_id(),
+            tag_witness_distribution = true,
+        )
+        .entered();
+
         // Capture these values first, as the sources are consumed before calling record_witness_sent.
         let chunk_hash = chunk_header.chunk_hash();
         let witness_size_in_bytes = witness_bytes.size_bytes();
@@ -378,6 +392,15 @@ impl PartialWitnessActor {
         &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle_partial_encoded_state_witness",
+            height = partial_witness.chunk_production_key().height_created,
+            shard_id = %partial_witness.chunk_production_key().shard_id,
+            part_ord = partial_witness.part_ord(),
+            tag_witness_distribution = true,
+        )
+        .entered();
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
@@ -446,6 +469,15 @@ impl PartialWitnessActor {
         &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle_partial_encoded_state_witness_forward",
+            height = partial_witness.chunk_production_key().height_created,
+            shard_id = %partial_witness.chunk_production_key().shard_id,
+            part_ord = partial_witness.part_ord(),
+            tag_witness_distribution = true,
+        )
+        .entered();
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessForwardMessage");
 
         let signer = self.my_validator_signer()?;
@@ -829,6 +861,16 @@ impl PartialWitnessActor {
 }
 
 fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkStateWitness, Error> {
+    let _span = tracing::debug_span!(
+        target: "client",
+        "compress_witness",
+        chunk_hash = ?witness.chunk_header().chunk_hash(),
+        height = %witness.chunk_header().height_created(),
+        shard_id = %witness.chunk_header().shard_id(),
+        tag_witness_distribution=true,
+    )
+    .entered();
+
     let shard_id_label = witness.chunk_header().shard_id().to_string();
     let encode_timer = near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
         .with_label_values(&[shard_id_label.as_str()])

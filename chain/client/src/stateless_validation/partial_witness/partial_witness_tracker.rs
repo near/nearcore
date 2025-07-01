@@ -152,6 +152,17 @@ impl CacheEntry {
         partial_witness: PartialEncodedStateWitness,
         encoder: Arc<ReedSolomonEncoder>,
     ) {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "process_witness_part",
+            height = partial_witness.chunk_production_key().height_created,
+            shard_id = %partial_witness.chunk_production_key().shard_id,
+            part_ord = partial_witness.part_ord(),
+            part_size = partial_witness.part_size(),
+            part_encoded_length = partial_witness.encoded_length(),
+            tag_witness_distribution = true,
+        )
+        .entered();
         if matches!(self.witness_parts, WitnessPartsState::Empty) {
             let parts = ReedSolomonPartsTracker::new(encoder, partial_witness.encoded_length());
             self.witness_parts = WitnessPartsState::WaitingParts(parts);
@@ -174,7 +185,17 @@ impl CacheEntry {
         }
         let part_ord = partial_witness.part_ord();
         let part = partial_witness.into_part();
-        match parts.insert_part(part_ord, part) {
+        let create_decode_span = move || {
+            tracing::debug_span!(
+                target: "client",
+                "decode_witness",
+                height = key.height_created,
+                shard_id = %key.shard_id,
+                tag_witness_distribution = true,
+            )
+            .entered()
+        };
+        match parts.insert_part(part_ord, part, Some(Box::new(create_decode_span))) {
             InsertPartResult::Accepted => {}
             InsertPartResult::PartAlreadyAvailable => {
                 tracing::warn!(
@@ -397,6 +418,7 @@ impl PartialEncodedStateWitnessTracker {
         let Some(entry) = parts_cache_by_shard.get_mut(&key) else {
             return Ok(());
         };
+
         let total_size: usize = if let Some((decode_result, accessed_contracts)) =
             entry.update(update)
         {
@@ -447,6 +469,16 @@ impl PartialEncodedStateWitnessTracker {
             values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
+            let _span = tracing::debug_span!(
+                target: "client",
+                "send_witness_to_client",
+                chunk_hash = ?witness.chunk_header().chunk_hash(),
+                height = key.height_created,
+                shard_id = %key.shard_id,
+                raw_witness_size = raw_witness_size,
+                tag_witness_distribution = true,
+            )
+            .entered();
             self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
 
             total_size
