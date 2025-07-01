@@ -341,6 +341,8 @@ impl HeaderSync {
         let store = chain.chain_store();
         let tip = store.header_head()?;
         // We could just get the ordinal from the header, but it's off by one: #8177.
+        // Note: older block headers don't have ordinals, so for them we can't get the ordinal from header,
+        // have to use get_block_merkle_tree.
         let tip_ordinal = store.get_block_merkle_tree(&tip.last_block_hash)?.size();
         let final_head = store.final_head()?;
         let final_head_ordinal = store.get_block_merkle_tree(&final_head.last_block_hash)?.size();
