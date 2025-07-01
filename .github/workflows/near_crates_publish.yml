@@ -4,7 +4,7 @@ name: Near Crates Publish
 
 on:
   release:
-    types: [released]
+    types: [published]
   workflow_dispatch:
     inputs:
       branch:
