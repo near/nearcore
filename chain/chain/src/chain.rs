@@ -1773,6 +1773,12 @@ impl Chain {
             apply_results,
             should_save_state_transition_data,
         )?;
+        let _span = tracing::info_span!(
+            target: "chain",
+            "postprocess_block_only_commit",
+            measure = "detail",
+        )
+        .entered();
         chain_update.commit()?;
         Ok(new_head)
     }
