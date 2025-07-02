@@ -985,7 +985,8 @@ def init_cluster(
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
         apply_genesis_changes(node_dir, genesis_config_changes)
-        overrides = client_config_changes.get(i)
+        overrides = client_config_changes.get(i,
+                                              DEFAULT_CLIENT_CONFIG_OVERRIDES)
         if overrides:
             apply_config_changes(node_dir, overrides)
 
@@ -1081,6 +1082,7 @@ def apply_config_changes(node_dir: str,
         'max_gas_burnt_view',
         'rosetta_rpc',
         'save_trie_changes',
+        'save_tx_outcomes',
         'split_storage',
         'state_sync',
         'state_sync_enabled',
@@ -1211,6 +1213,10 @@ DEFAULT_CONFIG: Config = {
     'release': False,
 }
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
+DEFAULT_CLIENT_CONFIG_OVERRIDES = {
+    'save_tx_outcomes':
+        True,  # Allow querying transaction outcomes in tests by default.
+}
 
 
 def load_config() -> Config:

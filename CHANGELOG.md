@@ -6,7 +6,8 @@
 **No Changes**
 
 ### Non-protocol Changes
-**No Changes**
+* Moved Tier1 configuration from experimental to top level config. No action is necessary as the default values are the recommended ones. ([#13575](https://github.com/near/nearcore/pull/13575))
+* Add a new configuration option `save_tx_outcomes` ([#13610](https://github.com/near/nearcore/pull/13610)). When set to `false`, per-transaction outcomes are not written to the db to improve validator throughput. Disabling this config means transactions processed by the node will not be queryable by transaction hash, however this is not needed for validators to perform their duties. The default for archive and RPC nodes is `true`.
 
 ## [2.7.0]
 
@@ -22,6 +23,7 @@
 * Add RPC query for viewing global contract code. ([#13547](https://github.com/near/nearcore/pull/13547))
 * Add promise batch host functions for global contracts. ([#13565](https://github.com/near/nearcore/pull/13565))
 * Stabilize `EXPERIMENTAL_changes` RPC method and rename it to `changes`. ([#13722](https://github.com/near/nearcore/pull/13722))
+* Rename `TxRequestHandlerActor` to `RpcHandlerActor` to reflect the change in the scope of its responsibilities. Otherwise its API change is fully backward-compatible, so the dependent services can handle it by simply renaming the type where it is mentioned explicitly. ([#13259](https://github.com/near/nearcore/pull/13259))
 
 ## [2.6.0]
 

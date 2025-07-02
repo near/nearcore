@@ -829,7 +829,7 @@ impl TestBlockBuilder {
             self.prev.header(),
             self.height,
             self.prev.header().block_ordinal() + 1,
-            self.prev.chunks().iter_deprecated().cloned().collect(),
+            self.prev.chunks().iter_raw().cloned().collect(),
             vec![vec![]; self.prev.chunks().len()],
             self.epoch_id,
             self.next_epoch_id,

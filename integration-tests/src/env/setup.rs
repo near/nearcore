@@ -2,6 +2,7 @@
 // code so we're in the clear.
 #![allow(clippy::arc_with_non_send_sync)]
 
+use crate::utils::peer_manager_mock::PeerManagerMock;
 use actix::{Actor, Addr, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
@@ -40,6 +41,7 @@ use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_o11y::WithSpanContextExt;
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -53,8 +55,6 @@ use near_telemetry::TelemetryActor;
 use nearcore::NightshadeRuntime;
 use num_rational::Ratio;
 use std::sync::Arc;
-
-use crate::utils::peer_manager_mock::PeerManagerMock;
 
 pub const TEST_SEED: RngSeed = [3; 32];
 
@@ -156,7 +156,6 @@ fn setup(
 
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
-        signer.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -164,6 +163,7 @@ fn setup(
         network_adapter.clone(),
         config.clone(),
         adv.clone(),
+        signer.clone(),
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
@@ -424,6 +424,7 @@ pub fn setup_client_with_runtime(
     rng_seed: RngSeed,
     archive: bool,
     save_trie_changes: bool,
+    save_tx_outcomes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: MutableValidatorSigner,
@@ -431,6 +432,7 @@ pub fn setup_client_with_runtime(
 ) -> Client {
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
+    config.save_tx_outcomes = save_tx_outcomes;
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
@@ -464,7 +466,7 @@ pub fn setup_client_with_runtime(
 pub fn setup_synchronous_shards_manager(
     clock: Clock,
     account_id: Option<AccountId>,
-    client_adapter: Sender<ShardsManagerResponse>,
+    client_adapter: Sender<SpanWrapped<ShardsManagerResponse>>,
     network_adapter: PeerManagerAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -486,6 +488,7 @@ pub fn setup_synchronous_shards_manager(
         DoomslugThresholdMode::TwoThirds, // irrelevant
         ChainConfig {
             save_trie_changes: true,
+            save_tx_outcomes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),

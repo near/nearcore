@@ -62,7 +62,7 @@ pub fn load_trie_stop_at_height(
     };
     let shard_layout = epoch_manager.get_shard_layout(&block.header().epoch_id()).unwrap();
     let mut state_roots = vec![];
-    for chunk in block.chunks().iter_deprecated() {
+    for chunk in block.chunks().iter() {
         let shard_uid = ShardUId::from_shard_id_and_layout(chunk.shard_id(), &shard_layout);
         let chunk_extra = chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid).unwrap();
         let state_root = *chunk_extra.state_root();

@@ -1,14 +1,17 @@
+use crate::env::setup::setup_no_network;
 use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::{Clock, Duration};
 use near_client::{
-    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
+    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, TxStatus,
 };
+use near_client_primitives::types::Status;
 use near_crypto::InMemorySigner;
 use near_network::client::{BlockResponse, ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
 use near_o11y::WithSpanContextExt;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::merkle::PartialMerkleTree;
@@ -18,8 +21,6 @@ use near_primitives::types::{BlockReference, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;
-
-use crate::env::setup::setup_no_network;
 
 /// Query account from view client
 #[test]
@@ -111,6 +112,7 @@ fn query_status_not_crash() {
                             peer_id: PeerInfo::random().id,
                             was_requested: false,
                         }
+                        .span_wrap()
                         .with_span_context(),
                     )
                     .then(move |_| {
@@ -119,6 +121,7 @@ fn query_status_not_crash() {
                                 .client_actor
                                 .send(
                                     Status { is_health_check: true, detailed: false }
+                                        .span_wrap()
                                         .with_span_context(),
                                 )
                                 .then(move |_| {

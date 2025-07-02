@@ -202,6 +202,13 @@ impl ReshardingActor {
     ) {
         self.resharding_started.insert(parent_shard_uid);
 
+        if let Err(err) =
+            self.trie_state_resharder.initialize_trie_state_resharding_status(&resharding_event)
+        {
+            tracing::error!(target: "resharding", ?err, "Failed to initialize trie state resharding status");
+            return;
+        }
+
         // This is a long running task and would block the actor
         if let Err(err) = self.flat_storage_resharder.start_resharding_blocking(&resharding_event) {
             tracing::error!(target: "resharding", ?err, "Failed to start flat storage resharding");

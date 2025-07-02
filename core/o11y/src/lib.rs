@@ -21,6 +21,7 @@ pub mod macros;
 pub mod metrics;
 mod opentelemetry;
 mod reload;
+pub mod span_wrapped_msg;
 mod subscriber;
 pub mod testonly;
 

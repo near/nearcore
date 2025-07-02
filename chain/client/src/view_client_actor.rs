@@ -55,7 +55,6 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
     MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
 };
-use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -92,11 +91,6 @@ pub type ViewClientActor = SyncActixWrapper<ViewClientActorInner>;
 pub struct ViewClientActorInner {
     clock: Clock,
     pub adv: crate::adversarial::Controls,
-
-    /// Validator account (if present). This field is mutable and optional. Use with caution!
-    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
-    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    validator: MutableValidatorSigner,
     pub chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -124,7 +118,6 @@ impl ViewClientActorInner {
 
     pub fn spawn_actix_actor(
         clock: Clock,
-        validator: MutableValidatorSigner,
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -132,11 +125,11 @@ impl ViewClientActorInner {
         network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         adv: crate::adversarial::Controls,
+        validator_signer: MutableValidatorSigner,
     ) -> Addr<ViewClientActor> {
         SyncArbiter::start(config.view_client_threads, move || {
             let view_client_actor = ViewClientActorInner::new(
                 clock.clone(),
-                validator.clone(),
                 chain_genesis.clone(),
                 epoch_manager.clone(),
                 shard_tracker.clone(),
@@ -144,6 +137,7 @@ impl ViewClientActorInner {
                 network_adapter.clone(),
                 config.clone(),
                 adv.clone(),
+                validator_signer.clone(),
             )
             .unwrap();
             SyncActixWrapper::new(view_client_actor)
@@ -152,7 +146,6 @@ impl ViewClientActorInner {
 
     pub fn new(
         clock: Clock,
-        validator: MutableValidatorSigner,
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -160,6 +153,7 @@ impl ViewClientActorInner {
         network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         adv: crate::adversarial::Controls,
+        validator_signer: MutableValidatorSigner,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -170,11 +164,11 @@ impl ViewClientActorInner {
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             config.save_trie_changes,
+            validator_signer,
         )?;
         Ok(Self {
             clock,
             adv,
-            validator,
             chain,
             epoch_manager,
             shard_tracker,
@@ -231,7 +225,7 @@ impl ViewClientActorInner {
     ///
     /// Returns `None` if the reference is a `SyncCheckpoint::EarliestAvailable`
     /// reference and no such block exists yet.  This is typically translated by
-    /// the caller into some form of ‘no sync block’ higher-level error.
+    /// the caller into some form of 'no sync block' higher-level error.
     fn get_block_header_by_reference(
         &self,
         reference: &BlockReference,
@@ -264,7 +258,7 @@ impl ViewClientActorInner {
     ///
     /// Returns `None` if the reference is a `SyncCheckpoint::EarliestAvailable`
     /// reference and no such block exists yet.  This is typically translated by
-    /// the caller into some form of ‘no sync block’ higher-level error.
+    /// the caller into some form of 'no sync block' higher-level error.
     fn get_block_by_reference(
         &self,
         reference: &BlockReference,
@@ -557,7 +551,6 @@ impl ViewClientActorInner {
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
-        validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<TxStatusView, TxStatusError> {
         {
             // TODO(telezhnaya): take into account `fetch_receipt()`
@@ -580,12 +573,7 @@ impl ViewClientActorInner {
             account_id_to_shard_id(self.epoch_manager.as_ref(), &signer_account_id, &head.epoch_id)
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
-        if self.shard_tracker.cares_about_shard(
-            validator_signer.as_ref().map(|v| v.validator_id()),
-            &head.prev_block_hash,
-            target_shard_id,
-            true,
-        ) {
+        if self.shard_tracker.cares_about_shard(&head.prev_block_hash, target_shard_id) {
             match self.chain.get_partial_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
                     let status = self.get_tx_execution_status(&tx_result)?;
@@ -664,7 +652,7 @@ impl ViewClientActorInner {
         &self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<Arc<BlockHeader>>, near_chain::Error> {
-        retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS, None)
+        retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS)
     }
 
     fn check_signature_account_announce(
@@ -841,8 +829,7 @@ impl Handler<TxStatus> for ViewClientActorInner {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
-        let validator_signer = self.validator.get();
-        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt, &validator_signer)
+        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
     }
 }
 
@@ -1098,9 +1085,8 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                         .chain
                         .get_block(&h)?
                         .chunks()
-                        .iter_deprecated()
-                        .map(|header| header.prev_outcome_root())
-                        .copied()
+                        .iter()
+                        .map(|header| *header.prev_outcome_root())
                         .collect::<Vec<_>>();
                     if target_shard_index >= outcome_roots.len() {
                         return Err(GetExecutionOutcomeError::InconsistentState {
@@ -1124,12 +1110,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                     &head.epoch_id,
                 )
                 .into_chain_error()?;
-                if self.shard_tracker.cares_about_shard(
-                    self.validator.get().map(|v| v.validator_id().clone()).as_ref(),
-                    &head.last_block_hash,
-                    target_shard_id,
-                    true,
-                ) {
+                if self.shard_tracker.cares_about_shard(&head.last_block_hash, target_shard_id) {
                     Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
                         transaction_or_receipt_id: id,
                     })
@@ -1265,10 +1246,8 @@ impl Handler<TxStatusRequest> for ViewClientActorInner {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
         let TxStatusRequest { tx_hash, signer_account_id } = msg;
-        let validator_signer = self.validator.get();
-        if let Ok(Some(result)) = self
-            .get_tx_status(tx_hash, signer_account_id, false, &validator_signer)
-            .map(|s| s.execution_outcome)
+        if let Ok(Some(result)) =
+            self.get_tx_status(tx_hash, signer_account_id, false).map(|s| s.execution_outcome)
         {
             Some(Box::new(result.into_outcome()))
         } else {
