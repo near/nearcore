@@ -9,7 +9,7 @@ impl<'a, M: ArenaMemory> MemTrieNodeView<'a, M> {
     pub fn node_hash(&self) -> CryptoHash {
         match self {
             Self::Leaf { .. } => {
-                let node = self.clone().to_raw_trie_node_with_size();
+                let node = self.to_raw_trie_node_with_size();
                 hash(&borsh::to_vec(&node).unwrap())
             }
             Self::Extension { hash, .. }
@@ -42,10 +42,8 @@ impl<'a, M: ArenaMemory> MemTrieNodeView<'a, M> {
     pub fn to_raw_trie_node_with_size(&self) -> RawTrieNodeWithSize {
         match self {
             Self::Leaf { value, extension } => {
-                let node = RawTrieNode::Leaf(
-                    extension.to_vec(),
-                    value.clone().to_flat_value().to_value_ref(),
-                );
+                let node =
+                    RawTrieNode::Leaf(extension.to_vec(), value.to_flat_value().to_value_ref());
                 RawTrieNodeWithSize { node, memory_usage: self.memory_usage() }
             }
             Self::Extension { extension, child, .. } => {
