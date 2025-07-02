@@ -26,8 +26,8 @@ use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 use time::ext::InstantExt as _;
 
-use crate::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
 use crate::metrics;
+use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
 
 use near_primitives::utils::compression::CompressedData;
 

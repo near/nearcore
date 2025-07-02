@@ -16,15 +16,15 @@ use near_chain_configs::{
 };
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
-use near_client::chunk_validation_actor::{
-    ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
-};
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
     ViewClientActorInner,
+};
+use near_client::{
+    ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;

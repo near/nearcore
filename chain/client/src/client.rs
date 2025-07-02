@@ -7,10 +7,12 @@ use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 #[cfg(feature = "test_features")]
 use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
-use crate::chunk_validation_actor::{BlockNotificationMessage, ChunkValidationSender};
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_validation_actor::{
+    BlockNotificationMessage, ChunkValidationSender,
+};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;

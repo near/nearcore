@@ -8,9 +8,6 @@
 use crate::chunk_executor_actor::ExecutorBlock;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
-use crate::chunk_validation_actor::{
-    ChunkValidationActor, ChunkValidationActorInner, ChunkValidationSender,
-};
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
@@ -18,6 +15,9 @@ use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_validation_actor::{
+    ChunkValidationActor, ChunkValidationActorInner, ChunkValidationSender,
+};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
 use crate::sync::state::chain_requests::{

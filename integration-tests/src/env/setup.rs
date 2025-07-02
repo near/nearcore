@@ -26,11 +26,10 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
-use near_client::chunk_validation_actor::{ChunkValidationActorInner, ChunkValidationSender};
 use near_client::{
-    AsyncComputationMultiSpawner, Client, ClientActor, PartialWitnessActor,
-    PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
-    ViewClientActor, ViewClientActorInner, start_client,
+    AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender, Client,
+    ClientActor, PartialWitnessActor, PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig,
+    StartClientResult, SyncStatus, ViewClientActor, ViewClientActorInner, start_client,
 };
 use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};

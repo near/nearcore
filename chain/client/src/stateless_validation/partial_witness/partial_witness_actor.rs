@@ -41,8 +41,8 @@ use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::{ContractCode, ContractRuntimeCache, get_contract_cache_key};
 use rand::Rng;
 
-use crate::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
 use crate::metrics;
+use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
     ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,

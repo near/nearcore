@@ -26,7 +26,7 @@ impl Client {
         witness: ChunkStateWitness,
         witness_size: usize,
     ) -> Result<HandleOrphanWitnessOutcome, Error> {
-        use crate::chunk_validation_actor::OrphanWitnessMessage;
+        use crate::stateless_validation::chunk_validation_actor::OrphanWitnessMessage;
         use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
 
         let chunk_header = witness.chunk_header();

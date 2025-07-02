@@ -10,8 +10,8 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
+use near_client::ChunkValidationActorInner;
 use near_client::adapter::client_sender_for_network;
-use near_client::chunk_validation_actor::ChunkValidationActorInner;
 use near_client::{
     PartialWitnessActor, RpcHandlerConfig, StartClientResult, ViewClientActorInner,
     spawn_rpc_handler_actor, start_client,
