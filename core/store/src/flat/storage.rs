@@ -426,6 +426,12 @@ impl FlatStorage {
                 guard.deltas.remove(&hash);
             }
 
+            let _span = tracing::info_span!(
+                target: "store",
+                "update_flat_head_impl_commit",
+                measure = "detail",
+            )
+            .entered();
             store_update.commit().unwrap();
             debug!(target: "store", %shard_id, %block_hash, %block_height, "Moved flat storage head");
         }
