@@ -229,7 +229,7 @@ fn create_external_connection(
             unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
         }
         ExternalConnection::GCS {
-            gcs_client: Arc::new(
+            gcs_client: Arc::from_env(
                 object_store::gcp::GoogleCloudStorageBuilder::from_env()
                     .with_bucket_name(&bucket)
                     .build()
