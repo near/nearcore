@@ -1773,7 +1773,7 @@ impl Chain {
             should_save_state_transition_data,
         )?;
         let _span = tracing::info_span!(
-            target: "runtime",
+            target: "chain",
             "postprocess_block_only_commit",
             measure = "detail",
         )
