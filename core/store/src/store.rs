@@ -81,30 +81,38 @@ impl Store {
         {
             let mut lock = cache.lock();
             if let Some(value) = lock.values.get(key) {
-                match Arc::downcast::<T>(Arc::clone(value)) {
-                    Ok(result) => return Ok(Some(result)),
-                    Err(_) => {
-                        tracing::debug!(
-                            target: "store",
-                            requested = std::any::type_name::<T>(),
-                            "could not downcast an available cached deserialized value"
-                        );
+                if let Some(value) = value {
+                    // If the value is already cached, try to downcast it to the requested type.
+                    // If it fails, we log a debug message and continue to fetch from the database.
+                    match Arc::downcast::<T>(Arc::clone(value)) {
+                        Ok(result) => return Ok(Some(result)),
+                        Err(_) => {
+                            tracing::debug!(
+                                target: "store",
+                                requested = std::any::type_name::<T>(),
+                                "could not downcast an available cached deserialized value"
+                            );
+                        }
                     }
+                } else {
+                    // Value is cached as `None`, which means it was previously fetched
+                    // but was not found in the database.
+                    return Ok(None);
                 }
             }
         }
 
         let value = match self.get_ser::<T>(column, key) {
-            Ok(Some(value)) => Arc::from(value),
-            Ok(None) => return Ok(None),
+            Ok(Some(value)) => Some(Arc::from(value)),
+            Ok(None) => None,
             Err(e) => return Err(e),
         };
 
         let mut lock = cache.lock();
         if lock.active_flushes == 0 {
-            lock.values.put(key.into(), Arc::clone(&value) as _);
+            lock.values.put(key.into(), value.as_ref().map(|v| Arc::clone(v) as _));
         }
-        Ok(Some(value))
+        Ok(value)
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {

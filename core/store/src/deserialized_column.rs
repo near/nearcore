@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 pub(super) struct ColumnCache {
-    pub(super) values: lru::LruCache<Vec<u8>, Arc<dyn Any + Send + Sync>>,
+    pub(super) values: lru::LruCache<Vec<u8>, Option<Arc<dyn Any + Send + Sync>>>,
     /// A counter indicating the number of ongoing write transaction flushes.
     ///
     /// This cache and transactional write operation in the underlying database can be
