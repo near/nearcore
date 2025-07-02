@@ -246,13 +246,15 @@ pub fn retrieve_headers(
         None => return Ok(vec![]),
     };
 
-    // Block ordinals stored in db are off by one so adding 0 will return the next block after `header`.
-    // get_block_hash_from_ordinal(i).block_ordinal() == i + 1
-    // See #8177
+    // Use `get_block_merkle_tree` to get the block ordinal for this header.
+    // We can't use the `header.block_ordinal()` method because older block headers don't have this field.
+    // The same method is used in `get_locator` which creates the headers request and chain store when saving block ordinals.
+    let block_ordinal = chain_store.get_block_merkle_tree(&header.hash())?.size();
+
     let mut headers = vec![];
-    for i in 0..max_headers_returned {
+    for i in 1..=max_headers_returned {
         match chain_store
-            .get_block_hash_from_ordinal(header.block_ordinal().saturating_add(i))
+            .get_block_hash_from_ordinal(block_ordinal.saturating_add(i))
             .and_then(|block_hash| chain_store.get_block_header(&block_hash))
         {
             Ok(h) => headers.push(h),
