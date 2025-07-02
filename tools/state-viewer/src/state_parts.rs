@@ -225,13 +225,11 @@ fn create_external_connection(
         .expect("Failed to create an S3 bucket");
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
     } else if let Some(bucket) = gcs_bucket {
-        if let Some(credentials_file) = credentials_file {
-            unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
-        }
         ExternalConnection::GCS {
             gcs_client: Arc::new(
                 object_store::gcp::GoogleCloudStorageBuilder::new()
                     .with_bucket_name(&bucket)
+                    .with_service_account_path(&credentials_file.to_str().unwrap())
                     .build()
                     .unwrap(),
             ),
