@@ -110,7 +110,12 @@ impl Store {
 
         let mut lock = cache.lock();
         if lock.active_flushes == 0 {
-            lock.values.put(key.into(), value.as_ref().map(|v| Arc::clone(v) as _));
+            if let Some(v) = value.as_ref() {
+                lock.values.put(key.into(), Some(Arc::clone(v) as _));
+            } else if lock.store_none_values() {
+                // If the cache is configured to store `None` values, we store it.
+                lock.values.put(key.into(), None);
+            }
         }
         Ok(value)
     }
