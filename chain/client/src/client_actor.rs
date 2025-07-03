@@ -16,7 +16,7 @@ use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
-    ChunkValidationActor, ChunkValidationActorInner, ChunkValidationSender,
+    ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSyncActor,
 };
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
@@ -126,7 +126,7 @@ pub struct StartClientResult {
     pub client_arbiter_handle: actix::ArbiterHandle,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
-    pub chunk_validation_actor: actix::Addr<ChunkValidationActor>,
+    pub chunk_validation_actor: actix::Addr<ChunkValidationSyncActor>,
 }
 
 /// Starts client in a separate Arbiter (thread).
@@ -194,9 +194,11 @@ pub fn start_client(
 
     // Create chunk validation actor
     let genesis_block = client.chain.genesis_block();
-    let chunk_validation_actor = ChunkValidationActorInner::new(
+    let num_chunk_validation_threads = client.config.chunk_validation_threads;
+
+    let chunk_validation_actor_addr = ChunkValidationActorInner::spawn_actix_actors(
         client.chain.chain_store().clone(),
-        genesis_block,
+        genesis_block.clone(),
         epoch_manager.clone(),
         runtime.clone(),
         network_adapter.clone().into_sender(),
@@ -212,8 +214,8 @@ pub fn start_client(
             ApplyChunksSpawner::Default.into_spawner(max_num_shards)
         },
         client.config.orphan_state_witness_max_size.as_u64(),
+        num_chunk_validation_threads,
     );
-    let chunk_validation_actor_addr = chunk_validation_actor.spawn_actix_actor();
 
     let client_actor_inner = ClientActorInner::new(
         clock,
