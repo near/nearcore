@@ -21,7 +21,9 @@ use near_network::state_witness::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
-use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
+use near_primitives::reed_solomon::{
+    REED_SOLOMON_MAX_PARTS, ReedSolomonEncoder, ReedSolomonEncoderCache,
+};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -308,6 +310,12 @@ impl PartialWitnessActor {
         // Note that target validators do not include the chunk producers, and thus in some case
         // (eg. tests or small networks) there may be no other validators to send the new contracts to.
         if validators.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Temporary solution to skip sending contract deploys if max number of supported
+        // parts is exceeded.
+        if validators.len() > REED_SOLOMON_MAX_PARTS {
             return Ok(vec![]);
         }
 
