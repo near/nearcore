@@ -2,8 +2,10 @@ use super::*;
 use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
+use itertools::Itertools;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, MutableConfigValue, NEAR_BASE,
@@ -17,21 +19,26 @@ use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::block::Tip;
-use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
+use near_primitives::congestion_info::{
+    BlockCongestionInfo, CongestionInfo, ExtendedCongestionInfo,
+};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
+use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
 };
+use near_primitives::utils::from_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -41,13 +48,14 @@ use near_primitives::views::{
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::trie::AccessOptions;
-use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots};
+use near_store::{NodeStorage, PartialStorage, get_account, get_genesis_state_roots};
 use near_vm_runner::{
     CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache, get_contract_cache_key,
 };
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
 use primitive_types::U256;
+use rand::Rng;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeSet, HashSet};
 
@@ -59,6 +67,44 @@ struct TestEnvConfig {
     create_flat_storage: bool,
 }
 
+#[derive(Clone, Debug)]
+struct UserAccount {
+    account_id: AccountId,
+    signer: Signer,
+    nonce: Nonce,
+}
+
+impl UserAccount {
+    fn new(account_id: AccountId) -> Self {
+        let signer = InMemorySigner::test_signer(&account_id);
+        Self { account_id, signer, nonce: 0 }
+    }
+
+    fn next_nonce(&mut self) -> Nonce {
+        let nonce = self.nonce;
+        self.nonce += 1;
+        nonce + 1
+    }
+}
+
+#[derive(Default, Clone)]
+struct TestEnvConfigExtended {
+    user_accounts: Vec<UserAccount>,
+    shard_layout: Option<ShardLayout>,
+    load_memtries: bool,
+}
+
+impl TestEnvConfigExtended {
+    pub fn add_user_accounts_simple(mut self, accounts: &[AccountId]) -> Self {
+        self.user_accounts
+            .extend(accounts.iter().map(|account_id| UserAccount::new(account_id.clone())));
+        self
+    }
+
+    pub fn get_account_id(&self, i: usize) -> &AccountId {
+        &self.user_accounts[i].account_id
+    }
+}
 /// Environment to test runtime behavior separate from Chain.
 /// Runtime operates in a mock chain where i-th block is attached to (i-1)-th one, has height `i` and hash
 /// `hash([i])`.
@@ -70,6 +116,8 @@ struct TestEnv {
     pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
     pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
     pub last_proposals: Vec<ValidatorStake>,
+    pub last_proofs: HashMap<ShardId, PartialStorage>,
+    pub keep_proofs: bool,
     time: u64,
 }
 
@@ -92,17 +140,49 @@ impl TestEnv {
     }
 
     fn new_with_config(validators: Vec<Vec<AccountId>>, config: TestEnvConfig) -> Self {
+        Self::new_with_extended_config(validators, config, Default::default())
+    }
+
+    fn new_with_extended_config(
+        validators: Vec<Vec<AccountId>>,
+        config: TestEnvConfig,
+        config_ext: TestEnvConfigExtended,
+    ) -> Self {
         let (dir, opener) = NodeStorage::test_opener();
         let store = opener.open().unwrap().get_hot_store();
         let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
             acc.union(&x.iter().cloned().collect()).cloned().collect()
         });
         let validators_len = all_validators.len() as ValidatorId;
-        let mut genesis = Genesis::test_sharded_new_version(
-            all_validators.into_iter().collect(),
-            validators_len,
-            validators.iter().map(|x| x.len() as ValidatorId).collect(),
-        );
+
+        let mut genesis = if let Some(shard_layout) = config_ext.shard_layout {
+            let clock = Clock::real();
+            let genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
+            let validators_strings: Vec<_> =
+                all_validators.iter().map(|account_id| account_id.to_string()).collect();
+            let validators_spec = ValidatorsSpec::desired_roles(
+                &validators_strings.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
+                &[],
+            );
+            let user_accounts = config_ext
+                .user_accounts
+                .iter()
+                .map(|account| account.account_id.clone())
+                .collect::<Vec<_>>();
+            TestGenesisBuilder::new()
+                .validators_spec(validators_spec.clone())
+                .genesis_time(genesis_time)
+                .shard_layout(shard_layout)
+                .add_user_accounts_simple(&user_accounts, TESTING_INIT_BALANCE)
+                .build()
+        } else {
+            Genesis::test_sharded_new_version(
+                all_validators.into_iter().collect(),
+                validators_len,
+                validators.iter().map(|x| x.len() as ValidatorId).collect(),
+            )
+        };
+
         // No fees mode.
         genesis.config.epoch_length = config.epoch_length;
         genesis.config.chunk_producer_kickout_threshold =
@@ -126,6 +206,8 @@ impl TestEnv {
 
         initialize_genesis_state(store.clone(), &genesis, Some(dir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+        let mut trie_config = TrieConfig::default();
+        trie_config.load_memtries_for_tracked_shards = config_ext.load_memtries;
         let runtime = NightshadeRuntime::new(
             store.clone(),
             compiled_contract_cache.handle(),
@@ -135,10 +217,14 @@ impl TestEnv {
             None,
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            Default::default(),
+            trie_config,
             StateSnapshotConfig::enabled(dir.path(), "data", "state_snapshot"),
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
+        assert_eq!(
+            state_roots.len(),
+            epoch_manager.get_shard_layout(&EpochId::default()).unwrap().num_shards() as usize
+        );
         let genesis_hash = hash(&[0]);
 
         if config.create_flat_storage {
@@ -162,6 +248,40 @@ impl TestEnv {
                 ));
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             }
+        }
+        if config_ext.load_memtries {
+            assert!(config.create_flat_storage);
+            let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
+            let all_shards = shard_layout.shard_uids().collect_vec();
+            // ChunkExtra is needed for in-memory trie loading code to query state roots.
+            let congestion_info = Some(CongestionInfo::default());
+            let mut update_for_chunk_extra = store.store_update();
+            for shard_uid in &all_shards {
+                let shard_id = shard_uid.shard_id();
+                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+                let chunk_extra = ChunkExtra::new(
+                    &state_roots[shard_index],
+                    CryptoHash::default(),
+                    Vec::new(),
+                    0,
+                    0,
+                    0,
+                    congestion_info,
+                    BandwidthRequests::empty(),
+                );
+                update_for_chunk_extra
+                    .set_ser(
+                        DBCol::ChunkExtra,
+                        &get_block_shard_uid(&genesis_hash, shard_uid),
+                        &chunk_extra,
+                    )
+                    .unwrap();
+            }
+            update_for_chunk_extra.commit().unwrap();
+            runtime
+                .get_tries()
+                .load_memtries_for_enabled_shards(&all_shards, &[].into(), false)
+                .expect("Failed to load memtries for enabled shards");
         }
 
         epoch_manager
@@ -198,6 +318,8 @@ impl TestEnv {
             last_receipts: HashMap::default(),
             last_proposals: vec![],
             last_shard_proposals: HashMap::default(),
+            last_proofs: HashMap::default(),
+            keep_proofs: false,
             time: 0,
         }
     }
@@ -208,16 +330,37 @@ impl TestEnv {
         transactions: Vec<SignedTransaction>,
         receipts: &[Receipt],
     ) -> ApplyChunkResult {
-        // TODO(congestion_control): pass down prev block info and read congestion info from there
-        // For now, just use default.
-        // TODO(bandwidth_scheduler) - pass bandwidth requests from prev_block
+        let context = self.apply_chunk_context(shard_id);
+        self.apply_new_chunk_with_storage(shard_id, transactions, receipts, &context, None)
+    }
+
+    pub fn apply_chunk_context(&self, shard_id: ShardId) -> TestApplyChunkContext {
         let prev_block_hash = self.head.last_block_hash;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-        let state_root = self.state_roots[shard_index];
+        TestApplyChunkContext {
+            prev_block_hash: self.head.last_block_hash,
+            state_root: self.state_roots[shard_index],
+            height: self.head.height + 1,
+        }
+    }
+
+    pub fn apply_new_chunk_with_storage(
+        &self,
+        shard_id: ShardId,
+        transactions: Vec<SignedTransaction>,
+        receipts: &[Receipt],
+        context: &TestApplyChunkContext,
+        storage: Option<PartialStorage>,
+    ) -> ApplyChunkResult {
+        // TODO(congestion_control): pass down prev block info and read congestion info from there
+        // For now, just use default.
+        // TODO(bandwidth_scheduler) - pass bandwidth requests from prev_block
+        let prev_block_hash = context.prev_block_hash;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
         let gas_limit = u64::MAX;
-        let height = self.head.height + 1;
+        let height = context.height;
         let block_timestamp = 0;
         let gas_price = self.runtime.genesis_config.min_gas_price;
         let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
@@ -228,13 +371,23 @@ impl TestEnv {
         let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
         let transaction_validity = vec![true; transactions.len()];
         let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
+        let reason = if storage.is_some() {
+            ApplyChunkReason::ValidateChunkStateWitness
+        } else {
+            ApplyChunkReason::UpdateTrackedShard
+        };
+        let mut storage_config = RuntimeStorageConfig::new(context.state_root, true);
+        if let Some(storage) = storage {
+            storage_config.source = StorageDataSource::Recorded(storage);
+        }
         self.runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(state_root, true),
-                ApplyChunkReason::UpdateTrackedShard,
+                storage_config,
+                reason,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: ValidatorStakeIter::new(
+                        // TODO: move to context
                         self.last_shard_proposals.get(&shard_id).unwrap_or(&vec![]),
                     ),
                     gas_limit,
@@ -262,7 +415,7 @@ impl TestEnv {
         new_block_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         receipts: &[Receipt],
-    ) -> (CryptoHash, Vec<ValidatorStake>, Vec<Receipt>) {
+    ) -> ApplyChunkResult {
         let mut apply_result = self.apply_new_chunk(shard_id, transactions, receipts);
         let mut store_update = self.runtime.store().store_update();
         let flat_state_changes =
@@ -271,6 +424,7 @@ impl TestEnv {
         apply_result
             .trie_changes
             .state_changes_into(&new_block_hash, &mut store_update.trie_store_update());
+        apply_result.trie_changes.apply_mem_changes();
 
         let prev_block_hash = self.head.last_block_hash;
         let epoch_id =
@@ -295,7 +449,7 @@ impl TestEnv {
         }
         store_update.commit().unwrap();
 
-        (apply_result.new_root, apply_result.validator_proposals, apply_result.outgoing_receipts)
+        apply_result
     }
 
     pub fn step(&mut self, transactions: Vec<Vec<SignedTransaction>>, chunk_mask: Vec<bool>) {
@@ -306,18 +460,27 @@ impl TestEnv {
         assert_eq!(chunk_mask.len(), shard_ids.len());
         let mut all_proposals = vec![];
         let mut all_receipts = vec![];
+
+        if self.keep_proofs {
+            self.last_proofs.clear();
+        }
         for shard_id in shard_ids {
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-            let (state_root, proposals, receipts) = self.update_runtime(
+            let apply_result = self.update_runtime(
                 shard_id,
                 new_hash,
                 transactions[shard_index].clone(),
                 self.last_receipts.get(&shard_id).map_or(&[], |v| v.as_slice()),
             );
-            self.state_roots[shard_index] = state_root;
-            all_receipts.extend(receipts);
-            all_proposals.append(&mut proposals.clone());
-            self.last_shard_proposals.insert(shard_id, proposals);
+            self.state_roots[shard_index] = apply_result.new_root;
+            all_receipts.extend(apply_result.outgoing_receipts);
+            all_proposals.append(&mut apply_result.validator_proposals.clone());
+            self.last_shard_proposals.insert(shard_id, apply_result.validator_proposals);
+            if self.keep_proofs {
+                if let Some(storage) = apply_result.proof {
+                    self.last_proofs.insert(shard_id, storage);
+                }
+            }
         }
         self.epoch_manager
             .add_validator_proposals(
@@ -400,6 +563,153 @@ impl TestEnv {
             (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
         (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
     }
+}
+
+struct TestApplyChunkContext {
+    prev_block_hash: CryptoHash,
+    state_root: StateRoot,
+    height: u64,
+}
+
+const TERAGAS: u64 = 1_000_000_000_000;
+
+fn gen_transactions_by_shard(
+    rng: &mut StdRng,
+    block_hash: CryptoHash,
+    accounts: &mut [UserAccount],
+    shard_layout: &ShardLayout,
+    num_transactions: usize,
+) -> Vec<Vec<SignedTransaction>> {
+    let mut transactions_by_shard_index = vec![Vec::new(); shard_layout.num_shards() as usize];
+
+    for _ in 0..num_transactions {
+        // Choose sender and receiver randomly from the accounts.
+        let sender = rng.gen_range(0..accounts.len());
+        let receiver = rng.gen_range(0..accounts.len());
+
+        let shard_id = shard_layout.account_id_to_shard_id(&accounts[sender].account_id);
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+        transactions_by_shard_index[shard_index].push(SignedTransaction::send_money(
+            accounts[sender].next_nonce(),
+            accounts[sender].account_id.clone(),
+            accounts[receiver].account_id.clone(),
+            &accounts[sender].signer,
+            1,
+            block_hash,
+        ));
+    }
+
+    transactions_by_shard_index
+}
+
+#[test]
+fn test_apply_new_chunk() {
+    let accounts =
+        (0..1000).map(|i| format!("account{:04}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+    let num_shards = 4;
+    // choose boundary_accounts based on num_shards to equally partition accounts
+    let boundary_accounts = accounts
+        .chunks(accounts.len() / num_shards)
+        .map(|chunk| chunk.last().unwrap().to_owned())
+        .take(num_shards - 1)
+        .collect::<Vec<_>>();
+    eprintln!("Boundary accounts: {:?}", boundary_accounts);
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 3);
+
+    let num_nodes = num_shards;
+    let validators = (0..num_nodes)
+        .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
+        .collect::<Vec<_>>();
+    let config = TestEnvConfig {
+        epoch_length: 10,
+        has_reward: false,
+        minimum_stake_divisor: None,
+        zero_fees: false,
+        create_flat_storage: true,
+    };
+    let mut config_ext = TestEnvConfigExtended::default();
+    config_ext.shard_layout = Some(shard_layout.clone());
+    config_ext.load_memtries = true;
+    config_ext = config_ext.add_user_accounts_simple(&accounts);
+    let mut env =
+        TestEnv::new_with_extended_config(vec![validators.clone()], config, config_ext.clone());
+
+    let account_id = config_ext.get_account_id(0).clone();
+    let shard_id = shard_layout.account_id_to_shard_id(&account_id);
+
+    let state_roots = get_genesis_state_roots(env.runtime.store())
+        .expect("genesis state roots should be initialized")
+        .expect("genesis state roots should not be empty");
+
+    let block_hash = env.head.last_block_hash;
+    let trie = env.runtime.get_trie_for_shard(shard_id, &block_hash, state_roots[0], true).unwrap();
+    let account = get_account(&trie, &account_id)
+        .expect("account should exist in the trie")
+        .expect("account should be present in the trie");
+    assert!(account.amount() > 0);
+    assert!(trie.has_memtries());
+
+    let num_txs_per_chunk = 1000;
+    // Seed rng for consistent transaction generation.
+    let mut rng = StdRng::from_seed([0; 32]);
+    let transactions_by_shard_index = gen_transactions_by_shard(
+        &mut rng,
+        env.head.last_block_hash,
+        &mut config_ext.user_accounts,
+        &shard_layout,
+        num_txs_per_chunk,
+    );
+    // These chunks will not have any incoming receipts, so we are going to make another
+    // step right after this one to generate some receipts.
+    env.step(transactions_by_shard_index, vec![true; num_shards]);
+
+    let transactions_by_shard_index = gen_transactions_by_shard(
+        &mut rng,
+        env.head.last_block_hash,
+        &mut config_ext.user_accounts,
+        &shard_layout,
+        num_txs_per_chunk,
+    );
+
+    // Remember receipts so we can apply them with the recorded storage.
+    let last_receipts = env.last_receipts.clone();
+
+    env.keep_proofs = true;
+    let apply_contexts = (0..num_shards)
+        .map(|shard_index| {
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+            eprintln!("Remembering context for shard {}", shard_id);
+            env.apply_chunk_context(shard_id)
+        })
+        .collect_vec();
+    env.step(transactions_by_shard_index.clone(), vec![true; num_shards]);
+    env.keep_proofs = false;
+
+    // let mut incoming_receipts_by_shard: HashMap<ShardId, Vec<Receipt>> = HashMap::new();
+    for (shard_index, transactions) in transactions_by_shard_index.into_iter().enumerate() {
+        // See if it works with recorded storage.
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+        eprintln!(
+            "Applying transactions with recorded storage for shard {} (index = {})",
+            shard_id, shard_index
+        );
+        let recorded = env.last_proofs.get(&shard_id).cloned().unwrap();
+        let receipts = last_receipts.get(&shard_id).map(Vec::as_slice).unwrap_or(&[]);
+        eprintln!("Incoming receipts: {}", receipts.len());
+        let apply_result = env.apply_new_chunk_with_storage(
+            shard_id,
+            transactions,
+            receipts,
+            &apply_contexts[shard_index],
+            Some(recorded),
+        );
+        eprintln!("Outgoing receipts: {:?}", apply_result.outgoing_receipts.len());
+        eprintln!("Gas used: {}T", apply_result.total_gas_burnt / TERAGAS);
+        eprintln!("Transaction outcomes: {}", apply_result.outcomes.len());
+    }
+
+    // TODO: use thread pool to apply chunks in parallel
+    // TODO: measurement
 }
 
 /// Start with 2 validators with default stake X.
