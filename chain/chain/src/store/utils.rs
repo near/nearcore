@@ -144,6 +144,8 @@ pub fn get_incoming_receipts_for_shard(
     let mut current_block_hash = block_hash;
     let mut current_shard_layout = target_shard_layout.clone();
 
+    tracing::debug!(target: "incident", "get_incoming_receipts_for_shard loop start");
+
     loop {
         let header = chain_store.get_block_header(&current_block_hash)?;
 
@@ -210,6 +212,8 @@ pub fn get_incoming_receipts_for_shard(
         ret.push(ReceiptProofResponse(current_block_hash, filtered_receipt_proofs));
         current_block_hash = *prev_hash;
     }
+
+    tracing::debug!(target: "incident", "get_incoming_receipts_for_shard loop end");
 
     Ok(ret)
 }
