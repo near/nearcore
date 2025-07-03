@@ -23,6 +23,8 @@ use rand::Rng as _;
 #[cfg(not(windows))]
 use std::io::{Read, Write};
 
+const CACHE_DIR_NAME: &str = "contract.cache.is.fine.to.empty";
+
 #[derive(Debug, Clone, BorshSerialize, ProtocolSchema)]
 enum ContractCacheKey {
     _Version1,
@@ -256,8 +258,15 @@ impl FilesystemContractRuntimeCache {
         memory_cache_size: usize,
     ) -> std::io::Result<Self> {
         let store_path = store_path.map(AsRef::as_ref).unwrap_or_else(|| "data".as_ref());
-        let path: std::path::PathBuf =
+        let legacy_path: std::path::PathBuf =
             [home_dir, store_path, "contracts".as_ref()].into_iter().collect();
+        let path: std::path::PathBuf =
+            [home_dir, store_path, CACHE_DIR_NAME.as_ref()].into_iter().collect();
+        // Rename the old contracts directory to a new name. This should only succeed the first
+        // time this code encounters the legacy contract directory. If this fails the first time
+        // for some reason, a new directory will be created for the new cache anyway, and future
+        // launches won't be able to overwrite it anymore. This is also fine.
+        let _ = std::fs::rename(legacy_path, &path);
         std::fs::create_dir_all(&path)?;
         let dir =
             rustix::fs::open(&path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())?;
@@ -431,7 +440,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         };
         self.memory_cache().clear();
         let dir_path: std::path::PathBuf =
-            [temp_dir.path(), "data".as_ref(), "contracts".as_ref()].into_iter().collect();
+            [temp_dir.path(), "data".as_ref(), CACHE_DIR_NAME.as_ref()].into_iter().collect();
         for entry in std::fs::read_dir(dir_path).unwrap() {
             if let Ok(entry) = entry {
                 let path = entry.path();
