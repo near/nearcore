@@ -417,7 +417,7 @@ impl PartialWitnessActor {
             ) {
                 Ok(ChunkRelevance::Relevant) => {
                     tracing::debug!(target: "incident", ?partial_witness, "partial encoded state witness is relevant");
-                    
+
                     network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::PartialEncodedStateWitnessForward(
                             target_chunk_validators,

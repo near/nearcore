@@ -52,8 +52,17 @@ impl ChainStore {
         chunk: &ShardChunk,
     ) -> Result<CreateWitnessResult, Error> {
         tracing::debug!(target: "incident", "create state witness start");
-
         let chunk_header = chunk.cloned_header();
+
+        let _span = tracing::debug_span!(
+            target: "client",
+            "create_state_witness",
+            chunk_hash = ?chunk_header.chunk_hash(),
+            height = chunk_header.height_created(),
+            shard_id = %chunk_header.shard_id(),
+        )
+        .entered();
+
         let epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let prev_chunk = self.get_chunk(&prev_chunk_header.chunk_hash())?;
@@ -108,6 +117,15 @@ impl ChainStore {
         tracing::debug!(target: "incident", "collect_state_transition_data start");
 
         let prev_chunk_height_included = prev_chunk_header.height_included();
+
+        let _span = tracing::debug_span!(
+            target: "client",
+            "collect_state_transition_data",
+            chunk_hash = ?chunk_header.chunk_hash(),
+            height = chunk_header.height_created(),
+            shard_id = %chunk_header.shard_id(),
+        )
+        .entered();
 
         // Iterate over blocks in chain from `chunk_header.prev_block_hash()`
         // (inclusive) until the block with height `prev_chunk_height_included`
@@ -276,6 +294,15 @@ impl ChainStore {
         prev_chunk_header: &ShardChunkHeader,
     ) -> Result<HashMap<ChunkHash, ReceiptProof>, Error> {
         tracing::debug!(target: "incident", "collect_source_receipt_proofs start");
+
+        let _span = tracing::debug_span!(
+            target: "client",
+            "collect_source_receipt_proofs",
+            chunk_hash = ?prev_chunk_header.chunk_hash(),
+            height = prev_chunk_header.height_created(),
+            shard_id = %prev_chunk_header.shard_id(),
+        )
+        .entered();
 
         if prev_chunk_header.is_genesis() {
             // State witness which proves the execution of the first chunk in the blockchain
