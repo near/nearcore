@@ -36,6 +36,7 @@ impl Client {
                 prev_chunk_header,
                 chunk,
             )?;
+        tracing::debug!(target: "incident", ?shard_id, "create state witness done");
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
@@ -47,7 +48,9 @@ impl Client {
             .get_chunk_validator_assignments(epoch_id, shard_id, height)?
             .contains(my_signer.validator_id())
         {
-            // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
+            // Bypass state witness validation if we created state witness.
+            // Endorse the chunk immediately.
+            tracing::debug!(target: "incident", chunk_hash=?chunk_header.chunk_hash(), ?shard_id, "bypass state witness validation for self");
             tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), ?shard_id, "send_chunk_endorsement_from_chunk_producer");
             if let Some(endorsement) = send_chunk_endorsement_to_block_producers(
                 &chunk_header,
@@ -59,6 +62,7 @@ impl Client {
             }
         }
 
+        tracing::debug!(target: "incident", chunk_hash=?chunk_header.chunk_hash(), ?shard_id, "sending DistributeStateWitnessRequest");
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             state_witness,
             contract_updates,

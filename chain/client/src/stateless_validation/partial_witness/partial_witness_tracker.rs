@@ -268,9 +268,13 @@ impl CacheEntry {
             //   available in the compiled contracts cache.
             AccessedContractsState::Unknown | AccessedContractsState::Received(_)
         );
+        tracing::debug!(target: "incident", ?parts_ready, ?contracts_ready, "try_finalize");
+
         if !(parts_ready && contracts_ready) {
             return None;
         }
+
+        tracing::debug!(target: "incident", "Finalizing witness parts and accessed contracts");
         let decode_result = match &mut self.witness_parts {
             WitnessPartsState::Empty | WitnessPartsState::WaitingParts(_) => unreachable!(),
             WitnessPartsState::Decoded { .. } => {
@@ -373,6 +377,8 @@ impl PartialEncodedStateWitnessTracker {
         create_if_not_exists: bool,
         update: CacheUpdate,
     ) -> Result<(), Error> {
+        tracing::debug!(target: "incident", ?key, "process_update");
+
         if self.processed_witnesses.contains(&key) {
             tracing::debug!(
                 target: "client",
@@ -400,6 +406,8 @@ impl PartialEncodedStateWitnessTracker {
         let total_size: usize = if let Some((decode_result, accessed_contracts)) =
             entry.update(update)
         {
+            tracing::debug!(target: "incident", ?key, "witness ready");
+
             self.processed_witnesses.push(key.clone(), ());
 
             // Record the time taken from receiving first part to decoding partial witness.
@@ -413,8 +421,13 @@ impl PartialEncodedStateWitnessTracker {
             drop(parts_cache_by_shard);
 
             let encoded_witness = match decode_result {
-                Ok(encoded_chunk_state_witness) => encoded_chunk_state_witness,
+                Ok(encoded_chunk_state_witness) => {
+                    tracing::debug!(target: "incident", ?key, "encode witness ok");
+                    encoded_chunk_state_witness
+                }
                 Err(err) => {
+                    tracing::debug!(target: "incident", ?key, ?err, "encode witness error");
+
                     // We ideally never expect the decoding to fail. In case it does, we received a bad part
                     // from the chunk producer.
                     tracing::error!(
@@ -434,6 +447,8 @@ impl PartialEncodedStateWitnessTracker {
             let (mut witness, raw_witness_size) =
                 self.decode_state_witness(&encoded_witness, protocol_version)?;
             if witness.chunk_production_key() != key {
+                tracing::debug!(target: "incident", ?key, key2=?witness.chunk_production_key(), "wrong key");
+
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
                     witness.chunk_production_key(),
@@ -447,6 +462,7 @@ impl PartialEncodedStateWitnessTracker {
             values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
+            tracing::debug!(target: "incident", ?key, "Sending encoded witness to client.");
             self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
 
             total_size

@@ -83,6 +83,13 @@ impl ChunkValidator {
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
+        tracing::debug!(
+            target: "incident",
+            chunk_hash=?state_witness.chunk_header().chunk_hash(),
+            shard_id=?state_witness.chunk_header().shard_id(),
+            "start_validating_chunk"
+        );
+
         let prev_block_hash = state_witness.chunk_header().prev_block_hash();
         let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
         let shard_id = state_witness.chunk_header().shard_id();
@@ -271,6 +278,13 @@ impl Client {
             "process_chunk_state_witness",
         );
 
+        tracing::debug!(
+            target: "incident",
+            chunk_hash=?witness.chunk_header().chunk_hash(),
+            shard_id=?witness.chunk_header().shard_id(),
+            "process_chunk_state_witness"
+        );
+
         // Chunk producers should not receive state witness from themselves.
         log_assert!(
             signer.is_some(),
@@ -289,13 +303,29 @@ impl Client {
 
         let signer = signer.unwrap();
         match self.chain.get_block(&witness.chunk_header().prev_block_hash()) {
-            Ok(block) => self.process_chunk_state_witness_with_prev_block(
-                witness,
-                &block,
-                processing_done_tracker,
-                &signer,
-            ),
+            Ok(block) => {
+                tracing::debug!(
+                    target: "incident",
+                    chunk_hash=?witness.chunk_header().chunk_hash(),
+                    shard_id=?witness.chunk_header().shard_id(),
+                    "process_chunk_state_witness got block"
+                );
+
+                self.process_chunk_state_witness_with_prev_block(
+                    witness,
+                    &block,
+                    processing_done_tracker,
+                    &signer,
+                )
+            }
             Err(Error::DBNotFoundErr(_)) => {
+                tracing::debug!(
+                    target: "incident",
+                    chunk_hash=?witness.chunk_header().chunk_hash(),
+                    shard_id=?witness.chunk_header().shard_id(),
+                    "process_chunk_state_witness no block"
+                );
+
                 // Previous block isn't available at the moment, add this witness to the orphan pool.
                 self.handle_orphan_state_witness(witness, raw_witness_size)?;
                 Ok(())
@@ -326,6 +356,13 @@ impl Client {
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
+        tracing::debug!(
+            target: "incident",
+            chunk_hash=?witness.chunk_header().chunk_hash(),
+            shard_id=?witness.chunk_header().shard_id(),
+            "process_chunk_state_witness start"
+        );
+
         if witness.chunk_header().prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(
                 "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",

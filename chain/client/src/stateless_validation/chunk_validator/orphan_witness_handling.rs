@@ -41,6 +41,13 @@ impl Client {
         )
         .entered();
 
+        tracing::debug!(
+            target: "incident",
+            chunk_hash=?witness.chunk_header().chunk_hash(),
+            shard_id=?witness.chunk_header().shard_id(),
+            "handle orphan state witness"
+        );
+
         // Don't save orphaned state witnesses which are far away from the current chain head.
         let chain_head = &self.chain.head()?;
         let head_distance = witness_height.saturating_sub(chain_head.height);

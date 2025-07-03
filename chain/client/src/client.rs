@@ -1671,6 +1671,8 @@ impl Client {
             block_height = block.header().height())
         .entered();
 
+        tracing::debug!(target: "incident", "produce chunks");
+
         #[cfg(feature = "test_features")]
         match self.chunk_producer.adv_produce_chunks {
             Some(AdvProduceChunksMode::StopProduce) => {
@@ -1698,8 +1700,10 @@ impl Client {
                 .unwrap()
                 .take_account_id();
             if &chunk_proposer != &validator_id {
+                tracing::debug!(target: "incident", ?shard_id, "produce chunks - not a chunk producer");
                 continue;
             }
+            tracing::debug!(target: "incident", ?shard_id, "produce chunks - chunk producer");
 
             let _span = debug_span!(
                 target: "client",
@@ -1729,10 +1733,19 @@ impl Client {
                 },
             );
 
+            tracing::debug!(target: "incident", ?shard_id, "produce chunks - produce chunk done");
+
             let ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts } = match result {
-                Ok(Some(res)) => res,
-                Ok(None) => return,
+                Ok(Some(res)) => {
+                    tracing::debug!(target: "incident", ?shard_id, "produce chunks - result some");
+                    res
+                }
+                Ok(None) => {
+                    tracing::debug!(target: "incident", ?shard_id, "produce chunks - result none");
+                    return;
+                }
                 Err(err) => {
+                    tracing::debug!(target: "incident", ?shard_id, "produce chunks - result err");
                     error!(target: "client", ?err, "Error producing chunk");
                     return;
                 }
@@ -1746,6 +1759,8 @@ impl Client {
                     &Some(signer.clone()),
                 ) {
                     tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
+                } else {
+                    tracing::debug!(target: "incident", ?shard_id, "send chunk state witness ok");
                 }
             }
             self.persist_and_distribute_encoded_chunk(
@@ -1755,6 +1770,7 @@ impl Client {
                 validator_id.clone(),
             )
             .expect("Failed to process produced chunk");
+            tracing::debug!(target: "incident", ?shard_id, "persist and distribute encoded chunk done");
         }
     }
 
@@ -1765,6 +1781,15 @@ impl Client {
         receipts: Vec<Receipt>,
         validator_id: AccountId,
     ) -> Result<(), Error> {
+        let _span = debug_span!(
+            target: "client",
+            "persist_and_distribute_encoded_chunk",
+            shard_id=?chunk.to_shard_chunk().shard_id(),
+            chunk_hash=?chunk.to_shard_chunk().chunk_hash())
+        .entered();
+
+        tracing::debug!(target: "incident", "start");
+
         let partial_chunk = create_partial_chunk(
             &chunk,
             merkle_paths.clone(),
@@ -1772,6 +1797,8 @@ impl Client {
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
         )?;
+        tracing::debug!(target: "incident", "create partial chunk done");
+
         let (shard_chunk, encoded_shard_chunk) = chunk.into_parts();
         let partial_chunk_arc = Arc::new(partial_chunk.clone());
         persist_chunk(
@@ -1779,6 +1806,7 @@ impl Client {
             Some(shard_chunk),
             self.chain.mut_chain_store(),
         )?;
+        tracing::debug!(target: "incident", "persist chunk done");
 
         let chunk_header = encoded_shard_chunk.cloned_header();
         if let Some(chunk_distribution) = &self.chunk_distribution_network {
@@ -1801,6 +1829,7 @@ impl Client {
             merkle_paths,
             outgoing_receipts: receipts,
         });
+        tracing::debug!(target: "incident", "send DistributeEncodedChunk done");
         Ok(())
     }
 

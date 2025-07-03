@@ -113,6 +113,9 @@ impl Handler<ChunkStateWitnessAckMessage> for PartialWitnessActor {
 
 impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessMessage) {
+        let key = msg.0.chunk_production_key();
+        tracing::debug!(target: "incident", ?key, "received PartialEncodedStateWitnessMessage");
+
         if let Err(err) = self.handle_partial_encoded_state_witness(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessMessage");
         }
@@ -121,6 +124,9 @@ impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
 
 impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessForwardMessage) {
+        let key = msg.0.chunk_production_key();
+        tracing::debug!(target: "incident", ?key, "received PartialEncodedStateWitnessForwardMessage");
+
         if let Err(err) = self.handle_partial_encoded_state_witness_forward(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessForwardMessage");
         }
@@ -375,6 +381,7 @@ impl PartialWitnessActor {
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
+        tracing::debug!(target: "incident", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
         let epoch_manager = self.epoch_manager.clone();
@@ -400,6 +407,7 @@ impl PartialWitnessActor {
         let network_adapter = self.network_adapter.clone();
 
         self.partial_witness_spawner.spawn("handle_partial_encoded_state_witness", move || {
+
             // Validate the partial encoded state witness and forward the part to all the chunk validators.
             match validate_partial_encoded_state_witness(
                 epoch_manager.as_ref(),
@@ -408,6 +416,8 @@ impl PartialWitnessActor {
                 runtime_adapter.store(),
             ) {
                 Ok(ChunkRelevance::Relevant) => {
+                    tracing::debug!(target: "incident", ?partial_witness, "partial encoded state witness is relevant");
+                    
                     network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::PartialEncodedStateWitnessForward(
                             target_chunk_validators,
@@ -416,6 +426,8 @@ impl PartialWitnessActor {
                     ));
                 }
                 Ok(_) => {
+                    tracing::debug!(target: "incident", ?partial_witness, "partial encoded state witness is irrelevant");
+
                     tracing::debug!(
                         target: "client",
                         chunk_production_key = ?partial_witness.chunk_production_key(),
@@ -423,6 +435,8 @@ impl PartialWitnessActor {
                     );
                 }
                 Err(err) => {
+                    tracing::debug!(target: "incident", ?partial_witness, ?err, "partial encoded state witness error");
+
                     // TODO: ban sending peer
                     tracing::warn!(
                         target: "client",
@@ -442,6 +456,7 @@ impl PartialWitnessActor {
         &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
+        tracing::debug!(target: "incident", ?partial_witness, "Receive PartialEncodedStateWitnessForwardMessage");
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessForwardMessage");
 
         let signer = self.my_validator_signer()?;
@@ -460,11 +475,15 @@ impl PartialWitnessActor {
                     runtime_adapter.store(),
                 ) {
                     Ok(ChunkRelevance::Relevant) => {
+                        tracing::debug!(target: "incident", ?partial_witness, "partial encoded state witness is relevant");
+
                         if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
                             tracing::error!(target: "client", "Failed to store partial encoded state witness: {}", err);
                         }
                     }
                     Ok(_) => {
+                        tracing::debug!(target: "incident", ?partial_witness, "partial encoded state witness is irrelevant");
+
                         tracing::debug!(
                             target: "client",
                             chunk_production_key = ?partial_witness.chunk_production_key(),
@@ -472,6 +491,8 @@ impl PartialWitnessActor {
                         );
                     }
                     Err(err) => {
+                        tracing::debug!(target: "incident", ?partial_witness, ?err, "partial encoded state witness error");
+
                         // TODO: ban sending peer
                         tracing::warn!(
                             target: "client",

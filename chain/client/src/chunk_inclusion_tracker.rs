@@ -171,11 +171,28 @@ impl ChunkInclusionTracker {
                     "Not including chunk because of insufficient chunk endorsements"
                 );
             }
+
             if !banned && (is_endorsed || cfg!(feature = "protocol_feature_spice")) {
+                tracing::debug!(
+                    target: "client",
+                    chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
+                    chunk_producer = ?chunk_info.chunk_producer,
+                    "Including chunk in block"
+                );
+
                 // only add to chunk_headers_ready_for_inclusion if chunk is not from a banned chunk producer
                 // and chunk has sufficient chunk endorsements.
                 // Chunk endorsements are got as part of call to prepare_chunk_headers_ready_for_inclusion
                 chunk_headers_ready_for_inclusion.insert(*shard_id, chunk_hash.clone());
+            } else {
+                tracing::debug!(
+                    target: "client",
+                    chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
+                    chunk_producer = ?chunk_info.chunk_producer,
+                    ?banned,
+                    ?is_endorsed,
+                    "NOT including chunk in block"
+                );
             }
         }
         chunk_headers_ready_for_inclusion
