@@ -317,8 +317,7 @@ impl PartialWitnessActor {
         let (parts, encoded_length) = encoder.encode(&deploys);
         let signer = self.my_validator_signer()?;
 
-        let validators = self.ordered_contract_deploys_validators(key)?;
-        Ok(validators
+        Ok(part_owners
             .into_iter()
             .zip_eq(parts)
             .enumerate()
