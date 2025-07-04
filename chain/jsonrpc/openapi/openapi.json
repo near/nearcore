@@ -11030,7 +11030,7 @@
             "type": "integer"
           },
           "rpc_addr": {
-            "description": "Address for RPC server.  None if node doesn’t have RPC endpoint enabled.",
+            "description": "Address for RPC server.  None if node doesn't have RPC endpoint enabled.",
             "nullable": true,
             "type": "string"
           },

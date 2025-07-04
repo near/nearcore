@@ -521,6 +521,221 @@ impl PeerMessage {
     }
 }
 
+/// `TieredMessageBody` is used to distinguish between T1 and T2 messages.
+/// T1 messages are sent over T1 connections and they are critical for the progress of the network.
+/// T2 messages are sent over T2 connections and they are routed over multiple hops.
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    strum::IntoStaticStr,
+    ProtocolSchema,
+)]
+pub enum TieredMessageBody {
+    T1(Box<T1MessageBody>),
+    T2(Box<T2MessageBody>),
+}
+
+impl fmt::Debug for TieredMessageBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TieredMessageBody::T1(body) => write!(f, "T1({:?})", body),
+            TieredMessageBody::T2(body) => write!(f, "T2({:?})", body),
+        }
+    }
+}
+
+impl TieredMessageBody {
+    pub fn message_resend_count(&self) -> usize {
+        match self {
+            TieredMessageBody::T1(body) => body.message_resend_count(),
+            TieredMessageBody::T2(body) => body.message_resend_count(),
+        }
+    }
+
+    // Return true if we allow the message sent to our own account_id to be redirected back to us.
+    // The default behavior is to drop all messages sent to our own account_id.
+    // This is helpful in managing scenarios like sending chunk_endorsement to block_producer, where
+    // we may be the block_producer.
+    pub fn allow_sending_to_self(&self) -> bool {
+        match self {
+            TieredMessageBody::T1(body) => body.allow_sending_to_self(),
+            TieredMessageBody::T2(body) => body.allow_sending_to_self(),
+        }
+    }
+
+    pub fn from_routed(routed: RoutedMessageBody) -> Self {
+        match routed {
+            RoutedMessageBody::BlockApproval(approval) => {
+                T1MessageBody::BlockApproval(approval).into()
+            }
+            RoutedMessageBody::ForwardTx(signed_transaction) => {
+                T2MessageBody::ForwardTx(signed_transaction).into()
+            }
+            RoutedMessageBody::TxStatusRequest(account_id, crypto_hash) => {
+                T2MessageBody::TxStatusRequest(account_id, crypto_hash).into()
+            }
+            RoutedMessageBody::TxStatusResponse(final_execution_outcome_view) => {
+                T2MessageBody::TxStatusResponse(Box::new(final_execution_outcome_view)).into()
+            }
+            RoutedMessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg) => {
+                T2MessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg).into()
+            }
+            RoutedMessageBody::PartialEncodedChunkResponse(partial_encoded_chunk_response_msg) => {
+                T2MessageBody::PartialEncodedChunkResponse(partial_encoded_chunk_response_msg)
+                    .into()
+            }
+            RoutedMessageBody::Ping(ping) => T2MessageBody::Ping(ping).into(),
+            RoutedMessageBody::Pong(pong) => T2MessageBody::Pong(pong).into(),
+            RoutedMessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk) => {
+                T1MessageBody::VersionedPartialEncodedChunk(Box::new(partial_encoded_chunk)).into()
+            }
+            RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
+                T1MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg).into()
+            }
+            RoutedMessageBody::ChunkStateWitnessAck(chunk_state_witness_ack) => {
+                T2MessageBody::ChunkStateWitnessAck(chunk_state_witness_ack).into()
+            }
+            RoutedMessageBody::PartialEncodedStateWitness(partial_encoded_state_witness) => {
+                T1MessageBody::PartialEncodedStateWitness(partial_encoded_state_witness).into()
+            }
+            RoutedMessageBody::PartialEncodedStateWitnessForward(partial_encoded_state_witness) => {
+                T1MessageBody::PartialEncodedStateWitnessForward(partial_encoded_state_witness)
+                    .into()
+            }
+            RoutedMessageBody::VersionedChunkEndorsement(chunk_endorsement) => {
+                T1MessageBody::VersionedChunkEndorsement(chunk_endorsement).into()
+            }
+            RoutedMessageBody::StatePartRequest(state_part_request) => {
+                T2MessageBody::StatePartRequest(state_part_request).into()
+            }
+            RoutedMessageBody::ChunkContractAccesses(chunk_contract_accesses) => {
+                T1MessageBody::ChunkContractAccesses(chunk_contract_accesses).into()
+            }
+            RoutedMessageBody::ContractCodeRequest(contract_code_request) => {
+                T1MessageBody::ContractCodeRequest(contract_code_request).into()
+            }
+            RoutedMessageBody::ContractCodeResponse(contract_code_response) => {
+                T1MessageBody::ContractCodeResponse(contract_code_response).into()
+            }
+            RoutedMessageBody::PartialEncodedContractDeploys(partial_encoded_contract_deploys) => {
+                T2MessageBody::PartialEncodedContractDeploys(partial_encoded_contract_deploys)
+                    .into()
+            }
+            RoutedMessageBody::StateHeaderRequest(state_header_request) => {
+                T2MessageBody::StateHeaderRequest(state_header_request).into()
+            }
+            RoutedMessageBody::_UnusedQueryRequest
+            | RoutedMessageBody::_UnusedQueryResponse
+            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
+            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
+            | RoutedMessageBody::_UnusedStateRequestHeader
+            | RoutedMessageBody::_UnusedStateRequestPart
+            | RoutedMessageBody::_UnusedStateResponse
+            | RoutedMessageBody::_UnusedPartialEncodedChunk
+            | RoutedMessageBody::_UnusedVersionedStateResponse
+            | RoutedMessageBody::_UnusedChunkStateWitness
+            | RoutedMessageBody::_UnusedChunkEndorsement
+            | RoutedMessageBody::_UnusedEpochSyncRequest
+            | RoutedMessageBody::_UnusedEpochSyncResponse(_) => unreachable!(),
+        }
+    }
+}
+
+impl From<T1MessageBody> for TieredMessageBody {
+    fn from(body: T1MessageBody) -> Self {
+        TieredMessageBody::T1(Box::new(body))
+    }
+}
+
+impl From<T2MessageBody> for TieredMessageBody {
+    fn from(body: T2MessageBody) -> Self {
+        TieredMessageBody::T2(Box::new(body))
+    }
+}
+
+/// T1 messages are sent over T1 connections and they are critical for the progress of the network.
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    strum::IntoStaticStr,
+    ProtocolSchema,
+    Debug,
+)]
+pub enum T1MessageBody {
+    BlockApproval(Approval),
+    VersionedPartialEncodedChunk(Box<PartialEncodedChunk>),
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+    PartialEncodedStateWitness(PartialEncodedStateWitness),
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
+    VersionedChunkEndorsement(ChunkEndorsement),
+    ChunkContractAccesses(ChunkContractAccesses),
+    ContractCodeRequest(ContractCodeRequest),
+    ContractCodeResponse(ContractCodeResponse),
+}
+
+impl T1MessageBody {
+    pub fn message_resend_count(&self) -> usize {
+        match self {
+            T1MessageBody::BlockApproval(_) | T1MessageBody::VersionedPartialEncodedChunk(_) => {
+                IMPORTANT_MESSAGE_RESENT_COUNT
+            }
+            _ => 1,
+        }
+    }
+
+    pub fn allow_sending_to_self(&self) -> bool {
+        match self {
+            T1MessageBody::PartialEncodedStateWitness(_)
+            | T1MessageBody::PartialEncodedStateWitnessForward(_)
+            | T1MessageBody::VersionedChunkEndorsement(_) => true,
+            _ => false,
+        }
+    }
+}
+
+// TODO(#1313): Use Box
+/// T2 messages are sent over T2 connections and they are routed over multiple hops.
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    strum::IntoStaticStr,
+    ProtocolSchema,
+    Debug,
+)]
+pub enum T2MessageBody {
+    ForwardTx(SignedTransaction),
+    TxStatusRequest(AccountId, CryptoHash),
+    TxStatusResponse(Box<FinalExecutionOutcomeView>),
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
+    /// Ping/Pong used for testing networking and routing.
+    Ping(Ping),
+    Pong(Pong),
+    ChunkStateWitnessAck(ChunkStateWitnessAck),
+    StatePartRequest(StatePartRequest),
+    PartialEncodedContractDeploys(PartialEncodedContractDeploys),
+    StateHeaderRequest(StateHeaderRequest),
+}
+
+impl T2MessageBody {
+    pub fn message_resend_count(&self) -> usize {
+        1
+    }
+
+    pub fn allow_sending_to_self(&self) -> bool {
+        false
+    }
+}
+
 // TODO(#1313): Use Box
 #[derive(
     borsh::BorshSerialize,
@@ -684,13 +899,79 @@ impl fmt::Debug for RoutedMessageBody {
     }
 }
 
-/// RoutedMessage represent a package that will travel the network towards a specific peer id.
-/// It contains the peer_id and signature from the original sender. Every intermediate peer in the
-/// route must verify that this signature is valid otherwise previous sender of this package should
-/// be banned. If the final receiver of this package finds that the body is invalid the original
-/// sender of the package should be banned instead.
-/// If target is hash, it is a message that should be routed back using the same path used to route
-/// the request in first place. It is the hash of the request message.
+impl From<TieredMessageBody> for RoutedMessageBody {
+    fn from(tiered: TieredMessageBody) -> Self {
+        match tiered {
+            TieredMessageBody::T1(body) => match *body {
+                T1MessageBody::BlockApproval(approval) => {
+                    RoutedMessageBody::BlockApproval(approval)
+                }
+                T1MessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk) => {
+                    RoutedMessageBody::VersionedPartialEncodedChunk(*partial_encoded_chunk)
+                }
+                T1MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
+                    RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg)
+                }
+                T1MessageBody::PartialEncodedStateWitness(partial_encoded_state_witness) => {
+                    RoutedMessageBody::PartialEncodedStateWitness(partial_encoded_state_witness)
+                }
+                T1MessageBody::PartialEncodedStateWitnessForward(partial_encoded_state_witness) => {
+                    RoutedMessageBody::PartialEncodedStateWitnessForward(
+                        partial_encoded_state_witness,
+                    )
+                }
+                T1MessageBody::VersionedChunkEndorsement(chunk_endorsement) => {
+                    RoutedMessageBody::VersionedChunkEndorsement(chunk_endorsement)
+                }
+                T1MessageBody::ChunkContractAccesses(chunk_contract_accesses) => {
+                    RoutedMessageBody::ChunkContractAccesses(chunk_contract_accesses)
+                }
+                T1MessageBody::ContractCodeRequest(contract_code_request) => {
+                    RoutedMessageBody::ContractCodeRequest(contract_code_request)
+                }
+                T1MessageBody::ContractCodeResponse(contract_code_response) => {
+                    RoutedMessageBody::ContractCodeResponse(contract_code_response)
+                }
+            },
+            TieredMessageBody::T2(body) => match *body {
+                T2MessageBody::ForwardTx(signed_transaction) => {
+                    RoutedMessageBody::ForwardTx(signed_transaction)
+                }
+                T2MessageBody::TxStatusRequest(account_id, crypto_hash) => {
+                    RoutedMessageBody::TxStatusRequest(account_id, crypto_hash)
+                }
+                T2MessageBody::TxStatusResponse(final_execution_outcome_view) => {
+                    RoutedMessageBody::TxStatusResponse(*final_execution_outcome_view)
+                }
+                T2MessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg) => {
+                    RoutedMessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg)
+                }
+                T2MessageBody::PartialEncodedChunkResponse(partial_encoded_chunk_response_msg) => {
+                    RoutedMessageBody::PartialEncodedChunkResponse(
+                        partial_encoded_chunk_response_msg,
+                    )
+                }
+                T2MessageBody::Ping(ping) => RoutedMessageBody::Ping(ping),
+                T2MessageBody::Pong(pong) => RoutedMessageBody::Pong(pong),
+                T2MessageBody::ChunkStateWitnessAck(chunk_state_witness_ack) => {
+                    RoutedMessageBody::ChunkStateWitnessAck(chunk_state_witness_ack)
+                }
+                T2MessageBody::StatePartRequest(state_part_request) => {
+                    RoutedMessageBody::StatePartRequest(state_part_request)
+                }
+                T2MessageBody::PartialEncodedContractDeploys(partial_encoded_contract_deploys) => {
+                    RoutedMessageBody::PartialEncodedContractDeploys(
+                        partial_encoded_contract_deploys,
+                    )
+                }
+                T2MessageBody::StateHeaderRequest(state_header_request) => {
+                    RoutedMessageBody::StateHeaderRequest(state_header_request)
+                }
+            },
+        }
+    }
+}
+
 #[derive(
     borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
 )]
@@ -703,7 +984,7 @@ pub struct RoutedMessageV1 {
     /// Signature from the author of the message. If this signature is invalid we should ban
     /// last sender of this message. If the message is invalid we should ben author of the message.
     pub signature: Signature,
-    /// Time to live for this message. After passing through some hop this number should be
+    /// Time to live for this message. After passing through a hop this number should be
     /// decreased by 1. If this number is 0, drop this message.
     pub ttl: u8,
     /// Message
@@ -721,10 +1002,98 @@ pub struct RoutedMessageV2 {
     pub num_hops: u32,
 }
 
+/// V3 message will remove the signature field for T1.
+/// Contains the body as a `TieredMessageBody` instead of `RoutedMessageBody`.
+/// All other fields are the same as in previous versions.
+#[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+pub struct RoutedMessageV3 {
+    /// Peer id to which this message is directed.
+    /// If `target` is hash, this message should be routed back.
+    pub target: PeerIdOrHash,
+    /// Original sender of this message
+    pub author: PeerId,
+    /// Time to live for this message. After passing through a hop this number should be
+    /// decreased by 1. If this number is 0, drop this message.
+    pub ttl: u8,
+    /// Message
+    pub body: TieredMessageBody,
+    /// Signature.
+    // TODO(#13709): remove for T1 messages
+    pub signature: Signature,
+    /// The time the Routed message was created by `author`.
+    pub created_at: Option<i64>,
+    /// Number of peers this routed message traveled through.
+    /// Doesn't include the peers that are the source and the destination of the message.
+    pub num_hops: u32,
+}
+
+impl RoutedMessageV3 {
+    pub fn hash_tiered(&self) -> CryptoHash {
+        let routed = RoutedMessageBody::from(self.body.clone());
+        CryptoHash::hash_borsh(RoutedMessageNoSignature {
+            target: &self.target,
+            author: &self.author,
+            body: &routed,
+        })
+    }
+
+    pub fn verify(&self) -> bool {
+        self.signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
+    }
+
+    pub fn expect_response(&self) -> bool {
+        if let TieredMessageBody::T2(body) = &self.body {
+            matches!(
+                **body,
+                T2MessageBody::Ping(_)
+                    | T2MessageBody::TxStatusRequest(_, _)
+                    | T2MessageBody::PartialEncodedChunkRequest(_)
+            )
+        } else {
+            false
+        }
+    }
+
+    /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
+    pub fn decrease_ttl(&mut self) -> bool {
+        self.ttl = self.ttl.saturating_sub(1);
+        self.ttl > 0
+    }
+}
+
+impl From<RoutedMessageV1> for RoutedMessageV3 {
+    fn from(msg: RoutedMessageV1) -> Self {
+        let body = TieredMessageBody::from_routed(msg.body);
+        Self {
+            target: msg.target,
+            author: msg.author,
+            ttl: msg.ttl,
+            body,
+            signature: msg.signature,
+            created_at: None,
+            num_hops: 0,
+        }
+    }
+}
+
+impl From<RoutedMessageV3> for RoutedMessage {
+    fn from(msg: RoutedMessageV3) -> Self {
+        RoutedMessage::V3(msg)
+    }
+}
+
+/// RoutedMessage represent a package that will travel the network towards a specific peer id.
+/// It contains the peer_id and signature from the original sender. Every intermediate peer in the
+/// route must verify that this signature is valid otherwise previous sender of this package should
+/// be banned. If the final receiver of this package finds that the body is invalid the original
+/// sender of the package should be banned instead.
+/// If target is hash, it is a message that should be routed back using the same path used to route
+/// the request in first place. It is the hash of the request message.
 #[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub enum RoutedMessage {
     V1(RoutedMessageV1),
     V2(RoutedMessageV2),
+    V3(RoutedMessageV3),
 }
 
 impl From<RoutedMessageV1> for RoutedMessage {
@@ -748,10 +1117,18 @@ impl RoutedMessage {
         CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
     }
 
-    pub fn msg(&self) -> &RoutedMessageV1 {
+    /// Get the V1 message from the current version. Used for serializations (only V1 is sent over the wire).
+    pub fn msg_v1(self) -> RoutedMessageV1 {
         match self {
             RoutedMessage::V1(msg) => msg,
-            RoutedMessage::V2(msg) => &msg.msg,
+            RoutedMessage::V2(msg) => msg.msg,
+            RoutedMessage::V3(msg) => RoutedMessageV1 {
+                target: msg.target,
+                author: msg.author,
+                ttl: msg.ttl,
+                body: msg.body.into(),
+                signature: msg.signature,
+            },
         }
     }
 
@@ -759,6 +1136,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => &msg.target,
             RoutedMessage::V2(msg) => &msg.msg.target,
+            RoutedMessage::V3(msg) => &msg.target,
         }
     }
 
@@ -766,6 +1144,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => &msg.signature,
             RoutedMessage::V2(msg) => &msg.msg.signature,
+            RoutedMessage::V3(msg) => &msg.signature,
         }
     }
 
@@ -773,27 +1152,29 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => &msg.author,
             RoutedMessage::V2(msg) => &msg.msg.author,
+            RoutedMessage::V3(msg) => &msg.author,
         }
     }
 
-    pub fn body(&self) -> &RoutedMessageBody {
+    pub fn body(&self) -> &TieredMessageBody {
+        // Old versions should be upgraded to V3.
         match self {
-            RoutedMessage::V1(msg) => &msg.body,
-            RoutedMessage::V2(msg) => &msg.msg.body,
+            RoutedMessage::V1(_) | RoutedMessage::V2(_) => unreachable!(),
+            RoutedMessage::V3(msg) => &msg.body,
         }
     }
 
-    pub fn body_owned(self) -> RoutedMessageBody {
-        match self {
-            RoutedMessage::V1(msg) => msg.body,
-            RoutedMessage::V2(msg) => msg.msg.body,
-        }
+    pub fn body_owned(mut self) -> TieredMessageBody {
+        self.upgrade_to_v3();
+        let RoutedMessage::V3(msg) = self else { unreachable!() };
+        msg.body
     }
 
-    pub fn created_at(&self) -> Option<time::Utc> {
+    pub fn created_at(&self) -> Option<i64> {
         match self {
             RoutedMessage::V1(_) => None,
-            RoutedMessage::V2(msg) => msg.created_at,
+            RoutedMessage::V2(msg) => msg.created_at.map(|t| t.unix_timestamp()),
+            RoutedMessage::V3(msg) => msg.created_at,
         }
     }
 
@@ -801,18 +1182,13 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(_) => 0,
             RoutedMessage::V2(msg) => msg.num_hops,
+            RoutedMessage::V3(msg) => msg.num_hops,
         }
     }
 
     pub fn num_hops_mut(&mut self) -> &mut u32 {
-        if let RoutedMessage::V1(msg) = self {
-            *self = RoutedMessage::V2(RoutedMessageV2 {
-                msg: msg.clone(),
-                created_at: None,
-                num_hops: 0,
-            });
-        }
-        let RoutedMessage::V2(msg) = self else { unreachable!() };
+        self.upgrade_to_v3();
+        let RoutedMessage::V3(msg) = self else { unreachable!() };
         &mut msg.num_hops
     }
 
@@ -820,6 +1196,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => msg.hash(),
             RoutedMessage::V2(msg) => msg.msg.hash(),
+            RoutedMessage::V3(msg) => msg.hash_tiered(),
         }
     }
 
@@ -827,6 +1204,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => msg.verify(),
             RoutedMessage::V2(msg) => msg.msg.verify(),
+            RoutedMessage::V3(msg) => msg.verify(),
         }
     }
 
@@ -834,6 +1212,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => msg.expect_response(),
             RoutedMessage::V2(msg) => msg.msg.expect_response(),
+            RoutedMessage::V3(msg) => msg.expect_response(),
         }
     }
 
@@ -842,6 +1221,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => msg.decrease_ttl(),
             RoutedMessage::V2(msg) => msg.msg.decrease_ttl(),
+            RoutedMessage::V3(msg) => msg.decrease_ttl(),
         }
     }
 
@@ -849,6 +1229,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => (&msg.body).into(),
             RoutedMessage::V2(msg) => (&msg.msg.body).into(),
+            RoutedMessage::V3(msg) => (&msg.body).into(),
         }
     }
 
@@ -856,6 +1237,31 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => msg.ttl,
             RoutedMessage::V2(msg) => msg.msg.ttl,
+            RoutedMessage::V3(msg) => msg.ttl,
+        }
+    }
+
+    fn upgrade_to_v3(&mut self) {
+        if let RoutedMessage::V1(msg) = self {
+            *self = RoutedMessage::V3(RoutedMessageV3 {
+                target: msg.target.clone(),
+                author: msg.author.clone(),
+                ttl: msg.ttl,
+                body: TieredMessageBody::from_routed(msg.body.clone()),
+                signature: msg.signature.clone(),
+                created_at: None,
+                num_hops: 0,
+            });
+        } else if let RoutedMessage::V2(msg) = self {
+            *self = RoutedMessage::V3(RoutedMessageV3 {
+                target: msg.msg.target.clone(),
+                author: msg.msg.author.clone(),
+                ttl: msg.msg.ttl,
+                body: TieredMessageBody::from_routed(msg.msg.body.clone()),
+                signature: msg.msg.signature.clone(),
+                created_at: msg.created_at.map(|t| t.unix_timestamp()),
+                num_hops: msg.num_hops,
+            });
         }
     }
 }
@@ -868,14 +1274,6 @@ struct RoutedMessageNoSignature<'a> {
 }
 
 impl RoutedMessageV1 {
-    pub fn build_hash(
-        target: &PeerIdOrHash,
-        source: &PeerId,
-        body: &RoutedMessageBody,
-    ) -> CryptoHash {
-        CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
-    }
-
     pub fn hash(&self) -> CryptoHash {
         RoutedMessage::build_hash(&self.target, &self.author, &self.body)
     }
@@ -1056,7 +1454,7 @@ impl StateResponseInfo {
 
 pub(crate) struct RawRoutedMessage {
     pub target: PeerIdOrHash,
-    pub body: RoutedMessageBody,
+    pub body: TieredMessageBody,
 }
 
 impl RawRoutedMessage {
@@ -1069,17 +1467,16 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessage {
         let author = PeerId::new(node_key.public_key());
-        let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
+        let body = RoutedMessageBody::from(self.body.clone());
+        let hash = RoutedMessage::build_hash(&self.target, &author, &body);
         let signature = node_key.sign(hash.as_ref());
-        RoutedMessage::V2(RoutedMessageV2 {
-            msg: RoutedMessageV1 {
-                target: self.target,
-                author,
-                signature,
-                ttl: routed_message_ttl,
-                body: self.body,
-            },
-            created_at: now,
+        RoutedMessage::V3(RoutedMessageV3 {
+            target: self.target,
+            author,
+            signature,
+            ttl: routed_message_ttl,
+            body: self.body,
+            created_at: now.map(|t| t.unix_timestamp()),
             num_hops: 0,
         })
     }
