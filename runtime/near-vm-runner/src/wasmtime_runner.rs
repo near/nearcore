@@ -153,7 +153,8 @@ pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
         .signals_based_traps(true)
         // Configure linear memories such that explicit bounds-checking can be elided.
         .memory_reservation(1 << 32)
-        .memory_guard_size(1 << 32);
+        .memory_guard_size(1 << 32)
+        .cranelift_nan_canonicalization(true);
     config
 }
 
@@ -173,7 +174,10 @@ impl WasmtimeVM {
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
-    fn compile_uncached(&self, code: &ContractCode) -> Result<Vec<u8>, CompilationError> {
+    pub(crate) fn compile_uncached(
+        &self,
+        code: &ContractCode,
+    ) -> Result<Vec<u8>, CompilationError> {
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;

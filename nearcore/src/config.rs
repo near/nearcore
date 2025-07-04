@@ -1726,14 +1726,14 @@ mod tests {
                     gc_blocks_limit: 42,
                     gc_fork_clean_step: 420,
                     gc_num_epochs_to_keep: 24,
-                    gc_step_period: Duration::seconds(1),
+                    gc_step_period: Duration::milliseconds(500),
                 }
             } else {
                 GCConfig {
                     gc_blocks_limit: 2,
                     gc_fork_clean_step: 100,
                     gc_num_epochs_to_keep: 5,
-                    gc_step_period: Duration::seconds(1),
+                    gc_step_period: Duration::milliseconds(500),
                 }
             };
             assert_eq!(want_gc, config.gc);

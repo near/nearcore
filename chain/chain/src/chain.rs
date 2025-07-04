@@ -56,8 +56,9 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::validate::validate_optimistic_block_relevant;
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::block::{
-    Block, BlockValidityError, Chunks, Tip, compute_bp_hash_from_validator_stakes,
+    Block, BlockValidityError, ChunkType, Chunks, Tip, compute_bp_hash_from_validator_stakes,
 };
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
@@ -133,6 +134,8 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ApplyChunksDoneMessage;
+
+pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
 
 /// Contains information for missing chunks in a block
 pub struct BlockMissingChunks {
@@ -718,7 +721,7 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             if chunk_header.is_genesis() {
                 // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
@@ -747,7 +750,7 @@ impl Chain {
                         chunk_header.signature()
                     )));
                 }
-            } else if chunk_header.is_new_chunk(block.header().height()) {
+            } else if chunk_header.is_new_chunk() {
                 if chunk_header.shard_id() != shard_id {
                     return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
@@ -1009,36 +1012,35 @@ impl Chain {
     fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
         let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(prev_block)?;
         for (chunk_header, prev_chunk_header) in
-            block.chunks().iter_deprecated().zip(prev_chunk_headers.iter())
+            block.chunks().iter().zip(prev_chunk_headers.iter())
         {
-            if chunk_header.height_included() == block.header().height() {
-                // new chunk
-                if chunk_header.prev_block_hash() != block.header().prev_hash() {
-                    return Err(Error::InvalidChunk(format!(
-                        "Invalid prev_block_hash, chunk hash {:?}, chunk prev block hash {}, block prev block hash {}",
-                        chunk_header.chunk_hash(),
-                        chunk_header.prev_block_hash(),
-                        block.header().prev_hash()
-                    )));
+            match chunk_header {
+                ChunkType::New(chunk_header) => {
+                    if chunk_header.prev_block_hash() != block.header().prev_hash() {
+                        return Err(Error::InvalidChunk(format!(
+                            "Invalid prev_block_hash, chunk hash {:?}, chunk prev block hash {}, block prev block hash {}",
+                            chunk_header.chunk_hash(),
+                            chunk_header.prev_block_hash(),
+                            block.header().prev_hash()
+                        )));
+                    }
                 }
-            } else {
-                // old chunk
-                if prev_chunk_header != chunk_header {
-                    return Err(Error::InvalidChunk(format!(
-                        "Invalid chunk header, prev chunk hash {:?}, chunk hash {:?}",
-                        prev_chunk_header.chunk_hash(),
-                        chunk_header.chunk_hash()
-                    )));
+                ChunkType::Old(chunk_header) => {
+                    if prev_chunk_header != &*chunk_header {
+                        return Err(Error::InvalidChunk(format!(
+                            "Invalid chunk header, prev chunk hash {:?}, chunk hash {:?}",
+                            prev_chunk_header.chunk_hash(),
+                            chunk_header.chunk_hash()
+                        )));
+                    }
                 }
             }
         }
 
         // Verify that proposals from chunks match block header proposals.
-        let block_height = block.header().height();
         for pair in block
             .chunks()
-            .iter_deprecated()
-            .filter(|chunk| chunk.is_new_chunk(block_height))
+            .iter_new()
             .flat_map(|chunk| chunk.prev_validator_proposals())
             .zip_longest(block.header().prev_validator_proposals())
         {
@@ -1065,19 +1067,15 @@ impl Chain {
             return Ok(());
         }
         let mut missing = vec![];
-        let block_height = block.header().height();
-
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
 
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
+            let chunk_hash = chunk_header.chunk_hash();
             // Check if any chunks are invalid in this block.
-            if let Some(encoded_chunk) =
-                self.chain_store.is_invalid_chunk(&chunk_header.chunk_hash())?
-            {
-                let merkle_paths =
-                    Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
+            if let Some(encoded_chunk) = self.chain_store.is_invalid_chunk(chunk_hash)? {
+                let merkle_paths = block.chunks().compute_chunk_headers_root().1;
                 let merkle_proof =
                     merkle_paths.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
                 let chunk_proof = ChunkProofs {
@@ -1089,21 +1087,23 @@ impl Chain {
                 };
                 return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
             }
-            if chunk_header.is_new_chunk(block_height) {
-                let chunk_hash = chunk_header.chunk_hash();
-
-                if let Err(_) = self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()) {
-                    missing.push(chunk_header.clone());
-                } else if self
-                    .shard_tracker
-                    .cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
-                {
-                    if let Err(_) = self.chain_store.get_chunk(&chunk_hash) {
+            match chunk_header {
+                ChunkType::New(chunk_header) => {
+                    if let Err(_) = self.chain_store.get_partial_chunk(chunk_hash) {
                         missing.push(chunk_header.clone());
+                    } else if self
+                        .shard_tracker
+                        .cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
+                    {
+                        if let Err(_) = self.chain_store.get_chunk(chunk_hash) {
+                            missing.push(chunk_header.clone());
+                        }
                     }
                 }
+                ChunkType::Old(_) => {}
             }
         }
+
         if !missing.is_empty() {
             return Err(Error::ChunksMissing(missing));
         }
@@ -1183,7 +1183,7 @@ impl Chain {
         block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
         let _span =
@@ -1218,7 +1218,7 @@ impl Chain {
     pub fn preprocess_optimistic_block(
         &mut self,
         block: OptimisticBlock,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
         // Validate the optimistic block.
         // Discard the block if it is old or not created by the right producer.
@@ -1234,7 +1234,7 @@ impl Chain {
 
     pub fn maybe_process_optimistic_block(
         &mut self,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
         let Some((block, chunks)) = self.optimistic_block_chunks.take_latest_ready_block() else {
             return;
@@ -1278,7 +1278,7 @@ impl Chain {
         &mut self,
         block: OptimisticBlock,
         chunk_headers: Vec<ShardChunkHeader>,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
         let _span = debug_span!(
             target: "chain",
@@ -1391,7 +1391,7 @@ impl Chain {
     pub fn postprocess_ready_blocks(
         &mut self,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
         let _span = debug_span!(target: "chain", "postprocess_ready_blocks_chain").entered();
         let mut accepted_blocks = vec![];
@@ -1535,7 +1535,7 @@ impl Chain {
         &mut self,
         sync_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync", ?sync_hash)
             .entered();
@@ -1584,7 +1584,7 @@ impl Chain {
         block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         block_processing_artifact: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
         block_received_time: Instant,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
@@ -1733,7 +1733,7 @@ impl Chain {
         block_height: BlockHeight,
         work: Vec<UpdateShardJob>,
         apply_chunks_still_applying: ApplyChunksStillApplying,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
@@ -1749,7 +1749,7 @@ impl Chain {
             sc.send((block, res)).unwrap();
             drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
-                sender.send(ApplyChunksDoneMessage {});
+                sender.send(ApplyChunksDoneMessage {}.span_wrap());
             }
         });
     }
@@ -1784,7 +1784,7 @@ impl Chain {
         block_hash: CryptoHash,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<AcceptedBlock, Error> {
         let timer = metrics::BLOCK_POSTPROCESSING_TIME.start_timer();
         let (block, block_preprocess_info) =
@@ -1963,7 +1963,7 @@ impl Chain {
         block_height: BlockHeight,
         apply_result: Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
         let (optimistic_block, optimistic_block_info) = self.blocks_in_processing.remove_optimistic(&block_height).unwrap_or_else(|| {
             panic!(
@@ -2431,7 +2431,7 @@ impl Chain {
     pub fn check_blocks_with_missing_chunks(
         &mut self,
         block_processing_artifact: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
         let blocks = self.blocks_with_missing_chunks.ready_blocks();
         if !blocks.is_empty() {
@@ -2733,7 +2733,7 @@ impl Chain {
         // descendant blocks to the search when they're not equal to this hash, and then removing everything we see in that search
         _catchup_start_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
         affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
         debug!("Finishing catching up blocks after syncing pre {:?}", epoch_first_block);
@@ -3075,8 +3075,7 @@ impl Chain {
                     }
 
                     if let Error::InvalidChunkTransactionsOrder(chunk) = err {
-                        let merkle_paths =
-                            Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
+                        let merkle_paths = block.chunks().compute_chunk_headers_root().1;
                         let chunk_proof = ChunkProofs {
                             block_header: borsh::to_vec(&block.header())
                                 .expect("Failed to serialize"),
@@ -3263,7 +3262,7 @@ impl Chain {
 
     fn min_chunk_prev_height(&self, block: &Block) -> Result<BlockHeight, Error> {
         let mut ret = None;
-        for chunk in block.chunks().iter_raw() {
+        for chunk in block.chunks().iter() {
             let prev_height = if chunk.prev_block_hash() == &CryptoHash::default() {
                 0
             } else {

@@ -10,6 +10,7 @@ use near_chain::types::RuntimeAdapter;
 use near_client_primitives::types::ShardSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_part::PartId;
@@ -66,7 +67,10 @@ pub(super) async fn run_state_sync_for_shard(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     computation_task_tracker: TaskTracker,
     status: Arc<Mutex<ShardSyncStatus>>,
-    chain_finalization_sender: AsyncSender<ChainFinalizationRequest, Result<(), near_chain::Error>>,
+    chain_finalization_sender: AsyncSender<
+        SpanWrapped<ChainFinalizationRequest>,
+        Result<(), near_chain::Error>,
+    >,
     cancel: CancellationToken,
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> Result<(), near_chain::Error> {
@@ -197,11 +201,11 @@ pub(super) async fn run_state_sync_for_shard(
     // Finalize; this needs to be done by the Chain.
     *status.lock() = ShardSyncStatus::StateApplyFinalizing;
     chain_finalization_sender
-        .send_async(ChainFinalizationRequest { shard_id, sync_hash })
+        .send_async(ChainFinalizationRequest { shard_id, sync_hash }.span_wrap())
         .await
         .map_err(|_| {
-        near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
-    })??;
+            near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
+        })??;
 
     *status.lock() = ShardSyncStatus::StateSyncDone;
 

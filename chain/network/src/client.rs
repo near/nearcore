@@ -2,6 +2,7 @@ use crate::network_protocol::StateResponseInfo;
 use crate::types::{NetworkInfo, ReasonForBan};
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::errors::InvalidTxError;
@@ -151,17 +152,17 @@ pub struct ClientSenderForNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
     pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
-    pub state_response: AsyncSender<StateResponseReceived, ()>,
-    pub block_approval: AsyncSender<BlockApproval, ()>,
+    pub state_response: AsyncSender<SpanWrapped<StateResponseReceived>, ()>,
+    pub block_approval: AsyncSender<SpanWrapped<BlockApproval>, ()>,
     pub block_request: AsyncSender<BlockRequest, Option<Arc<Block>>>,
     pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>>,
-    pub block: AsyncSender<BlockResponse, ()>,
-    pub block_headers: AsyncSender<BlockHeadersResponse, Result<(), ReasonForBan>>,
-    pub network_info: AsyncSender<SetNetworkInfo, ()>,
+    pub block: AsyncSender<SpanWrapped<BlockResponse>, ()>,
+    pub block_headers: AsyncSender<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>>,
+    pub network_info: AsyncSender<SpanWrapped<SetNetworkInfo>, ()>,
     pub announce_account:
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
-    pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
+    pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
 }

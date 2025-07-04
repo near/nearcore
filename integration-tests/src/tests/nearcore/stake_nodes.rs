@@ -13,7 +13,7 @@ use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
 use near_client::{
-    ClientActor, GetBlock, ProcessTxRequest, Query, RpcHandlerActor, Status, ViewClientActor,
+    ClientActor, GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActor,
 };
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
@@ -25,7 +25,9 @@ use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSea
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
+use near_client_primitives::types::Status;
 use near_o11y::WithSpanContextExt;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use {near_primitives::types::BlockId, primitive_types::U256};
 
 #[derive(Clone)]
@@ -143,7 +145,9 @@ fn slow_test_stake_nodes() {
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let actor = test_nodes[0].client.send(
-                        Status { is_health_check: false, detailed: false }.with_span_context(),
+                        Status { is_health_check: false, detailed: false }
+                            .span_wrap()
+                            .with_span_context(),
                     );
                     let actor = actor.then(|res| {
                         let res = res.unwrap();
@@ -236,7 +240,9 @@ fn slow_test_validator_kickout() {
                     let finalized_mark1 = finalized_mark.clone();
 
                     let actor = test_node1.client.send(
-                        Status { is_health_check: false, detailed: false }.with_span_context(),
+                        Status { is_health_check: false, detailed: false }
+                            .span_wrap()
+                            .with_span_context(),
                     );
                     let actor = actor.then(move |res| {
                         let expected: Vec<_> = (num_nodes / 2..num_nodes)
@@ -398,7 +404,9 @@ fn ultra_slow_test_validator_join() {
                     let test_node1 = test_nodes[0].clone();
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                     let actor = test_node1.client.send(
-                        Status { is_health_check: false, detailed: false }.with_span_context(),
+                        Status { is_health_check: false, detailed: false }
+                            .span_wrap()
+                            .with_span_context(),
                     );
                     let actor = actor.then(move |res| {
                         let expected = vec![

@@ -211,7 +211,7 @@ fn find_tx_or_receipt(
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
 
-    let chunk_hashes = chunks.iter_deprecated().map(|c| c.chunk_hash());
+    let chunk_hashes = chunks.iter_raw().map(|c| c.chunk_hash());
     for (shard_index, chunk_hash) in chunk_hashes.enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =

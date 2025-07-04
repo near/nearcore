@@ -754,15 +754,14 @@ pub(crate) fn view_chain(
 
     let mut chunk_extras = vec![];
     let mut chunks = vec![];
-    for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-        if chunk_header.height_included() == block.header().height() {
-            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-            let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone();
-            let chunk = chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone();
-            chunk_extras.push((shard_id, chunk_extra));
-            chunks.push((shard_id, chunk));
-        }
+    for chunk_header in block.chunks().iter_new() {
+        // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
+        let shard_id = chunk_header.shard_id();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone();
+        let chunk = chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone();
+        chunk_extras.push((shard_id, chunk_extra));
+        chunks.push((shard_id, chunk));
     }
 
     if height.is_none() {
@@ -879,10 +878,8 @@ fn read_genesis_from_store(
     let genesis_hash = chain_store.get_block_hash_by_height(genesis_height)?;
     let genesis_block = chain_store.get_block(&genesis_hash)?;
     let mut genesis_chunks = vec![];
-    for chunk_header in genesis_block.chunks().iter_deprecated() {
-        if chunk_header.height_included() == genesis_height {
-            genesis_chunks.push(chain_store.get_chunk(&chunk_header.chunk_hash())?);
-        }
+    for chunk_header in genesis_block.chunks().iter_new() {
+        genesis_chunks.push(chain_store.get_chunk(&chunk_header.chunk_hash())?);
     }
     Ok((genesis_block, genesis_chunks))
 }
@@ -897,10 +894,8 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
     let head = chain_store.head().unwrap();
     let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap();
     while cur_block.header().height() > genesis_height {
-        for chunk_header in cur_block.chunks().iter_deprecated() {
-            if chunk_header.height_included() == cur_block.header().height()
-                && chain_store.get_chunk(&chunk_header.chunk_hash()).is_err()
-            {
+        for chunk_header in cur_block.chunks().iter_new() {
+            if chain_store.get_chunk(&chunk_header.chunk_hash()).is_err() {
                 panic!(
                     "chunk {:?} cannot be found in storage, last block {:?}",
                     chunk_header, cur_block

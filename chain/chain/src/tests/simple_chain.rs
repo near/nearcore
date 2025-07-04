@@ -77,7 +77,7 @@ fn build_chain_with_orphans() {
         last_block.header(),
         10,
         last_block.header().block_ordinal() + 1,
-        last_block.chunks().iter_deprecated().cloned().collect(),
+        last_block.chunks().iter_raw().cloned().collect(),
         vec![vec![]; last_block.chunks().len()],
         *last_block.header().epoch_id(),
         *last_block.header().next_epoch_id(),
