@@ -1,4 +1,5 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use crate::db::GC_STOP_HEIGHT_KEY;
 use crate::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
@@ -113,6 +114,14 @@ impl ChainStoreAdapter {
         match self.store.get_ser(DBCol::BlockMisc, LARGEST_TARGET_HEIGHT_KEY) {
             Ok(Some(o)) => Ok(o),
             Ok(None) => Ok(0),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+        match self.store.get_ser(DBCol::BlockMisc, GC_STOP_HEIGHT_KEY) {
+            Ok(Some(height)) => Ok(height),
+            Ok(None) => Ok(self.genesis_height),
             Err(e) => Err(e.into()),
         }
     }
