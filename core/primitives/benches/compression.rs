@@ -1,5 +1,5 @@
 //! Benchmark for encoding/decoding of State Witness.
-//! 
+//!
 //! Run with `cargo bench --features bench --bench compression`
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
