@@ -61,6 +61,7 @@ test_utils = []
 solomon = ["reed-solomon-erasure"]
 rand = ["dep:rand", "rand_chacha", "near-crypto/rand"]
 clock = ["near-time/clock", "near-time/serde"]
+bench = ["zstd/zstdmt"]
 schemars = [
     "dep:schemars",
     "near-primitives/schemars",
