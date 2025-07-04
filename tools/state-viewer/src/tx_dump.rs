@@ -11,7 +11,7 @@ pub fn dump_tx_from_block(
 ) -> Vec<SignedTransaction> {
     let chunks = block.chunks();
     let mut res = vec![];
-    for (_, chunk_header) in chunks.iter_deprecated().enumerate() {
+    for chunk_header in chunks.iter() {
         res.extend(
             chain_store
                 .get_chunk(&chunk_header.chunk_hash())

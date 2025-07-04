@@ -33,7 +33,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_primitives::block::Approval;
+use near_primitives::block::{Approval, Chunks};
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::genesis::GenesisId;
@@ -394,7 +394,7 @@ fn invalid_blocks_common(is_requested: bool) {
 
             // Send block with invalid chunk signature
             let mut block = valid_block.clone();
-            let mut chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
+            let mut chunks: Vec<_> = block.chunks().iter_raw().cloned().collect();
             let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
             match &mut chunks[0] {
                 ShardChunkHeader::V1(chunk) => {
@@ -811,7 +811,7 @@ fn test_bad_chunk_mask() {
     let shard_id = s0;
 
     let tip = env.clients[0].chain.get_block_by_height(0).unwrap();
-    for chunk_header in tip.chunks().iter_raw() {
+    for chunk_header in tip.chunks().iter() {
         tracing::info!(target: "test", ?chunk_header, "chunk header");
     }
 
@@ -845,14 +845,13 @@ fn test_bad_chunk_mask() {
             chunk_headers[0] = chunk_header;
             let mut_block = Arc::make_mut(&mut block);
             mut_block.set_chunks(chunk_headers.clone());
-            mut_block
-                .mut_header()
-                .set_chunk_headers_root(Block::compute_chunk_headers_root(&chunk_headers).0);
-            mut_block.mut_header().set_chunk_tx_root(Block::compute_chunk_tx_root(&chunk_headers));
+            let chunks = Chunks::from_chunk_headers(&chunk_headers, mut_block.header().height());
+            mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+            mut_block.mut_header().set_chunk_tx_root(chunks.compute_chunk_tx_root());
             mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-                Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers),
+                chunks.compute_chunk_prev_outgoing_receipts_root(),
             );
-            mut_block.mut_header().set_prev_state_root(Block::compute_state_root(&chunk_headers));
+            mut_block.mut_header().set_prev_state_root(chunks.compute_state_root());
             mut_block.mut_header().set_chunk_mask(vec![true, false]);
             let mess_with_chunk_mask = height == 4;
             if mess_with_chunk_mask {
@@ -1008,7 +1007,7 @@ fn test_archival_save_trie_changes() {
         // Go through chunks and test that trie changes were correctly saved to the store.
         let chunks = block.chunks();
         let version = shard_layout.version();
-        for chunk in chunks.iter_deprecated() {
+        for chunk in chunks.iter() {
             let shard_id = chunk.shard_id();
             let shard_uid = ShardUId::new(version, shard_id);
 
@@ -1954,20 +1953,18 @@ fn test_validate_chunk_extra() {
         let chunk_headers = vec![chunk_header.clone()];
         let mut_block = Arc::make_mut(block);
         mut_block.set_chunks(chunk_headers.clone());
-        mut_block
-            .mut_header()
-            .set_chunk_headers_root(Block::compute_chunk_headers_root(&chunk_headers).0);
-        mut_block.mut_header().set_chunk_tx_root(Block::compute_chunk_tx_root(&chunk_headers));
+        let chunks = Chunks::from_chunk_headers(&chunk_headers, mut_block.header().height());
+        mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+        mut_block.mut_header().set_chunk_tx_root(chunks.compute_chunk_tx_root());
         mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers),
+            chunks.compute_chunk_prev_outgoing_receipts_root(),
         );
-        mut_block.mut_header().set_prev_state_root(Block::compute_state_root(&chunk_headers));
+        mut_block.mut_header().set_prev_state_root(chunks.compute_state_root());
         mut_block.mut_header().set_chunk_mask(vec![true]);
         mut_block
             .mut_header()
             .set_chunk_endorsements(ChunkEndorsementsBitmap::from_endorsements(vec![vec![true]]));
-        let outcome_root = Block::compute_outcome_root(mut_block.chunks().iter_deprecated());
-        mut_block.mut_header().set_prev_outcome_root(outcome_root);
+        mut_block.mut_header().set_prev_outcome_root(chunks.compute_outcome_root());
         let endorsement =
             ChunkEndorsement::new(EpochId::default(), &chunk_header, &validator_signer);
         mut_block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]]);
@@ -2890,14 +2887,13 @@ fn test_fork_receipt_ids() {
         let chunk_headers = vec![chunk_header];
         let mut_block = Arc::make_mut(block);
         mut_block.set_chunks(chunk_headers.clone());
-        mut_block
-            .mut_header()
-            .set_chunk_headers_root(Block::compute_chunk_headers_root(&chunk_headers).0);
-        mut_block.mut_header().set_chunk_tx_root(Block::compute_chunk_tx_root(&chunk_headers));
+        let chunks = Chunks::from_chunk_headers(&chunk_headers, mut_block.header().height());
+        mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+        mut_block.mut_header().set_chunk_tx_root(chunks.compute_chunk_tx_root());
         mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers),
+            chunks.compute_chunk_prev_outgoing_receipts_root(),
         );
-        mut_block.mut_header().set_prev_state_root(Block::compute_state_root(&chunk_headers));
+        mut_block.mut_header().set_prev_state_root(chunks.compute_state_root());
         mut_block.mut_header().set_chunk_mask(vec![true]);
         mut_block.mut_header().resign(&validator_signer);
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
@@ -2948,14 +2944,13 @@ fn test_fork_execution_outcome() {
         let chunk_headers = vec![chunk_header];
         let mut_block = Arc::make_mut(block);
         mut_block.set_chunks(chunk_headers.clone());
-        mut_block
-            .mut_header()
-            .set_chunk_headers_root(Block::compute_chunk_headers_root(&chunk_headers).0);
-        mut_block.mut_header().set_chunk_tx_root(Block::compute_chunk_tx_root(&chunk_headers));
+        let chunks = Chunks::from_chunk_headers(&chunk_headers, mut_block.header().height());
+        mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+        mut_block.mut_header().set_chunk_tx_root(chunks.compute_chunk_tx_root());
         mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers),
+            chunks.compute_chunk_prev_outgoing_receipts_root(),
         );
-        mut_block.mut_header().set_prev_state_root(Block::compute_state_root(&chunk_headers));
+        mut_block.mut_header().set_prev_state_root(chunks.compute_state_root());
         mut_block.mut_header().set_chunk_mask(vec![true]);
         mut_block.mut_header().resign(&validator_signer);
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
