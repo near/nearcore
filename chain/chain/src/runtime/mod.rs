@@ -58,6 +58,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, instrument};
 
+pub mod apply_chunk_test_utils;
 pub mod errors;
 mod metrics;
 pub mod test_utils;

@@ -54,8 +54,10 @@ node-runtime.workspace = true
 near-parameters.workspace = true
 near-vm-runner.workspace = true
 near-schema-checker-lib.workspace = true
+primitive-types.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 near-mainnet-res.workspace = true
 near-primitives = { workspace = true, features = ["clock"] }
 near-test-contracts.workspace = true
@@ -107,3 +109,7 @@ protocol_schema = [
 
 [package.metadata.cargo-machete]
 ignored = ["near-performance-metrics"]
+
+[[bench]]
+name = "apply_chunk_bench"
+harness = false
