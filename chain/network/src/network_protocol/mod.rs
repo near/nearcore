@@ -1072,7 +1072,7 @@ pub struct RoutedMessageV2 {
 #[derive(PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct RoutedMessageV3 {
     /// Peer id to which this message is directed.
-    /// If `target` is hash, this a message should be routed back.
+    /// If `target` is hash, this message should be routed back.
     pub target: PeerIdOrHash,
     /// Original sender of this message
     pub author: PeerId,
