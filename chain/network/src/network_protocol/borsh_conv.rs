@@ -247,10 +247,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::Block(b) => net::PeerMessage::Block(b),
             mem::PeerMessage::OptimisticBlock(ob) => net::PeerMessage::OptimisticBlock(ob),
             mem::PeerMessage::Transaction(t) => net::PeerMessage::Transaction(t),
-            mem::PeerMessage::Routed(r) => {
-                let msg = r.msg_v1();
-                net::PeerMessage::Routed(Box::new(msg))
-            }
+            mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg_v1())),
             mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),
             mem::PeerMessage::StateRequestHeader(shard_id, sync_hash) => {

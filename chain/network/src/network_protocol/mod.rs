@@ -665,6 +665,7 @@ impl From<T2MessageBody> for TieredMessageBody {
     Clone,
     strum::IntoStaticStr,
     ProtocolSchema,
+    Debug,
 )]
 pub enum T1MessageBody {
     BlockApproval(Approval),
@@ -698,38 +699,6 @@ impl T1MessageBody {
     }
 }
 
-impl fmt::Debug for T1MessageBody {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            T1MessageBody::BlockApproval(approval) => write!(f, "BlockApproval({:?})", approval),
-            T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
-                write!(f, "VersionedPartialEncodedChunk({:?})", chunk)
-            }
-            T1MessageBody::PartialEncodedChunkForward(forward) => {
-                write!(f, "PartialEncodedChunkForward({:?})", forward)
-            }
-            T1MessageBody::PartialEncodedStateWitness(witness) => {
-                write!(f, "PartialEncodedStateWitness({:?})", witness)
-            }
-            T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
-                write!(f, "PartialEncodedStateWitnessForward({:?})", witness)
-            }
-            T1MessageBody::VersionedChunkEndorsement(endorsement) => {
-                write!(f, "VersionedChunkEndorsement({:?})", endorsement)
-            }
-            T1MessageBody::ChunkContractAccesses(accesses) => {
-                write!(f, "ChunkContractAccesses({:?})", accesses)
-            }
-            T1MessageBody::ContractCodeRequest(request) => {
-                write!(f, "ContractCodeRequest({:?})", request)
-            }
-            T1MessageBody::ContractCodeResponse(response) => {
-                write!(f, "ContractCodeResponse({:?})", response)
-            }
-        }
-    }
-}
-
 // TODO(#1313): Use Box
 /// T2 messages are sent over T2 connections and they are routed over multiple hops.
 #[derive(
@@ -740,6 +709,7 @@ impl fmt::Debug for T1MessageBody {
     Clone,
     strum::IntoStaticStr,
     ProtocolSchema,
+    Debug,
 )]
 pub enum T2MessageBody {
     ForwardTx(SignedTransaction),
@@ -763,40 +733,6 @@ impl T2MessageBody {
 
     pub fn allow_sending_to_self(&self) -> bool {
         false
-    }
-}
-
-impl fmt::Debug for T2MessageBody {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            T2MessageBody::ForwardTx(tx) => write!(f, "ForwardTx({:?})", tx),
-            T2MessageBody::TxStatusRequest(account_id, crypto_hash) => {
-                write!(f, "TxStatusRequest({:?}, {:?})", account_id, crypto_hash)
-            }
-            T2MessageBody::TxStatusResponse(final_execution_outcome_view) => {
-                write!(f, "TxStatusResponse({:?})", final_execution_outcome_view)
-            }
-            T2MessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg) => {
-                write!(f, "PartialEncodedChunkRequest({:?})", partial_encoded_chunk_request_msg)
-            }
-            T2MessageBody::PartialEncodedChunkResponse(partial_encoded_chunk_response_msg) => {
-                write!(f, "PartialEncodedChunkResponse({:?})", partial_encoded_chunk_response_msg)
-            }
-            T2MessageBody::Ping(ping) => write!(f, "Ping({:?})", ping),
-            T2MessageBody::Pong(pong) => write!(f, "Pong({:?})", pong),
-            T2MessageBody::ChunkStateWitnessAck(chunk_state_witness_ack) => {
-                write!(f, "ChunkStateWitnessAck({:?})", chunk_state_witness_ack)
-            }
-            T2MessageBody::StatePartRequest(state_part_request) => {
-                write!(f, "StatePartRequest({:?})", state_part_request)
-            }
-            T2MessageBody::PartialEncodedContractDeploys(partial_encoded_contract_deploys) => {
-                write!(f, "PartialEncodedContractDeploys({:?})", partial_encoded_contract_deploys)
-            }
-            T2MessageBody::StateHeaderRequest(state_header_request) => {
-                write!(f, "StateHeaderRequest({:?})", state_header_request)
-            }
-        }
     }
 }
 
@@ -1048,7 +984,7 @@ pub struct RoutedMessageV1 {
     /// Signature from the author of the message. If this signature is invalid we should ban
     /// last sender of this message. If the message is invalid we should ben author of the message.
     pub signature: Signature,
-    /// Time to live for this message. After passing through some hop this number should be
+    /// Time to live for this message. After passing through a hop this number should be
     /// decreased by 1. If this number is 0, drop this message.
     pub ttl: u8,
     /// Message
@@ -1076,7 +1012,7 @@ pub struct RoutedMessageV3 {
     pub target: PeerIdOrHash,
     /// Original sender of this message
     pub author: PeerId,
-    /// Time to live for this message. After passing through some hop this number should be
+    /// Time to live for this message. After passing through a hop this number should be
     /// decreased by 1. If this number is 0, drop this message.
     pub ttl: u8,
     /// Message
