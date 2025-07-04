@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -6,17 +7,21 @@ use itertools::Itertools as _;
 use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
+use near_async::messaging::IntoSender;
+use near_async::messaging::Sender;
 use near_chain::chain::{
     NewChunkData, NewChunkResult, ShardContext, StorageContext, UpdateShardJob, do_apply_chunks,
 };
 use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
+use near_chain::types::ApplyChunkResult;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
     Block, Chain, ChainGenesis, ChainStore, ChainUpdate, DoomslugThresholdMode, Error,
     collect_receipts, get_chunk_clone_from_header,
 };
+use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -26,17 +31,25 @@ use near_primitives::block::Chunks;
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::{BlockToApply, CachedShardUpdateKey};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardProof;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::types::ChunkExecutionResult;
 use near_primitives::types::EpochId;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{ShardId, ShardIndex};
 use near_primitives::utils::get_receipt_proof_key;
 use near_primitives::utils::get_receipt_proof_target_shard_prefix;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_store::DBCol;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use tracing::instrument;
+
+use crate::spice_core::CoreStatementsProcessor;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct ChunkExecutorActor {
     chain_store: ChainStore,
@@ -50,6 +63,10 @@ pub struct ChunkExecutorActor {
 
     // Hash of the genesis block.
     genesis_hash: CryptoHash,
+
+    validator_signer: MutableValidatorSigner,
+    core_processor: CoreStatementsProcessor,
+    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 }
 
 impl ChunkExecutorActor {
@@ -62,6 +79,9 @@ impl ChunkExecutorActor {
         shard_tracker: ShardTracker,
         network_adapter: PeerManagerAdapter,
         next_block_hashes_cache_capacity: NonZeroUsize,
+        validator_signer: MutableValidatorSigner,
+        core_processor: CoreStatementsProcessor,
+        chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     ) -> Self {
         Self {
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
@@ -71,7 +91,29 @@ impl ChunkExecutorActor {
             network_adapter,
             next_block_hashes: LruCache::new(next_block_hashes_cache_capacity),
             genesis_hash,
+            validator_signer,
+            core_processor,
+            chunk_endorsement_tracker,
         }
+    }
+
+    fn find_block_hash_by_chunk_hash(
+        &self,
+        chunk_hash: &ChunkHash,
+        height: u64,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let block_hashes = self.chain_store.get_all_block_hashes_by_height(height)?;
+        Ok(block_hashes
+            .values()
+            .flatten()
+            .find(|block_hash| {
+                let Ok(block) = self.chain_store.get_block(block_hash) else {
+                    tracing::debug!(target: "chunk_executor", %block_hash, "failed to get block with hash");
+                    return false;
+                };
+                block.chunks().iter_raw().any(|chunk| chunk.chunk_hash() == chunk_hash)
+            })
+            .copied())
     }
 }
 
@@ -93,6 +135,14 @@ pub struct ExecutorIncomingReceipts {
 #[rtype(result = "()")]
 pub struct ExecutorBlock {
     pub block_hash: CryptoHash,
+}
+
+/// Message that should be sent once chunk's executions result is endorsed.
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct ExecutorExecutionResultEndorsed {
+    pub chunk_hash: ChunkHash,
+    pub height: u64,
 }
 
 impl Handler<ExecutorIncomingReceipts> for ChunkExecutorActor {
@@ -142,14 +192,50 @@ impl Handler<ExecutorBlock> for ChunkExecutorActor {
     }
 }
 
+impl Handler<ExecutorExecutionResultEndorsed> for ChunkExecutorActor {
+    fn handle(
+        &mut self,
+        ExecutorExecutionResultEndorsed { chunk_hash, height }: ExecutorExecutionResultEndorsed,
+    ) {
+        let block_hash = match self.find_block_hash_by_chunk_hash(&chunk_hash, height) {
+            Ok(Some(block_hash)) => block_hash,
+            Ok(None) => {
+                tracing::debug!(target: "chunk_executor", ?chunk_hash, ?height, "found no block containing the chunk");
+                return;
+            }
+            Err(err) => {
+                tracing::debug!(target: "chunk_executor", ?err, ?chunk_hash, ?height, "found no block containing the chunk");
+                return;
+            }
+        };
+
+        let next_blocks = self.next_block_hashes.get(&block_hash).cloned();
+        for next_block_hash in next_blocks.into_iter().flatten() {
+            if let Err(err) = self.try_apply_chunks(&next_block_hash) {
+                tracing::error!(target: "chunk_executor", ?err, ?next_block_hash, "failed to apply chunk for block hash");
+            };
+        }
+    }
+}
+
 impl ChunkExecutorActor {
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
     fn try_apply_chunks(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
         let header = block.header();
         let prev_block_hash = header.prev_hash();
-        let mut all_receipts: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
         let store = self.chain_store.store();
+        let prev_block = self.chain_store.get_block(prev_block_hash)?;
+        let prev_block_is_genesis = *prev_block_hash == self.genesis_hash;
+        if !prev_block_is_genesis
+            && !self.core_processor.do_all_execution_results_exist(&prev_block)
+        {
+            tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing execution results to allow validating receipts");
+            return Ok(());
+        }
+        let execution_results = self.core_processor.get_execution_results(&prev_block);
+
+        let mut all_receipts: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
         let prev_block_shard_ids = self.epoch_manager.shard_ids(&prev_block_epoch_id)?;
         for &prev_block_shard_id in &prev_block_shard_ids {
@@ -161,7 +247,7 @@ impl ChunkExecutorActor {
                 prev_block_shard_id,
             ) {
                 // Genesis block has no outgoing receipts.
-                if *prev_block_hash == self.genesis_hash {
+                if prev_block_is_genesis {
                     all_receipts.insert(prev_block_shard_id, vec![]);
                     continue;
                 }
@@ -171,6 +257,19 @@ impl ChunkExecutorActor {
                 if proofs.len() != prev_block_shard_ids.len() {
                     tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing receipts to apply all tracked chunks for a block");
                     return Ok(());
+                }
+                for proof in &proofs {
+                    let from_shard_id = proof.1.from_shard_id;
+                    let execution_result = execution_results.get(&from_shard_id).unwrap();
+                    // TODO(spice): Perform this check before saving receipts.
+                    if !proof.verify_against_receipt_root(execution_result.outgoing_receipts_root) {
+                        tracing::error!(
+                            target: "chunk_executor",
+                            ?execution_result, ?from_shard_id, %block_hash, %prev_block_hash,
+                                    "Receipt proof for chunk has invalid merkle path, doesn't match outgoing receipts root",
+                        );
+                        unimplemented!("Invalid receipts in spice handling");
+                    }
                 }
                 all_receipts.insert(prev_block_shard_id, proofs);
             }
@@ -185,6 +284,10 @@ impl ChunkExecutorActor {
         mut incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
         mut state_patch: SandboxStatePatch,
     ) -> Result<(), Error> {
+        let my_signer = self
+            .validator_signer
+            .get()
+            .ok_or_else(|| Error::NotAValidator(format!("apply_chunks")))?;
         let block_hash = block.hash();
         let header = block.header();
         let prev_hash = header.prev_hash();
@@ -262,23 +365,47 @@ impl ChunkExecutorActor {
         }).collect::<Result<Vec<_>, Error>>()?;
 
         for result in &results {
-            let (shard_uid, apply_result) = match result {
-                ShardUpdateResult::NewChunk(NewChunkResult {
-                    shard_uid,
-                    gas_limit: _,
-                    apply_result,
-                }) => (shard_uid, apply_result),
-                ShardUpdateResult::OldChunk(..) => {
-                    panic!("missing chunks are not expected in SPICE");
-                }
+            let ShardUpdateResult::NewChunk(NewChunkResult { shard_uid, gas_limit, apply_result }) =
+                result
+            else {
+                panic!("missing chunks are not expected in SPICE");
             };
             let shard_id = shard_uid.shard_id();
-            let (_, receipt_proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(
-                &shard_layout,
-                shard_id,
-                apply_result.outgoing_receipts.clone(),
-            )?;
+            let (outgoing_receipts_root, receipt_proofs) =
+                Chain::create_receipts_proofs_from_outgoing_receipts(
+                    &shard_layout,
+                    shard_id,
+                    apply_result.outgoing_receipts.clone(),
+                )?;
             self.send_outgoing_receipts(*block_hash, receipt_proofs);
+
+            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+            let chunk_header = chunk_headers.get(shard_index).unwrap();
+
+            if self
+                .epoch_manager
+                .get_chunk_validator_assignments(epoch_id, shard_id, block.header().height())?
+                .contains(my_signer.validator_id())
+            {
+                let execution_result =
+                    new_execution_result(gas_limit, apply_result, outgoing_receipts_root);
+                // If we're validator we can send endorsement without witness validation.
+                let endorsement = ChunkEndorsement::new_with_execution_result(
+                    *epoch_id,
+                    execution_result,
+                    chunk_header,
+                    &my_signer,
+                );
+                send_spice_chunk_endorsements(
+                    endorsement.clone(),
+                    self.epoch_manager.as_ref(),
+                    &self.network_adapter.clone().into_sender(),
+                    block.hash(),
+                    &my_signer,
+                )?;
+                self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement)?;
+            }
+            // TODO(spice): create and send state witness.
         }
 
         let mut chain_update = self.chain_update();
@@ -383,6 +510,58 @@ impl ChunkExecutorActor {
             DoomslugThresholdMode::NoApprovals,
         )
     }
+}
+
+fn new_execution_result(
+    gas_limit: &u64,
+    apply_result: &ApplyChunkResult,
+    outgoing_receipts_root: CryptoHash,
+) -> ChunkExecutionResult {
+    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+    let chunk_extra = ChunkExtra::new(
+        &apply_result.new_root,
+        outcome_root,
+        apply_result.validator_proposals.clone(),
+        apply_result.total_gas_burnt,
+        *gas_limit,
+        apply_result.total_balance_burnt,
+        apply_result.congestion_info,
+        apply_result.bandwidth_requests.clone(),
+    );
+    ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
+}
+
+fn send_spice_chunk_endorsements(
+    endorsement: ChunkEndorsement,
+    epoch_manager: &dyn EpochManagerAdapter,
+    network_sender: &Sender<PeerManagerMessageRequest>,
+    block_hash: &CryptoHash,
+    signer: &ValidatorSigner,
+) -> Result<(), Error> {
+    let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
+    let next_epoch_id = epoch_manager.get_next_epoch_id(block_hash)?;
+
+    // Everyone should be aware of all core statements to make sure that execution can proceed
+    // without waiting on endorsements appearing in consensus.
+    let validators = epoch_manager
+        .get_epoch_info(&epoch_id)?
+        .validators_iter()
+        // A potential optimization here is to send only to the first few block producers
+        // of the next epoch (instead of to everyone). This may reduce amount of data sent if validator
+        // sets change drastically, but may cause execution delays on epoch boundaries.
+        .chain(epoch_manager.get_epoch_info(&next_epoch_id)?.validators_iter())
+        .map(|stake| stake.take_account_id())
+        .collect::<HashSet<_>>();
+
+    for account in validators {
+        if &account == signer.validator_id() {
+            continue;
+        }
+        network_sender.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ChunkEndorsement(account, endorsement.clone()),
+        ));
+    }
+    Ok(())
 }
 
 fn save_receipt_proof(
