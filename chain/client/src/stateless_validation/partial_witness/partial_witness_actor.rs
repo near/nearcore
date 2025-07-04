@@ -424,9 +424,10 @@ impl PartialWitnessActor {
             .ordered_chunk_validators()
             .into_iter()
             .filter(|validator| validator != &chunk_producer)
-            .collect();
+            .collect_vec();
 
         let network_adapter = self.network_adapter.clone();
+        let partial_witness_tracker = self.partial_witness_tracker.clone();
 
         self.partial_witness_spawner.spawn("handle_partial_encoded_state_witness", move || {
             // Validate the partial encoded state witness and forward the part to all the chunk validators.
@@ -437,12 +438,24 @@ impl PartialWitnessActor {
                 runtime_adapter.store(),
             ) {
                 Ok(ChunkRelevance::Relevant) => {
-                    network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::PartialEncodedStateWitnessForward(
-                            target_chunk_validators,
-                            partial_witness,
-                        ),
-                    ));
+                    // Forward to other validators (excluding ourselves to avoid duplicate processing).
+                    let other_validators: Vec<_> = target_chunk_validators
+                        .into_iter()
+                        .filter(|validator| validator != &validator_account_id)
+                        .collect();
+
+                    if !other_validators.is_empty() {
+                        network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedStateWitnessForward(
+                                other_validators,
+                                partial_witness.clone(),
+                            ),
+                        ));
+                    }
+                    // Store the part locally (as part owner) to avoid need for self-forwarding.
+                    if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
+                        tracing::error!(target: "client", "Failed to store partial encoded state witness: {}", err);
+                    }
                 }
                 Ok(_) => {
                     tracing::debug!(
