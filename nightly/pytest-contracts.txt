@@ -3,7 +3,7 @@ pytest contracts/deploy_call_smart_contract.py
 pytest contracts/deploy_call_smart_contract.py --features nightly
 pytest contracts/deploy_call_global_smart_contract.py
 pytest contracts/deploy_call_global_smart_contract.py --features nightly
-pytest --timeout=10m contracts/gibberish.py
-pytest --timeout=10m contracts/gibberish.py --features nightly
-pytest --timeout=400 contracts/infinite_loops.py
-pytest --timeout=400 contracts/infinite_loops.py --features nightly
+pytest contracts/gibberish.py
+pytest contracts/gibberish.py --features nightly
+pytest contracts/infinite_loops.py
+pytest contracts/infinite_loops.py --features nightly

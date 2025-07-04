@@ -473,7 +473,7 @@ fn test_processing_chunks_sanity() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         let chunks = block
             .chunks()
-            .iter_deprecated()
+            .iter()
             .map(|chunk| format!("{:?}", chunk.chunk_hash()))
             .collect::<Vec<_>>();
         debug!(target: "chunks", "Block #{} has chunks {:?}", i, chunks.join(", "));

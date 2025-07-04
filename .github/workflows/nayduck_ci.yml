@@ -39,6 +39,8 @@ jobs:
           # wait all the tests to finish
           while true; do
             TEST_RESULTS=$(curl -s https://nayduck.nearone.org/api/run/$RUN_ID)
+            TESTS_FAILED=$(jq '.tests | .[] | select(.status == "FAILED") ' <<< ${TEST_RESULTS} )
+            if [ -n "$TESTS_FAILED" ]; then break; fi
             TESTS_NOT_READY=$(jq '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING") ' <<< ${TEST_RESULTS} )
             if [ -z "$TESTS_NOT_READY" ]; then break; fi
             echo "Tests are not ready yet. Sleeping 1 minute..."

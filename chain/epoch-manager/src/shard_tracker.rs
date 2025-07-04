@@ -5,7 +5,7 @@ use crate::EpochManagerAdapter;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner, TrackedShardsConfig};
-use near_chain_primitives::Error;
+use near_chain_primitives::{ApplyChunksMode, Error};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::StateSyncInfo;
@@ -294,6 +294,43 @@ impl ShardTracker {
             // but this hasn't been fully tested or verified yet.
             // Consider enabling support after proper validation.
             _ => false,
+        }
+    }
+
+    /// We want to guarantee that transactions are only applied once for each shard,
+    /// even though apply_chunks may be called twice, once with
+    /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
+    /// that it does not guard whether the children shards are ready or not, see the
+    /// comments before `need_to_reshard`
+    pub fn should_apply_chunk(
+        &self,
+        mode: ApplyChunksMode,
+        prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> bool {
+        let cares_about_shard_this_epoch = self.cares_about_shard(prev_hash, shard_id);
+        let cares_about_shard_next_epoch = self.will_care_about_shard(prev_hash, shard_id);
+        let cared_about_shard_prev_epoch =
+            self.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
+        match mode {
+            // next epoch's shard states are not ready, only update this epoch's shards plus shards we will care about in the future
+            // and already have state for
+            ApplyChunksMode::NotCaughtUp => {
+                cares_about_shard_this_epoch
+                    || (cares_about_shard_next_epoch && cared_about_shard_prev_epoch)
+            }
+            // update both this epoch and next epoch
+            ApplyChunksMode::IsCaughtUp => {
+                cares_about_shard_this_epoch || cares_about_shard_next_epoch
+            }
+            // catching up next epoch's shard states, do not update this epoch's shard state
+            // since it has already been updated through ApplyChunksMode::NotCaughtUp
+            ApplyChunksMode::CatchingUp => {
+                let syncing_shard = !cares_about_shard_this_epoch
+                    && cares_about_shard_next_epoch
+                    && !cared_about_shard_prev_epoch;
+                syncing_shard
+            }
         }
     }
 

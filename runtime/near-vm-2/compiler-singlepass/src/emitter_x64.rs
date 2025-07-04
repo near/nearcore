@@ -110,6 +110,7 @@ pub(crate) trait Emitter {
     fn emit_sub(&mut self, sz: Size, src: Location, dst: Location);
     fn emit_neg(&mut self, sz: Size, value: Location);
     fn emit_imul(&mut self, sz: Size, src: Location, dst: Location);
+    fn emit_ax_mul(&mut self, sz: Size, dst: Location);
     fn emit_imul_imm32_gpr64(&mut self, src: u32, dst: GPR);
     fn emit_div(&mut self, sz: Size, divisor: Location);
     fn emit_idiv(&mut self, sz: Size, divisor: Location);
@@ -948,6 +949,11 @@ impl Emitter for Assembler {
                 panic!("singlepass can't emit IMUL {:?} {:?} {:?}", sz, src, dst)
             })
         });
+    }
+    fn emit_ax_mul(&mut self, sz: Size, dst: Location) {
+        unop_gpr_or_mem!(mul, self, sz, dst, {
+            panic!("singlepass can't emit MUL {:?} {:?}", sz, dst)
+        })
     }
     fn emit_imul_imm32_gpr64(&mut self, src: u32, dst: GPR) {
         dynasm!(self ; imul Rq(dst as u8), Rq(dst as u8), src as i32);

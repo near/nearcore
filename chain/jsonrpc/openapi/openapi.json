@@ -4845,8 +4845,8 @@
               }
             ],
             "default": {
-              "nanos": 0,
-              "secs": 1
+              "nanos": 500000000,
+              "secs": 0
             },
             "description": "How often gc should be run"
           }

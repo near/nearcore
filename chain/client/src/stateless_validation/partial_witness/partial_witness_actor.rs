@@ -21,7 +21,9 @@ use near_network::state_witness::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
-use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
+use near_primitives::reed_solomon::{
+    REED_SOLOMON_MAX_PARTS, ReedSolomonEncoder, ReedSolomonEncoderCache,
+};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -304,18 +306,18 @@ impl PartialWitnessActor {
         key: &ChunkProductionKey,
         deploys: ChunkContractDeploys,
     ) -> Result<Vec<(AccountId, PartialEncodedContractDeploys)>, Error> {
-        let validators = self.ordered_contract_deploys_validators(key)?;
+        let part_owners = self.ordered_contract_deploys_part_owners(key)?;
         // Note that target validators do not include the chunk producers, and thus in some case
         // (eg. tests or small networks) there may be no other validators to send the new contracts to.
-        if validators.is_empty() {
+        if part_owners.is_empty() {
             return Ok(vec![]);
         }
 
-        let encoder = self.contract_deploys_encoder(validators.len());
+        let encoder = self.contract_deploys_encoder(part_owners.len());
         let (parts, encoded_length) = encoder.encode(&deploys);
         let signer = self.my_validator_signer()?;
 
-        Ok(validators
+        Ok(part_owners
             .into_iter()
             .zip_eq(parts)
             .enumerate()
@@ -547,8 +549,8 @@ impl PartialWitnessActor {
             return Ok(());
         }
         let key = partial_deploys.chunk_production_key().clone();
-        let validators = self.ordered_contract_deploys_validators(&key)?;
-        if validators.is_empty() {
+        let part_owners = self.ordered_contract_deploys_part_owners(&key)?;
+        if part_owners.is_empty() {
             // Note that target validators do not include the chunk producers, and thus in some case
             // (eg. tests or small networks) there may be no other validators to send the new contracts to.
             // In such case, the message we are handling here should not be sent in the first place,
@@ -560,7 +562,7 @@ impl PartialWitnessActor {
         // Forward to other validators if the part received is my part
         let signer = self.my_validator_signer()?;
         let my_account_id = signer.validator_id();
-        let Some(my_part_ord) = validators.iter().position(|validator| validator == my_account_id)
+        let Some(my_part_ord) = part_owners.iter().position(|validator| validator == my_account_id)
         else {
             tracing::warn!(
                 target: "client",
@@ -570,6 +572,7 @@ impl PartialWitnessActor {
             return Ok(());
         };
         if partial_deploys.part().part_ord == my_part_ord {
+            let validators = self.ordered_contract_deploys_validators(&key)?;
             let other_validators = validators
                 .iter()
                 .filter(|&validator| validator != my_account_id)
@@ -586,7 +589,7 @@ impl PartialWitnessActor {
         }
 
         // Store part
-        let encoder = self.contract_deploys_encoder(validators.len());
+        let encoder = self.contract_deploys_encoder(part_owners.len());
         if let Some(deploys) = self
             .partial_deploys_tracker
             .store_partial_encoded_contract_deploys(partial_deploys, encoder)?
@@ -839,6 +842,15 @@ impl PartialWitnessActor {
 
     fn contract_deploys_encoder(&mut self, validators_count: usize) -> Arc<ReedSolomonEncoder> {
         self.contract_deploys_encoders.entry(validators_count)
+    }
+
+    fn ordered_contract_deploys_part_owners(
+        &self,
+        key: &ChunkProductionKey,
+    ) -> Result<Vec<AccountId>, Error> {
+        let mut validators = self.ordered_contract_deploys_validators(key)?;
+        validators.truncate(REED_SOLOMON_MAX_PARTS);
+        Ok(validators)
     }
 
     fn ordered_contract_deploys_validators(

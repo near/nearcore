@@ -240,23 +240,25 @@ pub fn retrieve_headers(
     chain_store: &ChainStoreAdapter,
     hashes: Vec<CryptoHash>,
     max_headers_returned: u64,
-    max_height: Option<BlockHeight>,
 ) -> Result<Vec<Arc<BlockHeader>>, Error> {
     let header = match find_common_header(chain_store, &hashes) {
         Some(header) => header,
         None => return Ok(vec![]),
     };
 
+    // Use `get_block_merkle_tree` to get the block ordinal for this header.
+    // We can't use the `header.block_ordinal()` method because older block headers don't have this field.
+    // The same method is used in `get_locator` which creates the headers request and chain store when saving block ordinals.
+    let block_ordinal = chain_store.get_block_merkle_tree(&header.hash())?.size();
+
     let mut headers = vec![];
-    let header_head_height = chain_store.header_head()?.height;
-    let max_height = max_height.unwrap_or(header_head_height);
-    // TODO: this may be inefficient if there are a lot of skipped blocks.
-    for h in header.height() + 1..=max_height {
-        if let Ok(header) = chain_store.get_block_header_by_height(h) {
-            headers.push(header.clone());
-            if headers.len() >= max_headers_returned as usize {
-                break;
-            }
+    for i in 1..=max_headers_returned {
+        match chain_store
+            .get_block_hash_from_ordinal(block_ordinal.saturating_add(i))
+            .and_then(|block_hash| chain_store.get_block_header(&block_hash))
+        {
+            Ok(h) => headers.push(h),
+            Err(_) => break, // This is either the last block that we know of, or we don't have these block headers because of epoch sync.
         }
     }
     Ok(headers)

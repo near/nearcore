@@ -2,6 +2,7 @@
 // code so we're in the clear.
 #![allow(clippy::arc_with_non_send_sync)]
 
+use crate::utils::peer_manager_mock::PeerManagerMock;
 use actix::{Actor, Addr, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
@@ -40,6 +41,7 @@ use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_o11y::WithSpanContextExt;
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -53,8 +55,6 @@ use near_telemetry::TelemetryActor;
 use nearcore::NightshadeRuntime;
 use num_rational::Ratio;
 use std::sync::Arc;
-
-use crate::utils::peer_manager_mock::PeerManagerMock;
 
 pub const TEST_SEED: RngSeed = [3; 32];
 
@@ -466,7 +466,7 @@ pub fn setup_client_with_runtime(
 pub fn setup_synchronous_shards_manager(
     clock: Clock,
     account_id: Option<AccountId>,
-    client_adapter: Sender<ShardsManagerResponse>,
+    client_adapter: Sender<SpanWrapped<ShardsManagerResponse>>,
     network_adapter: PeerManagerAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,

@@ -355,38 +355,32 @@ impl ClientActorInner {
             None => epoch_start_block_header.hash(),
         };
 
-        let shards_size_and_parts: Vec<(u64, u64)> = if let Ok(block) =
-            self.client.chain.get_block(hash_to_compute_shard_sizes)
-        {
-            block
-                .chunks()
-                .iter_raw()
-                .enumerate()
-                .map(|(shard_index, chunk)| {
-                    let shard_id = shard_layout.get_shard_id(shard_index);
-                    let Ok(shard_id) = shard_id else {
-                        tracing::error!("Failed to get shard id for shard index {}", shard_index);
-                        return (0, 0);
-                    };
-
-                    let state_root_node = self.client.runtime_adapter.get_state_root_node(
-                        shard_id,
-                        epoch_start_block_header.hash(),
-                        &chunk.prev_state_root(),
-                    );
-                    if let Ok(state_root_node) = state_root_node {
-                        (
-                            state_root_node.memory_usage,
-                            get_num_state_parts(state_root_node.memory_usage),
-                        )
-                    } else {
-                        (0, 0)
-                    }
-                })
-                .collect()
-        } else {
-            epoch_start_block_header.chunk_mask().iter().map(|_| (0, 0)).collect()
-        };
+        let shards_size_and_parts: Vec<(u64, u64)> =
+            if let Ok(block) = self.client.chain.get_block(hash_to_compute_shard_sizes) {
+                block
+                    .chunks()
+                    .iter()
+                    .enumerate()
+                    .map(|(shard_index, chunk)| {
+                        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+                        let state_root_node = self.client.runtime_adapter.get_state_root_node(
+                            shard_id,
+                            epoch_start_block_header.hash(),
+                            &chunk.prev_state_root(),
+                        );
+                        if let Ok(state_root_node) = state_root_node {
+                            (
+                                state_root_node.memory_usage,
+                                get_num_state_parts(state_root_node.memory_usage),
+                            )
+                        } else {
+                            (0, 0)
+                        }
+                    })
+                    .collect()
+            } else {
+                epoch_start_block_header.chunk_mask().iter().map(|_| (0, 0)).collect()
+            };
 
         let state_header_exists: Vec<bool> = shard_layout
             .shard_ids()
@@ -616,7 +610,7 @@ impl ClientActorInner {
                 let chunks = match &block {
                     Some(block) => block
                         .chunks()
-                        .iter_deprecated()
+                        .iter()
                         .map(|chunk| {
                             let endorsement_ratio = chunk_endorsements
                                 .as_ref()
@@ -850,11 +844,9 @@ impl ClientActorInner {
             return None;
         };
         // Iterate all shards and compute the endorsed stake from the endorsement signatures.
-        for (chunk_header, signatures) in
-            block.chunks().iter_deprecated().zip(block.chunk_endorsements())
-        {
+        for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
             // Validation checks.
-            if chunk_header.height_included() != block.header().height() {
+            if !chunk_header.is_new_chunk() {
                 chunk_endorsements.insert(chunk_header.chunk_hash().clone(), 0.0);
                 continue;
             }
