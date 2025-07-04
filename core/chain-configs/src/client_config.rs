@@ -37,8 +37,8 @@ pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 
 /// Default number of concurrent requests to external storage to fetch state parts.
-pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u32 = 25;
-pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 5;
+pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u8 = 25;
+pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u8 = 5;
 
 /// The default number of attempts to obtain a state part from peers in the network
 /// before giving up and downloading it from external storage.
@@ -153,11 +153,11 @@ impl GCConfig {
     }
 }
 
-fn default_num_concurrent_requests() -> u32 {
+fn default_num_concurrent_requests() -> u8 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL
 }
 
-fn default_num_concurrent_requests_during_catchup() -> u32 {
+fn default_num_concurrent_requests_during_catchup() -> u8 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL
 }
 
@@ -173,11 +173,11 @@ pub struct ExternalStorageConfig {
     /// When fetching state parts from external storage, throttle fetch requests
     /// to this many concurrent requests.
     #[serde(default = "default_num_concurrent_requests")]
-    pub num_concurrent_requests: u32,
+    pub num_concurrent_requests: u8,
     /// During catchup, the node will use a different number of concurrent requests
     /// to reduce the performance impact of state sync.
     #[serde(default = "default_num_concurrent_requests_during_catchup")]
-    pub num_concurrent_requests_during_catchup: u32,
+    pub num_concurrent_requests_during_catchup: u8,
     /// The number of attempts the node will make to obtain a part from peers in
     /// the network before it fetches from external storage.
     #[serde(default = "default_external_storage_fallback_threshold")]
@@ -230,6 +230,8 @@ pub enum SyncConfig {
     /// Syncs state from the peers without reading anything from external storage.
     Peers,
     /// Expects parts to be available in external storage.
+    ///
+    /// Usually as a fallback after some number of attempts to use peers.
     ExternalStorage(ExternalStorageConfig),
 }
 
@@ -239,21 +241,71 @@ impl Default for SyncConfig {
     }
 }
 
+impl SyncConfig {
+    /// Checks whether the object equals its default value.
+    fn is_default(&self) -> bool {
+        matches!(self, Self::Peers)
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct SyncConcurrency {
+    /// Maximum number of "apply parts" tasks that can be performed in parallel.
+    /// This is a very disk-heavy task and therefore we set this to a low limit,
+    /// or else the rocksdb contention makes the whole server freeze up.
+    pub apply: u8,
+    /// Maximum number of "apply parts" tasks that can be performed in parallel
+    /// during catchup. We set this to a very low value to avoid overloading the
+    /// node while it is still performing normal tasks.
+    pub apply_during_catchup: u8,
+    /// Maximum number of outstanding requests for decentralized state sync.
+    pub peer_downloads: u8,
+    /// The maximum parallelism to use per shard. This is mostly for fairness, because
+    /// the actual rate limiting is done by the TaskTrackers, but this is useful for
+    /// balancing the shards a little.
+    pub per_shard: u8,
+}
+
+impl Default for SyncConcurrency {
+    fn default() -> Self {
+        const NUM_CONCURRENT_REQUESTS_FOR_PEERS: u8 = 10;
+        const NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION: u8 = 4;
+        const NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION_DURING_CATCHUP: u8 = 1;
+        const MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS: u8 = 6;
+        Self {
+            apply: NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION,
+            apply_during_catchup: NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION_DURING_CATCHUP,
+            peer_downloads: NUM_CONCURRENT_REQUESTS_FOR_PEERS,
+            per_shard: MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS,
+        }
+    }
+}
+
+impl SyncConcurrency {
+    fn is_default(&self) -> bool {
+        PartialEq::eq(&Self::default(), self)
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-/// Options for dumping state to S3.
 pub struct StateSyncConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// `none` value disables state dump to external storage.
     pub dump: Option<DumpConfig>,
     #[serde(skip_serializing_if = "SyncConfig::is_default", default = "SyncConfig::default")]
     pub sync: SyncConfig,
+    #[serde(
+        skip_serializing_if = "SyncConcurrency::is_default",
+        default = "SyncConcurrency::default"
+    )]
+    pub concurrency: SyncConcurrency,
 }
 
 impl StateSyncConfig {
     pub fn gcs_default() -> Self {
         Self {
-            dump: None,
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location: GCS { bucket: "state-parts".to_string() },
                 num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
@@ -261,14 +313,8 @@ impl StateSyncConfig {
                     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
                 external_storage_fallback_threshold: DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD,
             }),
+            ..Default::default()
         }
-    }
-}
-
-impl SyncConfig {
-    /// Checks whether the object equals its default value.
-    fn is_default(&self) -> bool {
-        matches!(self, Self::Peers)
     }
 }
 

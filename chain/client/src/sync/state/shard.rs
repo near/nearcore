@@ -45,11 +45,6 @@ impl Drop for StateSyncShardHandle {
     }
 }
 
-/// The maximum parallelism to use per shard. This is mostly for fairness, because
-/// the actual rate limiting is done by the TaskTrackers, but this is useful for
-/// balancing the shards a little.
-const MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS: usize = 6;
-
 macro_rules! return_if_cancelled {
     ($cancel:expr) => {
         if $cancel.is_cancelled() {
@@ -73,6 +68,7 @@ pub(super) async fn run_state_sync_for_shard(
     >,
     cancel: CancellationToken,
     future_spawner: Arc<dyn FutureSpawner>,
+    concurrency_limit: u8,
 ) -> Result<(), near_chain::Error> {
     tracing::info!("Running state sync for shard {}", shard_id);
     *status.lock() = ShardSyncStatus::StateDownloadHeader;
@@ -118,7 +114,7 @@ pub(super) async fn run_state_sync_for_shard(
                 );
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
             })
-            .buffered(MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS)
+            .buffered(concurrency_limit.into())
             .collect::<Vec<_>>()
             .await;
         attempt_count += 1;
@@ -162,7 +158,7 @@ pub(super) async fn run_state_sync_for_shard(
             );
             respawn_for_parallelism(&*future_spawner, "state sync apply part", future)
         })
-        .buffer_unordered(MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS)
+        .buffer_unordered(concurrency_limit.into())
         .try_collect::<Vec<_>>()
         .await?;
 
