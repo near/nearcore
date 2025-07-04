@@ -31,6 +31,7 @@ near-client.workspace = true
 near-client-primitives.workspace = true
 node-runtime.workspace = true
 
+pid-lite.workspace = true
 rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
