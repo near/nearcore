@@ -134,7 +134,7 @@ impl StateSync {
                     }
                     ExternalStorageLocation::GCS { bucket, .. } => ExternalConnection::GCS {
                         gcs_client: Arc::new(
-                            object_store::gcp::GoogleCloudStorageBuilder::new()
+                            object_store::gcp::GoogleCloudStorageBuilder::from_env()
                                 .with_bucket_name(bucket)
                                 .build()
                                 .unwrap(),
