@@ -103,6 +103,7 @@ impl StateSyncDumper {
             &self.chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
+            self.validator.clone(),
         )
         .unwrap();
         if let Some(shards) = dump_config.restart_dump_for_shards.as_ref() {
@@ -122,7 +123,6 @@ impl StateSyncDumper {
                 chain_id,
                 external,
                 dump_config.iteration_delay.unwrap_or(Duration::seconds(10)),
-                self.validator.clone(),
                 handle.clone(),
                 self.future_spawner.clone(),
             )
@@ -350,7 +350,6 @@ enum NewDump {
 struct StateDumper {
     clock: Clock,
     chain_id: String,
-    validator: MutableValidatorSigner,
     shard_tracker: ShardTracker,
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -628,7 +627,6 @@ impl StateDumper {
     fn new(
         clock: Clock,
         chain_id: String,
-        validator: MutableValidatorSigner,
         shard_tracker: ShardTracker,
         chain: Chain,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -639,7 +637,6 @@ impl StateDumper {
         Self {
             clock,
             chain_id,
-            validator,
             shard_tracker,
             chain,
             epoch_manager,
@@ -750,17 +747,10 @@ impl StateDumper {
             .shard_ids(sync_header.epoch_id())
             .with_context(|| format!("Failed getting shard IDs {:?}", sync_header.epoch_id()))?;
 
-        let v = self.validator.get();
-        let account_id = v.as_ref().map(|v| v.validator_id());
         let mut dump_state = HashMap::new();
         let mut senders = HashMap::new();
         for shard_id in shard_ids {
-            if !self.shard_tracker.cares_about_shard(
-                account_id,
-                sync_header.prev_hash(),
-                shard_id,
-                true,
-            ) {
+            if !self.shard_tracker.cares_about_shard(sync_header.prev_hash(), shard_id) {
                 tracing::debug!(
                     target: "state_sync_dump", epoch_height = %epoch_info.epoch_height(), epoch_id = ?sync_header.epoch_id(), %shard_id,
                     "Not dumping state for non-tracked shard."
@@ -1014,7 +1004,6 @@ async fn state_sync_dump(
     chain_id: String,
     external: ExternalConnection,
     iteration_delay: Duration,
-    validator: MutableValidatorSigner,
     keep_running: &AtomicBool,
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> anyhow::Result<()> {
@@ -1023,7 +1012,6 @@ async fn state_sync_dump(
     let mut dumper = StateDumper::new(
         clock.clone(),
         chain_id,
-        validator,
         shard_tracker,
         chain,
         epoch_manager,
@@ -1074,7 +1062,6 @@ async fn do_state_sync_dump(
     chain_id: String,
     external: ExternalConnection,
     iteration_delay: Duration,
-    validator: MutableValidatorSigner,
     handle: Arc<StateSyncDumpHandle>,
     future_spawner: Arc<dyn FutureSpawner>,
 ) {
@@ -1093,7 +1080,6 @@ async fn do_state_sync_dump(
         chain_id,
         external,
         iteration_delay,
-        validator,
         &handle.keep_running,
         future_spawner,
     )

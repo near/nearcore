@@ -18,11 +18,9 @@ use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE};
 use near_client::test_utils::create_chunk_on_height;
-use near_client::{
-    BlockApproval, BlockResponse, GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult,
-    SetNetworkInfo,
-};
+use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
+use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::{MockPeerManagerAdapter, wait_or_panic};
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
@@ -31,10 +29,11 @@ use near_network::types::{
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerInfo, ReasonForBan};
 use near_o11y::WithSpanContextExt;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_primitives::block::Approval;
+use near_primitives::block::{Approval, Chunks};
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::genesis::GenesisId;
@@ -169,6 +168,7 @@ fn receive_network_block() {
                     peer_id: PeerInfo::random().id,
                     was_requested: false,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
             future::ready(())
@@ -261,6 +261,7 @@ fn produce_block_with_approvals() {
                     peer_id: PeerInfo::random().id,
                     was_requested: false,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
 
@@ -278,9 +279,9 @@ fn produce_block_with_approvals() {
                     10, // the height at which "test1" is producing
                     &signer,
                 );
-                actor_handles
-                    .client_actor
-                    .do_send(BlockApproval(approval, PeerInfo::random().id).with_span_context());
+                actor_handles.client_actor.do_send(
+                    BlockApproval(approval, PeerInfo::random().id).span_wrap().with_span_context(),
+                );
             }
 
             future::ready(())
@@ -373,6 +374,7 @@ fn invalid_blocks_common(is_requested: bool) {
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
 
@@ -386,12 +388,13 @@ fn invalid_blocks_common(is_requested: bool) {
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
 
             // Send block with invalid chunk signature
             let mut block = valid_block.clone();
-            let mut chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
+            let mut chunks: Vec<_> = block.chunks().iter_raw().cloned().collect();
             let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
             match &mut chunks[0] {
                 ShardChunkHeader::V1(chunk) => {
@@ -411,6 +414,7 @@ fn invalid_blocks_common(is_requested: bool) {
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
 
@@ -422,6 +426,7 @@ fn invalid_blocks_common(is_requested: bool) {
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
+                .span_wrap()
                 .with_span_context(),
             );
             if is_requested {
@@ -434,6 +439,7 @@ fn invalid_blocks_common(is_requested: bool) {
                         peer_id: PeerInfo::random().id,
                         was_requested: is_requested,
                     }
+                    .span_wrap()
                     .with_span_context(),
                 );
             }
@@ -546,6 +552,7 @@ fn client_sync_headers() {
                 tier1_accounts_keys: vec![],
                 tier1_accounts_data: vec![],
             })
+            .span_wrap()
             .with_span_context(),
         );
         wait_or_panic(2000);
@@ -804,7 +811,7 @@ fn test_bad_chunk_mask() {
     let shard_id = s0;
 
     let tip = env.clients[0].chain.get_block_by_height(0).unwrap();
-    for chunk_header in tip.chunks().iter_raw() {
+    for chunk_header in tip.chunks().iter() {
         tracing::info!(target: "test", ?chunk_header, "chunk header");
     }
 
@@ -838,14 +845,13 @@ fn test_bad_chunk_mask() {
             chunk_headers[0] = chunk_header;
             let mut_block = Arc::make_mut(&mut block);
             mut_block.set_chunks(chunk_headers.clone());
-            mut_block
-                .mut_header()
-                .set_chunk_headers_root(Block::compute_chunk_headers_root(&chunk_headers).0);
-            mut_block.mut_header().set_chunk_tx_root(Block::compute_chunk_tx_root(&chunk_headers));
+            let chunks = Chunks::from_chunk_headers(&chunk_headers, mut_block.header().height());
+            mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+            mut_block.mut_header().set_chunk_tx_root(chunks.compute_chunk_tx_root());
             mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-                Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers),
+                chunks.compute_chunk_prev_outgoing_receipts_root(),
             );
-            mut_block.mut_header().set_prev_state_root(Block::compute_state_root(&chunk_headers));
+            mut_block.mut_header().set_prev_state_root(chunks.compute_state_root());
             mut_block.mut_header().set_chunk_mask(vec![true, false]);
             let mess_with_chunk_mask = height == 4;
             if mess_with_chunk_mask {
@@ -1001,7 +1007,7 @@ fn test_archival_save_trie_changes() {
         // Go through chunks and test that trie changes were correctly saved to the store.
         let chunks = block.chunks();
         let version = shard_layout.version();
-        for chunk in chunks.iter_deprecated() {
+        for chunk in chunks.iter() {
             let shard_id = chunk.shard_id();
             let shard_uid = ShardUId::new(version, shard_id);
 
@@ -1560,7 +1566,6 @@ fn test_gc_tail_update() {
     env.clients[1]
         .chain
         .reset_heads_post_state_sync(
-            &None,
             *sync_block.hash(),
             &mut BlockProcessingArtifact::default(),
             None,
@@ -1948,20 +1953,18 @@ fn test_validate_chunk_extra() {
         let chunk_headers = vec![chunk_header.clone()];
         let mut_block = Arc::make_mut(block);
         mut_block.set_chunks(chunk_headers.clone());
-        mut_block
-            .mut_header()
-            .set_chunk_headers_root(Block::compute_chunk_headers_root(&chunk_headers).0);
-        mut_block.mut_header().set_chunk_tx_root(Block::compute_chunk_tx_root(&chunk_headers));
+        let chunks = Chunks::from_chunk_headers(&chunk_headers, mut_block.header().height());
+        mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+        mut_block.mut_header().set_chunk_tx_root(chunks.compute_chunk_tx_root());
         mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers),
+            chunks.compute_chunk_prev_outgoing_receipts_root(),
         );
-        mut_block.mut_header().set_prev_state_root(Block::compute_state_root(&chunk_headers));
+        mut_block.mut_header().set_prev_state_root(chunks.compute_state_root());
         mut_block.mut_header().set_chunk_mask(vec![true]);
         mut_block
             .mut_header()
             .set_chunk_endorsements(ChunkEndorsementsBitmap::from_endorsements(vec![vec![true]]));
-        let outcome_root = Block::compute_outcome_root(mut_block.chunks().iter_deprecated());
-        mut_block.mut_header().set_prev_outcome_root(outcome_root);
+        mut_block.mut_header().set_prev_outcome_root(chunks.compute_outcome_root());
         let endorsement =
             ChunkEndorsement::new(EpochId::default(), &chunk_header, &validator_signer);
         mut_block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]]);
@@ -1992,7 +1995,7 @@ fn test_validate_chunk_extra() {
         .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-    env.clients[0].process_blocks_with_missing_chunks(None, &signer);
+    env.clients[0].process_blocks_with_missing_chunks(None);
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
     env.resume_block_processing(block2.hash());
@@ -2264,6 +2267,48 @@ fn test_block_execution_outcomes() {
         .unwrap();
     assert_eq!(execution_outcomes_from_block.len(), 1);
     assert!(execution_outcomes_from_block[0].outcome_with_id.id == delayed_receipt_id[0]);
+}
+
+#[test]
+fn test_save_tx_outcomes_false() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let min_gas_price = 10000;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.min_gas_price = min_gas_price;
+    genesis.config.gas_limit = 1000000000000;
+    let mut env = TestEnv::builder(&genesis.config)
+        .save_tx_outcomes(false)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let mut tx_hashes = vec![];
+    for i in 0..3 {
+        // send transaction to the same account to generate local receipts
+        let tx = SignedTransaction::send_money(
+            i + 1,
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
+            &signer,
+            1,
+            *genesis_block.hash(),
+        );
+        tx_hashes.push(tx.get_hash());
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    }
+    for i in 1..4 {
+        env.produce_block(0, i);
+    }
+
+    // Check that the execution outcomes are not saved in the chain store.
+    for id in tx_hashes {
+        let execution_outcome = env.clients[0].chain.get_execution_outcome(&id);
+        assert_matches!(execution_outcome, Err(Error::DBNotFoundErr(_)));
+    }
 }
 
 // This test verifies that gas consumed for processing refund receipts is taken into account
@@ -2842,14 +2887,13 @@ fn test_fork_receipt_ids() {
         let chunk_headers = vec![chunk_header];
         let mut_block = Arc::make_mut(block);
         mut_block.set_chunks(chunk_headers.clone());
-        mut_block
-            .mut_header()
-            .set_chunk_headers_root(Block::compute_chunk_headers_root(&chunk_headers).0);
-        mut_block.mut_header().set_chunk_tx_root(Block::compute_chunk_tx_root(&chunk_headers));
+        let chunks = Chunks::from_chunk_headers(&chunk_headers, mut_block.header().height());
+        mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+        mut_block.mut_header().set_chunk_tx_root(chunks.compute_chunk_tx_root());
         mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers),
+            chunks.compute_chunk_prev_outgoing_receipts_root(),
         );
-        mut_block.mut_header().set_prev_state_root(Block::compute_state_root(&chunk_headers));
+        mut_block.mut_header().set_prev_state_root(chunks.compute_state_root());
         mut_block.mut_header().set_chunk_mask(vec![true]);
         mut_block.mut_header().resign(&validator_signer);
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
@@ -2900,14 +2944,13 @@ fn test_fork_execution_outcome() {
         let chunk_headers = vec![chunk_header];
         let mut_block = Arc::make_mut(block);
         mut_block.set_chunks(chunk_headers.clone());
-        mut_block
-            .mut_header()
-            .set_chunk_headers_root(Block::compute_chunk_headers_root(&chunk_headers).0);
-        mut_block.mut_header().set_chunk_tx_root(Block::compute_chunk_tx_root(&chunk_headers));
+        let chunks = Chunks::from_chunk_headers(&chunk_headers, mut_block.header().height());
+        mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+        mut_block.mut_header().set_chunk_tx_root(chunks.compute_chunk_tx_root());
         mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers),
+            chunks.compute_chunk_prev_outgoing_receipts_root(),
         );
-        mut_block.mut_header().set_prev_state_root(Block::compute_state_root(&chunk_headers));
+        mut_block.mut_header().set_prev_state_root(chunks.compute_state_root());
         mut_block.mut_header().set_chunk_mask(vec![true]);
         mut_block.mut_header().resign(&validator_signer);
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();

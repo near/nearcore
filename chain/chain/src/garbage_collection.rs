@@ -14,7 +14,8 @@ use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{
-    get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, index_to_bytes,
+    get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, get_receipt_proof_key,
+    index_to_bytes,
 };
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -296,7 +297,7 @@ impl ChainStore {
         };
         let final_block_chunk_created_heights: HashMap<_, _> = final_block
             .chunks()
-            .iter_raw()
+            .iter()
             .map(|chunk| (chunk.shard_id(), chunk.height_created()))
             .collect();
 
@@ -344,10 +345,10 @@ impl ChainStore {
         Ok(())
     }
 
-    /// Garbage collect data which archival node doesn’t need to keep.
+    /// Garbage collect data which archival node doesn't need to keep.
     ///
     /// Normally, archival nodes keep all the data from the genesis block and
-    /// don’t run garbage collection.  On the other hand, for better performance
+    /// don't run garbage collection.  On the other hand, for better performance
     /// the storage contains some data duplication, i.e. values in some of the
     /// columns can be recomputed from data in different columns.  To save on
     /// storage, archival nodes do garbage collect that data.
@@ -578,7 +579,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// safely removed from archival storage.
     ///
     /// `gc_stop_height` indicates height starting from which no data should be
-    /// garbage collected.  Roughly speaking this represents start of the ‘hot’
+    /// garbage collected.  Roughly speaking this represents start of the 'hot'
     /// data that we want to keep.
     ///
     /// `gt_height_limit` indicates limit of how many non-empty heights to
@@ -599,9 +600,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 for chunk_hash in chunk_hashes {
                     let chunk_hash = chunk_hash.as_bytes();
                     self.gc_col(DBCol::PartialChunks, chunk_hash);
-                    // Data in DBCol::InvalidChunks isn’t technically redundant (it
+                    // Data in DBCol::InvalidChunks isn't technically redundant (it
                     // cannot be calculated from other data) but it is data we
-                    // don’t need for anything so it can be deleted as well.
+                    // don't need for anything so it can be deleted as well.
                     self.gc_col(DBCol::InvalidChunks, chunk_hash);
                 }
             }
@@ -667,6 +668,15 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
             self.gc_col(DBCol::ChunkApplyStats, &block_shard_id);
 
+            if cfg!(feature = "protocol_feature_spice") {
+                for to_shard_id in shard_layout.shard_ids() {
+                    self.gc_col(
+                        DBCol::receipt_proofs(),
+                        &get_receipt_proof_key(&block_hash, shard_id, to_shard_id),
+                    );
+                }
+            }
+
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is mostly for outgoing State Parts.
             // However, if node crashes while State Syncing, it may never clear
@@ -721,7 +731,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 6. Canonical Chain only clearing
                 // Delete chunks, chunk-indexed data and block headers
                 let mut min_chunk_height = self.tail()?;
-                for chunk_header in block.chunks().iter_deprecated() {
+                for chunk_header in block.chunks().iter() {
                     if min_chunk_height > chunk_header.height_created() {
                         min_chunk_height = chunk_header.height_created();
                     }
@@ -940,11 +950,7 @@ impl<'a> ChainStoreUpdate<'a> {
     fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
         let store_update = self.store().store_update();
-        for chunk_header in block
-            .chunks()
-            .iter_deprecated()
-            .filter(|h| h.height_included() == block.header().height())
-        {
+        for chunk_header in block.chunks().iter_new() {
             // It is ok to use the shard id from the header because it is a new
             // chunk. An old chunk may have the shard id from the parent shard.
             let shard_id = chunk_header.shard_id();
@@ -1070,6 +1076,10 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ChunkApplyStats => {
+                store_update.delete(col, key);
+            }
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ReceiptProofs => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion

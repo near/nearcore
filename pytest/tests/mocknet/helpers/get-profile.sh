@@ -25,9 +25,10 @@ perf record -e cpu-clock -F 1000 -g --call-graph dwarf,65528 \
   -p "$pid" -o "$HOME/perf.data" -- sleep "$record_secs" 2>/dev/null
 
 # 5. Convert to script
-echo "📜 Converting perf.data to perf.script..."
-perf script -F +pid -i "$HOME/perf.data" > "$HOME/perf.script" 2>/dev/null
+output_file="$HOME/perf-$(hostname).script"
+echo "📜 Converting perf.data to ${output_file}"
+perf script -F +pid -i "$HOME/perf.data" > "${output_file}" 2>/dev/null
 
 # 6. Compress
-gzip -f "$HOME/perf.script"
-echo "✅ Done: $HOME/perf.script.gz"
+gzip -f "${output_file}"
+echo "✅ Done: ${output_file}.gz"

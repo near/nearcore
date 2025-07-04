@@ -1,15 +1,14 @@
-use crate::chain::ApplyChunksDoneMessage;
+use crate::chain::ApplyChunksDoneSender;
 use crate::missing_chunks::BlockLike;
 use crate::{BlockProcessingArtifact, Chain, Provenance, metrics};
 use lru::LruCache;
-use near_async::messaging::Sender;
 use near_async::time::{Duration, Instant};
 use near_chain_primitives::Error;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::types::{AccountId, BlockHeight, EpochId};
+use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::MaybeValidated;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -322,7 +321,6 @@ impl Chain {
     /// 6) The orphan has missing chunks
     pub fn should_request_chunks_for_orphan(
         &mut self,
-        me: &Option<AccountId>,
         orphan: &Block,
     ) -> Option<OrphanMissingChunks> {
         // 1) Orphans that with outstanding missing chunks request has not exceed `MAX_ORPHAN_MISSING_CHUNKS`
@@ -349,7 +347,7 @@ impl Chain {
                     // 5) The next block of `ancestor` has the same epoch_id as the orphan block
                     if &epoch_id == orphan.header().epoch_id() {
                         // 6) The orphan has missing chunks
-                        if let Err(e) = self.ping_missing_chunks(me, block_hash, orphan) {
+                        if let Err(e) = self.ping_missing_chunks(block_hash, orphan) {
                             return match e {
                                 Error::ChunksMissing(missing_chunks) => {
                                     debug!(target:"chain", "Request missing chunks for orphan {:?} {:?}", orphan.hash(), missing_chunks.iter().map(|chunk|{(chunk.shard_id(), chunk.chunk_hash())}).collect::<Vec<_>>());
@@ -386,10 +384,9 @@ impl Chain {
     /// `on_challenge`: callback to be called when an orphan should be challenged
     pub fn check_orphans(
         &mut self,
-        me: &Option<AccountId>,
         prev_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
         let _span = debug_span!(
             target: "chain",
@@ -404,8 +401,7 @@ impl Chain {
             self.orphans.get_orphans_within_depth(prev_hash, NUM_ORPHAN_ANCESTORS_CHECK);
         for orphan_hash in orphans_to_check {
             let orphan = self.orphans.get(&orphan_hash).unwrap().block.clone();
-            if let Some(orphan_missing_chunks) = self.should_request_chunks_for_orphan(me, &orphan)
-            {
+            if let Some(orphan_missing_chunks) = self.should_request_chunks_for_orphan(&orphan) {
                 block_processing_artifacts.orphans_missing_chunks.push(orphan_missing_chunks);
                 self.orphans.mark_missing_chunks_requested_for_orphan(orphan_hash);
             }
@@ -416,7 +412,6 @@ impl Chain {
                 let block_hash = orphan.hash();
                 self.blocks_delay_tracker.mark_block_unorphaned(&block_hash);
                 let res = self.start_process_block_async(
-                    me,
                     orphan.block,
                     orphan.provenance,
                     block_processing_artifacts,
@@ -434,7 +429,7 @@ impl Chain {
         }
         if let Some(optimistic_block) = self.orphans.remove_optimistic(&prev_hash) {
             debug!(target: "chain", ?optimistic_block, "Check optimistic orphan");
-            self.preprocess_optimistic_block(optimistic_block, me, apply_chunks_done_sender);
+            self.preprocess_optimistic_block(optimistic_block, apply_chunks_done_sender);
         }
     }
 

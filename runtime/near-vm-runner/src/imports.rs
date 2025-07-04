@@ -85,6 +85,12 @@ imports! {
     // # Finite-wasm internals #
     // #########################
     @in internal: finite_wasm_gas<[gas: u64] -> []>,
+    @in internal: finite_wasm_memory_copy<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
+    @in internal: finite_wasm_memory_fill<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
+    @in internal: finite_wasm_memory_init<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
+    @in internal: finite_wasm_table_copy<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
+    @in internal: finite_wasm_table_fill<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
+    @in internal: finite_wasm_table_init<[cnt: u32, lin: u64, constant: u64] -> [u32]>,
     @in internal: finite_wasm_stack<[operand_size: u64, frame_size: u64] -> []>,
     @in internal: finite_wasm_unstack<[operand_size: u64, frame_size: u64] -> []>,
     // #############

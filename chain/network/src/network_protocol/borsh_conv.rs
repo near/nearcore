@@ -254,8 +254,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
                     net::PeerMessage::RoutedV3(r)
                 } else {
-                    let msg = r.msg_v1();
-                    net::PeerMessage::Routed(Box::new(msg))
+                    net::PeerMessage::Routed(Box::new(r.msg_v1()))
                 }
             }
             mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::setup::builder::TestLoopBuilder;
 use itertools::Itertools as _;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
@@ -8,14 +9,13 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::BlockResponse;
 use near_crypto::{KeyType, PublicKey};
 use near_network::types::{NetworkRequests, ReasonForBan};
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
 use parking_lot::RwLock;
-
-use crate::setup::builder::TestLoopBuilder;
 
 #[derive(Clone)]
 enum InvalidBlockMode {
@@ -189,7 +189,7 @@ fn test_produce_block_with_approvals_arrived_early() {
     let client = &env.test_loop.data.get(&client_actor_handle).client;
     let epoch_manager = client.epoch_manager.clone();
 
-    let block_holder: Arc<RwLock<Option<BlockResponse>>> = Arc::new(RwLock::new(None));
+    let block_holder: Arc<RwLock<Option<SpanWrapped<BlockResponse>>>> = Arc::new(RwLock::new(None));
     let approval_counter: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
     let client_senders: HashMap<_, _> = env
         .node_datas
@@ -233,17 +233,23 @@ fn test_produce_block_with_approvals_arrived_early() {
                             {
                                 continue;
                             }
-                            sender.send(BlockResponse {
+                            sender.send(
+                                BlockResponse {
+                                    block: block.clone(),
+                                    peer_id: peer_id.clone(),
+                                    was_requested: false,
+                                }
+                                .span_wrap(),
+                            );
+                        }
+                        *block_holder.write() = Some(
+                            BlockResponse {
                                 block: block.clone(),
                                 peer_id: peer_id.clone(),
                                 was_requested: false,
-                            });
-                        }
-                        *block_holder.write() = Some(BlockResponse {
-                            block: block.clone(),
-                            peer_id: peer_id.clone(),
-                            was_requested: false,
-                        });
+                            }
+                            .span_wrap(),
+                        );
                         return None;
                     }
                     Some(request)

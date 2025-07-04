@@ -125,7 +125,7 @@ impl crate::ChainAccess for ChainAccess {
             .with_context(|| format!("Can't get block {} at height {}", &block_hash, height))?;
 
         let mut chunks = Vec::new();
-        for chunk in block.chunks().iter_deprecated() {
+        for chunk in block.chunks().iter() {
             let chunk = match self.chain.get_chunk(&chunk.chunk_hash()) {
                 Ok(c) => c,
                 Err(e) => {

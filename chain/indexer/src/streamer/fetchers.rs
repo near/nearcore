@@ -14,13 +14,18 @@ use near_primitives::{types, views};
 use super::INDEXER;
 use super::errors::FailedToFetchData;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 
 pub(crate) async fn fetch_status(
     client: &Addr<near_client::ClientActor>,
 ) -> Result<near_primitives::views::StatusResponse, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching status");
     client
-        .send(near_client::Status { is_health_check: false, detailed: false }.with_span_context())
+        .send(
+            near_client::Status { is_health_check: false, detailed: false }
+                .span_wrap()
+                .with_span_context(),
+        )
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -170,7 +175,7 @@ pub(crate) async fn fetch_block_new_chunks(
         .chunks
         .iter()
         .filter(|chunk| {
-            shard_tracker.cares_about_shard(None, &block.header.prev_hash, chunk.shard_id, false)
+            shard_tracker.cares_about_shard(&block.header.prev_hash, chunk.shard_id)
                 && chunk.is_new_chunk(block.header.height)
         })
         .map(|chunk| fetch_single_chunk(&client, chunk.chunk_hash))

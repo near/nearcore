@@ -1,15 +1,20 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::ONE_NEAR;
+use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::client_actor::ClientActorInner;
-use near_client::{BlockApproval, BlockResponse};
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::NetworkRequests;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
@@ -18,11 +23,6 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumSeats};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
-use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 
 /// Rotates three independent sets of block producers producing blocks with a very short epoch length.
 /// Occasionally when an endorsement comes, make all the endorsers send a skip message far-ish into
@@ -150,11 +150,14 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         }
                         if delayed_block.header().height() <= block.header().height() + 2 {
                             for (_, sender) in &handler.client_senders {
-                                sender.send(BlockResponse {
-                                    block: delayed_block.clone().into(),
-                                    peer_id: peer_id.clone(),
-                                    was_requested: true,
-                                });
+                                sender.send(
+                                    BlockResponse {
+                                        block: delayed_block.clone().into(),
+                                        peer_id: peer_id.clone(),
+                                        was_requested: true,
+                                    }
+                                    .span_wrap(),
+                                );
                             }
                         } else {
                             new_delayed_blocks.push(delayed_block.clone())
@@ -259,7 +262,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                             .get_block_producer(&handler.current_epoch, target_height)
                             .unwrap();
                         let sender = handler.client_senders.get(&recipient).unwrap();
-                        sender.send(BlockApproval(approval, peer_id.clone()));
+                        sender.send(BlockApproval(approval, peer_id.clone()).span_wrap());
 
                         // Do not send the endorsement for couple block producers in each epoch
                         // This is needed because otherwise the block with enough endorsements
