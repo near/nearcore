@@ -339,7 +339,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                             target: MF::some(r.target().into()),
                             author: MF::some(r.author().public_key().into()),
                             ttl: r.ttl() as u32,
-                            borsh_body: borsh::to_vec(&r.tiered_body()).unwrap(),
+                            borsh_body: borsh::to_vec(r.body()).unwrap(),
                             signature: MF::from_option(r.signature().map(|s| s.into())),
                             created_at: r.created_at(),
                             num_hops: r.num_hops(),

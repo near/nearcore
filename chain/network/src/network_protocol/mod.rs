@@ -1239,14 +1239,6 @@ impl RoutedMessage {
         msg.body
     }
 
-    pub fn tiered_body(&self) -> TieredMessageBody {
-        match self {
-            RoutedMessage::V1(msg) => TieredMessageBody::from_routed(msg.body.clone()),
-            RoutedMessage::V2(msg) => TieredMessageBody::from_routed(msg.msg.body.clone()),
-            RoutedMessage::V3(msg) => msg.body.clone(),
-        }
-    }
-
     pub fn created_at(&self) -> Option<i64> {
         match self {
             RoutedMessage::V1(_) => None,
