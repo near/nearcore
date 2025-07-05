@@ -102,6 +102,7 @@ members = [
     "tools/state-parts-dump-check",
     "tools/state-viewer",
     "tools/storage-usage-delta-calculator",
+    "tools/actix-bench",
     "tools/themis",
     "tools/undo-block",
     "utils/config",
