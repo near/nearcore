@@ -6,7 +6,7 @@ use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{NonceIndex, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 
@@ -311,6 +311,8 @@ pub enum InvalidAccessKeyError {
     },
     /// Having a deposit with a function call action is not allowed with a function call access key.
     DepositWithFunctionCall,
+    /// For gas key only, the nonce index must be less than the number of nonces associated with the key.
+    NonceIndexTooLarge { requested_index: NonceIndex, num_nonces: NonceIndex },
 }
 
 /// Describes the error for validating a list of actions.
@@ -360,6 +362,10 @@ pub enum ActionsValidationError {
     /// `ProtocolFeature` here because we don't want to leak the internals of
     /// that type into observable borsh serialization.
     UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion },
+    /// When adding a gas key with the FunctionCall permission, the allowance must not be specified.
+    AddGasKeyAllowanceNotAllowed,
+    /// Gas keys must have at least one nonce.
+    AddGasKeyZeroNonces,
 }
 
 /// Describes the error for validating a receipt.
@@ -466,6 +472,15 @@ impl Display for ActionsValidationError {
                 "The length of some method name {} exceeds the maximum allowed length {} in a AddKey action",
                 length, limit
             ),
+            ActionsValidationError::AddGasKeyAllowanceNotAllowed => {
+                write!(
+                    f,
+                    "The allowance must not be specified for a FunctionCall permission in AddGasKeyAction"
+                )
+            }
+            ActionsValidationError::AddGasKeyZeroNonces => {
+                write!(f, "Gas keys must have at least one nonce")
+            }
             ActionsValidationError::IntegerOverflow => {
                 write!(f, "Integer overflow during a compute",)
             }
@@ -578,12 +593,12 @@ pub enum ActionErrorKind {
         account_id: AccountId,
         actor_id: AccountId,
     },
-    /// Account tries to remove an access key that doesn't exist
+    /// Account tries to remove an access key or gas key that doesn't exist
     DeleteKeyDoesNotExist {
         account_id: AccountId,
         public_key: Box<PublicKey>,
     },
-    /// The public key is already used for an existing access key
+    /// The public key is already used for an existing access key or gas key
     AddKeyAlreadyExists {
         account_id: AccountId,
         public_key: Box<PublicKey>,
@@ -668,6 +683,14 @@ pub enum ActionErrorKind {
     },
     GlobalContractDoesNotExist {
         identifier: GlobalContractIdentifier,
+    },
+    /// The number of nonces in the DeleteGasKeyAction does not match the number of nonces in the
+    /// gas key.
+    DeleteGasKeyNumNoncesMismatch {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+        action_num_nonces: NonceIndex,
+        actual_num_nonces: NonceIndex,
     },
 }
 
@@ -802,6 +825,13 @@ impl Display for InvalidAccessKeyError {
                     "Having a deposit with a function call action is not allowed with a function call access key."
                 )
             }
+            InvalidAccessKeyError::NonceIndexTooLarge { requested_index, num_nonces } => {
+                write!(
+                    f,
+                    "When using a gas key, the specified nonce index ({}) must be less than the total number of nonces ({})",
+                    requested_index, num_nonces
+                )
+            }
         }
     }
 }
@@ -907,6 +937,16 @@ impl Display for ActionErrorKind {
                 f,
                 "The public key {:?} is already used for an existing access key",
                 public_key
+            ),
+            ActionErrorKind::DeleteGasKeyNumNoncesMismatch {
+                account_id,
+                public_key,
+                action_num_nonces,
+                actual_num_nonces,
+            } => write!(
+                f,
+                "Account {:?} tries to delete a gas key with public key {:?} that has {} nonces, but the action specifies {} nonces",
+                account_id, public_key, actual_num_nonces, action_num_nonces
             ),
             ActionErrorKind::DeleteAccountStaking { account_id } => {
                 write!(f, "Account {:?} is staking and can not be deleted", account_id)

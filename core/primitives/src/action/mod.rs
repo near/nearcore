@@ -15,6 +15,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::trie_key::GlobalContractCodeIdentifier;
+use near_primitives_core::account::AccessKeyPermission;
+use near_primitives_core::types::NonceIndex;
 
 pub fn base64(s: &[u8]) -> String {
     use base64::Engine;
@@ -38,6 +40,48 @@ pub struct AddKeyAction {
     pub public_key: PublicKey,
     /// An access key with the permission
     pub access_key: AccessKey,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct AddGasKeyAction {
+    /// Public key which is used to authenticate transactions using the new gas key.
+    pub public_key: PublicKey,
+    /// Number of nonces this gas key has. The nonce indexes will be 0, 1, ..., N - 1.
+    pub num_nonces: NonceIndex,
+    /// The permissions associated with this gas key.
+    pub permission: AccessKeyPermission,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct FundGasKeyAction {
+    /// The gas key to fund.
+    pub public_key: PublicKey,
+    /// The amount of balance to fund the gas key with.
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    pub deposit: Balance,
 }
 
 /// Create account action
@@ -86,6 +130,27 @@ pub struct DeleteAccountAction {
 pub struct DeleteKeyAction {
     /// A public key associated with the access_key to be deleted.
     pub public_key: PublicKey,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DeleteGasKeyAction {
+    /// The gas key to delete.
+    pub public_key: PublicKey,
+    /// The number of nonces in the gas key. This must match the number of nonces actually in the
+    /// gas key. This field is used to compute the cost of the gas key deletion without having to
+    /// query the gas key.
+    pub num_nonces: NonceIndex,
 }
 
 /// Deploy contract action
@@ -334,6 +399,9 @@ pub enum Action {
     Delegate(Box<delegate::SignedDelegateAction>),
     DeployGlobalContract(DeployGlobalContractAction),
     UseGlobalContract(Box<UseGlobalContractAction>),
+    AddGasKey(Box<AddGasKeyAction>),
+    FundGasKey(Box<FundGasKeyAction>),
+    DeleteGasKey(Box<DeleteGasKeyAction>),
 }
 
 const _: () = assert!(
@@ -355,6 +423,7 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
+            Action::FundGasKey(a) => a.deposit,
             _ => 0,
         }
     }
@@ -402,9 +471,27 @@ impl From<AddKeyAction> for Action {
     }
 }
 
+impl From<AddGasKeyAction> for Action {
+    fn from(add_gas_key_action: AddGasKeyAction) -> Self {
+        Self::AddGasKey(Box::new(add_gas_key_action))
+    }
+}
+
+impl From<FundGasKeyAction> for Action {
+    fn from(fund_gas_key_action: FundGasKeyAction) -> Self {
+        Self::FundGasKey(Box::new(fund_gas_key_action))
+    }
+}
+
 impl From<DeleteKeyAction> for Action {
     fn from(delete_key_action: DeleteKeyAction) -> Self {
         Self::DeleteKey(Box::new(delete_key_action))
+    }
+}
+
+impl From<DeleteGasKeyAction> for Action {
+    fn from(delete_gas_key_action: DeleteGasKeyAction) -> Self {
+        Self::DeleteGasKey(Box::new(delete_gas_key_action))
     }
 }
 

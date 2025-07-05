@@ -14,7 +14,7 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransactionV0, TransactionV1, TransferAction,
+    TransactionNonce, TransactionV0, TransactionV1, TransactionV2, TransferAction,
 };
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
@@ -23,7 +23,7 @@ use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutio
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
-use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
+use near_primitives_core::types::{BlockHeight, MerkleHash, NonceIndex, ProtocolVersion};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
 use std::sync::Arc;
@@ -78,13 +78,20 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &mut tx.actions,
             Transaction::V1(tx) => &mut tx.actions,
+            Transaction::V2(tx) => &mut tx.actions,
         }
     }
 
-    pub fn nonce_mut(&mut self) -> &mut Nonce {
+    pub fn nonce_mut(&mut self) -> TransactionNonceMut<'_> {
         match self {
-            Transaction::V0(tx) => &mut tx.nonce,
-            Transaction::V1(tx) => &mut tx.nonce,
+            Transaction::V0(tx) => TransactionNonceMut::AccessKey { nonce: &mut tx.nonce },
+            Transaction::V1(tx) => TransactionNonceMut::AccessKey { nonce: &mut tx.nonce },
+            Transaction::V2(tx) => match &mut tx.nonce {
+                TransactionNonce::AccessKey { nonce } => TransactionNonceMut::AccessKey { nonce },
+                TransactionNonce::GasKey { nonce_index, nonce } => {
+                    TransactionNonceMut::GasKey { nonce_index: *nonce_index, nonce }
+                }
+            },
         }
     }
 
@@ -144,6 +151,11 @@ impl Transaction {
     }
 }
 
+pub enum TransactionNonceMut<'a> {
+    AccessKey { nonce: &'a mut Nonce },
+    GasKey { nonce_index: NonceIndex, nonce: &'a mut Nonce },
+}
+
 /// This block implements a set of helper functions to create transactions for testing purposes.
 impl SignedTransaction {
     /// Creates v0 for now because v1 is prohibited in the protocol.
@@ -182,6 +194,27 @@ impl SignedTransaction {
             nonce,
             signer_id,
             public_key: signer.public_key(),
+            receiver_id,
+            block_hash,
+            actions,
+            priority_fee,
+        })
+        .sign(signer)
+    }
+
+    pub fn from_actions_v2(
+        nonce: TransactionNonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        actions: Vec<Action>,
+        block_hash: CryptoHash,
+        priority_fee: u64,
+    ) -> Self {
+        Transaction::V2(TransactionV2 {
+            signer_id,
+            public_key: signer.public_key(),
+            nonce,
             receiver_id,
             block_hash,
             actions,

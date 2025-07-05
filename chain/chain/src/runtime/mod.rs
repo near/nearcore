@@ -32,8 +32,8 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewStateResult,
+    AccessKeyInfoView, CallResult, ContractCodeView, GasKeyInfoView, GasKeyView, QueryRequest,
+    QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
@@ -49,7 +49,7 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    get_signer_and_access_key, set_tx_state_changes, validate_transaction,
+    get_signer_and_key_state, set_tx_state_changes, validate_transaction,
     verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
@@ -560,11 +560,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
-        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)?;
+        let (mut signer, mut key_state) = get_signer_and_key_state(&state_update, &validated_tx)?;
         verify_and_charge_tx_ephemeral(
             runtime_config,
             &mut signer,
-            &mut access_key,
+            &mut key_state,
             validated_tx,
             &cost,
             // here we do not know which block the transaction will be included
@@ -699,8 +699,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let (mut signer, mut access_key) =
-                    get_signer_and_access_key(&state_update, &validated_tx)
+                let (mut signer, mut key_state) =
+                    get_signer_and_key_state(&state_update, &validated_tx)
                         .map_err(|_| Error::InvalidTransactions)?;
                 let verify_result = tx_cost(
                     runtime_config,
@@ -713,14 +713,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                     verify_and_charge_tx_ephemeral(
                         runtime_config,
                         &mut signer,
-                        &mut access_key,
+                        &mut key_state,
                         &validated_tx,
                         &cost,
                         Some(next_block_height),
                     )
                 })
                 .and_then(|verification_res| {
-                    set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
+                    set_tx_state_changes(&mut state_update, &validated_tx, &signer, &key_state);
                     Ok(verification_res)
                 });
 
@@ -998,6 +998,37 @@ impl RuntimeAdapter for NightshadeRuntime {
                     })?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::AccessKey(access_key.into()),
+                    block_height,
+                    block_hash: *block_hash,
+                })
+            }
+            QueryRequest::ViewGasKey { account_id, public_key, include_nonces } => {
+                let gas_key = self
+                    .view_gas_key(&shard_uid, *state_root, account_id, public_key, *include_nonces)
+                    .map_err(|err| {
+                        crate::near_chain_primitives::error::QueryError::from_view_gas_key_error(
+                            err,
+                            block_height,
+                            *block_hash,
+                        )
+                    })?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::GasKey(gas_key),
+                    block_height,
+                    block_hash: *block_hash,
+                })
+            }
+            QueryRequest::ViewGasKeyList { account_id } => {
+                let gas_key_list =
+                    self.view_gas_keys(&shard_uid, *state_root, account_id).map_err(|err| {
+                        crate::near_chain_primitives::error::QueryError::from_view_gas_key_error(
+                            err,
+                            block_height,
+                            *block_hash,
+                        )
+                    })?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::GasKeyList(gas_key_list.into()),
                     block_height,
                     block_hash: *block_hash,
                 })
@@ -1349,6 +1380,28 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
+    }
+
+    fn view_gas_key(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        include_nonces: bool,
+    ) -> Result<GasKeyView, node_runtime::state_viewer::errors::ViewGasKeyError> {
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
+        self.trie_viewer.view_gas_key(&state_update, account_id, public_key, include_nonces)
+    }
+
+    fn view_gas_keys(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<Vec<GasKeyInfoView>, node_runtime::state_viewer::errors::ViewGasKeyError> {
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
+        self.trie_viewer.view_gas_keys(&state_update, account_id)
     }
 
     fn view_state(
