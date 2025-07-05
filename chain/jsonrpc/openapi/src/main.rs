@@ -33,11 +33,6 @@ use near_jsonrpc_primitives::types::{
         RpcValidatorsOrderedResponse,
     },
 };
-use near_primitives::hash::CryptoHash;
-
-use near_chain_configs::GenesisConfig;
-
-#[cfg(not(feature = "progenitor"))]
 use near_jsonrpc_primitives::{
     errors::RpcError,
     types::{
@@ -45,11 +40,9 @@ use near_jsonrpc_primitives::{
     },
 };
 
-mod progenitor_types;
-#[cfg(feature = "progenitor")]
-use progenitor_types::{
-    RpcError, RpcLightClientExecutionProofRequest, RpcStateChangesInBlockResponse,
-};
+use near_primitives::hash::CryptoHash;
+
+use near_chain_configs::GenesisConfig;
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -60,6 +53,7 @@ pub enum ResponseEither<T, E> {
 
 #[derive(JsonSchema)]
 #[allow(dead_code)]
+#[schemars(rename = "JsonRpcResponse_for_{T}_and_{E}")]
 struct JsonRpcResponse<T, E> {
     jsonrpc: String,
     id: String,
@@ -85,6 +79,20 @@ impl schemars::transform::Transform for ReplaceNullType {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AddTitles;
+
+impl schemars::transform::Transform for AddTitles {
+    fn transform(&mut self, schema: &mut schemars::Schema) {
+        if let Some(value) = schema.get("title") {
+            if value == "RpcQueryRequest" {
+                // println!("Transforming schema: {:?}", schema);
+            }
+        }
+        
+    }
+}
+
 fn schemas_map<T: JsonSchema>() -> SchemasMap {
     let mut settings = schemars::generate::SchemaSettings::openapi3();
     settings.transforms.insert(
@@ -100,6 +108,7 @@ fn schemas_map<T: JsonSchema>() -> SchemasMap {
         }),
     );
     settings.transforms.push(Box::new(ReplaceNullType));
+    settings.transforms.push(Box::new(AddTitles));
     settings.transforms.push(Box::new(|s: &mut schemars::Schema| {
         let obj = s.ensure_object();
         if !obj.get("$defs").is_none() {

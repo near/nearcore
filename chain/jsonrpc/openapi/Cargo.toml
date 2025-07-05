@@ -22,7 +22,3 @@ near-jsonrpc-primitives = { workspace = true, features = ["schemars"] }
 near-primitives = { workspace = true, features = ["schemars"] }
 near-chain-configs = { workspace = true, features = ["schemars"] }
 near-crypto = { workspace = true, features = ["schemars"] }
-
-
-[features]
-progenitor = []
