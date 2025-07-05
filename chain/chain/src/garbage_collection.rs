@@ -19,6 +19,7 @@ use near_primitives::utils::{
 };
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::archive::cold_storage::join_two_keys;
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
 use crate::types::RuntimeAdapter;
@@ -626,6 +627,10 @@ impl<'a> ChainStoreUpdate<'a> {
         // from the last block in epoch T-2 to the last block in epoch T-1
         // Because we need to gc the last block in epoch T-2, we can't simply use
         // block_header.epoch_id() as next_epoch_id
+        //
+        // TODO(resharding) simplify get_shard_uids_to_gc
+        // The reasoning above applies to ReshardingV2. In ReshardingV3 it
+        // should no longer be necessary to gc children before the shard layout change.
         let next_epoch_id = block_header.next_epoch_id();
         let next_shard_layout =
             epoch_manager.get_shard_layout(next_epoch_id).expect("epoch info must exist");
@@ -645,10 +650,10 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         let mut store_update = self.store().trie_store().store_update();
 
-        tracing::debug!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
+        tracing::debug!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block data");
 
         // 1. Garbage collect TrieChanges.
-        self.gc_trie_changes(epoch_manager, block_hash, &gc_mode, &mut store_update)?;
+        self.gc_trie_changes(block_hash, &gc_mode, &mut store_update)?;
 
         if matches!(gc_mode, GCMode::Canonical(_)) {
             // If you know why do we do this in case of canonical chain please add a comment here.
@@ -749,19 +754,13 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn gc_trie_changes(
         &mut self,
-        epoch_manager: &dyn EpochManagerAdapter,
         block_hash: CryptoHash,
         gc_mode: &GCMode,
         store_update: &mut near_store::adapter::trie_store::TrieStoreUpdateAdapter<'_>,
     ) -> Result<(), Error> {
-        let shard_uids_to_gc = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
-        for shard_uid in shard_uids_to_gc {
-            let trie_changes_key = get_block_shard_uid(&block_hash, &shard_uid);
-            let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key)?;
+        for shard_uid_and_trie_changes in self.store().chain_store().get_trie_changes(&block_hash) {
+            let (shard_uid, trie_changes) = shard_uid_and_trie_changes?;
 
-            let Some(trie_changes) = trie_changes else {
-                continue;
-            };
             match gc_mode.clone() {
                 GCMode::Fork(tries) => {
                     // If the block is on a fork, we delete the state that's the result of applying this block
@@ -776,6 +775,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
             }
 
+            let trie_changes_key = join_two_keys(block_hash.as_ref(), &shard_uid.to_bytes());
             self.gc_col(DBCol::TrieChanges, &trie_changes_key);
         }
         Ok(())
