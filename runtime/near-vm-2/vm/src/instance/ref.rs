@@ -52,7 +52,7 @@ impl InstanceInner {
     #[inline]
     pub(crate) fn as_ref(&self) -> &Instance {
         // SAFETY: The pointer is properly aligned, it is
-        // “dereferencable”, it points to an initialized memory of
+        // “dereferenceable”, it points to an initialized memory of
         // `Instance`, and the reference has the lifetime `'a`.
         unsafe { self.instance.as_ref() }
     }
