@@ -31,7 +31,7 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, BlockHeight, StateRoot};
-use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash};
+use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
@@ -85,6 +85,12 @@ impl EntityDebugHandlerImpl {
                         &borsh::to_vec(&block_height).unwrap(),
                     )?
                     .ok_or_else(|| anyhow!("Block height not found"))?;
+                Ok(serialize_entity(&block_hash))
+            }
+            EntityQuery::BlockHashByOrdinal { block_ordinal } => {
+                let block_hash = store
+                    .get_ser::<CryptoHash>(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal))?
+                    .ok_or_else(|| anyhow!("Block hash not found"))?;
                 Ok(serialize_entity(&block_hash))
             }
             EntityQuery::BlockHeaderByHash { block_hash } => {
