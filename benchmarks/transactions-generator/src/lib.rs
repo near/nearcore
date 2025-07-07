@@ -503,7 +503,6 @@ impl TxGenerator {
                     }
                     _ = tx_rates.changed() => {
                             tx_interval = tokio::time::interval(*tx_rates.borrow());
-                            // tx_interval = tokio::time::interval(Duration::from_micros(1_000_000/tx_rate));
                         }
                     _ = tx_interval.tick() => {
                         let ok = Self::generate_send_transaction(
