@@ -155,7 +155,9 @@ Which makes it most representative for measuring the realistic throughput of the
 <p>One needs to compile the <code>benchmarks/synth-bm</code>, create the link to the <code>neard</code> executable and run the tasks from the <code>justfile</code>.
 The details are available on the dedicated <a href="./benchmarking_synthetic_workloads.html">page</a>.</p>
 <h3 id="direct-transaction-injection"><a class="header" href="#direct-transaction-injection">Direct transaction injection</a></h3>
-<p>This benchmark bypasses the RPC layer and injects the transactions using direct calls to the ingress handling actor. 
+<p>This section closely follows (duplicates) the dedicated <code>readme.md</code> in <code>benchmarks/transaction-generator</code>.
+In case of questions you may want to consult that as well.</p>
+<p>This benchmark bypasses the RPC layer and injects the transactions using direct calls to the ingress handling actor.
 It is representative of the performance of the <code>neard</code> excluding the RPC layer.
 The single-node setup of this benchmark is a part of the CI.</p>
 <h4 id="run-the-benchmark"><a class="header" href="#run-the-benchmark">Run the benchmark</a></h4>
@@ -177,6 +179,33 @@ The single-node setup of this benchmark is a part of the CI.</p>
 <p>The last command will init a single-node network, apply customizations to the config, create the accounts and run the benchmark for 3m.
 All of it.
 For a more fine-grained control feel free to dive into the <code>justfile</code> for the commands executing the intermediate steps.</p>
+<h4 id="tweaking-the-load-generation-parameters"><a class="header" href="#tweaking-the-load-generation-parameters">Tweaking the load generation parameters</a></h4>
+<p>The load generation parameters are expected as a part of the <code>neard</code> <code>config.json</code>.
+The node name is &quot;tx_generator&quot; and is optional. 
+In case the node is missing the error message is printed out and the <code>neard</code> continues running as usually.
+The node currently consists of the path to  &quot;schedule&quot; and &quot;controller&quot; sections</p>
+<pre><code class="language-json">{
+	&quot;tx_generator&quot;: {
+		&quot;accounts_path&quot;: &quot;{{near_accounts_path}}&quot;,
+		&quot;schedule&quot;: [
+			{ &quot;tps&quot;: 1000, &quot;duration_s&quot;: 60 },
+			{ &quot;tps&quot;: 2000, &quot;duration_s&quot;: 60 }
+		],
+		&quot;controller&quot;: {
+			&quot;target_block_production_time_s&quot;: 1.4,
+			&quot;bps_filter_window_length&quot;: 64,
+			&quot;gain_proportional&quot;: 20,
+			&quot;gain_integral&quot;: 0.0,
+			&quot;gain_derivative&quot;: 0.0
+		}
+	}
+}
+
+</code></pre>
+<p>The &quot;schedule&quot; section is required and defines the load applying schedule. 
+After the schedule completes the <code>neard</code> will exit in case &quot;controller&quot; is not defined, or else will run the control loop defined by the parameters indefinitely.
+The last scheduled TPS is than used as a starting point and the loop adjusts TPS to keep the target block production time at a desired value.
+Note that the resulting production time currently tends to be slightly under the target value.</p>
 <h4 id="what-you-should-see"><a class="header" href="#what-you-should-see">What you should see</a></h4>
 <ul>
 <li>observe the load reported in the logs</li>
@@ -185,7 +214,7 @@ For a more fine-grained control feel free to dive into the <code>justfile</code>
 2025-02-12T16:42:37.351118Z  INFO stats: #    1584 6nxZon12xBTmARmUm3ngtgaA2K7V9dX1J13EtPZ2kEhe Validator | 1 validator 0 peers ⬇ 0 B/s ⬆ 0 B/s 1.60 bps 131 Tgas/s CPU: 70%, Mem: 2.98 GB
 ...
 2025-02-18T13:04:29.790195Z  INFO transaction-generator: total=&quot;Stats { pool_accepted: 158247, pool_rejected: 237, included_in_chunks: 155338, failed:0 }&quot;
-2025-02-18T13:04:29.790208Z  INFO transaction-generator: diff=&quot;Stats { pool_accepted: 6049, pool_rejected: 0, included_in_chunks: 6439, failed: 0 }, mean_processing_rate=6036&quot;
+2025-02-18T13:04:29.790208Z  INFO transaction-generator: diff=&quot;Stats { pool_accepted: 6049, pool_rejected: 0, included_in_chunks: 6439, failed: 0 }, rate=6036&quot;
 ...
 </code></pre>
 <ul>
@@ -204,7 +233,7 @@ When the latter starts to grow that means the network no longer sustains the loa
 The detailed description of it is provided in the <a href="./profiling.html">profiling</a> section, <code>Runtime::apply</code> subsection.
 To evaluate the number of rate of processing the transactions one may query the stats as described above.</p>
 <h3 id="multi-node-setup"><a class="header" href="#multi-node-setup">Multi-Node setup</a></h3>
-<p>For benchmarking multi-node sharded networks, there is a comprehensive toolset in the <a href="https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm">sharded-bm</a> directory. This framework allows testing various network configurations with different numbers of shards, validators and traffic profiles.</p>
+<p>For benchmarking multi-node sharded networks, there is a comprehensive toolset in the <a href="https://github.com/near/nearcore/tree/pytest/tests/mocknet/sharded_bm.py">sharded-bm</a>. This framework allows testing various network configurations with different numbers of shards, validators and traffic profiles.</p>
 <p>The sharded benchmark framework supports both localnet testing on a single machine and forknet deployments. Forknet is particularly useful as it allows creating a network running on multiple VMs, providing real-world conditions for performance testing.</p>
 <p>To run sharded benchmarks on a forknet, you'll need to:</p>
 <ol>
@@ -213,7 +242,8 @@ To evaluate the number of rate of processing the transactions one may query the 
 <li>Initialize and start the network</li>
 <li>Create test accounts and run the benchmark</li>
 </ol>
-<p>For detailed instructions and configuration options, refer to the <a href="https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm/README.md#forknet">README</a>.</p>
+<p>Alternatively one may use the infra-ops <a href="https://github.com/Near-One/infra-ops/actions/workflows/benchmark.yml">workflow</a>.</p>
+<p>For detailed instructions and configuration options, refer to the <a href="https://github.com/near/nearcore/tree/master/pytest/tests/mocknet/docs/sharded_bm.md">README</a>.</p>
 
                     </main>
 
