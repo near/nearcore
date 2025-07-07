@@ -61,6 +61,7 @@ test_utils = []
 solomon = ["reed-solomon-erasure"]
 rand = ["dep:rand", "rand_chacha", "near-crypto/rand"]
 clock = ["near-time/clock", "near-time/serde"]
+bench = ["zstd/zstdmt"]
 schemars = [
     "dep:schemars",
     "near-primitives/schemars",
@@ -98,7 +99,17 @@ insta.workspace = true
 expect-test.workspace = true
 regex.workspace = true
 tempfile.workspace = true
+criterion.workspace = true
+near-store.workspace = true
+near-vm-runner.workspace = true
+node-runtime.workspace = true
+testlib.workspace = true
+near-parameters.workspace = true
 
 [[bench]]
 name = "serialization"
+harness = false
+
+[[bench]]
+name = "compression"
 harness = false
