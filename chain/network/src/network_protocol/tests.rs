@@ -207,6 +207,8 @@ fn test_message_matching_hashes() {
     assert_eq!(message_v3.hash(), message_v1.hash());
 }
 
+/// Tests that messages get upgraded to V3 when a field that is not present in V1 is mutated.
+/// Also tests that RoutedMessageBody is upgraded to TieredMessageBody.
 #[test]
 fn test_upgrading_to_v3() {
     let message_v3 = make_chunk_request_message();
