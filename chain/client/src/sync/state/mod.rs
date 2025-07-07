@@ -17,7 +17,9 @@ use near_async::messaging::{AsyncSender, IntoSender};
 use near_async::time::{Clock, Duration};
 use near_chain::Chain;
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
+use near_chain_configs::{
+    ExternalStorageConfig, ExternalStorageLocation, StateSyncConfig, SyncConcurrency, SyncConfig,
+};
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{
@@ -66,18 +68,10 @@ pub struct StateSync {
 
     /// There is one entry in this map for each shard that is being synced.
     shard_syncs: HashMap<(CryptoHash, ShardId), StateSyncShardHandle>,
-}
 
-/// Maximum number of outstanding requests for decentralized state sync.
-const NUM_CONCURRENT_REQUESTS_FOR_PEERS: usize = 10;
-/// Maximum number of "apply parts" tasks that can be performed in parallel.
-/// This is a very disk-heavy task and therefore we set this to a low limit,
-/// or else the rocksdb contention makes the whole server freeze up.
-const NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION: usize = 4;
-/// Maximum number of "apply parts" tasks that can be performed in parallel
-/// during catchup. We set this to a very low value to avoid overloading the
-/// node while it is still performing normal tasks.
-const NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION_DURING_CATCHUP: usize = 1;
+    /// Concurrency limits.
+    concurrency_config: SyncConcurrency,
+}
 
 impl StateSync {
     /// Note: `future_spawner` is used to spawn futures that perform state sync tasks.
@@ -95,7 +89,7 @@ impl StateSync {
         retry_backoff: Duration,
         external_backoff: Duration,
         chain_id: &str,
-        sync_config: &SyncConfig,
+        sync_config: &StateSyncConfig,
         chain_requests_sender: ChainSenderForStateSync,
         future_spawner: Arc<dyn FutureSpawner>,
         catchup: bool,
@@ -115,7 +109,7 @@ impl StateSync {
                 num_concurrent_requests,
                 num_concurrent_requests_during_catchup,
                 external_storage_fallback_threshold,
-            }) = sync_config
+            }) = &sync_config.sync
             {
                 let external = match location {
                     ExternalStorageLocation::S3 { bucket, region, .. } => {
@@ -147,7 +141,7 @@ impl StateSync {
                     *num_concurrent_requests_during_catchup
                 } else {
                     *num_concurrent_requests
-                } as usize;
+                };
                 let fallback_source = Arc::new(StateSyncDownloadSourceExternal {
                     clock: clock.clone(),
                     store: store.clone(),
@@ -159,13 +153,13 @@ impl StateSync {
                 (
                     Some(fallback_source),
                     *external_storage_fallback_threshold as usize,
-                    num_concurrent_requests.min(NUM_CONCURRENT_REQUESTS_FOR_PEERS),
+                    num_concurrent_requests.min(sync_config.concurrency.peer_downloads),
                 )
             } else {
-                (None, 0, NUM_CONCURRENT_REQUESTS_FOR_PEERS)
+                (None, 0, sync_config.concurrency.peer_downloads)
             };
 
-        let downloading_task_tracker = TaskTracker::new(num_concurrent_requests);
+        let downloading_task_tracker = TaskTracker::new(usize::from(num_concurrent_requests));
         let downloader = Arc::new(StateSyncDownloader {
             clock,
             store: store.clone(),
@@ -179,11 +173,11 @@ impl StateSync {
         });
 
         let num_concurrent_computations = if catchup {
-            NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION_DURING_CATCHUP
+            sync_config.concurrency.apply_during_catchup
         } else {
-            NUM_CONCURRENT_REQUESTS_FOR_COMPUTATION
+            sync_config.concurrency.apply
         };
-        let computation_task_tracker = TaskTracker::new(num_concurrent_computations);
+        let computation_task_tracker = TaskTracker::new(usize::from(num_concurrent_computations));
 
         Self {
             store,
@@ -196,6 +190,7 @@ impl StateSync {
             runtime,
             chain_requests_sender,
             shard_syncs: HashMap::new(),
+            concurrency_config: sync_config.concurrency,
         }
     }
 
@@ -269,6 +264,7 @@ impl StateSync {
                         self.chain_requests_sender.clone().into_sender(),
                         cancel.clone(),
                         self.future_spawner.clone(),
+                        self.concurrency_config.per_shard,
                     );
                     let (sender, receiver) = oneshot::channel();
 
