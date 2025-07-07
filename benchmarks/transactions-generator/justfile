@@ -32,19 +32,22 @@ create-accounts num_accounts="50000":
         --num-sub-accounts {{num_accounts}} \
         --deposit 953060601875000000010000 \
         --channel-buffer-size 1200 \
-        --requests-per-second 500  \
+        --requests-per-second 200  \
         --user-data-dir user-data
     kill ${NEARD_PID}
     sleep 3
     
 enable-tx:
-    cp -n load-schedule.json.in load-schedule.json
+    cp -n tx-generator-settings.json.in tx-generator-settings.json
     jq '.tx_generator={ \
         "accounts_path": "{{near_accounts_path}}"}' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
-    jq --slurpfile patch load-schedule.json ' \
+    jq --slurpfile patch tx-generator-settings.json ' \
       . as $orig \
-      | $patch[0].schedule as $sched \
-      | .["tx_generator"] += { "schedule": $sched }' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
+      | $patch[0].tx_generator.schedule as $sched    \
+      | .["tx_generator"] += { "schedule": $sched }  \
+      | $patch[0].tx_generator.controller as $ctrl   \
+      | .["tx_generator"] += { "controller": $ctrl } \
+    ' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
 
 unlimit:
     jq '.gas_limit=20000000000000000' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
