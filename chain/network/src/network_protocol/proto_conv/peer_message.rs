@@ -1,13 +1,13 @@
 /// Conversion functions for PeerMessage - the top-level message for the NEAR P2P protocol format.
 use super::*;
+use crate::network_protocol::RoutedMessageV1;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
 use crate::network_protocol::{
     AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
-    RoutingTableUpdate, SyncAccountsData,
+    RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
 };
-use crate::network_protocol::{RoutedMessageV1, RoutedMessageV2};
 use crate::types::StateResponseInfo;
 use borsh::BorshDeserialize as _;
 use near_async::time::error::ComponentRange;
@@ -332,12 +332,22 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     borsh: borsh::to_vec(&t).unwrap(),
                     ..Default::default()
                 }),
-                PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
-                    borsh: borsh::to_vec(r.msg()).unwrap(),
-                    created_at: MF::from_option(r.created_at().as_ref().map(utc_to_proto)),
-                    num_hops: r.num_hops(),
-                    ..Default::default()
-                }),
+                PeerMessage::Routed(r) => {
+                    let msg = r.clone().msg_v1();
+                    ProtoMT::Routed(proto::RoutedMessage {
+                        borsh: borsh::to_vec(&msg).unwrap(),
+                        created_at: MF::from_option(
+                            r.created_at()
+                                .as_ref()
+                                .map(|t| ::time::OffsetDateTime::from_unix_timestamp(*t).ok())
+                                .flatten()
+                                .as_ref()
+                                .map(utc_to_proto),
+                        ),
+                        num_hops: r.num_hops(),
+                        ..Default::default()
+                    })
+                }
                 PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
                     remove_from_connection_store: r.remove_from_connection_store,
                     ..Default::default()
@@ -509,19 +519,28 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Transaction(t) => PeerMessage::Transaction(
                 SignedTransaction::try_from_slice(&t.borsh).map_err(Self::Error::Transaction)?,
             ),
-            ProtoMT::Routed(r) => PeerMessage::Routed(Box::new(
-                RoutedMessageV2 {
-                    msg: RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
-                    created_at: r
-                        .created_at
-                        .as_ref()
-                        .map(utc_from_proto)
-                        .transpose()
-                        .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
-                    num_hops: r.num_hops,
-                }
-                .into(),
-            )),
+            ProtoMT::Routed(r) => {
+                let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
+                let body = TieredMessageBody::from_routed(msg.body);
+                PeerMessage::Routed(Box::new(
+                    RoutedMessageV3 {
+                        target: msg.target,
+                        author: msg.author,
+                        ttl: msg.ttl,
+                        body,
+                        signature: msg.signature,
+                        created_at: r
+                            .created_at
+                            .as_ref()
+                            .map(utc_from_proto)
+                            .transpose()
+                            .map_err(Self::Error::RoutedCreatedAtTimestamp)?
+                            .map(|t| t.unix_timestamp()),
+                        num_hops: r.num_hops,
+                    }
+                    .into(),
+                ))
+            }
             ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {
                 remove_from_connection_store: d.remove_from_connection_store,
             }),
