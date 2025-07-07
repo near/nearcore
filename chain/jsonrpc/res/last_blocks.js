@@ -164,7 +164,8 @@ function BlocksTable({ rows, knownProducers, expandAll, hideMissingHeights }) {
         let block = row.block;
 
         const chunkCells = [];
-        block.chunks.forEach((chunk, shardId) => {
+        for (const chunk of block.chunks) {
+            const shardId = chunk.shard_id;
             chunkCells.push(<React.Fragment key={shardId}>
                 <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>
                     <HashElement
@@ -177,7 +178,7 @@ function BlocksTable({ rows, knownProducers, expandAll, hideMissingHeights }) {
                 <td>{chunk.processing_time_ms}</td>
                 <td>{toPercentage(chunk.endorsement_ratio, 1)}</td>
             </React.Fragment>);
-        });
+        }
 
         tableRows.push(
             <tr key={block.block_hash}
