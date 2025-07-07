@@ -9,7 +9,7 @@ use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::block::Block;
+use near_primitives::block::{Block, Chunks};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
@@ -124,7 +124,7 @@ fn test_bad_shard_id() {
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap(); // modify the block and resign it
     let validator_signer = create_test_signer("test0");
-    let mut chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
+    let mut chunks: Vec<_> = block.chunks().iter_raw().cloned().collect();
     // modify chunk 0 to have shard_id 1
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
@@ -150,11 +150,12 @@ fn test_bad_shard_id() {
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
     let mut_block = Arc::make_mut(&mut block);
-    mut_block.mut_header().set_chunk_headers_root(Block::compute_chunk_headers_root(&chunks).0);
-    mut_block.mut_header().set_prev_chunk_outgoing_receipts_root(
-        Block::compute_chunk_prev_outgoing_receipts_root(&chunks),
-    );
-    mut_block.set_chunks(chunks);
+    mut_block.set_chunks(chunks.clone());
+    let chunks = Chunks::from_chunk_headers(&chunks, mut_block.header().height());
+    mut_block.mut_header().set_chunk_headers_root(chunks.compute_chunk_headers_root().0);
+    mut_block
+        .mut_header()
+        .set_prev_chunk_outgoing_receipts_root(chunks.compute_chunk_prev_outgoing_receipts_root());
     let body_hash = mut_block.compute_block_body_hash().unwrap();
     mut_block.mut_header().set_block_body_hash(body_hash);
     mut_block.mut_header().resign(&validator_signer);
@@ -262,7 +263,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
 
     let validator_signer = create_test_signer("test0");
 
-    let chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
+    let chunks: Vec<_> = block.chunks().iter_raw().cloned().collect();
     let chunk = chunks.get(0).unwrap();
 
     let mut congestion_info = chunk.congestion_info();

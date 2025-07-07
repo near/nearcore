@@ -450,7 +450,9 @@ pub struct PeerManagerSenderForNetwork {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network_protocol::{RawRoutedMessage, RoutedMessage, RoutedMessageBody};
+    use crate::network_protocol::{
+        RawRoutedMessage, RoutedMessage, T2MessageBody, TieredMessageBody,
+    };
 
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
@@ -489,7 +491,7 @@ mod tests {
     #[test]
     fn test_enum_size() {
         assert_size!(PeerType);
-        assert_size!(RoutedMessageBody);
+        assert_size!(TieredMessageBody);
         assert_size!(KnownPeerStatus);
         assert_size!(ReasonForBan);
     }
@@ -509,17 +511,19 @@ mod tests {
     #[test]
     fn routed_message_body_compatibility_smoke_test() {
         #[track_caller]
-        fn check(msg: RoutedMessageBody, expected: &[u8]) {
+        fn check(msg: TieredMessageBody, expected: &[u8]) {
             let actual = borsh::to_vec(&msg).unwrap();
             assert_eq!(actual.as_slice(), expected);
         }
 
+        let msg: TieredMessageBody =
+            T2MessageBody::TxStatusRequest("test_x".parse().unwrap(), CryptoHash([42; 32])).into();
         check(
-            RoutedMessageBody::TxStatusRequest("test_x".parse().unwrap(), CryptoHash([42; 32])),
+            msg,
             &[
-                2, 6, 0, 0, 0, 116, 101, 115, 116, 95, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+                1, 1, 6, 0, 0, 0, 116, 101, 115, 116, 95, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42,
                 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
-                42,
+                42, 42,
             ],
         );
     }

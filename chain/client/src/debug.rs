@@ -610,7 +610,7 @@ impl ClientActorInner {
                 let chunks = match &block {
                     Some(block) => block
                         .chunks()
-                        .iter_deprecated()
+                        .iter()
                         .map(|chunk| {
                             let endorsement_ratio = chunk_endorsements
                                 .as_ref()
@@ -844,11 +844,9 @@ impl ClientActorInner {
             return None;
         };
         // Iterate all shards and compute the endorsed stake from the endorsement signatures.
-        for (chunk_header, signatures) in
-            block.chunks().iter_deprecated().zip(block.chunk_endorsements())
-        {
+        for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
             // Validation checks.
-            if chunk_header.height_included() != block.header().height() {
+            if !chunk_header.is_new_chunk() {
                 chunk_endorsements.insert(chunk_header.chunk_hash().clone(), 0.0);
                 continue;
             }

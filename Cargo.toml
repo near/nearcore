@@ -345,6 +345,7 @@ paperclip = { version = "0.9.0", features = ["actix4"] }
 parking_lot = "0.12.1"
 percent-encoding = "2.2.0"
 pin-project = "1.0"
+pid-lite = "1.2.0"
 prefix-sum-vec = "0.1.2"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }

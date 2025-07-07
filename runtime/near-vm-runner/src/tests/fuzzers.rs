@@ -141,3 +141,28 @@ fn slow_test_near_vm_is_reproducible_fuzzer() {
         }
     })
 }
+
+#[test]
+#[cfg(feature = "wasmtime_vm")]
+fn slow_test_wasmtime_vm_is_reproducible_fuzzer() {
+    use crate::wasmtime_runner::WasmtimeVM;
+    use near_primitives_core::hash::CryptoHash;
+
+    bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
+        let code = ContractCode::new(module.0.to_bytes(), None);
+        let config = std::sync::Arc::new(test_vm_config());
+        let mut first_hash = None;
+        for _ in 0..3 {
+            let vm = WasmtimeVM::new(config.clone());
+            let exec = match vm.compile_uncached(&code) {
+                Ok(e) => e,
+                Err(_) => return,
+            };
+            let hash = CryptoHash::hash_bytes(&exec);
+            match first_hash {
+                None => first_hash = Some(hash),
+                Some(h) => assert_eq!(h, hash),
+            }
+        }
+    })
+}

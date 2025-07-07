@@ -96,7 +96,7 @@ class CommandContext:
         """
         Returns the nodes and traffic generator with the previous schedule context.
         """
-        return self.nodes + to_list(self.traffic_generator)
+        return list(self.nodes) + to_list(self.traffic_generator)
 
     def get_targeted_with_schedule_ctx(self) -> list[NodeHandle]:
         """
@@ -271,13 +271,18 @@ def init_cmd(ctx: CommandContext):
 
 
 def hard_reset_cmd(ctx: CommandContext):
-    print("""
-        WARNING!!!!
-        WARNING!!!!
-        This will undo all chain state, which will force a restart from the beginning,
-        including the genesis state computation which takes several hours.
-        Continue? [yes/no]""")
-    if sys.stdin.readline().strip() != 'yes':
+    do_reset = getattr(ctx.args, 'yes', None)
+    if do_reset is None:
+        print("""
+            WARNING!!!!
+            WARNING!!!!
+            This will undo all chain state, which will force a restart from the beginning,
+            including the genesis state computation.
+            Continue? [yes/no]""")
+        do_reset = False
+        if sys.stdin.readline().strip() != 'yes':
+            do_reset = True
+    if not do_reset:
         return
     init_neard_runners(ctx, remove_home_dir=True)
     _clear_state_parts_if_exists(_get_state_parts_location(ctx.args), ctx.nodes)
@@ -876,6 +881,7 @@ def register_base_commands(subparsers):
         help='''Stops neard and clears all test state on all nodes.''')
     hard_reset_parser.add_argument('--neard-binary-url', type=str)
     hard_reset_parser.add_argument('--neard-upgrade-binary-url', type=str)
+    hard_reset_parser.add_argument('--yes', action='store_true')
     hard_reset_parser.set_defaults(func=hard_reset_cmd)
 
     new_test_parser = subparsers.add_parser('new-test',

@@ -216,6 +216,8 @@ pub enum StateChangeCause {
     /// State change that is happens due to migration that happens in first block of an epoch
     /// after protocol upgrade
     Migration,
+    /// Deprecated in #13155, we need to keep it to preserve enum variant tags for borsh serialization.
+    _UnusedReshardingV2,
     /// Update persistent state kept by Bandwidth Scheduler after running the scheduling algorithm.
     BandwidthSchedulerStateUpdate,
 }
