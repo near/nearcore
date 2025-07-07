@@ -4403,14 +4403,14 @@
           "num_concurrent_requests": {
             "default": 25,
             "description": "When fetching state parts from external storage, throttle fetch requests\n to this many concurrent requests.",
-            "format": "uint32",
+            "format": "uint8",
             "minimum": 0,
             "type": "integer"
           },
           "num_concurrent_requests_during_catchup": {
             "default": 5,
             "description": "During catchup, the node will use a different number of concurrent requests\n to reduce the performance impact of state sync.",
-            "format": "uint32",
+            "format": "uint8",
             "minimum": 0,
             "type": "integer"
           }
@@ -11030,7 +11030,7 @@
             "type": "integer"
           },
           "rpc_addr": {
-            "description": "Address for RPC server.  None if node doesn’t have RPC endpoint enabled.",
+            "description": "Address for RPC server.  None if node doesn't have RPC endpoint enabled.",
             "nullable": true,
             "type": "string"
           },
@@ -12367,8 +12367,10 @@
         "type": "object"
       },
       "StateSyncConfig": {
-        "description": "Options for dumping state to S3.",
         "properties": {
+          "concurrency": {
+            "$ref": "#/components/schemas/SyncConcurrency"
+          },
           "dump": {
             "allOf": [
               {
@@ -12553,6 +12555,41 @@
         ],
         "type": "string"
       },
+      "SyncConcurrency": {
+        "properties": {
+          "apply": {
+            "description": "Maximum number of \"apply parts\" tasks that can be performed in parallel.\n This is a very disk-heavy task and therefore we set this to a low limit,\n or else the rocksdb contention makes the whole server freeze up.",
+            "format": "uint8",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "apply_during_catchup": {
+            "description": "Maximum number of \"apply parts\" tasks that can be performed in parallel\n during catchup. We set this to a very low value to avoid overloading the\n node while it is still performing normal tasks.",
+            "format": "uint8",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "peer_downloads": {
+            "description": "Maximum number of outstanding requests for decentralized state sync.",
+            "format": "uint8",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "per_shard": {
+            "description": "The maximum parallelism to use per shard. This is mostly for fairness, because\n the actual rate limiting is done by the TaskTrackers, but this is useful for\n balancing the shards a little.",
+            "format": "uint8",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "apply",
+          "apply_during_catchup",
+          "peer_downloads",
+          "per_shard"
+        ],
+        "type": "object"
+      },
       "SyncConfig": {
         "description": "Configures how to fetch state parts during state sync.",
         "oneOf": [
@@ -12565,7 +12602,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Expects parts to be available in external storage.",
+            "description": "Expects parts to be available in external storage.\n\n Usually as a fallback after some number of attempts to use peers.",
             "properties": {
               "ExternalStorage": {
                 "$ref": "#/components/schemas/ExternalStorageConfig"
