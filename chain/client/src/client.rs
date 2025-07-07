@@ -1065,7 +1065,7 @@ impl Client {
                 }
             }
             Err(err) => {
-                debug!(target: "chain", err=err as &dyn std::error::Error, "when block processing");
+                debug!(target: "chain", err=err as &dyn std::error::Error, "when starting block processing");
             }
         }
         res
