@@ -35,7 +35,7 @@ just run-localnet
 ```
 
 For a more fine-grained control feel free to dive into the `justfile` for the commands executing the intermediate steps.
-By default benchmark is using the the 2-minute warm-up schedule followed by the controlled loop to aim the 1.4 block production time.
+By default benchmark is running the 20000 tps load for the duration of 2 minutes.
 To run it with a different schedule one needs to modify the contents of "tx-generator-settings.json" file.
 
 ### Tweak the load generation parameters

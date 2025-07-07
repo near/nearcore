@@ -17,10 +17,10 @@ One needs to compile the `benchmarks/synth-bm`, create the link to the `neard` e
 The details are available on the dedicated [page](./benchmarking_synthetic_workloads.md).
 
 ### Direct transaction injection
-This section closely follows (duplicates) the dedicated `readme.md` in `benchmarks/transaction-generator`. 
+This section closely follows (duplicates) the dedicated `readme.md` in `benchmarks/transaction-generator`.
 In case of questions you may want to consult that as well.
 
-This benchmark bypasses the RPC layer and injects the transactions using direct calls to the ingress handling actor. 
+This benchmark bypasses the RPC layer and injects the transactions using direct calls to the ingress handling actor.
 It is representative of the performance of the `neard` excluding the RPC layer.
 The single-node setup of this benchmark is a part of the CI.
 
