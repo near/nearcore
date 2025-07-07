@@ -1,5 +1,5 @@
 // cspell:ignore NOENT, RDONLY, RGRP, RUSR, TRUNC, WGRP, WRONLY, WUSR
-// cspell:ignore mikan, fstat, openat, renameat
+// cspell:ignore mikan, fstat, openat, renameat, unlinkat
 
 use crate::ContractCode;
 use crate::errors::ContractPrecompilatonResult;
