@@ -1,6 +1,6 @@
 //! Benchmark for encoding/decoding of State Witness.
 //!
-//! Run with `cargo bench --features bench --bench compression`
+//! Run with `cargo bench --bench compression`
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::io::Write;
@@ -32,7 +32,6 @@ use testlib::runtime_utils::{alice_account, bob_account};
 const COMPRESSION_LEVELS: &[i32] = &[1, 3];
 
 /// Number of threads
-#[cfg(feature = "bench")]
 const NUM_THREADS: u32 = 4;
 
 /// Test data sizes (in bytes)
@@ -261,7 +260,6 @@ fn compression_benchmark(c: &mut Criterion) {
             );
 
             // Multi-threaded compression benchmark
-            #[cfg(feature = "bench")]
             group.bench_with_input(
                 BenchmarkId::new(format!("compress_L{}_{}T", level, NUM_THREADS), size_name),
                 &(&test_data, level),
