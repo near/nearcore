@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use lru::LruCache;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::CanSend;
@@ -41,8 +40,6 @@ use near_store::StoreUpdate;
 use node_runtime::SignedValidPeriodTransactions;
 use tracing::instrument;
 
-const EXECUTED_BLOCKS_CACHE_CAPACITY: usize = 100;
-
 pub struct ChunkExecutorActor {
     chain_store: ChainStore,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -54,8 +51,6 @@ pub struct ChunkExecutorActor {
 
     /// Next block hashes keyed by block hash.
     pending_next_blocks: HashMap<CryptoHash, HashSet<CryptoHash>>,
-    /// Tracks recent blocks where chunk application is complete.
-    executed_blocks: LruCache<CryptoHash, ()>,
 
     // Hash of the genesis block.
     genesis_hash: CryptoHash,
@@ -82,7 +77,6 @@ impl ChunkExecutorActor {
             apply_chunks_spawner,
             myself_sender,
             pending_next_blocks: HashMap::new(),
-            executed_blocks: LruCache::new(EXECUTED_BLOCKS_CACHE_CAPACITY.try_into().unwrap()),
             genesis_hash,
         }
     }
@@ -156,7 +150,6 @@ impl Handler<ExecutorApplyChunksDone> for ChunkExecutorActor {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process apply chunk results");
             return;
         };
-        self.executed_blocks.push(block_hash, ());
         if let Err(err) = self.try_process_next_blocks(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process next blocks");
         }
@@ -170,9 +163,6 @@ impl ChunkExecutorActor {
         let header = block.header();
         let prev_block_hash = header.prev_hash();
         let is_prev_block_genesis = *prev_block_hash == self.genesis_hash;
-        if !is_prev_block_genesis && !self.executed_blocks.contains(&prev_block_hash) {
-            return Ok(false);
-        }
         let mut all_receipts: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
         let store = self.chain_store.store();
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
@@ -190,6 +180,28 @@ impl ChunkExecutorActor {
                     all_receipts.insert(prev_block_shard_id, vec![]);
                     continue;
                 }
+
+                let prev_block_shard_uid = shard_id_to_uid(
+                    self.epoch_manager.as_ref(),
+                    prev_block_shard_id,
+                    &prev_block_epoch_id,
+                )?;
+                if let Err(err) =
+                    self.chain_store.get_chunk_extra(prev_block_hash, &prev_block_shard_uid)
+                {
+                    match err {
+                        Error::DBNotFoundErr(_) => {
+                            tracing::debug!(
+                                target: "chunk_executor",
+                                %block_hash,
+                                %prev_block_hash,
+                                %prev_block_shard_id,
+                                "previous block execution is not finished yet");
+                            return Ok(false);
+                        }
+                        err => return Err(err),
+                    }
+                };
 
                 let proofs =
                     get_receipt_proofs_for_shard(&store, prev_block_hash, prev_block_shard_id)?;
