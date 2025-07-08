@@ -346,9 +346,8 @@ impl From<&PeerMessage> for proto::PeerMessage {
                             ..Default::default()
                         })
                     } else {
-                        let msg = r.clone().msg_v1();
                         ProtoMT::Routed(proto::RoutedMessage {
-                            borsh: borsh::to_vec(&msg).unwrap(),
+                            borsh: borsh::to_vec(&r.clone().msg_v1()).unwrap(),
                             created_at: MF::from_option(
                                 r.created_at()
                                     .as_ref()
