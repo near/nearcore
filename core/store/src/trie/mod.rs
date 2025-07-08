@@ -689,9 +689,27 @@ impl Trie {
         root: StateRoot,
         flat_storage_used: bool,
     ) -> Self {
+        Self::from_recorded_storage_impl(partial_storage, root, flat_storage_used, true)
+    }
+
+    pub fn from_recorded_storage_non_tracking(
+        partial_storage: PartialStorage,
+        root: StateRoot,
+        flat_storage_used: bool,
+    ) -> Self {
+        Self::from_recorded_storage_impl(partial_storage, root, flat_storage_used, false)
+    }
+
+    fn from_recorded_storage_impl(
+        partial_storage: PartialStorage,
+        root: StateRoot,
+        flat_storage_used: bool,
+        track_visited_nodes: bool,
+    ) -> Self {
         let PartialState::TrieValues(nodes) = partial_storage.nodes;
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
-        let storage = Arc::new(TrieMemoryPartialStorage::new(recorded_storage));
+        let storage =
+            Arc::new(TrieMemoryPartialStorage::new(recorded_storage, track_visited_nodes));
         let mut trie = Self::new(storage, root, None);
         trie.use_access_tracker = !flat_storage_used;
         trie

@@ -268,7 +268,7 @@ impl Trie {
                 .map(|entry| (*entry.hash(), entry.payload().to_vec().into())),
         );
         let final_trie =
-            Trie::new(Arc::new(TrieMemoryPartialStorage::new(all_nodes)), self.root, None);
+            Trie::new(Arc::new(TrieMemoryPartialStorage::new(all_nodes, true)), self.root, None);
 
         final_trie.visit_nodes_for_state_part(part_id)?;
         let final_trie_storage = final_trie.storage.as_partial_storage().unwrap();
