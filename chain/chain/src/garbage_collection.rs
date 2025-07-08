@@ -186,21 +186,20 @@ impl ChainStore {
         if gc_stop_height > head.height {
             return Err(Error::GCError("gc_stop_height cannot be larger than head.height".into()));
         }
-        let prev_epoch_id = *self.get_block_header(&head.prev_block_hash)?.epoch_id();
-        let epoch_change = prev_epoch_id != head.epoch_id;
         let mut fork_tail = self.fork_tail()?;
         metrics::TAIL_HEIGHT.set(tail as i64);
         metrics::FORK_TAIL_HEIGHT.set(fork_tail as i64);
         metrics::CHUNK_TAIL_HEIGHT.set(self.chain_store().chunk_tail()? as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
-        if epoch_change && fork_tail < gc_stop_height {
-            // if head doesn't change on the epoch boundary, we may update fork tail several times
-            // but that is fine since it doesn't affect correctness and also we limit the number of
-            // heights that fork cleaning goes through so it doesn't slow down client either.
+        let last_known_gc_heigh = self.gc_stop_height()?;
+        if last_known_gc_heigh != gc_stop_height {
             let mut chain_store_update = self.store_update();
-            chain_store_update.update_fork_tail(gc_stop_height);
+            chain_store_update.update_gc_stop_height(gc_stop_height);
+            if fork_tail < gc_stop_height {
+                chain_store_update.update_fork_tail(gc_stop_height);
+                fork_tail = gc_stop_height;
+            }
             chain_store_update.commit()?;
-            fork_tail = gc_stop_height;
         }
         let mut gc_blocks_remaining = gc_config.gc_blocks_limit;
 
