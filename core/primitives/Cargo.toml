@@ -112,3 +112,7 @@ harness = false
 [[bench]]
 name = "compression"
 harness = false
+
+[[bench]]
+name = "state_witness_borsh"
+harness = false
