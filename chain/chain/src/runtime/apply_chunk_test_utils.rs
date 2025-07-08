@@ -1,9 +1,11 @@
 use std::collections::BTreeSet;
 
+use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::types::BlockType;
 
 use super::*;
 use itertools::Itertools;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE};
@@ -304,7 +306,14 @@ impl TestEnv {
         receipts: &[Receipt],
     ) -> ApplyChunkResult {
         let context = self.apply_chunk_context(shard_id);
-        self.apply_new_chunk_with_storage(shard_id, transactions, receipts, &context, None)
+        let args = self.apply_new_chunk_args_with_storage(
+            shard_id,
+            transactions,
+            receipts,
+            &context,
+            None,
+        );
+        self.apply_new_chunk_with_storage(args)
     }
 
     pub fn apply_chunk_context(&self, shard_id: ShardId) -> TestApplyChunkContext {
@@ -319,20 +328,19 @@ impl TestEnv {
         }
     }
 
-    pub fn apply_new_chunk_with_storage(
+    fn apply_new_chunk_args_with_storage(
         &self,
         shard_id: ShardId,
         transactions: Vec<SignedTransaction>,
         receipts: &[Receipt],
         context: &TestApplyChunkContext,
         storage: Option<PartialStorage>,
-    ) -> ApplyChunkResult {
+    ) -> ApplyChunkArgs {
         // TODO(congestion_control): pass down prev block info and read congestion info from there
         // For now, just use default.
         // TODO(bandwidth_scheduler) - pass bandwidth requests from prev_block
         let prev_block_hash = context.prev_block_hash;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
-        let gas_limit = u64::MAX;
         let height = context.height;
         let block_timestamp = 0;
         let gas_price = self.runtime.genesis_config.min_gas_price;
@@ -353,33 +361,34 @@ impl TestEnv {
         if let Some(storage) = storage {
             storage_config.source = StorageDataSource::Recorded(storage);
         }
-        self.runtime
-            .apply_chunk(
-                storage_config,
-                reason,
-                ApplyChunkShardContext {
-                    shard_id,
-                    last_validator_proposals: ValidatorStakeIter::new(
-                        // TODO: move to context
-                        self.last_shard_proposals.get(&shard_id).unwrap_or(&vec![]),
-                    ),
-                    gas_limit,
-                    is_new_chunk: true,
-                },
-                ApplyChunkBlockContext {
-                    block_type: BlockType::Normal,
-                    height,
-                    prev_block_hash,
-                    block_timestamp,
-                    gas_price,
-                    random_seed: CryptoHash::default(),
-                    congestion_info,
-                    bandwidth_requests: BlockBandwidthRequests::empty(),
-                },
-                receipts,
-                transactions,
-            )
-            .unwrap()
+
+        ApplyChunkArgs {
+            storage_config,
+            apply_reason: reason,
+            shard_id,
+            // TODO: move to context
+            validator_proposals: self
+                .last_shard_proposals
+                .get(&shard_id)
+                .cloned()
+                .unwrap_or_default(),
+            block: ApplyChunkBlockContext {
+                block_type: BlockType::Normal,
+                height,
+                prev_block_hash,
+                block_timestamp,
+                gas_price,
+                random_seed: CryptoHash::default(),
+                congestion_info,
+                bandwidth_requests: BlockBandwidthRequests::empty(),
+            },
+            receipts: receipts.to_vec(),
+            transactions,
+        }
+    }
+
+    pub fn apply_new_chunk_with_storage(&self, args: ApplyChunkArgs) -> ApplyChunkResult {
+        apply_chunk_using_args(&self.runtime, args)
     }
 
     fn update_runtime(
@@ -538,6 +547,7 @@ impl TestEnv {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct TestApplyChunkContext {
     pub prev_block_hash: CryptoHash,
     pub state_root: StateRoot,
@@ -663,10 +673,20 @@ pub fn test_apply_new_chunk_setup(params: TestApplyChunkParams) -> TestApplyChun
     env.step(transactions_by_shard_index.clone(), vec![true; num_shards]);
     env.keep_proofs = false;
 
+    // Generate new transactions for the next step.
+    let new_transactions_by_shard_index = gen_transactions_by_shard(
+        &mut rng,
+        env.head.last_block_hash,
+        &mut config_ext.user_accounts,
+        &shard_layout,
+        params.num_txs_per_chunk,
+    );
+
     TestApplyChunkSetup {
         env,
         last_receipts,
         transactions_by_shard_index,
+        new_transactions_by_shard_index,
         shard_layout,
         apply_contexts,
     }
@@ -686,13 +706,14 @@ pub fn test_apply_new_chunk_impl(setup: &TestApplyChunkSetup, verbose: bool) {
         }
         let recorded = setup.env.last_proofs.get(&shard_id).cloned().unwrap(); // TODO: clone as part of setup
         let receipts = setup.last_receipts.get(&shard_id).map(Vec::as_slice).unwrap_or(&[]);
-        let apply_result = setup.env.apply_new_chunk_with_storage(
+        let apply_args = setup.env.apply_new_chunk_args_with_storage(
             shard_id,
             transactions.clone(), // TODO: clone as part of setup
             receipts,
             &setup.apply_contexts[shard_index],
             Some(recorded),
         );
+        let apply_result = setup.env.apply_new_chunk_with_storage(apply_args);
         if verbose {
             eprintln!("Incoming receipts: {}", receipts.len());
             eprintln!("Outgoing receipts: {:?}", apply_result.outgoing_receipts.len());
@@ -708,7 +729,121 @@ pub fn test_apply_new_chunk_impl(setup: &TestApplyChunkSetup, verbose: bool) {
 pub struct TestApplyChunkSetup {
     pub env: TestEnv,
     pub transactions_by_shard_index: Vec<Vec<SignedTransaction>>,
+    pub new_transactions_by_shard_index: Vec<Vec<SignedTransaction>>,
     pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
     pub shard_layout: ShardLayout,
     pub apply_contexts: Vec<TestApplyChunkContext>,
+}
+
+// TODO: Use NewChunkData instead
+struct ApplyChunkArgs {
+    storage_config: RuntimeStorageConfig,
+    apply_reason: ApplyChunkReason,
+    shard_id: ShardId,
+    validator_proposals: Vec<ValidatorStake>,
+    block: ApplyChunkBlockContext,
+    receipts: Vec<Receipt>,
+    transactions: SignedValidPeriodTransactions,
+}
+
+fn apply_chunk_using_args(runtime: &NightshadeRuntime, args: ApplyChunkArgs) -> ApplyChunkResult {
+    runtime
+        .apply_chunk(
+            args.storage_config,
+            args.apply_reason,
+            ApplyChunkShardContext {
+                shard_id: args.shard_id,
+                last_validator_proposals: ValidatorStakeIter::new(&args.validator_proposals),
+                gas_limit: u64::MAX, // TODO: use real gas limit
+                is_new_chunk: true,
+            },
+            args.block,
+            &args.receipts,
+            args.transactions,
+        )
+        .unwrap()
+}
+
+pub struct TestApplyChunkInputs {
+    pub args: ApplyChunkArgs,
+    pub done: ProcessingDoneTracker,
+    spawn_delay: std::time::Duration,
+}
+
+pub fn run(
+    runtime: Arc<NightshadeRuntime>,
+    inputs: Vec<TestApplyChunkInputs>,
+    spawner: Arc<dyn AsyncComputationSpawner>,
+) {
+    // Make waiters for all inputs.
+    let waiters = inputs.iter().map(|input| input.done.make_waiter()).collect_vec();
+
+    // Spawn tasks for each input.
+    let start_time = std::time::Instant::now();
+    for input in inputs {
+        let since_start = std::time::Instant::now().duration_since(start_time);
+        if since_start < input.spawn_delay {
+            std::thread::sleep(input.spawn_delay - since_start);
+        }
+
+        let runtime = runtime.clone();
+        spawner.spawn("apply_chunk", move || {
+            apply_chunk_using_args(&runtime, input.args);
+            drop(input.done);
+        });
+    }
+
+    // Wait for all tasks to finish.
+    for waiter in waiters {
+        waiter.wait();
+    }
+}
+
+impl TestApplyChunkSetup {
+    pub fn new_case(
+        &self,
+        apply_from_recorded: Vec<(usize, std::time::Duration)>,
+        apply_new_chunk: Vec<(usize, std::time::Duration)>,
+    ) -> Vec<TestApplyChunkInputs> {
+        let mut inputs = Vec::new();
+        for (shard_index, delay) in apply_from_recorded {
+            let shard_id = self.shard_layout.get_shard_id(shard_index).unwrap();
+            let receipts = self.last_receipts.get(&shard_id).map(Vec::as_slice).unwrap_or(&[]);
+            let recorded = self.env.last_proofs.get(&shard_id).cloned().unwrap();
+
+            inputs.push(TestApplyChunkInputs {
+                args: self.env.apply_new_chunk_args_with_storage(
+                    shard_id,
+                    self.transactions_by_shard_index[shard_index].clone(),
+                    receipts,
+                    &self.apply_contexts[shard_index],
+                    Some(recorded),
+                ),
+                done: ProcessingDoneTracker::new(),
+                spawn_delay: delay,
+            });
+        }
+
+        for (shard_index, delay) in apply_new_chunk {
+            let shard_id = self.shard_layout.get_shard_id(shard_index).unwrap();
+            let receipts = self.env.last_receipts.get(&shard_id).map(Vec::as_slice).unwrap_or(&[]);
+
+            inputs.push(TestApplyChunkInputs {
+                args: self.env.apply_new_chunk_args_with_storage(
+                    shard_id,
+                    self.new_transactions_by_shard_index[shard_index].clone(),
+                    receipts,
+                    &self.env.apply_chunk_context(shard_id),
+                    None,
+                ),
+                done: ProcessingDoneTracker::new(),
+                spawn_delay: delay,
+            });
+        }
+
+        // Sort inputs by spawn delay to ensure that we apply chunks in the order of their spawn delay.
+        inputs.sort_by_key(|input| input.spawn_delay);
+
+        inputs
+    }
 }
