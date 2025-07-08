@@ -192,7 +192,7 @@ impl ChainStore {
         metrics::CHUNK_TAIL_HEIGHT.set(self.chain_store().chunk_tail()? as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         let last_known_gc_heigh = self.gc_stop_height()?;
-        if last_known_gc_heigh < gc_stop_height {
+        if last_known_gc_heigh != gc_stop_height {
             let mut chain_store_update = self.store_update();
             chain_store_update.update_gc_stop_height(gc_stop_height);
             if fork_tail < gc_stop_height {
@@ -202,6 +202,7 @@ impl ChainStore {
             chain_store_update.commit()?;
         }
         let mut gc_blocks_remaining = gc_config.gc_blocks_limit;
+
         // Forks Cleaning
         let gc_fork_clean_step = gc_config.gc_fork_clean_step;
         let stop_height = tail.max(fork_tail.saturating_sub(gc_fork_clean_step));
