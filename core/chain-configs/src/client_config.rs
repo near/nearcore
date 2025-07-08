@@ -520,7 +520,7 @@ pub fn default_view_client_threads() -> usize {
 }
 
 pub fn default_chunk_validation_threads() -> usize {
-    2
+    4
 }
 
 pub fn default_log_summary_period() -> Duration {
