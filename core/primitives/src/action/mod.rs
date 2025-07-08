@@ -186,9 +186,11 @@ impl fmt::Debug for DeployGlobalContractAction {
     Debug,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum GlobalContractIdentifier {
-    CodeHash(CryptoHash),
-    AccountId(AccountId),
+    CodeHash(CryptoHash) = 0,
+    AccountId(AccountId) = 1,
 }
 
 impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
@@ -318,22 +320,24 @@ pub struct TransferAction {
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum Action {
     /// Create an (sub)account using a transaction `receiver_id` as an ID for
     /// a new account ID must pass validation rules described here
     /// <http://nomicon.io/Primitives/Account.html>.
-    CreateAccount(CreateAccountAction),
+    CreateAccount(CreateAccountAction) = 0,
     /// Sets a Wasm code to a receiver_id
-    DeployContract(DeployContractAction),
-    FunctionCall(Box<FunctionCallAction>),
-    Transfer(TransferAction),
-    Stake(Box<StakeAction>),
-    AddKey(Box<AddKeyAction>),
-    DeleteKey(Box<DeleteKeyAction>),
-    DeleteAccount(DeleteAccountAction),
-    Delegate(Box<delegate::SignedDelegateAction>),
-    DeployGlobalContract(DeployGlobalContractAction),
-    UseGlobalContract(Box<UseGlobalContractAction>),
+    DeployContract(DeployContractAction) = 1,
+    FunctionCall(Box<FunctionCallAction>) = 2,
+    Transfer(TransferAction) = 3,
+    Stake(Box<StakeAction>) = 4,
+    AddKey(Box<AddKeyAction>) = 5,
+    DeleteKey(Box<DeleteKeyAction>) = 6,
+    DeleteAccount(DeleteAccountAction) = 7,
+    Delegate(Box<delegate::SignedDelegateAction>) = 8,
+    DeployGlobalContract(DeployGlobalContractAction) = 9,
+    UseGlobalContract(Box<UseGlobalContractAction>) = 10,
 }
 
 const _: () = assert!(

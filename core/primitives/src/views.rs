@@ -1257,8 +1257,10 @@ impl ChunkView {
     serde::Deserialize,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ActionView {
-    CreateAccount,
+    CreateAccount = 0,
     DeployContract {
         #[serde_as(as = "Base64")]
         #[cfg_attr(
@@ -1266,7 +1268,7 @@ pub enum ActionView {
             schemars(schema_with = "crate::serialize::base64_schema")
         )]
         code: Vec<u8>,
-    },
+    } = 1,
     FunctionCall {
         method_name: String,
         args: FunctionArgs,
@@ -1274,32 +1276,32 @@ pub enum ActionView {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         deposit: Balance,
-    },
+    } = 2,
     Transfer {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         deposit: Balance,
-    },
+    } = 3,
     Stake {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         stake: Balance,
         public_key: PublicKey,
-    },
+    } = 4,
     AddKey {
         public_key: PublicKey,
         access_key: AccessKeyView,
-    },
+    } = 5,
     DeleteKey {
         public_key: PublicKey,
-    },
+    } = 6,
     DeleteAccount {
         beneficiary_id: AccountId,
-    },
+    } = 7,
     Delegate {
         delegate_action: DelegateAction,
         signature: Signature,
-    },
+    } = 8,
     DeployGlobalContract {
         #[serde_as(as = "Base64")]
         #[cfg_attr(
@@ -1307,7 +1309,7 @@ pub enum ActionView {
             schemars(schema_with = "crate::serialize::base64_schema")
         )]
         code: Vec<u8>,
-    },
+    } = 9,
     DeployGlobalContractByAccountId {
         #[serde_as(as = "Base64")]
         #[cfg_attr(
@@ -1315,13 +1317,13 @@ pub enum ActionView {
             schemars(schema_with = "crate::serialize::base64_schema")
         )]
         code: Vec<u8>,
-    },
+    } = 10,
     UseGlobalContract {
         code_hash: CryptoHash,
-    },
+    } = 11,
     UseGlobalContractByAccountId {
         account_id: AccountId,
-    },
+    } = 12,
 }
 
 impl From<Action> for ActionView {
@@ -1490,20 +1492,22 @@ impl From<SignedTransaction> for SignedTransactionView {
     Default,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
     #[default]
-    NotStarted,
+    NotStarted = 0,
     /// The execution has started and still going.
-    Started,
+    Started = 1,
     /// The execution has failed with the given error.
-    Failure(TxExecutionError),
+    Failure(TxExecutionError) = 2,
     /// The execution has succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(
         #[serde_as(as = "Base64")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         Vec<u8>,
-    ),
+    ) = 3,
 }
 
 impl fmt::Debug for FinalExecutionStatus {
@@ -1529,10 +1533,12 @@ impl fmt::Debug for FinalExecutionStatus {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ServerError {
-    TxExecutionError(TxExecutionError),
-    Timeout,
-    Closed,
+    TxExecutionError(TxExecutionError) = 0,
+    Timeout = 1,
+    Closed = 2,
 }
 
 #[serde_as]
@@ -1540,20 +1546,22 @@ pub enum ServerError {
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
-    Unknown,
+    Unknown = 0,
     /// The execution has failed.
-    Failure(TxExecutionError),
+    Failure(TxExecutionError) = 1,
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(
         #[serde_as(as = "Base64")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         Vec<u8>,
-    ),
+    ) = 2,
     /// The final action of the receipt returned a promise or the signed transaction was converted
     /// to a receipt. Contains the receipt_id of the generated receipt.
-    SuccessReceiptId(CryptoHash),
+    SuccessReceiptId(CryptoHash) = 3,
 }
 
 impl fmt::Debug for ExecutionStatusView {
@@ -1865,25 +1873,26 @@ pub struct TxStatusView {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[borsh(use_discriminant = true)]
 pub enum TxExecutionStatus {
     /// Transaction is waiting to be included into the block
-    None,
+    None = 0,
     /// Transaction is included into the block. The block may be not finalized yet
-    Included,
+    Included = 1,
     /// Transaction is included into the block +
     /// All non-refund transaction receipts finished their execution.
     /// The corresponding blocks for tx and each receipt may be not finalized yet
     #[default]
-    ExecutedOptimistic,
+    ExecutedOptimistic = 2,
     /// Transaction is included into finalized block
-    IncludedFinal,
+    IncludedFinal = 3,
     /// Transaction is included into finalized block +
     /// All non-refund transaction receipts finished their execution.
     /// The corresponding blocks for each receipt may be not finalized yet
-    Executed,
+    Executed = 4,
     /// Transaction is included into finalized block +
     /// Execution of all transaction receipts is finalized, including refund receipts
-    Final,
+    Final = 5,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -2096,7 +2105,9 @@ pub struct DataReceiverView {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[borsh(use_discriminant = true)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[repr(u8)]
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
@@ -2109,7 +2120,7 @@ pub enum ReceiptEnumView {
         actions: Vec<ActionView>,
         #[serde(default = "default_is_promise")]
         is_promise_yield: bool,
-    },
+    } = 0,
     Data {
         data_id: CryptoHash,
         #[serde_as(as = "Option<Base64>")]
@@ -2117,7 +2128,7 @@ pub enum ReceiptEnumView {
         data: Option<Vec<u8>>,
         #[serde(default = "default_is_promise")]
         is_promise_resume: bool,
-    },
+    } = 1,
     GlobalContractDistribution {
         id: GlobalContractIdentifier,
         target_shard: ShardId,
@@ -2125,7 +2136,7 @@ pub enum ReceiptEnumView {
         #[serde_as(as = "Base64")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         code: Vec<u8>,
-    },
+    } = 2,
 }
 
 // Default value used when deserializing ReceiptEnumViews which are missing either the
