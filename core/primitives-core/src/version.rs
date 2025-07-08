@@ -410,6 +410,7 @@ impl ProtocolFeature {
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
+            ProtocolFeature::UnsignedT1Messages => 79,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -418,7 +419,6 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::RefTypesBulkMemory => 149,
-            ProtocolFeature::UnsignedT1Messages => 150,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -435,10 +435,10 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 78;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 79;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =
