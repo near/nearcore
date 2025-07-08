@@ -318,7 +318,7 @@ impl ChunkExecutorActor {
 
         let apply_done_sender = self.myself_sender.clone();
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
-            let mut apply_results =  Vec::new();
+            let mut apply_results = Vec::new();
             let block_hash = *block.hash();
             for (shard_id, _, result) in do_apply_chunks(BlockToApply::Normal(block_hash), block.header().height(), jobs) {
                 match result {
