@@ -103,6 +103,7 @@ impl BitArray {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum ShardStateSyncResponseHeader {
     V1(ShardStateSyncResponseHeaderV1) = 0,
     V2(ShardStateSyncResponseHeaderV2) = 1,
