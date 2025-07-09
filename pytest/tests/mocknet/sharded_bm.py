@@ -322,7 +322,7 @@ def start_nodes(args, enable_tx_generator=False):
         logger.info("Setting tx generator parameters")
 
         accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
-        schedule_file = f"{BENCHNET_DIR}/{args.case}/load-schedule.json"
+        tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
 
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
@@ -337,9 +337,13 @@ def start_nodes(args, enable_tx_generator=False):
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
         run_cmd_args.cmd = f"\
-            jq --slurpfile patch {schedule_file} \
-            '. as $orig | $patch[0].schedule as $sched | .[\"tx_generator\"] += {{\"schedule\": $sched }}' \
-            {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
+            jq --slurpfile patch {tx_generator_settings} \
+            '. as $orig \
+            | $patch[0].tx_generator.schedule as $sched   \
+            | .[\"tx_generator\"] += {{\"schedule\": $sched }} \
+            | $patch[0].tx_generator.controller as $ctrl   \
+            | .[\"tx_generator\"] += {{\"controller\": $ctrl }} \
+            ' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
         "
 
         run_remote_cmd(CommandContext(run_cmd_args))
