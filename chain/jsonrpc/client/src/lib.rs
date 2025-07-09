@@ -184,6 +184,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_commit(&self, tx: String) -> RpcRequest<RpcTransactionResponse>;
     pub fn status(&self) -> RpcRequest<StatusResponse>;
     #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_genesis_config(&self) -> RpcRequest<serde_json::Value>;
     pub fn genesis_config(&self) -> RpcRequest<serde_json::Value>;
     pub fn health(&self) -> RpcRequest<()>;
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
@@ -269,6 +270,7 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "protocol_config", request)
     }
 
+    #[deprecated(since = "2.8.0", note = "Use `protocol_config` method instead")]
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_protocol_config(
         &self,
