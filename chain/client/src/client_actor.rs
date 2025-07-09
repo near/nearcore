@@ -1572,7 +1572,6 @@ impl ClientActorInner {
             // An extra scope to limit the lifetime of the span.
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
             if let Err(err) = self.client.run_catchup(
-                &self.network_info.highest_height_peers,
                 &self.sync_jobs_sender.block_catch_up,
                 Some(self.client.myself_sender.apply_chunks_done.clone()),
             ) {

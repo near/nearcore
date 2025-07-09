@@ -154,7 +154,6 @@ impl SyncHandler {
         let state_sync_result = self.state_sync.run(
             sync_hash,
             state_sync_status,
-            &highest_height_peers,
             &shards_to_sync,
         );
         let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);

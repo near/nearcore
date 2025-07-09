@@ -48,7 +48,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
+    NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
@@ -2116,7 +2116,6 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        highest_height_peers: &[HighestHeightPeerInfo],
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
@@ -2173,7 +2172,6 @@ impl Client {
             match state_sync.run(
                 sync_hash,
                 status,
-                highest_height_peers,
                 state_sync_info.shards(),
             )? {
                 StateSyncResult::InProgress => {}

@@ -34,7 +34,6 @@ pub(super) struct StateSyncDownloadSourcePeer {
 
 #[derive(Default)]
 pub(super) struct StateSyncDownloadSourcePeerSharedState {
-    highest_height_peers: Vec<PeerId>,
     /// Tracks pending requests we have sent to peers. The requests are indexed by
     /// (shard ID, sync hash, part ID or header), and the value is the peer ID we
     /// expect the response from, as well as a channel sender to complete the future
@@ -85,11 +84,6 @@ impl StateSyncDownloadSourcePeerSharedState {
         let value = self.pending_requests.remove(&key).unwrap();
         let _ = value.sender.send(data);
         Ok(())
-    }
-
-    /// Sets the peers that are eligible for querying state sync headers/parts.
-    pub fn set_highest_peers(&mut self, peers: Vec<PeerId>) {
-        self.highest_height_peers = peers;
     }
 }
 
