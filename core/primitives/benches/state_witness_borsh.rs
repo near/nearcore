@@ -6,8 +6,7 @@ use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, 
 use std::time::Duration;
 
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
-
-mod test_data;
+use testlib::state_witness_test_data;
 
 fn borsh_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("state_witness_borsh");
@@ -22,7 +21,7 @@ fn borsh_benchmark(c: &mut Criterion) {
     let sizes = &[("5MB", 5_000_000), ("15MB", 15_000_000)];
 
     for &(size_name, size_bytes) in sizes {
-        let witness = test_data::generate_realistic_state_witness(size_bytes);
+        let witness = state_witness_test_data::generate_realistic_state_witness(size_bytes);
 
         // Pre-serialize to get actual serialized size
         let serialized = borsh::to_vec(&witness).unwrap();

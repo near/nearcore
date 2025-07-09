@@ -36,7 +36,7 @@ fn generate_test_data(size: usize) -> Vec<u8> {
     data
 }
 
-mod test_data;
+use testlib::state_witness_test_data;
 
 fn compression_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("compression_analysis");
@@ -49,7 +49,7 @@ fn compression_benchmark(c: &mut Criterion) {
 
     // Benchmark all combinations of levels and sizes
     for &(size_name, size_bytes) in DATA_SIZES {
-        let test_data = test_data::generate_realistic_test_data(size_bytes);
+        let test_data = state_witness_test_data::generate_realistic_test_data(size_bytes);
         group.throughput(Throughput::Bytes(size_bytes as u64));
 
         for &level in COMPRESSION_LEVELS {
