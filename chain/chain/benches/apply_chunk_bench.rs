@@ -1,3 +1,4 @@
+use std::sync::Once;
 use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 
@@ -7,7 +8,24 @@ use near_chain::runtime::apply_chunk_test_utils::{
     self, TestApplyChunkParams, test_apply_new_chunk_impl, test_apply_new_chunk_setup,
 };
 
+// cspell:words tikv jemallocator Jemalloc
+#[global_allocator]
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+static INIT: Once = Once::new();
+
+fn global_setup() {
+    INIT.call_once(|| {
+        rayon::ThreadPoolBuilder::new()
+            .stack_size(8 * 1024 * 1024)
+            .build_global()
+            .expect("Failed to build global Rayon threadpool");
+    });
+}
+
 fn bench_apply_chunk(c: &mut Criterion) {
+    global_setup();
+
     let mut group = c.benchmark_group("slow group");
     group.sample_size(20); // reduces sample count
 
@@ -30,6 +48,8 @@ fn bench_apply_chunk(c: &mut Criterion) {
 }
 
 fn bench_apply_chunk_parallel(c: &mut Criterion) {
+    global_setup();
+
     let mut group = c.benchmark_group("apply_chunk_parallel");
     let params = TestApplyChunkParams {
         num_txs_per_chunk: 4000 * 20,

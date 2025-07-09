@@ -4264,6 +4264,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.12",
  "thread-priority",
+ "tikv-jemallocator",
  "time",
  "tokio",
  "tracing",
