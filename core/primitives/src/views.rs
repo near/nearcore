@@ -149,6 +149,8 @@ impl From<AccountView> for Account {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermissionView {
     FunctionCall {
@@ -157,8 +159,8 @@ pub enum AccessKeyPermissionView {
         allowance: Option<Balance>,
         receiver_id: String,
         method_names: Vec<String>,
-    },
-    FullAccess,
+    } = 0,
+    FullAccess = 1,
 }
 
 impl From<AccessKeyPermission> for AccessKeyPermissionView {
@@ -718,15 +720,17 @@ pub struct BlockProcessingInfo {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum BlockProcessingStatus {
-    Orphan,
-    WaitingForChunks,
-    InProcessing,
-    Accepted,
-    Error(String),
-    Dropped(DroppedReason),
-    Unknown,
+    Orphan = 0,
+    WaitingForChunks = 1,
+    InProcessing = 2,
+    Accepted = 3,
+    Error(String) = 4,
+    Dropped(DroppedReason) = 5,
+    Unknown = 6,
 }
 
 #[derive(
@@ -739,12 +743,14 @@ pub enum BlockProcessingStatus {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum DroppedReason {
     // If the node has already processed a block at this height
-    HeightProcessed,
+    HeightProcessed = 0,
     // If the block processing pool is full
-    TooManyProcessingBlocks,
+    TooManyProcessingBlocks = 1,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

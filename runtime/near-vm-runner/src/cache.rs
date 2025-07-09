@@ -66,9 +66,11 @@ pub fn get_contract_cache_key(code_hash: CryptoHash, config: &Config) -> CryptoH
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum CompiledContract {
-    CompileModuleError(crate::logic::errors::CompilationError),
-    Code(Vec<u8>),
+    CompileModuleError(crate::logic::errors::CompilationError) = 0,
+    Code(Vec<u8>) = 1,
 }
 
 impl CompiledContract {
