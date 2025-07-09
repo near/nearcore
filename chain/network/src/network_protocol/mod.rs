@@ -1201,11 +1201,27 @@ impl RoutedMessage {
     }
 
     pub fn verify(&self) -> bool {
-        match self {
+        use crate::stats::metrics::ROUTED_MESSAGE_VERIFICATION_TIME;
+        use std::time::Instant;
+
+        let start = Instant::now();
+        let result = match self {
             RoutedMessage::V1(msg) => msg.verify(),
             RoutedMessage::V2(msg) => msg.msg.verify(),
             RoutedMessage::V3(msg) => msg.verify(),
-        }
+        };
+
+        let duration = start.elapsed();
+        let version_label = match self {
+            RoutedMessage::V1(_) => "v1",
+            RoutedMessage::V2(_) => "v2",
+            RoutedMessage::V3(_) => "v3",
+        };
+        ROUTED_MESSAGE_VERIFICATION_TIME
+            .with_label_values(&[version_label])
+            .observe(duration.as_secs_f64());
+
+        result
     }
 
     pub fn expect_response(&self) -> bool {
