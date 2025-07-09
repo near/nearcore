@@ -4680,14 +4680,11 @@ version = "0.0.0"
 dependencies = [
  "itertools 0.12.1",
  "near-chain-configs",
- "near-crypto",
  "near-jsonrpc-primitives",
  "near-primitives",
  "okapi",
  "schemars 1.0.3",
- "serde",
  "serde_json",
- "serde_with",
 ]
 
 [[package]]
