@@ -170,12 +170,13 @@ mod helper {
                 let elem = &array.elem;
                 let len = &array.len;
                 quote! {
-                    {
-                        const fn create_array() -> [std::any::TypeId; 1] {
-                            [std::any::TypeId::of::<#elem>()]
-                        }
-                        (stringify!([#elem; #len]), &create_array())
-                    }
+                    (stringify!([#elem; #len]), &[std::any::TypeId::of::<#elem>()])
+                }
+            }
+            Type::Slice(slice) => {
+                let elem = &slice.elem;
+                quote! {
+                    (stringify!([#elem]), &[std::any::TypeId::of::<#elem>()])
                 }
             }
             Type::Tuple(tuple) => {
