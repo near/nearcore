@@ -519,6 +519,10 @@ impl ViewClientActorInner {
             [self.chain.get_block_header(&execution_outcome.transaction_outcome.block_hash)?];
         if let Err(_) = self.chain.check_blocks_final_and_canonical(blocks.iter().map(|b| &**b)) {
             return if executed_ignoring_refunds {
+                assert!(
+                    execution_outcome.status != FinalExecutionStatus::NotStarted
+                        && execution_outcome.status != FinalExecutionStatus::Started
+                );
                 Ok(TxExecutionStatus::ExecutedOptimistic)
             } else {
                 Ok(TxExecutionStatus::Included)
@@ -529,6 +533,10 @@ impl ViewClientActorInner {
             return Ok(TxExecutionStatus::IncludedFinal);
         }
         if !executed_including_refunds {
+            assert!(
+                execution_outcome.status != FinalExecutionStatus::NotStarted
+                    && execution_outcome.status != FinalExecutionStatus::Started
+            );
             return Ok(TxExecutionStatus::Executed);
         }
 
@@ -540,6 +548,11 @@ impl ViewClientActorInner {
         }
         // We can't sort and check only the last block;
         // previous blocks may be not in the canonical chain
+
+        assert!(
+            execution_outcome.status != FinalExecutionStatus::NotStarted
+                && execution_outcome.status != FinalExecutionStatus::Started
+        );
         Ok(match self.chain.check_blocks_final_and_canonical(headers.iter().map(|v| &**v)) {
             Err(_) => TxExecutionStatus::Executed,
             Ok(_) => TxExecutionStatus::Final,
