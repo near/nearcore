@@ -85,8 +85,12 @@ mod helper {
     fn extract_enum_variants(
         variants: &syn::punctuated::Punctuated<Variant, syn::token::Comma>,
     ) -> TokenStream2 {
-        let variants = variants.iter().map(|v| {
+        let variants = variants.iter().enumerate().map(|(idx, v)| {
             let name = &v.ident;
+            let discriminant = match &v.discriminant {
+                Some((_, expr)) => quote! { #expr as _ },
+                None => quote! { #idx as _ },
+            };
             let fields = match &v.fields {
                 Fields::Named(FieldsNamed { named, .. }) => {
                     let fields = extract_from_named_fields(named);
@@ -98,7 +102,7 @@ mod helper {
                 }
                 Fields::Unit => quote! { None },
             };
-            quote! { (stringify!(#name), #fields) }
+            quote! { (#discriminant, stringify!(#name), #fields) }
         });
         quote! { &[#(#variants),*] }
     }

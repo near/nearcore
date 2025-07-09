@@ -319,6 +319,7 @@ impl<'a> NodeStateBuilder<'a> {
                 // gain anything over having them dump parts to a tempdir.
                 external_storage_fallback_threshold: 0,
             }),
+            concurrency: Default::default(),
         };
 
         if let Some(config_modifier) = self.config_modifier {
