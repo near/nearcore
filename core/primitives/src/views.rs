@@ -1005,7 +1005,7 @@ impl From<BlockHeaderView> for BlockHeader {
     }
 }
 
-/// A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient). 
+/// A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
 #[derive(
     PartialEq,
     Eq,
@@ -2397,7 +2397,7 @@ pub struct NextEpochValidatorInfo {
     pub shards: Vec<ShardId>,
 }
 
-/// A state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient). 
+/// A state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
 #[derive(
     PartialEq,
     Eq,

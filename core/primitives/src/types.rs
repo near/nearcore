@@ -1065,7 +1065,7 @@ pub struct ChunkExtraV1 {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum BlockId {
-    #[schemars(title = "block_height")]
+    #[cfg_attr(feature = "schemars", schemars(title = "block_height"))]
     Height(BlockHeight),
     Hash(CryptoHash),
 }

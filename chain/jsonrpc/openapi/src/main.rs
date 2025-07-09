@@ -309,12 +309,12 @@ pub struct InterchangeOneOfsAndAllOfs;
 
 impl schemars::transform::Transform for InterchangeOneOfsAndAllOfs {
     fn transform(&mut self, schema: &mut schemars::Schema) {
-        interchange_oneofs_and_allofs(
+        interchange_one_ofs_and_all_ofs(
             schema,
             "RpcStateChangesInBlockByTypeRequest".to_string(),
             "changes_type".to_string(),
         );
-        interchange_oneofs_and_allofs(
+        interchange_one_ofs_and_all_ofs(
             schema,
             "RpcQueryRequest".to_string(),
             "request_type".to_string(),
@@ -390,7 +390,7 @@ fn add_title_to_allof(
 }
 
 /// Interchanges `oneOf` and `allOf` in the schema for InterchangeOneOfsAndAllOfs transform
-fn interchange_oneofs_and_allofs(
+fn interchange_one_ofs_and_all_ofs(
     schema: &mut schemars::Schema,
     title_value: String,
     enum_name: String,
@@ -398,20 +398,19 @@ fn interchange_oneofs_and_allofs(
     if let Some(value) = schema.get("title") {
         if value == title_value.as_str() {
             match serde_json::to_value(schema.clone()).unwrap() {
-                serde_json::Value::Object(map) => {
-                    let mut new_map = map.clone();
-                    if let Some(serde_json::Value::Array(all_of)) = new_map.get_mut("allOf") {
-                        let mut all_oneofs = vec![];
+                serde_json::Value::Object(mut map) => {
+                    if let Some(serde_json::Value::Array(all_of)) = map.get_mut("allOf") {
+                        let mut all_one_ofs = vec![];
                         for item in all_of {
                             if let serde_json::Value::Object(sub_obj) = item {
                                 if let Some(serde_json::Value::Array(one_of)) = sub_obj.get("oneOf")
                                 {
-                                    all_oneofs.push(one_of.clone());
+                                    all_one_ofs.push(one_of.clone());
                                 }
                             }
                         }
                         let combinations = Itertools::multi_cartesian_product(
-                            all_oneofs.iter().map(|v: &Vec<serde_json::Value>| v.iter()),
+                            all_one_ofs.iter().map(|v: &Vec<serde_json::Value>| v.iter()),
                         );
                         let new_oneof: Vec<serde_json::Value> = combinations
                             .into_iter()
@@ -689,7 +688,7 @@ fn main() {
         &mut all_schemas,
         &mut all_paths,
         "health".to_string(),
-        "Returns the current health stauts of the RPC node the client connects to.".to_string(),
+        "Returns the current health status of the RPC node the client connects to.".to_string(),
     );
     add_spec_for_path::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse>(
         &mut all_schemas,
@@ -828,7 +827,7 @@ The `RpcQueryRequest` struct takes in a [`BlockReference`](https://docs.rs/near-
 
 The `BlockReference` enum allows you to specify a block by `Finality`, `BlockId` or `SyncCheckpoint`.
 
-The `QueryRequest` enum provides multiple variaints for performing the following actions:
+The `QueryRequest` enum provides multiple variants for performing the following actions:
  - View an account's details
  - View a contract's code
  - View the state of an account
