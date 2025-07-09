@@ -432,7 +432,7 @@ pub fn migrate_41_to_42(store: &Store) -> anyhow::Result<()> {
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
-#[borsh(use_discriminant=true)]
+#[borsh(use_discriminant = true)]
 #[repr(u8)]
 enum DeprecatedStoredChunkStateTransitionDataEnum {
     V1(DeprecatedStoredChunkStateTransitionDataV1) = 0,

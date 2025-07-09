@@ -99,7 +99,7 @@ pub enum MethodResolveError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, strum::IntoStaticStr)]
-#[borsh(use_discriminant=true)]
+#[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum CompilationError {
     CodeDoesNotExist {

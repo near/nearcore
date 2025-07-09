@@ -91,7 +91,7 @@ impl OutgoingMetadatas {
 
 /// Information about a group of consecutive receipts stored in the outgoing buffer.
 #[derive(Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-#[borsh(use_discriminant=true)]
+#[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum ReceiptGroup {
     V0(ReceiptGroupV0) = 0,
