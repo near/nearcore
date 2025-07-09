@@ -30,9 +30,24 @@ impl TrieStoreAdapter {
         TrieStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
+    // Here we are first trying to get the value with shard_uid as prefix.
+    // If that fails, we try to get the value with the mapped shard_uid as prefix.
     fn get_ref(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<DBSlice<'_>, StorageError> {
-        let mapped_shard_uid = get_shard_uid_mapping(&self.store, shard_uid);
-        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
+        match self.get_ref_inner(shard_uid, hash) {
+            Ok(value) => Ok(value),
+            Err(err) => match maybe_get_shard_uid_mapping(&self.store, shard_uid) {
+                Some(mapped_shard_uid) => self.get_ref_inner(mapped_shard_uid, hash),
+                None => Err(err),
+            },
+        }
+    }
+
+    fn get_ref_inner(
+        &self,
+        shard_uid: ShardUId,
+        hash: &CryptoHash,
+    ) -> Result<DBSlice<'_>, StorageError> {
+        let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
         self.store
             .get(DBCol::State, key.as_ref())
             .map_err(|_| StorageError::StorageInternalError)?
