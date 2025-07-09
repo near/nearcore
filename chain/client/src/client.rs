@@ -1056,15 +1056,16 @@ impl Client {
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         let res = self.start_process_block(block, provenance, apply_chunks_done_sender);
         match &res {
+            Ok(()) => {}
             Err(near_chain::Error::Orphan) => {
-                debug!(target: "chain", ?prev_hash, "Orphan error");
+                debug!(target: "chain", ?prev_hash, "orphan error");
                 if !self.chain.is_orphan(&prev_hash) {
                     debug!(target: "chain", "not orphan");
                     self.request_block(prev_hash, peer_id)
                 }
             }
-            err => {
-                debug!(target: "chain", ?err, "some other error");
+            Err(err) => {
+                debug!(target: "chain", err=err as &dyn std::error::Error, "when starting block processing");
             }
         }
         res

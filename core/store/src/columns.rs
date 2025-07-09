@@ -273,7 +273,7 @@ pub enum DBCol {
     FlatStorageStatus,
     /// Column to persist pieces of miscellaneous small data. Should only be used to store
     /// constant or small (for example per-shard) amount of data.
-    /// - *Rows*: arbitrary string, see `crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY` for example
+    /// - *Rows*: arbitrary string, see `crate::db::LATEST_WITNESSES_INFO` for example
     /// - *Column type*: arbitrary bytes
     Misc,
     /// Column to store data necessary to generate part of state witness
