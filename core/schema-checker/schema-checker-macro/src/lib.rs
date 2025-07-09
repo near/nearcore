@@ -178,6 +178,9 @@ mod helper {
                     }
                 }
             }
+            Type::Tuple(tuple) => {
+                quote! { (stringify!(#tuple), &[std::any::TypeId::of::<#tuple>()]) }
+            }
             _ => {
                 println!("Unsupported type: {:?}", ty);
                 quote! { (stringify!(#ty), &[std::any::TypeId::of::<#ty>()]) }
