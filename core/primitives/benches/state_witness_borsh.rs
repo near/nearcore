@@ -54,7 +54,8 @@ fn borsh_benchmark(c: &mut Criterion) {
                 b.iter(|| {
                     let deserialized: ChunkStateWitness =
                         borsh::from_slice(black_box(data)).unwrap();
-                    black_box(deserialized)
+                    // Prevent deallocation by forgetting the value - we only want to measure deserialization
+                    std::mem::forget(deserialized);
                 });
             },
         );
