@@ -311,6 +311,8 @@ pub enum ProtocolFeature {
     ReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
+    /// Increase the max congestion missed chunks from (effectively) 4 to 100.
+    IncreaseMaxCongestionMissedChunks,
 
     RefTypesBulkMemory,
     SaturatingFloatToInt,
@@ -409,6 +411,7 @@ impl ProtocolFeature {
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
+            ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -433,7 +436,7 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 78;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 79;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;

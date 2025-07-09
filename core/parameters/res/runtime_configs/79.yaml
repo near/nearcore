@@ -1,0 +1,5 @@
+# 100 missed chunks with respect to reject_tx_congestion_threshold
+max_congestion_missed_chunks: { 
+  old : 5,
+  new : 125,
+}
