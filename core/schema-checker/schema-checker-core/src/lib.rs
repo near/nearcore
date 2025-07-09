@@ -20,8 +20,16 @@ pub type FieldTypeInfo = (TypeName, &'static [TypeId]);
 
 #[derive(Debug, Copy, Clone)]
 pub enum ProtocolSchemaInfo {
-    Struct { name: FieldName, type_id: TypeId, fields: &'static [(FieldName, FieldTypeInfo)] },
-    Enum { name: FieldName, type_id: TypeId, variants: &'static [(Discriminant, VariantName, Variant)] },
+    Struct {
+        name: FieldName,
+        type_id: TypeId,
+        fields: &'static [(FieldName, FieldTypeInfo)],
+    },
+    Enum {
+        name: FieldName,
+        type_id: TypeId,
+        variants: &'static [(Discriminant, VariantName, Variant)],
+    },
 }
 
 impl ProtocolSchemaInfo {
