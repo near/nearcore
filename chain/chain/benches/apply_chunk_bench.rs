@@ -76,7 +76,8 @@ fn bench_apply_chunk_parallel(c: &mut Criterion) {
                         (5, Duration::from_millis(0)),
                         (6, Duration::from_millis(0)),
                     ],
-                    vec![(7, Duration::from_millis(0))],
+                    //vec![(7, Duration::from_millis(0))],
+                    vec![],
                 )
             },
             move |case| {
