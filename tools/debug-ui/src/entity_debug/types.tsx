@@ -135,6 +135,7 @@ export type EntityQuery = {
     AllShardsByEpochId?: { epoch_id: string };
     BlockByHash?: { block_hash: string };
     BlockHashByHeight?: { block_height: number };
+    BlockHashByOrdinal?: { block_ordinal: number };
     BlockHeaderByHash?: { block_hash: string };
     BlockInfoByHash?: { block_hash: string };
     BlockMerkleTreeByHash?: { block_hash: string };
@@ -186,6 +187,7 @@ export const entityQueryTypes: EntityQueryType[] = [
     'AllShardsByEpochId',
     'BlockByHash',
     'BlockHashByHeight',
+    'BlockHashByOrdinal',
     'BlockHeaderByHash',
     'BlockInfoByHash',
     'BlockMerkleTreeByHash',
@@ -257,6 +259,7 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
     AllShardsByEpochId: [queryKey('epoch_id')],
     BlockByHash: [queryKey('block_hash')],
     BlockHashByHeight: [queryKey('block_height')],
+    BlockHashByOrdinal: [queryKey('block_ordinal')],
     BlockHeaderByHash: [queryKey('block_hash')],
     BlockInfoByHash: [queryKey('block_hash')],
     BlockMerkleTreeByHash: [queryKey('block_hash')],
@@ -302,6 +305,7 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     AllShardsByEpochId: 'AllShards',
     BlockByHash: 'Block',
     BlockHashByHeight: 'BlockHash',
+    BlockHashByOrdinal: 'BlockHash',
     BlockHeaderByHash: 'BlockHeader',
     BlockInfoByHash: 'BlockInfo',
     BlockMerkleTreeByHash: 'BlockMerkleTree',

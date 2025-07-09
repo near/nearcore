@@ -4957,6 +4957,7 @@ dependencies = [
  "bytes",
  "bytesize",
  "chrono",
+ "criterion",
  "derive_more 2.0.1",
  "easy-ext",
  "enum-map",
@@ -4971,7 +4972,10 @@ dependencies = [
  "near-primitives-core",
  "near-schema-checker-lib",
  "near-stdx",
+ "near-store",
  "near-time",
+ "near-vm-runner",
+ "node-runtime",
  "num-rational 0.3.2",
  "ordered-float",
  "primitive-types 0.10.1",
@@ -4987,6 +4991,7 @@ dependencies = [
  "smart-default",
  "strum",
  "tempfile",
+ "testlib",
  "thiserror 2.0.12",
  "tracing",
  "zstd",
@@ -5247,6 +5252,7 @@ dependencies = [
  "near-network",
  "near-primitives",
  "node-runtime",
+ "pid-lite",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -6391,6 +6397,12 @@ dependencies = [
  "pest",
  "sha1",
 ]
+
+[[package]]
+name = "pid-lite"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525af580ce1fff6a619c17736c1d91dcab5d5abff5df3937136f499922dfa73f"
 
 [[package]]
 name = "pin-project"

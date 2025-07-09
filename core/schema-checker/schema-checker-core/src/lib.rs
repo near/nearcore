@@ -3,6 +3,7 @@
 use std::any::TypeId;
 
 pub type TypeName = &'static str;
+pub type Discriminant = u64;
 pub type FieldName = &'static str;
 pub type VariantName = &'static str;
 pub type Variant = Option<&'static [(FieldName, FieldTypeInfo)]>;
@@ -19,8 +20,16 @@ pub type FieldTypeInfo = (TypeName, &'static [TypeId]);
 
 #[derive(Debug, Copy, Clone)]
 pub enum ProtocolSchemaInfo {
-    Struct { name: FieldName, type_id: TypeId, fields: &'static [(FieldName, FieldTypeInfo)] },
-    Enum { name: FieldName, type_id: TypeId, variants: &'static [(VariantName, Variant)] },
+    Struct {
+        name: FieldName,
+        type_id: TypeId,
+        fields: &'static [(FieldName, FieldTypeInfo)],
+    },
+    Enum {
+        name: FieldName,
+        type_id: TypeId,
+        variants: &'static [(Discriminant, VariantName, Variant)],
+    },
 }
 
 impl ProtocolSchemaInfo {

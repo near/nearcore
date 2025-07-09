@@ -1,0 +1,14 @@
+{
+	"tx_generator": {
+		"schedule": [
+			{ "tps": 1000, "duration_s": 180 }
+		],
+		"controller": {
+			"target_block_production_time_s": 1.5,
+			"bps_filter_window_length": 40,
+			"gain_proportional": 15,
+			"gain_integral": 0.0,
+			"gain_derivative": 0.0
+		}
+	}
+}
