@@ -1,12 +1,12 @@
 use crate::client::{ClientSenderForNetwork, SetNetworkInfo, StateRequestHeader, StateRequestPart};
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
-use crate::network_protocol;
-use crate::network_protocol::SyncSnapshotHosts;
+use crate::network_protocol::{self, T2MessageBody};
 use crate::network_protocol::{
-    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
-    StateHeaderRequest, StatePartRequest,
+    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, StateHeaderRequest,
+    StatePartRequest,
 };
+use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
@@ -28,6 +28,7 @@ use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
 use near_async::messaging::{SendAsync, Sender};
 use near_async::time;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::{WithSpanContext, handler_debug_span, handler_trace_span};
 use near_performance_metrics_macros::perf;
 use near_primitives::genesis::GenesisId;
@@ -289,34 +290,36 @@ impl PeerManagerActor {
                         }
                     });
                 }
-                if let Some(cfg) = state.config.tier1.clone() {
-                    // Connect to TIER1 proxies and broadcast the list those connections periodically.
-                    arbiter.spawn({
-                        let clock = clock.clone();
-                        let state = state.clone();
-                        let mut interval = time::Interval::new(clock.now(), cfg.advertise_proxies_interval);
-                        async move {
-                            loop {
-                                interval.tick(&clock).await;
-                                state.tier1_request_full_sync();
-                                state.tier1_advertise_proxies(&clock).await;
-                            }
+
+                // Connect to TIER1 proxies and broadcast the list those connections periodically.
+                let tier1 = state.config.tier1.clone();
+                arbiter.spawn({
+                    let clock = clock.clone();
+                    let state = state.clone();
+                    let mut interval = time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
+                    async move {
+                        loop {
+                            interval.tick(&clock).await;
+                            state.tier1_request_full_sync();
+                            state.tier1_advertise_proxies(&clock).await;
                         }
-                    });
-                    // Update TIER1 connections periodically.
-                    arbiter.spawn({
-                        let clock = clock.clone();
-                        let state = state.clone();
-                        let mut interval = tokio::time::interval(cfg.connect_interval.try_into().unwrap());
-                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                        async move {
-                            loop {
-                                interval.tick().await;
-                                state.tier1_connect(&clock).await;
-                            }
+                    }
+                });
+
+                // Update TIER1 connections periodically.
+                arbiter.spawn({
+                    let clock = clock.clone();
+                    let state = state.clone();
+                    let mut interval = tokio::time::interval(tier1.connect_interval.try_into().unwrap());
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    async move {
+                        loop {
+                            interval.tick().await;
+                            state.tier1_connect(&clock).await;
                         }
-                    });
-                }
+                    }
+                });
+
                 // Periodically poll the connection store for connections we'd like to re-establish
                 arbiter.spawn({
                     let clock = clock.clone();
@@ -751,7 +754,7 @@ impl PeerManagerActor {
         let state = self.state.clone();
         ctx.spawn(wrap_future(
             async move {
-                state.client.send_async(SetNetworkInfo(network_info)).await.ok();
+                state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await.ok();
             }
             .instrument(
                 tracing::trace_span!(target: "network", "push_network_info_trigger_future"),
@@ -799,7 +802,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &approval_message.target,
-                    RoutedMessageBody::BlockApproval(approval_message.approval),
+                    T1MessageBody::BlockApproval(approval_message.approval).into(),
                 );
                 NetworkResponses::NoResponse
             }
@@ -856,11 +859,12 @@ impl PeerManagerActor {
                     &self.clock,
                     RawRoutedMessage {
                         target: PeerIdOrHash::PeerId(peer_id.clone()),
-                        body: RoutedMessageBody::StateHeaderRequest(StateHeaderRequest {
+                        body: T2MessageBody::StateHeaderRequest(StateHeaderRequest {
                             shard_id,
                             sync_hash,
                             addr,
-                        }),
+                        })
+                        .into(),
                     },
                 );
 
@@ -898,12 +902,13 @@ impl PeerManagerActor {
                     &self.clock,
                     RawRoutedMessage {
                         target: PeerIdOrHash::PeerId(peer_id.clone()),
-                        body: RoutedMessageBody::StatePartRequest(StatePartRequest {
+                        body: T2MessageBody::StatePartRequest(StatePartRequest {
                             shard_id,
                             sync_hash,
                             part_id,
                             addr,
-                        }),
+                        })
+                        .into(),
                     },
                 );
 
@@ -991,7 +996,7 @@ impl PeerManagerActor {
                             if self.state.send_message_to_account(
                                 &self.clock,
                                 account_id,
-                                RoutedMessageBody::PartialEncodedChunkRequest(request.clone()),
+                                T2MessageBody::PartialEncodedChunkRequest(request.clone()).into(),
                             ) {
                                 success = true;
                                 break;
@@ -1019,9 +1024,10 @@ impl PeerManagerActor {
                                     &self.clock,
                                     RawRoutedMessage {
                                         target: PeerIdOrHash::PeerId(matching_peer.clone()),
-                                        body: RoutedMessageBody::PartialEncodedChunkRequest(
+                                        body: T2MessageBody::PartialEncodedChunkRequest(
                                             request.clone(),
-                                        ),
+                                        )
+                                        .into(),
                                     },
                                 ),
                             ) {
@@ -1049,7 +1055,7 @@ impl PeerManagerActor {
                         &self.clock,
                         RawRoutedMessage {
                             target: PeerIdOrHash::Hash(route_back),
-                            body: RoutedMessageBody::PartialEncodedChunkResponse(response),
+                            body: T2MessageBody::PartialEncodedChunkResponse(response).into(),
                         },
                     ),
                 ) {
@@ -1062,7 +1068,10 @@ impl PeerManagerActor {
                 if self.state.send_message_to_account(
                     &self.clock,
                     &account_id,
-                    RoutedMessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk.into()),
+                    T1MessageBody::VersionedPartialEncodedChunk(Box::new(
+                        partial_encoded_chunk.into(),
+                    ))
+                    .into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1073,7 +1082,7 @@ impl PeerManagerActor {
                 if self.state.send_message_to_account(
                     &self.clock,
                     &account_id,
-                    RoutedMessageBody::PartialEncodedChunkForward(forward),
+                    T1MessageBody::PartialEncodedChunkForward(forward).into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1084,7 +1093,7 @@ impl PeerManagerActor {
                 if self.state.send_message_to_account(
                     &self.clock,
                     &account_id,
-                    RoutedMessageBody::ForwardTx(tx),
+                    T2MessageBody::ForwardTx(tx).into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1095,7 +1104,7 @@ impl PeerManagerActor {
                 if self.state.send_message_to_account(
                     &self.clock,
                     &account_id,
-                    RoutedMessageBody::TxStatusRequest(signer_account_id, tx_hash),
+                    T2MessageBody::TxStatusRequest(signer_account_id, tx_hash).into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1106,7 +1115,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &target,
-                    RoutedMessageBody::ChunkStateWitnessAck(ack),
+                    T2MessageBody::ChunkStateWitnessAck(ack).into(),
                 );
                 NetworkResponses::NoResponse
             }
@@ -1114,7 +1123,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &target,
-                    RoutedMessageBody::VersionedChunkEndorsement(endorsement),
+                    T1MessageBody::VersionedChunkEndorsement(endorsement).into(),
                 );
                 NetworkResponses::NoResponse
             }
@@ -1139,7 +1148,7 @@ impl PeerManagerActor {
                     self.state.send_message_to_account(
                         &self.clock,
                         &chunk_validator,
-                        RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
+                        T1MessageBody::PartialEncodedStateWitness(partial_witness).into(),
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1160,9 +1169,8 @@ impl PeerManagerActor {
                     self.state.send_message_to_account(
                         &self.clock,
                         &chunk_validator,
-                        RoutedMessageBody::PartialEncodedStateWitnessForward(
-                            partial_witness.clone(),
-                        ),
+                        T1MessageBody::PartialEncodedStateWitnessForward(partial_witness.clone())
+                            .into(),
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1190,7 +1198,7 @@ impl PeerManagerActor {
                     self.state.send_message_to_account(
                         &self.clock,
                         &validator,
-                        RoutedMessageBody::ChunkContractAccesses(accesses.clone()),
+                        T1MessageBody::ChunkContractAccesses(accesses.clone()).into(),
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1199,7 +1207,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &target,
-                    RoutedMessageBody::ContractCodeRequest(request),
+                    T1MessageBody::ContractCodeRequest(request).into(),
                 );
                 NetworkResponses::NoResponse
             }
@@ -1207,7 +1215,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &target,
-                    RoutedMessageBody::ContractCodeResponse(response),
+                    T1MessageBody::ContractCodeResponse(response).into(),
                 );
                 NetworkResponses::NoResponse
             }
@@ -1218,13 +1226,13 @@ impl PeerManagerActor {
                     self.state.send_message_to_account(
                         &self.clock,
                         &account,
-                        RoutedMessageBody::PartialEncodedContractDeploys(deploys.clone()),
+                        T2MessageBody::PartialEncodedContractDeploys(deploys.clone()).into(),
                     );
                 }
                 self.state.send_message_to_account(
                     &self.clock,
                     &last_account,
-                    RoutedMessageBody::PartialEncodedContractDeploys(deploys),
+                    T2MessageBody::PartialEncodedContractDeploys(deploys).into(),
                 );
                 NetworkResponses::NoResponse
             }

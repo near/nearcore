@@ -10,6 +10,7 @@ use near_chain::types::RuntimeAdapter;
 use near_client_primitives::types::ShardSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_part::PartId;
@@ -44,11 +45,6 @@ impl Drop for StateSyncShardHandle {
     }
 }
 
-/// The maximum parallelism to use per shard. This is mostly for fairness, because
-/// the actual rate limiting is done by the TaskTrackers, but this is useful for
-/// balancing the shards a little.
-const MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS: usize = 6;
-
 macro_rules! return_if_cancelled {
     ($cancel:expr) => {
         if $cancel.is_cancelled() {
@@ -66,9 +62,13 @@ pub(super) async fn run_state_sync_for_shard(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     computation_task_tracker: TaskTracker,
     status: Arc<Mutex<ShardSyncStatus>>,
-    chain_finalization_sender: AsyncSender<ChainFinalizationRequest, Result<(), near_chain::Error>>,
+    chain_finalization_sender: AsyncSender<
+        SpanWrapped<ChainFinalizationRequest>,
+        Result<(), near_chain::Error>,
+    >,
     cancel: CancellationToken,
     future_spawner: Arc<dyn FutureSpawner>,
+    concurrency_limit: u8,
 ) -> Result<(), near_chain::Error> {
     tracing::info!("Running state sync for shard {}", shard_id);
     *status.lock() = ShardSyncStatus::StateDownloadHeader;
@@ -114,7 +114,7 @@ pub(super) async fn run_state_sync_for_shard(
                 );
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
             })
-            .buffered(MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS)
+            .buffered(concurrency_limit.into())
             .collect::<Vec<_>>()
             .await;
         attempt_count += 1;
@@ -158,7 +158,7 @@ pub(super) async fn run_state_sync_for_shard(
             );
             respawn_for_parallelism(&*future_spawner, "state sync apply part", future)
         })
-        .buffer_unordered(MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS)
+        .buffer_unordered(concurrency_limit.into())
         .try_collect::<Vec<_>>()
         .await?;
 
@@ -197,11 +197,11 @@ pub(super) async fn run_state_sync_for_shard(
     // Finalize; this needs to be done by the Chain.
     *status.lock() = ShardSyncStatus::StateApplyFinalizing;
     chain_finalization_sender
-        .send_async(ChainFinalizationRequest { shard_id, sync_hash })
+        .send_async(ChainFinalizationRequest { shard_id, sync_hash }.span_wrap())
         .await
         .map_err(|_| {
-        near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
-    })??;
+            near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
+        })??;
 
     *status.lock() = ShardSyncStatus::StateSyncDone;
 

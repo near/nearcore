@@ -38,7 +38,7 @@ use near_primitives::utils::{
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::db::{STATE_SYNC_DUMP_KEY, StoreStatistics};
+use near_store::db::{GC_STOP_HEIGHT_KEY, STATE_SYNC_DUMP_KEY, StoreStatistics};
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
@@ -89,6 +89,8 @@ pub trait ChainStoreAccess {
     fn final_head(&self) -> Result<Arc<Tip>, Error>;
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
+    /// Stop height observed during the last garbage collection iteration.
+    fn gc_stop_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
     /// Get partial chunk.
@@ -269,6 +271,8 @@ pub struct ChainStore {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
+    /// Whether to persist transaction outcomes on disk or not.
+    save_tx_outcomes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
 }
@@ -302,8 +306,13 @@ impl ChainStore {
             store: store.chain_store(),
             latest_known: std::cell::Cell::new(None),
             save_trie_changes,
+            save_tx_outcomes: true,
             transaction_validity_period,
         }
+    }
+
+    pub fn with_save_tx_outcomes(self, save_tx_outcomes: bool) -> ChainStore {
+        ChainStore { save_tx_outcomes, ..self }
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
@@ -519,7 +528,7 @@ impl ChainStore {
         block_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
         let block = self.get_block(block_hash)?;
-        let chunk_headers = block.chunks().iter_deprecated().cloned().collect::<Vec<_>>();
+        let chunk_headers = block.chunks().iter_raw().cloned().collect::<Vec<_>>();
 
         let mut res = HashMap::new();
         for chunk_header in chunk_headers {
@@ -854,6 +863,10 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::largest_target_height(self)
     }
 
+    fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+        ChainStoreAdapter::gc_stop_height(self)
+    }
+
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Arc<Tip>, Error> {
         ChainStoreAdapter::header_head(self)
@@ -1033,6 +1046,7 @@ pub struct ChainStoreUpdate<'a> {
     header_head: Option<Arc<Tip>>,
     final_head: Option<Arc<Tip>>,
     largest_target_height: Option<BlockHeight>,
+    gc_stop_height: Option<BlockHeight>,
     trie_changes: Vec<(CryptoHash, WrappedTrieChanges)>,
     state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1058,6 +1072,7 @@ impl<'a> ChainStoreUpdate<'a> {
             header_head: None,
             final_head: None,
             largest_target_height: None,
+            gc_stop_height: None,
             trie_changes: vec![],
             state_transition_data: Default::default(),
             add_blocks_to_catchup: vec![],
@@ -1140,6 +1155,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(*largest_target_height)
         } else {
             self.chain_store.largest_target_height()
+        }
+    }
+
+    fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+        if let Some(gc_stop_height) = &self.gc_stop_height {
+            Ok(*gc_stop_height)
+        } else {
+            self.chain_store.gc_stop_height()
         }
     }
 
@@ -1595,6 +1618,9 @@ impl<'a> ChainStoreUpdate<'a> {
         outcomes: Vec<ExecutionOutcomeWithId>,
         proofs: Vec<MerklePath>,
     ) {
+        if !self.chain_store.save_tx_outcomes {
+            return;
+        }
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
             outcome_ids.push(outcome_with_id.id);
@@ -1724,6 +1750,10 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chunk_tail = Some(height);
     }
 
+    pub fn update_gc_stop_height(&mut self, height: BlockHeight) {
+        self.gc_stop_height = Some(height);
+    }
+
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
@@ -1756,6 +1786,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 LARGEST_TARGET_HEIGHT_KEY,
                 &mut self.largest_target_height,
             )?;
+            Self::write_col_misc(&mut store_update, GC_STOP_HEIGHT_KEY, &mut self.gc_stop_height)?;
         }
         {
             let _span = tracing::trace_span!(target: "store", "write_block").entered();

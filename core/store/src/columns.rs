@@ -273,7 +273,7 @@ pub enum DBCol {
     FlatStorageStatus,
     /// Column to persist pieces of miscellaneous small data. Should only be used to store
     /// constant or small (for example per-shard) amount of data.
-    /// - *Rows*: arbitrary string, see `crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY` for example
+    /// - *Rows*: arbitrary string, see `crate::db::LATEST_WITNESSES_INFO` for example
     /// - *Column type*: arbitrary bytes
     Misc,
     /// Column to store data necessary to generate part of state witness
@@ -329,6 +329,14 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: `ChunkApplyStats`
     ChunkApplyStats,
+    /// Mapping from Block Hash + Target Shard Id + Source Shard Id to Receipt Proof.
+    /// The receipts result from applying the chunk on the source shard of the corresponding block.
+    /// The key includes the target shard first to enable prefix queries for retrieving all incoming
+    /// receipts to the given shard.
+    /// - *Rows*: (BlockHash || ShardId || ShardId)
+    /// - *Content type*: `near_primitives::sharding::ReceiptProof`
+    #[cfg(feature = "protocol_feature_spice")]
+    ReceiptProofs,
 }
 
 /// Defines different logical parts of a db key.
@@ -343,7 +351,7 @@ pub enum DBKeyType {
     /// Set of predetermined strings. Used, for example, in DBCol::BlockMisc
     StringLiteral,
     BlockHash,
-    /// Hash of the previous block. Logically different from BlockHash. Used fro DBCol::NextBlockHashes.
+    /// Hash of the previous block. Logically different from BlockHash. Used for DBCol::NextBlockHashes.
     PreviousBlockHash,
     BlockHeight,
     BlockOrdinal,
@@ -476,6 +484,8 @@ impl DBCol {
             | DBCol::Transactions
             | DBCol::StateShardUIdMapping
             | DBCol::ChunkApplyStats => true,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ReceiptProofs => true,
 
             // TODO
             DBCol::ChallengedBlocks => false,
@@ -617,7 +627,16 @@ impl DBCol {
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
             DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
         }
+    }
+
+    pub fn receipt_proofs() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ReceiptProofs;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 }
 

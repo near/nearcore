@@ -82,7 +82,7 @@ in
 
 For an example of a test that launches multiple nodes, see
 `chunks_produced_and_distributed_common` in
-[tests/chunks_management.rs](https://github.com/near/nearcore/blob/master/chain/client/src/tests/chunks_management.rs).
+[integration-tests/src/tests/client/chunks_management.rs | Network chunk management test](https://github.com/near/nearcore/blob/master/integration-tests/src/tests/client/chunks_management.rs).
 The `setup_mock_all_validators` function is the key piece of infrastructure here.
 
 ## Runtime

@@ -114,7 +114,7 @@ fn retrieve_starting_chunk_hash(
         match chain
             .get_block_hash_by_height(height)
             .and_then(|hash| chain.get_block(&hash))
-            .map(|block| block.chunks().iter_deprecated().next().unwrap().chunk_hash().clone())
+            .map(|block| block.chunks()[0].chunk_hash().clone())
         {
             Ok(hash) => return Ok(hash),
             Err(e) => {
@@ -336,15 +336,13 @@ impl MockPeer {
             Message::Direct(msg) => {
                 match msg {
                     DirectMessage::BlockHeadersRequest(hashes) => {
-                        let headers = retrieve_headers(
-                            &self.chain,
-                            hashes,
-                            MAX_BLOCK_HEADERS,
-                            Some(self.current_height),
-                        )
-                        .with_context(|| {
-                            format!("failed retrieving block headers up to {}", self.current_height)
-                        })?;
+                        let headers = retrieve_headers(&self.chain, hashes, MAX_BLOCK_HEADERS)
+                            .with_context(|| {
+                                format!(
+                                    "failed retrieving block headers up to {}",
+                                    self.current_height
+                                )
+                            })?;
                         outbound
                             .queue_message(Message::Direct(DirectMessage::BlockHeaders(headers)));
                     }

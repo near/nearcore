@@ -84,7 +84,7 @@ fn test_apply_chunk() {
 
         let hash = *block.hash();
         let chunk_hashes =
-            block.chunks().iter_deprecated().map(|c| c.chunk_hash()).cloned().collect::<Vec<_>>();
+            block.chunks().iter().map(|c| c.chunk_hash().clone()).collect::<Vec<_>>();
         let epoch_id = *block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
@@ -176,7 +176,7 @@ fn test_apply_tx_apply_receipt() {
 
         let hash = *block.hash();
         let chunk_hashes =
-            block.chunks().iter_deprecated().map(|c| c.chunk_hash()).cloned().collect::<Vec<_>>();
+            block.chunks().iter().map(|c| c.chunk_hash().clone()).collect::<Vec<_>>();
         let epoch_id = *block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 

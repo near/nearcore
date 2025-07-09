@@ -125,6 +125,7 @@ impl StatePartsSubCommand {
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
+            near_config.validator_signer.clone(),
         )
         .unwrap();
         let chain_id = &near_config.genesis.config.chain_id;
@@ -231,7 +232,7 @@ fn create_external_connection(
         }
         ExternalConnection::GCS {
             gcs_client: Arc::new(
-                object_store::gcp::GoogleCloudStorageBuilder::new()
+                object_store::gcp::GoogleCloudStorageBuilder::from_env()
                     .with_bucket_name(&bucket)
                     .build()
                     .unwrap(),

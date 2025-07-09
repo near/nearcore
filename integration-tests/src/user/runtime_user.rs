@@ -193,7 +193,6 @@ impl RuntimeUser {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: 1,
             prev_block_hash: Default::default(),
-            block_hash: Default::default(),
             block_timestamp: 0,
             shard_id,
             epoch_height: 0,
@@ -328,7 +327,6 @@ impl User for RuntimeUser {
         let view_state = ViewApplyState {
             block_height: apply_state.block_height,
             prev_block_hash: apply_state.prev_block_hash,
-            block_hash: apply_state.block_hash,
             shard_id,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,

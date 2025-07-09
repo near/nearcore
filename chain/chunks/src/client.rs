@@ -1,5 +1,6 @@
 use actix::Message;
 use itertools::Itertools;
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -31,6 +32,9 @@ pub enum ShardsManagerResponse {
     /// this chunk now. The producer of this chunk is also provided.
     ChunkHeaderReadyForInclusion { chunk_header: ShardChunkHeader, chunk_producer: AccountId },
 }
+
+pub(crate) type ShardsManagerResponseSender =
+    near_async::messaging::Sender<SpanWrapped<ShardsManagerResponse>>;
 
 pub struct ShardedTransactionPool {
     tx_pools: HashMap<ShardUId, TransactionPool>,

@@ -432,13 +432,9 @@ impl ReplayController {
     }
 
     pub fn update_incoming_receipts(&mut self, block: &Block) -> Result<()> {
-        let block_height = block.header().height();
         let block_hash = block.header().hash();
         let mut receipt_proofs_by_shard_id: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
-        for chunk_header in block.chunks().iter_deprecated() {
-            if !chunk_header.is_new_chunk(block_height) {
-                continue;
-            }
+        for chunk_header in block.chunks().iter_new() {
             let chunk_hash = chunk_header.chunk_hash();
             let chunk = self
                 .chain_store

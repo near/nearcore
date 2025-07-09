@@ -1,5 +1,5 @@
-use crate::network_protocol::Encoding;
-use crate::network_protocol::{RoutedMessage, RoutedMessageBody};
+use crate::network_protocol::RoutedMessage;
+use crate::network_protocol::{Encoding, TieredMessageBody};
 use crate::tcp;
 use crate::types::PeerType;
 use near_async::time;
@@ -433,11 +433,11 @@ fn record_routed_msg_latency(
     fastest: bool,
 ) {
     if let Some(created_at) = msg.created_at() {
-        let now = clock.now_utc();
+        let now = clock.now_utc().unix_timestamp();
         let duration = now - created_at;
         NETWORK_ROUTED_MSG_LATENCY
             .with_label_values(&[msg.body_variant(), tier.as_ref(), bool_to_str(fastest)])
-            .observe(duration.as_seconds_f64());
+            .observe(duration as f64);
     }
 }
 
@@ -464,7 +464,7 @@ pub(crate) enum MessageDropped {
 }
 
 impl MessageDropped {
-    pub fn inc(self, msg: &RoutedMessageBody) {
+    pub fn inc(self, msg: &TieredMessageBody) {
         self.inc_msg_type(msg.into())
     }
 

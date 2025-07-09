@@ -30,7 +30,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         output_data_receivers: vec![],
     };
     let mut skip = HashSet::new();
-    for kind in [VMKind::NearVm, VMKind::Wasmtime] {
+    for kind in [VMKind::NearVm, VMKind::NearVm2, VMKind::Wasmtime] {
         if !kind.is_available() {
             skip.insert(kind);
         }
@@ -94,8 +94,6 @@ impl TestBuilder {
         self
     }
 
-    // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
-    // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
     pub(crate) fn skip_wasmtime(mut self) -> Self {
         self.skip.insert(VMKind::Wasmtime);
         self

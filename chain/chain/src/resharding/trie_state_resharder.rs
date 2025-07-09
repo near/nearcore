@@ -247,9 +247,11 @@ impl TrieStateResharder {
             .get_ser::<TrieStateReshardingStatus>(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY)?)
     }
 
-    /// Start a resharding operation by iterating the memtries of each child shard,
-    /// writing the result to the `State` column of the respective shard.
-    pub fn start_resharding_blocking(
+    /// Initializes the trie state resharding status for a new resharding operation.
+    /// This is done by the resharding actor at the beginning of a resharding operation, before starting
+    /// flat storage resharding.
+    /// This is needed so that any future calls to resume_resharding will split the parent shard
+    pub fn initialize_trie_state_resharding_status(
         &self,
         event: &ReshardingSplitShardParams,
     ) -> Result<(), Error> {
@@ -298,15 +300,37 @@ impl TrieStateResharder {
                 None
             };
 
-        let mut status = TrieStateReshardingStatus::new(
+        let status = TrieStateReshardingStatus::new(
             event.parent_shard,
             left_child,
             right_child,
             event.boundary_account.clone(),
             event.resharding_block.height,
             parent_state_root,
-        )
-        .with_metrics();
+        );
+
+        let mut store_update = self.runtime.store().store_update();
+        store_update.set(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY, &borsh::to_vec(&status)?);
+        store_update.commit()?;
+
+        Ok(())
+    }
+
+    /// Start a resharding operation by iterating the memtries of each child shard,
+    /// writing the result to the `State` column of the respective shard.
+    pub fn start_resharding_blocking(
+        &self,
+        event: &ReshardingSplitShardParams,
+    ) -> Result<(), Error> {
+        let Some(status) = self.load_status()? else {
+            panic!(
+                "TrieStateReshardingStatus not found. Have we called initialize_trie_state_resharding_status?"
+            );
+        };
+
+        tracing::info!(target: "resharding", ?status, ?event, "start_resharding_blocking");
+
+        let mut status = status.with_metrics();
         self.resharding_blocking_impl(&mut status)
     }
 

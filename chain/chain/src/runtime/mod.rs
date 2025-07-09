@@ -1,8 +1,8 @@
 use crate::Error;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
-    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PrepareTransactionsLimit,
-    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
@@ -165,7 +165,6 @@ impl NightshadeRuntime {
         let ApplyChunkBlockContext {
             block_type: _,
             height: block_height,
-            block_hash,
             ref prev_block_hash,
             block_timestamp,
             gas_price,
@@ -240,7 +239,6 @@ impl NightshadeRuntime {
             apply_reason,
             block_height,
             prev_block_hash: *prev_block_hash,
-            block_hash,
             shard_id,
             epoch_id,
             epoch_height,
@@ -579,14 +577,13 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn prepare_transactions(
         &self,
         storage_config: RuntimeStorageConfig,
-        chunk: PrepareTransactionsChunkContext,
+        shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
-        let PrepareTransactionsChunkContext { shard_id, .. } = chunk;
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -919,7 +916,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         block_height,
                         block_timestamp,
                         prev_block_hash,
-                        block_hash,
                         epoch_height,
                         epoch_id,
                         account_id,
@@ -1302,7 +1298,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
         contract_id: &AccountId,
@@ -1317,7 +1312,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             shard_id: shard_uid.shard_id(),
             block_height: height,
             prev_block_hash: *prev_block_hash,
-            block_hash: *block_hash,
             epoch_id: *epoch_id,
             epoch_height,
             block_timestamp,

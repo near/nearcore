@@ -38,7 +38,9 @@ near-chain-configs = { workspace = true, features = ["test_genesis"] }
 
 [features]
 default = ["near-primitives/rand"]
-protocol_feature_spice = []
+protocol_feature_spice = [
+    "near-store/protocol_feature_spice"
+]
 nightly = [
     "near-chain-configs/nightly",
     "near-o11y/nightly",

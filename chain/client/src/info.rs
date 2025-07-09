@@ -148,11 +148,8 @@ impl InfoHelper {
         client: &crate::client::Client,
         shard_layout: &ShardLayout,
     ) {
-        let validator_signer = client.validator_signer.get();
-        let me = validator_signer.as_ref().map(|x| x.validator_id());
         for shard_id in shard_layout.shard_ids() {
-            let tracked =
-                client.shard_tracker.cares_about_shard(me, &head.prev_block_hash, shard_id, true);
+            let tracked = client.shard_tracker.cares_about_shard(&head.prev_block_hash, shard_id);
             metrics::TRACKED_SHARDS.with_label_values(&[&shard_id.to_string()]).set(if tracked {
                 1
             } else {
@@ -722,14 +719,14 @@ pub fn display_sync_status(
             let percent = if highest_height <= start_height {
                 0.0
             } else {
-                (((min(current_height, highest_height) - start_height) * 100) as f64)
-                    / ((highest_height - start_height) as f64)
+                ((min(current_height, highest_height).saturating_sub(*start_height) * 100) as f64)
+                    / (highest_height.saturating_sub(*start_height) as f64)
             };
             format!(
                 "#{:>8} Downloading headers {:.2}% ({} left; at {})",
                 head.height,
                 percent,
-                highest_height - current_height,
+                highest_height.saturating_sub(*current_height),
                 current_height
             )
         }
@@ -744,7 +741,7 @@ pub fn display_sync_status(
                 "#{:>8} Downloading blocks {:.2}% ({} left; at {})",
                 head.height,
                 percent,
-                highest_height - current_height,
+                highest_height.saturating_sub(*current_height),
                 current_height
             )
         }
