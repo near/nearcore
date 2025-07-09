@@ -1070,12 +1070,7 @@ pub struct RoutedMessageV3 {
 
 impl RoutedMessageV3 {
     pub fn hash_tiered(&self) -> CryptoHash {
-        let routed = RoutedMessageBody::from(self.body.clone());
-        CryptoHash::hash_borsh(RoutedMessageNoSignature {
-            target: &self.target,
-            author: &self.author,
-            body: &routed,
-        })
+        RoutedMessage::build_hash(&self.target, &self.author, &self.body)
     }
 
     pub fn verify(&self) -> bool {
@@ -1166,9 +1161,9 @@ impl RoutedMessage {
     pub fn build_hash(
         target: &PeerIdOrHash,
         source: &PeerId,
-        body: &RoutedMessageBody,
+        body: &TieredMessageBody,
     ) -> CryptoHash {
-        CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
+        CryptoHash::hash_borsh(TieredRoutedMessageNoSignature { target, author: source, body })
     }
 
     /// Get the V1 message from the current version. Used for serializations (only V1 is sent over the wire).
@@ -1350,15 +1345,16 @@ impl RoutedMessage {
 }
 
 #[derive(borsh::BorshSerialize, PartialEq, Eq, Clone, Debug)]
-struct RoutedMessageNoSignature<'a> {
+struct TieredRoutedMessageNoSignature<'a> {
     target: &'a PeerIdOrHash,
     author: &'a PeerId,
-    body: &'a RoutedMessageBody,
+    body: &'a TieredMessageBody,
 }
 
 impl RoutedMessageV1 {
     pub fn hash(&self) -> CryptoHash {
-        RoutedMessage::build_hash(&self.target, &self.author, &self.body)
+        let body = TieredMessageBody::from_routed(self.body.clone());
+        RoutedMessage::build_hash(&self.target, &self.author, &body)
     }
 
     pub fn verify(&self) -> bool {
@@ -1554,8 +1550,7 @@ impl RawRoutedMessage {
             if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && self.body.is_t1() {
                 None
             } else {
-                let body = RoutedMessageBody::from(self.body.clone());
-                let hash = RoutedMessage::build_hash(&self.target, &author, &body);
+                let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
                 Some(node_key.sign(hash.as_ref()))
             };
         RoutedMessage::V3(RoutedMessageV3 {
