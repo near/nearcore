@@ -32,13 +32,28 @@ impl TrieStoreAdapter {
         TrieStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
-    /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.
-    /// For this, it does extra read from `DBCol::StateShardUIdMapping`.
+    /// Here we are first trying to get the value with shard_uid as prefix.
+    /// If that fails, we try to get the value with the mapped shard_uid as prefix.
     ///
-    /// For more details, see `get_shard_uid_mapping()`.
+    /// Note we should not first get the mapping and then try to get the value with the mapped
+    /// shard_uid as prefix. This doesn't work with SplitDB, which has hot and cold stores.
+    ///
+    /// Since the mapping is deleted from the hot store after resharding is completed but never
+    /// from the cold store, SplitDB (archive nodes) would return the mapping from the cold store,
+    /// which can lead to a MissingTrieValue, for example when the value is in the hot store but not
+    /// yet copied to the cold store.
     pub fn get(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let mapped_shard_uid = get_shard_uid_mapping(&self.store, shard_uid);
-        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
+        match self.get_inner(shard_uid, hash) {
+            Ok(value) => Ok(value),
+            Err(err) => match maybe_get_shard_uid_mapping(&self.store, shard_uid) {
+                Some(mapped_shard_uid) => self.get_inner(mapped_shard_uid, hash),
+                None => Err(err),
+            },
+        }
+    }
+
+    fn get_inner(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
         let val = self
             .store
             .get(DBCol::State, key.as_ref())
