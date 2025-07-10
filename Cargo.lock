@@ -4972,10 +4972,7 @@ dependencies = [
  "near-primitives-core",
  "near-schema-checker-lib",
  "near-stdx",
- "near-store",
  "near-time",
- "near-vm-runner",
- "node-runtime",
  "num-rational 0.3.2",
  "ordered-float",
  "primitive-types 0.10.1",
@@ -8360,13 +8357,16 @@ dependencies = [
 name = "testlib"
 version = "0.0.0"
 dependencies = [
+ "borsh",
  "bytesize",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
  "near-parameters",
  "near-primitives",
+ "near-store",
  "near-test-contracts",
+ "near-vm-runner",
  "node-runtime",
  "rand 0.8.5",
  "rand_chacha 0.3.1",

@@ -99,11 +99,7 @@ expect-test.workspace = true
 regex.workspace = true
 tempfile.workspace = true
 criterion.workspace = true
-near-store.workspace = true
-near-vm-runner.workspace = true
-node-runtime.workspace = true
 testlib.workspace = true
-near-parameters.workspace = true
 
 [[bench]]
 name = "serialization"
@@ -111,4 +107,8 @@ harness = false
 
 [[bench]]
 name = "compression"
+harness = false
+
+[[bench]]
+name = "state_witness_borsh"
 harness = false
