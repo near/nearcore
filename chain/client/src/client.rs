@@ -335,7 +335,7 @@ impl Client {
             config.state_sync_retry_backoff,
             config.state_sync_external_backoff,
             &config.chain_id,
-            &config.state_sync.sync,
+            &config.state_sync,
             chain_sender_for_state_sync.clone(),
             state_sync_future_spawner.clone(),
             false,
@@ -1059,15 +1059,16 @@ impl Client {
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         let res = self.start_process_block(block, provenance, apply_chunks_done_sender);
         match &res {
+            Ok(()) => {}
             Err(near_chain::Error::Orphan) => {
-                debug!(target: "chain", ?prev_hash, "Orphan error");
+                debug!(target: "chain", ?prev_hash, "orphan error");
                 if !self.chain.is_orphan(&prev_hash) {
                     debug!(target: "chain", "not orphan");
                     self.request_block(prev_hash, peer_id)
                 }
             }
-            err => {
-                debug!(target: "chain", ?err, "some other error");
+            Err(err) => {
+                debug!(target: "chain", err=err as &dyn std::error::Error, "when starting block processing");
             }
         }
         res
@@ -2149,7 +2150,7 @@ impl Client {
                             self.config.state_sync_retry_backoff,
                             self.config.state_sync_external_backoff,
                             &self.config.chain_id,
-                            &self.config.state_sync.sync,
+                            &self.config.state_sync,
                             self.chain_sender_for_state_sync.clone(),
                             self.state_sync_future_spawner.clone(),
                             true,

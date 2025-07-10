@@ -87,7 +87,7 @@ fn test_spice_chain() {
         let view_client = test_loop_data.get_mut(&view_client_handle);
 
         let query_response = view_client.handle(Query::new(
-            BlockReference::latest(),
+            BlockReference::Finality(near_primitives::types::Finality::Final),
             QueryRequest::ViewAccount { account_id: account.clone() },
         ));
 

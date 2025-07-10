@@ -12,8 +12,8 @@ use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutedMessageBody, RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData,
-    SyncSnapshotHosts,
+    RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts,
+    T2MessageBody, TieredMessageBody,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -442,7 +442,7 @@ impl PeerActor {
                 metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["sent"]).inc()
             }
             PeerMessage::Routed(routed) => {
-                tracing::debug!(target: "network", source=?routed.msg().author, target=?routed.msg().target, message=?routed.msg().body, "send_routed_message");
+                tracing::debug!(target: "network", source=?routed.author(), target=?routed.target(), message=?routed.body(), "send_routed_message");
             }
             _ => (),
         };
@@ -976,8 +976,8 @@ impl PeerActor {
         msg_author: PeerId,
         prev_hop: PeerId,
         msg_hash: CryptoHash,
-        body: RoutedMessageBody,
-    ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
+        body: TieredMessageBody,
+    ) -> Result<Option<TieredMessageBody>, ReasonForBan> {
         Ok(network_state.receive_routed_message(clock, msg_author, prev_hop, msg_hash, body).await)
     }
 
@@ -1408,18 +1408,20 @@ impl PeerActor {
                         return;
                     }
                 }
-                if let RoutedMessageBody::ForwardTx(_) = msg.body() {
-                    // Check whenever we exceeded number of transactions we got since last block.
-                    // If so, drop the transaction.
-                    let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
-                    // TODO(gprusak): this constraint doesn't take into consideration such
-                    // parameters as number of nodes or number of shards. Reconsider why do we need
-                    // this and whether this is really the right way of handling it.
-                    if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
-                        metrics::MessageDropped::TransactionsPerBlockExceeded.inc(msg.body());
-                        return;
+                if let TieredMessageBody::T2(t2) = msg.body() {
+                    if let T2MessageBody::ForwardTx(_) = t2.as_ref() {
+                        // Check whenever we exceeded number of transactions we got since last block.
+                        // If so, drop the transaction.
+                        let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
+                        // TODO(gprusak): this constraint doesn't take into consideration such
+                        // parameters as number of nodes or number of shards. Reconsider why do we need
+                        // this and whether this is really the right way of handling it.
+                        if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
+                            metrics::MessageDropped::TransactionsPerBlockExceeded.inc(msg.body());
+                            return;
+                        }
+                        self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
                     }
-                    self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
                 }
                 self.routed_message_cache.put(key, now);
 
@@ -1434,26 +1436,35 @@ impl PeerActor {
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong
                     match msg.body() {
-                        RoutedMessageBody::Ping(ping) => {
-                            self.network_state.send_pong(
-                                &self.clock,
-                                conn.tier,
-                                ping.nonce,
-                                msg.hash(),
-                            );
-                            // TODO(gprusak): deprecate Event::Ping/Pong in favor of
-                            // MessageProcessed.
-                            #[cfg(test)]
-                            self.network_state.config.event_sink.send(Event::Ping(ping.clone()));
-                            #[cfg(test)]
-                            message_processed_event();
-                        }
-                        RoutedMessageBody::Pong(_pong) => {
-                            #[cfg(test)]
-                            self.network_state.config.event_sink.send(Event::Pong(_pong.clone()));
-                            #[cfg(test)]
-                            message_processed_event();
-                        }
+                        TieredMessageBody::T2(t2) => match t2.as_ref() {
+                            T2MessageBody::Ping(ping) => {
+                                self.network_state.send_pong(
+                                    &self.clock,
+                                    conn.tier,
+                                    ping.nonce,
+                                    msg.hash(),
+                                );
+                                // TODO(gprusak): deprecate Event::Ping/Pong in favor of
+                                // MessageProcessed.
+                                #[cfg(test)]
+                                self.network_state
+                                    .config
+                                    .event_sink
+                                    .send(Event::Ping(ping.clone()));
+                                #[cfg(test)]
+                                message_processed_event();
+                            }
+                            T2MessageBody::Pong(_pong) => {
+                                #[cfg(test)]
+                                self.network_state
+                                    .config
+                                    .event_sink
+                                    .send(Event::Pong(_pong.clone()));
+                                #[cfg(test)]
+                                message_processed_event();
+                            }
+                            _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
+                        },
                         _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
                     }
                 } else {

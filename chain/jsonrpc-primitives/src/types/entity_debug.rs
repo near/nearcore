@@ -1,7 +1,7 @@
 // This file contains structures for the Entity Debug UI.
 // They are to be sent to the UI as JSON.
 use crate::errors::RpcError;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::{hash::CryptoHash, shard_layout::ShardUId};
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +60,7 @@ pub enum EntityQuery {
     AllShardsByEpochId { epoch_id: EpochId },
     BlockByHash { block_hash: CryptoHash },
     BlockHashByHeight { block_height: BlockHeight },
+    BlockHashByOrdinal { block_ordinal: NumBlocks },
     BlockHeaderByHash { block_hash: CryptoHash },
     BlockInfoByHash { block_hash: CryptoHash },
     BlockMerkleTreeByHash { block_hash: CryptoHash },

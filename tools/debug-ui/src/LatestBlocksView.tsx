@@ -42,7 +42,7 @@ type BlockTableRowBlock = {
     parentIndex: number | null; // the index of the parent block, or null if parent not included in the data
     graphColumn: number | null; // the column to display the graph node in
     blockDelay: number | null; // number of seconds since parent's block timestamp, or null if parent not included in the data
-    chunkSkipped: boolean[]; // for each chunk, whether the chunk is the same as that chunk of parent block
+    chunkSkipped: Record<number, boolean>; // for each shard ID, whether the chunk is the same as that chunk of parent block
     isHead: boolean;
     isHeaderHead: boolean;
 };
@@ -62,7 +62,7 @@ function sortBlocksAndDetermineBlockGraphLayout(
             parentIndex: null,
             graphColumn: -1,
             blockDelay: null,
-            chunkSkipped: block.chunks.map(() => false),
+            chunkSkipped: block.chunks.reduce((acc, chunk) => ({ ...acc, [chunk.shard_id]: false }), {} as Record<number, boolean>),
             isHead: head === block.block_hash,
             isHeaderHead: headerHead === block.block_hash,
         });
@@ -102,9 +102,9 @@ function sortBlocksAndDetermineBlockGraphLayout(
             row.parentIndex = rowIndexByHash.get(block.prev_block_hash)!;
             const parentBlock = (rows[row.parentIndex] as BlockTableRowBlock).block;
             row.blockDelay = (block.block_timestamp - parentBlock.block_timestamp) / 1e9;
-            for (let j = 0; j < Math.min(block.chunks.length, parentBlock.chunks.length); j++) {
-                row.chunkSkipped[j] =
-                    block.chunks[j].chunk_hash === parentBlock.chunks[j].chunk_hash;
+            for (const chunk of block.chunks) {
+                const parentChunk = parentBlock.chunks.find(c => c.shard_id === chunk.shard_id);
+                row.chunkSkipped[chunk.shard_id] = !!(parentChunk && chunk.chunk_hash === parentChunk.chunk_hash);
             }
         }
         // We'll use a two-column layout for the block graph. We traverse from bottom
@@ -153,7 +153,7 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
     // the ShardIndex. That is because during resharding we need to display
     // chunks from multiple shard layouts on a single page.
     const numShards = shardIdsSet.size;
-    const shardIds = [...shardIdsSet];
+    const shardIds = [...shardIdsSet].sort((a, b) => a - b);
 
     const shardIdToUIIndex = new Map<number, number>();
     shardIds.forEach((shardId, index) => {
@@ -356,7 +356,7 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
         let firstCanonicalHeight = 0;
         let lastCanonicalHeight = 0;
         let numCanonicalBlocks = 0;
-        const numChunksSkipped = [];
+        const numChunksSkipped: Record<number, number> = {};
         for (const row of rows) {
             if (!('block' in row)) {
                 continue;
@@ -370,12 +370,13 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
             }
             lastCanonicalHeight = block.block_height;
             numCanonicalBlocks++;
-            for (let i = 0; i < row.chunkSkipped.length; i++) {
-                while (numChunksSkipped.length < i + 1) {
-                    numChunksSkipped.push(0);
+            for (const [shardId, isSkipped] of Object.entries(row.chunkSkipped)) {
+                const shardIdNum = parseInt(shardId);
+                if (!(shardIdNum in numChunksSkipped)) {
+                    numChunksSkipped[shardIdNum] = 0;
                 }
-                if (row.chunkSkipped[i]) {
-                    numChunksSkipped[i]++;
+                if (isSkipped) {
+                    numChunksSkipped[shardIdNum]++;
                 }
             }
         }
@@ -491,7 +492,7 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                 </button>
                 {showMissingChunksStats && (
                     <div className="missed-chunks">
-                        {numChunksSkipped.map((numSkipped, shardId) => (
+                        {Object.entries(numChunksSkipped).map(([shardId, numSkipped]) => (
                             <div key={shardId}>
                                 Shard {shardId}: Missing chunks: {numSkipped} {}
                                 Produced: {numCanonicalBlocks - numSkipped} {}

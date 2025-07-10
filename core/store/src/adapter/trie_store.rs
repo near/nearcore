@@ -208,10 +208,11 @@ pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardU
 /// Get the `ShardUId` mapping for child_shard_uid. If the mapping does not exist, return None.
 fn maybe_get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> Option<ShardUId> {
     store
-        .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
+        .caching_get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
         .unwrap_or_else(|_| {
             panic!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid)
         })
+        .map(|v| *v)
 }
 
 /// Get the key for the given `shard_uid` and `hash`.
