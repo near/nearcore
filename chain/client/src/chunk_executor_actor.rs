@@ -260,9 +260,7 @@ impl ChunkExecutorActor {
         let store = self.chain_store.store();
         let prev_block = self.chain_store.get_block(prev_block_hash)?;
         let prev_block_is_genesis = *prev_block_hash == self.genesis_hash;
-        if !prev_block_is_genesis
-            && !self.core_processor.all_execution_results_exist(&prev_block)
-        {
+        if !prev_block_is_genesis && !self.core_processor.all_execution_results_exist(&prev_block) {
             tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing execution results to allow validating receipts");
             return Ok(TryApplyChunksOutcome::NotReady);
         }
