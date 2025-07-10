@@ -55,6 +55,7 @@ near-parameters.workspace = true
 near-vm-runner.workspace = true
 near-schema-checker-lib.workspace = true
 primitive-types.workspace = true
+mimalloc = "0.1.47"
 
 [dev-dependencies]
 criterion.workspace = true

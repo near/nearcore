@@ -10,7 +10,8 @@ use near_chain::runtime::apply_chunk_test_utils::{
 
 // cspell:words tikv jemallocator Jemalloc
 #[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+//static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 static INIT: Once = Once::new();
 
