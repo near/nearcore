@@ -10,7 +10,6 @@ use near_chain::Block;
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::lazy_state_witness::LazyChunkStateWitness;
-
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 use std::ops::Range;

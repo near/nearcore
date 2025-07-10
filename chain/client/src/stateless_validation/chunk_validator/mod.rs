@@ -2,7 +2,6 @@ pub mod orphan_witness_handling;
 pub mod orphan_witness_pool;
 
 use crate::Client;
-
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Sender};

@@ -15,16 +15,16 @@ use std::sync::{Arc, OnceLock};
 
 use super::{ChunkProductionKey, state_witness::ChunkStateWitness};
 
-/// LazyChunkStateWitness provides immediate access to header fields while
-/// deserializing heavy data in the background. When heavy data is first needed,
-/// consume this witness to get a normal ChunkStateWitness.
+/// `LazyChunkStateWitness` provides immediate access to header fields while
+/// deserializing the full witness in the background. When the full witness is first needed,
+/// consume this object to get a normal `ChunkStateWitness``.
 #[derive(Clone)]
 pub struct LazyChunkStateWitness {
-    // Light fields - available immediately
+    // Header fields: available immediately
     epoch_id: EpochId,
     chunk_header: ShardChunkHeader,
 
-    // Complete witness data - loaded lazily via background thread
+    // Full state witness: loaded lazily via background thread
     complete_witness: Arc<OnceLock<ChunkStateWitness>>,
 
     // Accessed contracts to be merged when converting to full witness
@@ -32,7 +32,6 @@ pub struct LazyChunkStateWitness {
 }
 
 impl LazyChunkStateWitness {
-    /// Creates a LazyChunkStateWitness from compressed witness data.
     pub fn from_encoded_witness(
         encoded_witness: &EncodedChunkStateWitness,
         protocol_version: near_primitives_core::types::ProtocolVersion,
@@ -43,7 +42,7 @@ impl LazyChunkStateWitness {
             if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
                 Self::safe_decompress_to_bytes(encoded_witness)?
             } else {
-                // Slow, but just for backward compatibility.
+                // Slow, included just for backward compatibility.
                 let (witness, raw_size): (ChunkStateWitnessV1, _) = encoded_witness.decode()?;
                 let wrapped = ChunkStateWitness::V1(witness);
                 let bytes = borsh::to_vec(&wrapped)?;
@@ -54,7 +53,7 @@ impl LazyChunkStateWitness {
         Ok((lazy_witness, raw_size))
     }
 
-    /// Create a LazyChunkStateWitness from an already-decoded ChunkStateWitness.
+    /// Create a `LazyChunkStateWitness` from an already-decoded `ChunkStateWitness`.
     pub fn from_full_witness(witness: ChunkStateWitness) -> Self {
         let epoch_id = witness.epoch_id().clone();
         let chunk_header = witness.chunk_header().clone();
@@ -66,8 +65,8 @@ impl LazyChunkStateWitness {
         Self { epoch_id, chunk_header, complete_witness, accessed_contracts: Vec::new() }
     }
 
-    /// Safely decompress EncodedChunkStateWitness to raw bytes with the same
-    /// decompression bomb protection as CompressedData::decode() but without
+    /// Safely decompress `EncodedChunkStateWitness` to raw bytes with the same
+    /// decompression attack protections as `CompressedData::decode()` but without
     /// doing immediate borsh deserialization.
     fn safe_decompress_to_bytes(
         encoded: &EncodedChunkStateWitness,
@@ -86,9 +85,9 @@ impl LazyChunkStateWitness {
         Ok((decompressed, raw_size))
     }
 
-    /// Creates a LazyChunkStateWitness from serialized bytes with header-first parsing.
+    /// Creates a `LazyChunkStateWitness` from serialized bytes with header-first parsing.
     /// Header fields (epoch_id, chunk_header) are available immediately.
-    /// Complete witness is loaded asynchronously in the background via dedicated thread.
+    /// The full witness is loaded asynchronously in the background via dedicated thread.
     pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut cursor = Cursor::new(data);
 
@@ -96,7 +95,7 @@ impl LazyChunkStateWitness {
 
         let (epoch_id, chunk_header) = match variant {
             0 => {
-                // V1: chunk_producer, epoch_id, chunk_header, then heavy data
+                // V1: chunk_producer, epoch_id, chunk_header, then the rest
                 let _chunk_producer: AccountId = BorshDeserialize::deserialize_reader(&mut cursor)?;
                 let epoch_id: EpochId = BorshDeserialize::deserialize_reader(&mut cursor)?;
                 let chunk_header: ShardChunkHeader =
@@ -104,7 +103,7 @@ impl LazyChunkStateWitness {
                 (epoch_id, chunk_header)
             }
             1 => {
-                // V2: epoch_id, chunk_header, then heavy data
+                // V2: epoch_id, chunk_header, then the rest
                 let epoch_id: EpochId = BorshDeserialize::deserialize_reader(&mut cursor)?;
                 let chunk_header: ShardChunkHeader =
                     BorshDeserialize::deserialize_reader(&mut cursor)?;
@@ -116,7 +115,7 @@ impl LazyChunkStateWitness {
         let complete_witness = Arc::new(OnceLock::new());
         let complete_witness_clone = complete_witness.clone();
 
-        // Spawn dedicated thread to deserialize complete witness in background
+        // Spawn a dedicated thread to deserialize the complete witness in background
         let data_shared: Arc<[u8]> = Arc::from(data);
         std::thread::spawn(move || {
             if let Ok(witness) = Self::deserialize_complete_witness(&data_shared) {
@@ -147,12 +146,12 @@ impl LazyChunkStateWitness {
     }
 
     /// Add accessed contracts that will be merged into the main state transition
-    /// when converting to full ChunkStateWitness.
+    /// when converting to full `ChunkStateWitness`.
     pub fn add_accessed_contracts(&mut self, contracts: Vec<CodeBytes>) {
         self.accessed_contracts.extend(contracts);
     }
 
-    /// Consume this lazy witness to get a complete ChunkStateWitness.
+    /// Consume this lazy witness to get a complete `ChunkStateWitness`.
     /// This will block if the background deserialization is not yet complete.
     /// Accessed contracts will be merged into the main state transition.
     pub fn into_chunk_state_witness(self) -> ChunkStateWitness {
@@ -170,7 +169,7 @@ impl LazyChunkStateWitness {
                 }
             }
             // If not ready, yield and retry
-            // TODO: could be improved with condvar for more efficient waiting
+            // TODO: could be improved for more efficient waiting
             std::thread::yield_now();
         };
 

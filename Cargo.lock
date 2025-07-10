@@ -4978,7 +4978,6 @@ dependencies = [
  "primitive-types 0.10.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
- "rayon",
  "reed-solomon-erasure",
  "regex",
  "schemars 1.0.0-alpha.17",

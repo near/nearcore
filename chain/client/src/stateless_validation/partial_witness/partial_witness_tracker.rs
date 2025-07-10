@@ -16,7 +16,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonEncoderCache, ReedSolomonPartsTracker,
 };
-
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::lazy_state_witness::LazyChunkStateWitness;
@@ -25,7 +24,6 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
 use near_primitives::types::ShardId;
-
 use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 use time::ext::InstantExt as _;
