@@ -17,7 +17,10 @@ use super::ChunkProductionKey;
 pub enum ChunkEndorsement {
     V1, // Deprecated
     V2(ChunkEndorsementV2),
-    V3(SpiceChunkEndorsementV3),
+    // Chunk endorsement for spice is larger since it contains execution results. To avoid
+    // penalizing memory layout of the whole enum we use Box here. For more details see:
+    // https://rust-lang.github.io/rust-clippy/master/index.html#large_enum_variant
+    V3(Box<SpiceChunkEndorsementV3>),
 }
 
 impl ChunkEndorsement {
@@ -64,7 +67,7 @@ impl ChunkEndorsement {
         let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         let endorsement =
             SpiceChunkEndorsementV3 { inner, signature, metadata, metadata_signature };
-        ChunkEndorsement::V3(endorsement)
+        ChunkEndorsement::V3(Box::new(endorsement))
     }
 
     pub fn execution_result(&self) -> Option<&ChunkExecutionResult> {
