@@ -337,6 +337,9 @@ pub struct Chain {
     /// Manages all tasks related to resharding.
     pub resharding_manager: ReshardingManager,
     validator_signer: MutableValidatorSigner,
+    /// WARNING(logunov): this is a workaround to allow producing optimistic chunks.
+    /// Dirty way to pass it from ChunkProducer to Client.
+    pub optimistic_block_for_prepare_transactions: Option<(OptimisticBlock, Vec<ShardChunkHeader>)>,
 }
 
 impl Drop for Chain {
@@ -438,6 +441,7 @@ impl Chain {
             snapshot_callbacks: None,
             resharding_manager,
             validator_signer,
+            optimistic_block_for_prepare_transactions: None,
         })
     }
 
@@ -600,6 +604,7 @@ impl Chain {
             snapshot_callbacks,
             resharding_manager,
             validator_signer,
+            optimistic_block_for_prepare_transactions: None,
         })
     }
 
@@ -1254,8 +1259,10 @@ impl Chain {
             return;
         }
 
-        match self.process_optimistic_block(block, chunks, apply_chunks_done_sender) {
+        match self.process_optimistic_block(block.clone(), chunks.clone(), apply_chunks_done_sender)
+        {
             Ok(()) => {
+                self.optimistic_block_for_prepare_transactions = Some((block, chunks));
                 debug!(
                     target: "chain", prev_block_hash = ?prev_block_hash,
                     hash = ?block_hash, height = block_height,
