@@ -540,7 +540,7 @@ impl fmt::Debug for TieredMessageBody {
 }
 
 impl TieredMessageBody {
-    pub fn body_variant(&self) -> &'static str {
+    pub fn variant(&self) -> &'static str {
         match self {
             TieredMessageBody::T1(body) => (&(**body)).into(),
             TieredMessageBody::T2(body) => (&(**body)).into(),
@@ -1228,7 +1228,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => (&msg.body).into(),
             RoutedMessage::V2(msg) => (&msg.msg.body).into(),
-            RoutedMessage::V3(msg) => msg.body.body_variant(),
+            RoutedMessage::V3(msg) => msg.body.variant(),
         }
     }
 
