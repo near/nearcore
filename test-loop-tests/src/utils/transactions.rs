@@ -406,6 +406,34 @@ pub fn call_contract(
     tx_hash
 }
 
+pub fn send_money(
+    env: &TestLoopEnv,
+    rpc_id: &AccountId,
+    sender_id: &AccountId,
+    receiver_id: &AccountId,
+    amount: u128,
+    nonce: Option<u64>,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let nonce =
+        nonce.unwrap_or_else(|| get_next_nonce(&env.test_loop.data, &env.node_datas, sender_id));
+    let signer = create_user_test_signer(sender_id);
+
+    let tx = SignedTransaction::send_money(
+        nonce,
+        sender_id.clone(),
+        receiver_id.clone(),
+        &signer,
+        amount,
+        block_hash,
+    );
+
+    let tx_hash = tx.get_hash();
+    submit_tx(&env.node_datas, rpc_id, tx);
+    tracing::debug!(target: "test", ?sender_id, ?receiver_id, ?amount, ?tx_hash, "sending money");
+    tx_hash
+}
+
 /// Submit a transaction to the rpc node with the given account id.
 /// Doesn't wait for the result, it must be requested separately.
 pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
@@ -438,6 +466,15 @@ pub fn check_txs(
         tracing::info!(target: "test", ?tx, ?status, "transaction status");
         assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
     }
+}
+
+pub fn get_tx_outcome(
+    env: &TestLoopEnv,
+    rpc_id: &AccountId,
+    tx_hash: &CryptoHash,
+) -> FinalExecutionOutcomeView {
+    let rpc = rpc_client(&env.test_loop.data, &env.node_datas, rpc_id);
+    rpc.chain.get_partial_transaction_result(tx_hash).unwrap()
 }
 
 /// Get the client for the provided rpd node account id.

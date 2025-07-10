@@ -1,5 +1,13 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::transactions::{
+    call_contract, check_txs, deploy_contract, get_tx_outcome, make_accounts, send_money,
+};
+use crate::utils::{ONE_NEAR, TGAS};
+use assert_matches::assert_matches;
 use core::panic;
-
 use itertools::Itertools;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
@@ -7,20 +15,18 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::{call_contract, check_txs, deploy_contract, make_accounts};
-use crate::utils::{ONE_NEAR, TGAS};
+use near_primitives::views::FinalExecutionStatus;
+use near_primitives_core::types::BlockHeightDelta;
 
 const NUM_ACCOUNTS: usize = 100;
 const NUM_PRODUCERS: usize = 2;
 const NUM_VALIDATORS: usize = 2;
 const NUM_RPC: usize = 1;
 const NUM_CLIENTS: usize = NUM_PRODUCERS + NUM_VALIDATORS + NUM_RPC;
+const EPOCH_LENGTH: BlockHeightDelta = 10;
 
 /// A very simple test that exercises congestion control in the typical setup
 /// with producers, validators, rpc nodes, single shard tracking and state sync.
@@ -35,7 +41,7 @@ fn slow_test_congestion_control_simple() {
     let mut accounts = make_accounts(NUM_ACCOUNTS);
     accounts.push(contract_id.clone());
 
-    let (env, rpc_id) = setup(&accounts);
+    let (env, rpc_id) = setup(&accounts, &["account3", "account5", "account7"]);
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
 
     // Test
@@ -59,7 +65,55 @@ fn slow_test_congestion_control_simple() {
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
-fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
+#[cfg_attr(not(feature = "test_features"), ignore)]
+#[test]
+fn slow_test_one_shard_congested() {
+    init_test_logger();
+
+    let mut accounts = make_accounts(NUM_PRODUCERS + NUM_VALIDATORS);
+    let shard1_acc1: AccountId = "0000".parse().unwrap();
+    let shard1_acc2: AccountId = "1111".parse().unwrap();
+    let shard2_acc1: AccountId = "xxxx".parse().unwrap();
+    accounts.push(shard1_acc1.clone());
+    accounts.push(shard1_acc2.clone());
+    accounts.push(shard2_acc1.clone());
+
+    let (env, rpc_id) = setup(&accounts, &["near"]);
+    assert_eq!(rpc_id, shard1_acc1);
+
+    // Configure test env to drop chunks for shard 2
+    let shard2 = env.shared_state.genesis.config.shard_layout.account_id_to_shard_id(&shard2_acc1);
+    let dropped_chunks = [
+        (shard2, (0..1000).map(|_| false).collect_vec()), // Drop 1000 chunks for shard 2
+    ]
+    .into_iter()
+    .collect();
+    let mut env = env.drop(DropCondition::ChunksProducedByHeight(dropped_chunks));
+
+    // Run for two epochs to make sure shard 2 is congested
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let client_actor = env.test_loop.data.get(&client_handle);
+    let block_time = client_actor.client.config.max_block_production_delay;
+    env.test_loop.run_for(block_time * EPOCH_LENGTH as u32 * 2);
+
+    // Send transfer from shard 1 to shard 1 – should succeed
+    let tx_hash = send_money(&env, &rpc_id, &shard1_acc1, &shard1_acc2, ONE_NEAR, None);
+    env.test_loop.run_for(Duration::seconds(2));
+    let outcome = get_tx_outcome(&env, &rpc_id, &tx_hash);
+    assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
+
+    // Send transfer from shard 1 to shard 2 – should fail, because shard 2 is congested
+    let tx_hash = send_money(&env, &rpc_id, &shard1_acc1, &shard2_acc1, ONE_NEAR, None);
+    env.test_loop.run_for(Duration::seconds(2));
+    let outcome = get_tx_outcome(&env, &rpc_id, &tx_hash);
+    assert_matches!(outcome.status, FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(InvalidTxError::ShardCongested {
+        shard_id, ..
+    })) if shard_id == Into::<u32>::into(shard2));
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+fn setup(accounts: &Vec<AccountId>, boundary_accounts: &[&str]) -> (TestLoopEnv, AccountId) {
     let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
     // split the clients into producers, validators, and rpc nodes
@@ -73,14 +127,12 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     let validators = validators.iter().map(|account| account.as_str()).collect_vec();
     let [rpc_id] = rpcs else { panic!("Expected exactly one rpc node") };
 
-    let epoch_length = 10;
-    let boundary_accounts =
-        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
+    let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
 
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
+        .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
