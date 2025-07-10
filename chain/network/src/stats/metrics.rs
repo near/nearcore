@@ -402,6 +402,16 @@ pub(crate) static NETWORK_ROUTED_MSG_DISTANCES: LazyLock<IntCounterVec> = LazyLo
     .unwrap()
 });
 
+pub(crate) static ROUTED_MESSAGE_VERIFICATION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_routed_message_verification_time",
+        "Time taken to verify routed message signatures by message version",
+        &["version"],
+        Some(exponential_buckets(0.000001, 2.0, 20).unwrap()), // 1μs to ~1s range
+    )
+    .unwrap()
+});
+
 /// Updated the prometheus metrics about the received routed message `msg`.
 /// `tier` indicates the network over which the message was transmitted.
 /// `fastest` indicates whether this message is the first copy of `msg` received -
