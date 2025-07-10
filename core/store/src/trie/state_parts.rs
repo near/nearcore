@@ -268,7 +268,7 @@ impl Trie {
                 .map(|entry| (*entry.hash(), entry.payload().to_vec().into())),
         );
         let partial_storage = Arc::new(TrieMemoryPartialStorage::new(all_nodes));
-        let final_trie = Trie::new(Arc::clone(&partial_storage), self.root, None);
+        let final_trie = Trie::new(Arc::clone(&partial_storage) as _, self.root, None);
         final_trie.visit_nodes_for_state_part(part_id)?;
         drop(final_trie);
         let final_trie_storage = Arc::into_inner(partial_storage).unwrap();
