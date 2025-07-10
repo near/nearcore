@@ -85,7 +85,7 @@ impl CoreStatementsProcessor {
         results
     }
 
-    pub fn do_all_execution_results_exist(&self, block: &Block) -> bool {
+    pub fn all_execution_results_exist(&self, block: &Block) -> bool {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
         let mut tracker = self.write();
