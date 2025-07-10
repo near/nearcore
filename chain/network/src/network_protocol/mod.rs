@@ -1163,7 +1163,12 @@ impl RoutedMessage {
         source: &PeerId,
         body: &TieredMessageBody,
     ) -> CryptoHash {
-        CryptoHash::hash_borsh(TieredRoutedMessageNoSignature { target, author: source, body })
+        if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
+            CryptoHash::hash_borsh(TieredRoutedMessageNoSignature { target, author: source, body })
+        } else {
+            let body = RoutedMessageBody::from(body.clone());
+            CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body: &body })
+        }
     }
 
     /// Get the V1 message from the current version. Used for serializations (only V1 is sent over the wire).
@@ -1342,6 +1347,13 @@ impl RoutedMessage {
             });
         }
     }
+}
+
+#[derive(borsh::BorshSerialize, PartialEq, Eq, Clone, Debug)]
+struct RoutedMessageNoSignature<'a> {
+    target: &'a PeerIdOrHash,
+    author: &'a PeerId,
+    body: &'a RoutedMessageBody,
 }
 
 #[derive(borsh::BorshSerialize, PartialEq, Eq, Clone, Debug)]
