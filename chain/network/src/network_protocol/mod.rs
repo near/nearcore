@@ -1069,7 +1069,7 @@ pub struct RoutedMessageV3 {
 }
 
 impl RoutedMessageV3 {
-    pub fn hash_tiered(&self) -> CryptoHash {
+    pub fn hash(&self) -> CryptoHash {
         RoutedMessage::build_hash(&self.target, &self.author, &self.body)
     }
 
@@ -1080,7 +1080,7 @@ impl RoutedMessageV3 {
             let Some(signature) = &self.signature else {
                 return false;
             };
-            signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
+            signature.verify(self.hash().as_ref(), self.author.public_key())
         }
     }
 
@@ -1265,7 +1265,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => msg.hash(),
             RoutedMessage::V2(msg) => msg.msg.hash(),
-            RoutedMessage::V3(msg) => msg.hash_tiered(),
+            RoutedMessage::V3(msg) => msg.hash(),
         }
     }
 
