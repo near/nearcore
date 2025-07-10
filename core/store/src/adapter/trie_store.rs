@@ -33,20 +33,13 @@ impl TrieStoreAdapter {
     /// Here we are first trying to get the value with shard_uid as prefix.
     /// If that fails, we try to get the value with the mapped shard_uid as prefix.
     ///
-    /// The original implementation was trying to get the value with the mapped shard_uid as prefix.
-    /// This unfortunately doesn't work for cold store, as this then becomes a two step process.
-    /// 1. Fetch the mapping from the store -> this first reads hot store, then cold store.
-    /// 2. Fetch the value with the mapped shard_uid as prefix.
-    ///
-    /// While this sounds sensible, unfortunately the content of the DBCol::StateShardUIdMapping is
-    /// different for hot and cold store. Hot store doesn't have the mapping after resharding is completed
-    /// while cold store keeps the mapping forever.
-    ///
-    /// While fetching the mapping in step (1), we unfortunately retrieve the mapping from cold storage even
-    /// if we wanted to read values from the hot store without the mapping.
-    ///
-    /// In the new approach, we first try to retrieve values from both hot and cold store without mapping
-    /// and then from both hot and cold store with mapping.
+    /// Note we should not first get the mapping and then try to get the value with the mapped
+    /// shard_uid as prefix. This doesn't work with SplitDB, which has hot and cold stores.
+    /// 
+    /// Since the mapping is deleted from the hot store after resharding is completed but never
+    /// from the cold store, SplitDB (archive nodes) would return the mapping from the cold store,
+    /// which can lead to a MissingTrieValue, for example when the value is in the hot store but not
+    /// yet copied to the cold store.
     fn get_ref(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<DBSlice<'_>, StorageError> {
         match self.get_ref_inner(shard_uid, hash) {
             Ok(value) => Ok(value),
