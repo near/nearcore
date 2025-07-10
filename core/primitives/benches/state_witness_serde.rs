@@ -1,6 +1,6 @@
 //! Benchmark for Borsh encoding/decoding of ChunkStateWitness.
 //!
-//! Run with `cargo bench --bench state_witness_borsh`
+//! Run with `cargo bench --bench state_witness_serde`
 
 use criterion::{
     BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
@@ -12,7 +12,7 @@ use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use testlib::state_witness_test_data;
 
 fn witness_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("state_witness_borsh");
+    let mut group = c.benchmark_group("state_witness_serde");
     group
         .measurement_time(Duration::from_secs(5))
         .warm_up_time(Duration::from_millis(1500))
