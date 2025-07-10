@@ -343,11 +343,7 @@ impl TrieMemoryPartialStorage {
         let Self { recorded_storage, visited_nodes } = self;
         let mut nodes: Vec<_> = recorded_storage
             .into_iter()
-            .filter_map(
-                |(node_hash, value)| {
-                    if visited_nodes.contains(&node_hash) { Some(value) } else { None }
-                },
-            )
+            .filter_map(|(node_hash, value)| visited_nodes.contains(&node_hash).then_some(value))
             .collect();
         nodes.sort();
         PartialState::TrieValues(nodes)
