@@ -484,7 +484,7 @@ impl ChunkExecutorActor {
             };
             let shard_id = shard_uid.shard_id();
             let Some(my_signer) = self.validator_signer.get() else {
-                // If node isn't validator it shouldn't send outoging receipts, endorsed and witnesses.
+                // If node isn't validator it shouldn't send outgoing receipts, endorsed and witnesses.
                 // RPC nodes can still apply chunks and tracks multiple shards.
                 continue;
             };
