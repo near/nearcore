@@ -35,7 +35,7 @@ impl TrieStoreAdapter {
     ///
     /// Note we should not first get the mapping and then try to get the value with the mapped
     /// shard_uid as prefix. This doesn't work with SplitDB, which has hot and cold stores.
-    /// 
+    ///
     /// Since the mapping is deleted from the hot store after resharding is completed but never
     /// from the cold store, SplitDB (archive nodes) would return the mapping from the cold store,
     /// which can lead to a MissingTrieValue, for example when the value is in the hot store but not
