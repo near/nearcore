@@ -1,5 +1,6 @@
 use crate::config::Mode;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
+use crate::metrics::{ColumnStats, DATABASE_BATCH_BYTES, DATABASE_OPS_COUNT};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
@@ -440,12 +441,18 @@ impl RocksDB {
     )]
     fn build_write_batch(&self, transaction: DBTransaction) -> io::Result<WriteBatch> {
         let mut batch = WriteBatch::default();
+        let mut col_stats: HashMap<DBCol, ColumnStats> = HashMap::new();
         for op in transaction.ops {
+            let stats = col_stats.entry(op.col()).or_insert_with(ColumnStats::new);
+            stats.bytes += op.bytes() as u64;
+
             match op {
                 DBOp::Set { col, key, value } => {
+                    stats.sets += 1;
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Insert { col, key, value } => {
+                    stats.inserts += 1;
                     if cfg!(debug_assertions) {
                         if let Ok(Some(old_value)) = self.get_raw_bytes(col, &key) {
                             super::assert_no_overwrite(col, &key, &value, &*old_value)
@@ -454,12 +461,15 @@ impl RocksDB {
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
+                    stats.rc_ops += 1;
                     batch.merge_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Delete { col, key } => {
+                    stats.deletes += 1;
                     batch.delete_cf(self.cf_handle(col)?, key);
                 }
                 DBOp::DeleteAll { col } => {
+                    stats.delete_all_ops += 1;
                     let cf_handle = self.cf_handle(col)?;
                     let range = self.get_cf_key_range(cf_handle).map_err(io::Error::other)?;
                     if let Some(range) = range {
@@ -469,10 +479,29 @@ impl RocksDB {
                     }
                 }
                 DBOp::DeleteRange { col, from, to } => {
+                    stats.delete_range_ops += 1;
                     batch.delete_range_cf(self.cf_handle(col)?, from, to);
                 }
             }
         }
+
+        // Update column stats
+        for (col, stats) in col_stats {
+            DATABASE_BATCH_BYTES.with_label_values(&[col.into()]).inc_by(stats.bytes);
+            DATABASE_OPS_COUNT.with_label_values(&[col.into(), "set"]).inc_by(stats.sets);
+            DATABASE_OPS_COUNT.with_label_values(&[col.into(), "insert"]).inc_by(stats.inserts);
+            DATABASE_OPS_COUNT
+                .with_label_values(&[col.into(), "update_refcount"])
+                .inc_by(stats.rc_ops);
+            DATABASE_OPS_COUNT.with_label_values(&[col.into(), "delete"]).inc_by(stats.deletes);
+            DATABASE_OPS_COUNT
+                .with_label_values(&[col.into(), "delete_all"])
+                .inc_by(stats.delete_all_ops);
+            DATABASE_OPS_COUNT
+                .with_label_values(&[col.into(), "delete_range"])
+                .inc_by(stats.delete_range_ops);
+        }
+
         Ok(batch)
     }
 
@@ -588,7 +617,11 @@ impl Database for RocksDB {
 
         // Write sync operations immediately
         if !sync_batch.ops.is_empty() {
+            let timer = metrics::DATABASE_OP_LATENCY_HIST
+                .with_label_values(&["write", "sync"])
+                .start_timer();
             self.write(sync_batch).map_err(io::Error::other)?;
+            timer.observe_duration();
         }
 
         // Spawn background thread for async operations
@@ -609,6 +642,9 @@ impl Database for RocksDB {
                 // Now write each batch
                 for (col, mut batch) in async_batches {
                     batch.is_async = true;
+                    let timer = metrics::DATABASE_OP_LATENCY_HIST
+                        .with_label_values(&["write", col.into()])
+                        .start_timer();
                     if let Err(e) = db_clone.write(batch) {
                         tracing::error!(
                             target: "store::db::rocksdb",
@@ -616,6 +652,7 @@ impl Database for RocksDB {
                             col, e
                         );
                     }
+                    timer.observe_duration();
                     // Mark the async write as done
                     write_tracker.done_async_write(col);
                 }
