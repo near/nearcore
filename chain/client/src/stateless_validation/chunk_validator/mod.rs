@@ -96,7 +96,7 @@ impl ChunkValidator {
         )
         .entered();
 
-        let prev_block_hash = lazy_witness.chunk_header().prev_block_hash();
+        let prev_block_hash = *lazy_witness.chunk_header().prev_block_hash();
         let ChunkProductionKey { epoch_id, .. } = lazy_witness.chunk_production_key();
         let shard_id = lazy_witness.chunk_header().shard_id();
         let expected_epoch_id =
@@ -110,12 +110,12 @@ impl ChunkValidator {
 
         let (pre_validation_result, state_witness) =
             chunk_validation::pre_validate_chunk_state_witness(
-                &lazy_witness,
+                lazy_witness,
                 chain,
                 self.epoch_manager.as_ref(),
             )?;
 
-        let chunk_header = lazy_witness.chunk_header().clone();
+        let chunk_header = state_witness.chunk_header().clone();
         let network_sender = self.network_sender.clone();
         let epoch_manager = self.epoch_manager.clone();
 

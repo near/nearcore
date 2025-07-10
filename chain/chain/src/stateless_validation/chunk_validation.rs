@@ -296,7 +296,7 @@ fn get_resharding_transition(
 /// We do this before handing off the computationally intensive part to a
 /// validation thread.
 pub fn pre_validate_chunk_state_witness(
-    lazy_witness: &LazyChunkStateWitness,
+    lazy_witness: LazyChunkStateWitness,
     chain: &Chain,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<(PreValidationOutput, ChunkStateWitness), Error> {
@@ -317,7 +317,7 @@ pub fn pre_validate_chunk_state_witness(
     } = get_state_witness_block_range(store, epoch_manager, &lazy_witness)?;
     let last_chunk_shard_index = last_chunk_shard_layout.get_shard_index(last_chunk_shard_id)?;
 
-    let state_witness = lazy_witness.clone().into_chunk_state_witness();
+    let state_witness = lazy_witness.into_chunk_state_witness();
 
     let receipts_to_apply = validate_source_receipt_proofs(
         epoch_manager,
@@ -809,7 +809,7 @@ impl Chain {
         let pre_validation_start = Instant::now();
         let lazy_witness = LazyChunkStateWitness::from_full_witness(witness.clone());
         let (pre_validation_result, witness) =
-            pre_validate_chunk_state_witness(&lazy_witness, &self, epoch_manager)?;
+            pre_validate_chunk_state_witness(lazy_witness, &self, epoch_manager)?;
         tracing::debug!(
             parent: &parent_span,
             %shard_id,

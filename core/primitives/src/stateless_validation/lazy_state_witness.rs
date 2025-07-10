@@ -12,6 +12,7 @@ use bytesize::ByteSize;
 use std::io::Cursor;
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use super::{ChunkProductionKey, state_witness::ChunkStateWitness};
 
@@ -155,22 +156,18 @@ impl LazyChunkStateWitness {
     /// This will block if the background deserialization is not yet complete.
     /// Accessed contracts will be merged into the main state transition.
     pub fn into_chunk_state_witness(self) -> ChunkStateWitness {
-        // Wait for background thread to complete and get the witness
-        let mut witness = loop {
-            if let Some(_) = self.complete_witness.get() {
-                // Try to extract the witness from the Arc if we're the only owner
-                match Arc::try_unwrap(self.complete_witness) {
-                    Ok(once_lock) => {
-                        break once_lock.into_inner().expect("OnceLock should be filled");
-                    }
-                    Err(arc) => {
-                        break arc.get().expect("OnceLock should be filled").clone();
-                    }
-                }
-            }
-            // If not ready, yield and retry
-            // TODO: could be improved for more efficient waiting
-            std::thread::yield_now();
+        // Wait for background thread to complete using exponential backoff
+        let mut sleep_duration = Duration::from_micros(50);
+        let max_sleep = Duration::from_millis(1);
+
+        while self.complete_witness.get().is_none() {
+            std::thread::sleep(sleep_duration);
+            sleep_duration = std::cmp::min(sleep_duration * 2, max_sleep);
+        }
+
+        let mut witness = match Arc::try_unwrap(self.complete_witness) {
+            Ok(once_lock) => once_lock.into_inner().expect("OnceLock should be filled"),
+            Err(arc) => arc.get().expect("OnceLock should be filled").clone(),
         };
 
         // Merge accessed contracts into the main state transition
