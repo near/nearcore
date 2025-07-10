@@ -266,7 +266,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     for client in &mut env.clients {
         let head = client.chain.get_head_block().unwrap();
         let chunks = head.chunks();
-        let chunk_hash = chunks.iter_raw().next().unwrap().chunk_hash();
+        let chunk_hash = chunks[0].chunk_hash();
         let Ok(chunk) = client.chain.mut_chain_store().get_chunk(chunk_hash) else {
             continue;
         };

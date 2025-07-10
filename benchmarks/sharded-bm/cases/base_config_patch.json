@@ -37,5 +37,6 @@
             "secs": 0,
             "nanos": 10000000
         }
-    }
+    },
+    "save_tx_outcomes": false
 }

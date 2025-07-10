@@ -30,7 +30,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         output_data_receivers: vec![],
     };
     let mut skip = HashSet::new();
-    for kind in [VMKind::NearVm, VMKind::Wasmtime] {
+    for kind in [VMKind::NearVm, VMKind::NearVm2, VMKind::Wasmtime] {
         if !kind.is_available() {
             skip.insert(kind);
         }

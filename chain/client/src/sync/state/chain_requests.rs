@@ -1,5 +1,6 @@
 use near_async::messaging::AsyncSender;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::ShardId;
@@ -24,6 +25,7 @@ pub struct ChainFinalizationRequest {
 #[derive(Clone, MultiSend, MultiSendMessage, MultiSenderFrom)]
 pub struct ChainSenderForStateSync {
     pub state_header_validation:
-        AsyncSender<StateHeaderValidationRequest, Result<(), near_chain::Error>>,
-    pub chain_finalization: AsyncSender<ChainFinalizationRequest, Result<(), near_chain::Error>>,
+        AsyncSender<SpanWrapped<StateHeaderValidationRequest>, Result<(), near_chain::Error>>,
+    pub chain_finalization:
+        AsyncSender<SpanWrapped<ChainFinalizationRequest>, Result<(), near_chain::Error>>,
 }

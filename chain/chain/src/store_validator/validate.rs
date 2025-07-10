@@ -385,37 +385,32 @@ pub(crate) fn block_chunks_exist(
         // for single-shard, no-missing-chunks state sync or epoch sync tests.
         return Ok(());
     }
-    for chunk_header in block.chunks().iter_deprecated() {
-        if chunk_header.height_included() == block.header().height() {
-            let prev_hash = block.header().prev_hash();
-            let shard_id = chunk_header.shard_id();
-            let cares_about_shard = sv.shard_tracker.cares_about_shard(prev_hash, shard_id);
-            let will_care_about_shard = sv.shard_tracker.will_care_about_shard(prev_hash, shard_id);
-            if cares_about_shard || will_care_about_shard {
-                unwrap_or_err_db!(
-                    sv.store
-                        .get_ser::<ShardChunk>(DBCol::Chunks, chunk_header.chunk_hash().as_ref()),
-                    "Can't get Chunk {:?} from storage",
-                    chunk_header
-                );
-                if cares_about_shard {
-                    let shard_uid = shard_id_to_uid(
-                        sv.epoch_manager.as_ref(),
-                        shard_id,
-                        block.header().epoch_id(),
-                    )
-                    .map_err(|err| StoreValidatorError::DBNotFound {
-                        func_name: "get_shard_layout",
-                        reason: err.to_string(),
-                    })?;
-                    let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
-                    unwrap_or_err_db!(
-                        sv.store.get_ser::<ChunkExtra>(DBCol::ChunkExtra, block_shard_uid.as_ref()),
-                        "Can't get chunk extra for chunk {:?} from storage",
-                        chunk_header
-                    );
-                }
-            }
+    for chunk_header in block.chunks().iter_new() {
+        let prev_hash = block.header().prev_hash();
+        let shard_id = chunk_header.shard_id();
+        let cares_about_shard = sv.shard_tracker.cares_about_shard(prev_hash, shard_id);
+        let will_care_about_shard = sv.shard_tracker.will_care_about_shard(prev_hash, shard_id);
+        if !cares_about_shard && !will_care_about_shard {
+            continue;
+        }
+        unwrap_or_err_db!(
+            sv.store.get_ser::<ShardChunk>(DBCol::Chunks, chunk_header.chunk_hash().as_ref()),
+            "Can't get Chunk {:?} from storage",
+            chunk_header
+        );
+        if cares_about_shard {
+            let maybe_shard_uid =
+                shard_id_to_uid(sv.epoch_manager.as_ref(), shard_id, block.header().epoch_id());
+            let shard_uid = maybe_shard_uid.map_err(|err| StoreValidatorError::DBNotFound {
+                func_name: "get_shard_layout",
+                reason: err.to_string(),
+            })?;
+            let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
+            unwrap_or_err_db!(
+                sv.store.get_ser::<ChunkExtra>(DBCol::ChunkExtra, block_shard_uid.as_ref()),
+                "Can't get chunk extra for chunk {:?} from storage",
+                chunk_header
+            );
         }
     }
     Ok(())
@@ -426,7 +421,7 @@ pub(crate) fn block_chunks_height_validity(
     _block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
-    for chunk_header in block.chunks().iter_deprecated() {
+    for chunk_header in block.chunks().iter() {
         if chunk_header.height_created() > block.header().height() {
             err!(
                 "Invalid ShardChunk included, chunk_header = {:?}, block = {:?}",
@@ -717,31 +712,29 @@ pub(crate) fn outcome_indexed_by_block_hash(
         "Can't get Block {} from DB",
         block_hash
     );
-    for chunk_header in block.chunks().iter_deprecated() {
-        if chunk_header.height_included() == block.header().height() {
-            let shard_uid = shard_id_to_uid(
-                sv.epoch_manager.as_ref(),
-                chunk_header.shard_id(),
-                block.header().epoch_id(),
-            )
-            .map_err(|err| StoreValidatorError::DBNotFound {
-                func_name: "get_shard_layout",
-                reason: err.to_string(),
-            })?;
-            if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
-                DBCol::ChunkExtra,
-                &get_block_shard_uid(block.hash(), &shard_uid),
-            ) {
-                let outcome_ids = unwrap_or_err_db!(
-                    sv.store.get_ser::<Vec<CryptoHash>>(
-                        DBCol::OutcomeIds,
-                        &get_block_shard_id(block.hash(), chunk_header.shard_id())
-                    ),
-                    "Can't get Outcome ids by Block Hash"
-                );
-                if outcome_ids.contains(outcome_id) {
-                    return Ok(());
-                }
+    for chunk_header in block.chunks().iter_new() {
+        let shard_uid = shard_id_to_uid(
+            sv.epoch_manager.as_ref(),
+            chunk_header.shard_id(),
+            block.header().epoch_id(),
+        )
+        .map_err(|err| StoreValidatorError::DBNotFound {
+            func_name: "get_shard_layout",
+            reason: err.to_string(),
+        })?;
+        if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
+            DBCol::ChunkExtra,
+            &get_block_shard_uid(block.hash(), &shard_uid),
+        ) {
+            let outcome_ids = unwrap_or_err_db!(
+                sv.store.get_ser::<Vec<CryptoHash>>(
+                    DBCol::OutcomeIds,
+                    &get_block_shard_id(block.hash(), chunk_header.shard_id())
+                ),
+                "Can't get Outcome ids by Block Hash"
+            );
+            if outcome_ids.contains(outcome_id) {
+                return Ok(());
             }
         }
     }

@@ -1,8 +1,7 @@
-use crate::chain::ApplyChunksDoneMessage;
+use crate::chain::ApplyChunksDoneSender;
 use crate::missing_chunks::BlockLike;
 use crate::{BlockProcessingArtifact, Chain, Provenance, metrics};
 use lru::LruCache;
-use near_async::messaging::Sender;
 use near_async::time::{Duration, Instant};
 use near_chain_primitives::Error;
 use near_primitives::block::Block;
@@ -387,7 +386,7 @@ impl Chain {
         &mut self,
         prev_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
         let _span = debug_span!(
             target: "chain",

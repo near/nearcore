@@ -7,9 +7,9 @@ use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_chain::chain::{
-    ApplyChunksMode, NewChunkData, NewChunkResult, OldChunkResult, ShardContext, StorageContext,
-    UpdateShardJob, do_apply_chunks, get_should_apply_chunk,
+    NewChunkData, NewChunkResult, ShardContext, StorageContext, UpdateShardJob, do_apply_chunks,
 };
+use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
@@ -17,18 +17,15 @@ use near_chain::{
     Block, Chain, ChainGenesis, ChainStore, ChainUpdate, DoomslugThresholdMode, Error,
     collect_receipts, get_chunk_clone_from_header,
 };
+use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::block::Chunks;
-use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
 use near_primitives::optimistic_block::{BlockToApply, CachedShardUpdateKey};
-use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardProof;
 use near_primitives::types::EpochId;
@@ -104,7 +101,7 @@ impl Handler<ExecutorIncomingReceipts> for ChunkExecutorActor {
         ExecutorIncomingReceipts { block_hash, receipt_proofs }: ExecutorIncomingReceipts,
     ) {
         for proof in receipt_proofs {
-            // TODO(spice): receipt proof should be saved to the db by the data distribution layer
+            // TODO(spice): receipt proofs should be saved to the database by the distribution layer
             if let Err(err) = save_receipt_proof(&self.chain_store.store(), &block_hash, &proof) {
                 tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to save receipt proof");
                 return;
@@ -154,23 +151,28 @@ impl ChunkExecutorActor {
         let mut all_receipts: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
         let store = self.chain_store.store();
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
-        let all_shard_ids = self.epoch_manager.shard_ids(&prev_block_epoch_id)?;
-        for &shard_id in &all_shard_ids {
-            // TODO(spice-resharding): check if using `cares_about_shard_this_or_next_epoch`
-            // with shard_id from the prev block is correct in case of resharding
-            if self.shard_tracker.cares_about_shard_this_or_next_epoch(block_hash, shard_id) {
+        let prev_block_shard_ids = self.epoch_manager.shard_ids(&prev_block_epoch_id)?;
+        for &prev_block_shard_id in &prev_block_shard_ids {
+            // TODO(spice-resharding): convert `prev_block_shard_id` into `shard_id` for
+            // the current shard layout
+            if self.shard_tracker.should_apply_chunk(
+                ApplyChunksMode::IsCaughtUp,
+                prev_block_hash,
+                prev_block_shard_id,
+            ) {
                 // Genesis block has no outgoing receipts.
                 if *prev_block_hash == self.genesis_hash {
-                    all_receipts.insert(shard_id, vec![]);
+                    all_receipts.insert(prev_block_shard_id, vec![]);
                     continue;
                 }
 
-                let proofs = get_receipt_proofs_for_shard(&store, prev_block_hash, shard_id)?;
-                if proofs.len() != all_shard_ids.len() {
+                let proofs =
+                    get_receipt_proofs_for_shard(&store, prev_block_hash, prev_block_shard_id)?;
+                if proofs.len() != prev_block_shard_ids.len() {
                     tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing receipts to apply all tracked chunks for a block");
                     return Ok(());
                 }
-                all_receipts.insert(shard_id, proofs);
+                all_receipts.insert(prev_block_shard_id, proofs);
             }
         }
         self.apply_chunks(block, all_receipts, SandboxStatePatch::default())
@@ -193,6 +195,8 @@ impl ChunkExecutorActor {
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
 
+        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
+
         let chunk_headers = &block.chunks();
         let mut jobs = Vec::new();
         // TODO(spice-resharding): Make sure shard logic is correct with resharding.
@@ -201,6 +205,14 @@ impl ChunkExecutorActor {
             // only for a single shard. This so far has been enough.
             let state_patch = state_patch.take();
             let shard_id = shard_layout.get_shard_id(shard_index)?;
+            // If we don't care about shard we wouldn't have relevant incoming receipts.
+            if !self.shard_tracker.should_apply_chunk(
+                ApplyChunksMode::IsCaughtUp,
+                block_hash,
+                shard_id,
+            ) {
+                continue;
+            }
 
             let is_new_chunk = true;
             let block_context = Chain::get_apply_chunk_block_context_from_block_header(
@@ -210,16 +222,11 @@ impl ChunkExecutorActor {
                 is_new_chunk,
             )?;
 
-            // If we don't care about shard we wouldn't have relevant incoming receipts.
-            if !self.shard_tracker.cares_about_shard_this_or_next_epoch(block_hash, shard_id) {
-                continue;
-            }
             // TODO(spice-resharding): We may need to take resharding into account here.
             let mut receipt_proofs = incoming_receipts
                 .remove(&shard_id)
                 .expect("expected receipts for all tracked shards");
-            let shuffle_salt = block_hash;
-            shuffle_receipt_proofs(&mut receipt_proofs, shuffle_salt);
+            shuffle_receipt_proofs(&mut receipt_proofs, receipts_shuffle_salt);
 
             let storage_context =
                 StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
@@ -261,12 +268,12 @@ impl ChunkExecutorActor {
                     gas_limit: _,
                     apply_result,
                 }) => (shard_uid, apply_result),
-                ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
-                    (shard_uid, apply_result)
+                ShardUpdateResult::OldChunk(..) => {
+                    panic!("missing chunks are not expected in SPICE");
                 }
             };
             let shard_id = shard_uid.shard_id();
-            let receipt_proofs = make_outgoing_receipts_proofs(
+            let (_, receipt_proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(
                 &shard_layout,
                 shard_id,
                 apply_result.outgoing_receipts.clone(),
@@ -362,18 +369,7 @@ impl ChunkExecutorActor {
         shard_id: ShardId,
         mode: ApplyChunksMode,
     ) -> Result<ShardContext, Error> {
-        let cares_about_shard_this_epoch =
-            self.shard_tracker.cares_about_shard(prev_hash, shard_id);
-        let cares_about_shard_next_epoch =
-            self.shard_tracker.will_care_about_shard(prev_hash, shard_id);
-        let cared_about_shard_prev_epoch =
-            self.shard_tracker.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
-        let should_apply_chunk = get_should_apply_chunk(
-            mode,
-            cares_about_shard_this_epoch,
-            cares_about_shard_next_epoch,
-            cared_about_shard_prev_epoch,
-        );
+        let should_apply_chunk = self.shard_tracker.should_apply_chunk(mode, prev_hash, shard_id);
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         Ok(ShardContext { shard_uid, should_apply_chunk })
     }
@@ -387,27 +383,6 @@ impl ChunkExecutorActor {
             DoomslugThresholdMode::NoApprovals,
         )
     }
-}
-
-/// Returns receipt proofs for specified chunk.
-fn make_outgoing_receipts_proofs(
-    shard_layout: &ShardLayout,
-    shard_id: ShardId,
-    outgoing_receipts: Vec<Receipt>,
-) -> Result<Vec<ReceiptProof>, EpochError> {
-    let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)?;
-    let (_root, proofs) = merklize(&hashes);
-
-    let mut receipts_by_shard = Chain::group_receipts_by_shard(outgoing_receipts, &shard_layout)?;
-    let mut result = vec![];
-    for (proof_shard_index, proof) in proofs.into_iter().enumerate() {
-        let proof_shard_id = shard_layout.get_shard_id(proof_shard_index)?;
-        let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
-        let shard_proof =
-            ShardProof { from_shard_id: shard_id, to_shard_id: proof_shard_id, proof };
-        result.push(ReceiptProof(receipts, shard_proof));
-    }
-    Ok(result)
 }
 
 fn save_receipt_proof(

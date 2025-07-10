@@ -1,3 +1,6 @@
+use crate::adapter::ShardsManagerRequestFromClient;
+use crate::client::ShardsManagerResponse;
+use crate::shards_manager_actor::ShardsManagerActor;
 use near_async::messaging::CanSend;
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
@@ -7,6 +10,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
@@ -27,10 +31,6 @@ use parking_lot::{Mutex, RwLock};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::VecDeque;
 use std::sync::Arc;
-
-use crate::adapter::ShardsManagerRequestFromClient;
-use crate::client::ShardsManagerResponse;
-use crate::shards_manager_actor::ShardsManagerActor;
 
 pub struct ChunkTestFixture {
     pub store: ChunkStoreAdapter,
@@ -230,7 +230,7 @@ impl ChunkTestFixture {
     pub fn count_chunk_completion_messages(&self) -> usize {
         let mut chunks_completed = 0;
         while let Some(message) = self.mock_client_adapter.pop() {
-            if let ShardsManagerResponse::ChunkCompleted { .. } = message {
+            if let ShardsManagerResponse::ChunkCompleted { .. } = message.span_unwrap() {
                 chunks_completed += 1;
             }
         }
@@ -240,7 +240,9 @@ impl ChunkTestFixture {
     pub fn count_chunk_ready_for_inclusion_messages(&self) -> usize {
         let mut chunks_ready = 0;
         while let Some(message) = self.mock_client_adapter.pop() {
-            if let ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } = message {
+            if let ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } =
+                message.span_unwrap()
+            {
                 chunks_ready += 1;
             }
         }
@@ -276,17 +278,17 @@ pub fn default_tip() -> Tip {
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]
 pub struct MockClientAdapterForShardsManager {
-    pub requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
+    pub requests: Arc<RwLock<VecDeque<SpanWrapped<ShardsManagerResponse>>>>,
 }
 
-impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
-    fn send(&self, msg: ShardsManagerResponse) {
+impl CanSend<SpanWrapped<ShardsManagerResponse>> for MockClientAdapterForShardsManager {
+    fn send(&self, msg: SpanWrapped<ShardsManagerResponse>) {
         self.requests.write().push_back(msg);
     }
 }
 
 impl MockClientAdapterForShardsManager {
-    pub fn pop(&self) -> Option<ShardsManagerResponse> {
+    pub fn pop(&self) -> Option<SpanWrapped<ShardsManagerResponse>> {
         self.requests.write().pop_front()
     }
 }

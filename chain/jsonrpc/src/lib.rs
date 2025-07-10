@@ -35,6 +35,7 @@ use near_jsonrpc_primitives::types::transactions::{
 use near_network::debug::GetDebugStatus;
 use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference};
@@ -232,9 +233,9 @@ pub struct ProcessTxSenderForRpc(
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ClientSenderForRpc(
     AsyncSender<DebugStatus, ActixResult<DebugStatus>>,
-    AsyncSender<GetClientConfig, ActixResult<GetClientConfig>>,
-    AsyncSender<GetNetworkInfo, ActixResult<GetNetworkInfo>>,
-    AsyncSender<Status, ActixResult<Status>>,
+    AsyncSender<SpanWrapped<GetClientConfig>, ActixResult<GetClientConfig>>,
+    AsyncSender<SpanWrapped<GetNetworkInfo>, ActixResult<GetNetworkInfo>>,
+    AsyncSender<SpanWrapped<Status>, ActixResult<Status>>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
     #[cfg(feature = "test_features")]
     AsyncSender<
@@ -751,7 +752,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcHealthResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        let status = self.client_send(Status { is_health_check: true, detailed: false }).await?;
+        let status =
+            self.client_send(Status { is_health_check: true, detailed: false }.span_wrap()).await?;
         Ok(status.rpc_into())
     }
 
@@ -761,7 +763,9 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        let status = self.client_send(Status { is_health_check: false, detailed: false }).await?;
+        let status = self
+            .client_send(Status { is_health_check: false, detailed: false }.span_wrap())
+            .await?;
         Ok(status.rpc_into())
     }
 
@@ -772,8 +776,9 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
         if self.enable_debug_rpc {
-            let status =
-                self.client_send(Status { is_health_check: false, detailed: true }).await?;
+            let status = self
+                .client_send(Status { is_health_check: false, detailed: true }.span_wrap())
+                .await?;
             Ok(Some(status.rpc_into()))
         } else {
             Ok(None)
@@ -1122,7 +1127,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse,
         near_jsonrpc_primitives::types::network_info::RpcNetworkInfoError,
     > {
-        let network_info = self.client_send(GetNetworkInfo {}).await?;
+        let network_info = self.client_send(GetNetworkInfo {}.span_wrap()).await?;
         Ok(network_info.rpc_into())
     }
 
@@ -1201,7 +1206,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse,
         near_jsonrpc_primitives::types::client_config::RpcClientConfigError,
     > {
-        let client_config = self.client_send(GetClientConfig {}).await?;
+        let client_config = self.client_send(GetClientConfig {}.span_wrap()).await?;
         Ok(near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse { client_config })
     }
 

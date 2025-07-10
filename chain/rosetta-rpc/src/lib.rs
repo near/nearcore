@@ -16,6 +16,7 @@ pub use config::RosettaRpcConfig;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, RpcHandlerActor, ViewClientActor};
 use near_o11y::WithSpanContextExt;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
 
 mod adapters;
@@ -56,7 +57,11 @@ async fn check_network_identifier(
     }
 
     let status = client_addr
-        .send(near_client::Status { is_health_check: false, detailed: false }.with_span_context())
+        .send(
+            near_client::Status { is_health_check: false, detailed: false }
+                .span_wrap()
+                .with_span_context(),
+        )
         .await?
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != identifier.network {
@@ -79,7 +84,11 @@ async fn network_list(
     _body: Json<models::MetadataRequest>,
 ) -> Result<Json<models::NetworkListResponse>, models::Error> {
     let status = client_addr
-        .send(near_client::Status { is_health_check: false, detailed: false }.with_span_context())
+        .send(
+            near_client::Status { is_health_check: false, detailed: false }
+                .span_wrap()
+                .with_span_context(),
+        )
         .await?
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     Ok(Json(models::NetworkListResponse {
@@ -107,7 +116,7 @@ async fn network_status(
     let status = check_network_identifier(&client_addr, network_identifier).await?;
 
     let (network_info, earliest_block) = tokio::try_join!(
-        client_addr.send(near_client::GetNetworkInfo {}.with_span_context()),
+        client_addr.send(near_client::GetNetworkInfo {}.span_wrap().with_span_context()),
         view_client_addr.send(
             near_client::GetBlock(near_primitives::types::BlockReference::SyncCheckpoint(
                 near_primitives::types::SyncCheckpoint::EarliestAvailable

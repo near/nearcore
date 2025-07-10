@@ -2,7 +2,7 @@ use crate::broadcast;
 use crate::client::{ClientSenderForNetworkInput, ClientSenderForNetworkMessage};
 use crate::config::NetworkConfig;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, RoutedMessageBody,
+    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, TieredMessageBody,
 };
 use crate::network_protocol::{RoutedMessage, testonly as data};
 use crate::peer::peer_actor::PeerActor;
@@ -21,6 +21,7 @@ use crate::types::{PeerManagerSenderForNetworkInput, PeerManagerSenderForNetwork
 use near_async::messaging::{IntoMultiSender, Sender};
 use near_async::time;
 use near_o11y::WithSpanContextExt;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
 
@@ -61,7 +62,7 @@ impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
         self.actix
             .addr
-            .send(SendMessage { message: Arc::new(message) }.with_span_context())
+            .send(SendMessage { message: Arc::new(message) }.span_wrap().with_span_context())
             .await
             .unwrap();
     }
@@ -84,7 +85,7 @@ impl PeerHandle {
 
     pub fn routed_message(
         &self,
-        body: RoutedMessageBody,
+        body: TieredMessageBody,
         peer_id: PeerId,
         ttl: u8,
         utc: Option<time::Utc>,

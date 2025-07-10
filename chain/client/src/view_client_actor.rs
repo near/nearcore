@@ -225,7 +225,7 @@ impl ViewClientActorInner {
     ///
     /// Returns `None` if the reference is a `SyncCheckpoint::EarliestAvailable`
     /// reference and no such block exists yet.  This is typically translated by
-    /// the caller into some form of ‘no sync block’ higher-level error.
+    /// the caller into some form of 'no sync block' higher-level error.
     fn get_block_header_by_reference(
         &self,
         reference: &BlockReference,
@@ -258,7 +258,7 @@ impl ViewClientActorInner {
     ///
     /// Returns `None` if the reference is a `SyncCheckpoint::EarliestAvailable`
     /// reference and no such block exists yet.  This is typically translated by
-    /// the caller into some form of ‘no sync block’ higher-level error.
+    /// the caller into some form of 'no sync block' higher-level error.
     fn get_block_by_reference(
         &self,
         reference: &BlockReference,
@@ -652,7 +652,7 @@ impl ViewClientActorInner {
         &self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<Arc<BlockHeader>>, near_chain::Error> {
-        retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS, None)
+        retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS)
     }
 
     fn check_signature_account_announce(
@@ -1085,9 +1085,8 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                         .chain
                         .get_block(&h)?
                         .chunks()
-                        .iter_deprecated()
-                        .map(|header| header.prev_outcome_root())
-                        .copied()
+                        .iter()
+                        .map(|header| *header.prev_outcome_root())
                         .collect::<Vec<_>>();
                     if target_shard_index >= outcome_roots.len() {
                         return Err(GetExecutionOutcomeError::InconsistentState {

@@ -441,7 +441,7 @@ mod test {
         let bucket = String::from("state-parts");
         let connection = ExternalConnection::GCS {
             gcs_client: std::sync::Arc::new(
-                object_store::gcp::GoogleCloudStorageBuilder::new()
+                object_store::gcp::GoogleCloudStorageBuilder::from_env()
                     .with_bucket_name(&bucket)
                     .build()
                     .unwrap(),

@@ -7,6 +7,7 @@ use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
 use near_chain::types::RuntimeAdapter;
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
@@ -31,7 +32,7 @@ pub(super) struct StateSyncDownloader {
     pub fallback_source: Option<Arc<dyn StateSyncDownloadSource>>,
     pub num_attempts_before_fallback: usize,
     pub header_validation_sender:
-        AsyncSender<StateHeaderValidationRequest, Result<(), near_chain::Error>>,
+        AsyncSender<SpanWrapped<StateHeaderValidationRequest>, Result<(), near_chain::Error>>,
     pub runtime: Arc<dyn RuntimeAdapter>,
     pub retry_backoff: Duration,
     pub task_tracker: TaskTracker,
@@ -88,11 +89,14 @@ impl StateSyncDownloader {
                     // so the chain can pick it up later, and we await until the chain gives us a response.
                     handle.set_status("Waiting for validation");
                     validation_sender
-                        .send_async(StateHeaderValidationRequest {
-                            shard_id,
-                            sync_hash,
-                            header: header.clone(),
-                        })
+                        .send_async(
+                            StateHeaderValidationRequest {
+                                shard_id,
+                                sync_hash,
+                                header: header.clone(),
+                            }
+                            .span_wrap(),
+                        )
                         .await
                         .map_err(|_| {
                             near_chain::Error::Other(
