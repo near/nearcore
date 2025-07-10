@@ -270,3 +270,16 @@ fn test_body_conversion() {
     let routed_body2 = tiered_body.into();
     assert_eq!(routed_body, routed_body2);
 }
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_t1_is_not_signed() {
+    let message = make_block_approval_message();
+    assert!(message.signature().is_none());
+}
+
+#[test]
+fn test_t2_is_signed() {
+    let message = make_chunk_request_message();
+    assert!(message.signature().is_some());
+}

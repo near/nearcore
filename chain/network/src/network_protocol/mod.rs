@@ -1069,13 +1069,8 @@ pub struct RoutedMessageV3 {
 }
 
 impl RoutedMessageV3 {
-    pub fn hash_tiered(&self) -> CryptoHash {
-        let routed = RoutedMessageBody::from(self.body.clone());
-        CryptoHash::hash_borsh(RoutedMessageNoSignature {
-            target: &self.target,
-            author: &self.author,
-            body: &routed,
-        })
+    pub fn hash(&self) -> CryptoHash {
+        RoutedMessage::build_hash(&self.target, &self.author, &self.body)
     }
 
     pub fn verify(&self) -> bool {
@@ -1085,7 +1080,7 @@ impl RoutedMessageV3 {
             let Some(signature) = &self.signature else {
                 return false;
             };
-            signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
+            signature.verify(self.hash().as_ref(), self.author.public_key())
         }
     }
 
@@ -1166,9 +1161,14 @@ impl RoutedMessage {
     pub fn build_hash(
         target: &PeerIdOrHash,
         source: &PeerId,
-        body: &RoutedMessageBody,
+        body: &TieredMessageBody,
     ) -> CryptoHash {
-        CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
+        if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
+            CryptoHash::hash_borsh(TieredRoutedMessageNoSignature { target, author: source, body })
+        } else {
+            let body = RoutedMessageBody::from(body.clone());
+            CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body: &body })
+        }
     }
 
     /// Get the V1 message from the current version. Used for serializations (only V1 is sent over the wire).
@@ -1265,7 +1265,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => msg.hash(),
             RoutedMessage::V2(msg) => msg.msg.hash(),
-            RoutedMessage::V3(msg) => msg.hash_tiered(),
+            RoutedMessage::V3(msg) => msg.hash(),
         }
     }
 
@@ -1372,9 +1372,25 @@ struct RoutedMessageNoSignature<'a> {
     body: &'a RoutedMessageBody,
 }
 
+#[derive(borsh::BorshSerialize, PartialEq, Eq, Clone, Debug)]
+struct TieredRoutedMessageNoSignature<'a> {
+    target: &'a PeerIdOrHash,
+    author: &'a PeerId,
+    body: &'a TieredMessageBody,
+}
+
 impl RoutedMessageV1 {
     pub fn hash(&self) -> CryptoHash {
-        RoutedMessage::build_hash(&self.target, &self.author, &self.body)
+        if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
+            let body = TieredMessageBody::from_routed(self.body.clone());
+            RoutedMessage::build_hash(&self.target, &self.author, &body)
+        } else {
+            CryptoHash::hash_borsh(RoutedMessageNoSignature {
+                target: &self.target,
+                author: &self.author,
+                body: &self.body,
+            })
+        }
     }
 
     pub fn verify(&self) -> bool {
@@ -1570,8 +1586,7 @@ impl RawRoutedMessage {
             if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && self.body.is_t1() {
                 None
             } else {
-                let body = RoutedMessageBody::from(self.body.clone());
-                let hash = RoutedMessage::build_hash(&self.target, &author, &body);
+                let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
                 Some(node_key.sign(hash.as_ref()))
             };
         RoutedMessage::V3(RoutedMessageV3 {
