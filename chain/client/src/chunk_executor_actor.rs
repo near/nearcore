@@ -51,6 +51,8 @@ pub struct ChunkExecutorActor {
     myself_sender: Sender<ExecutorApplyChunksDone>,
 
     /// Next block hashes keyed by block hash.
+    /// TODO(spice): test that this map is properly maintained or
+    /// replace it with DB
     pending_next_blocks: HashMap<CryptoHash, HashSet<CryptoHash>>,
     blocks_in_execution: HashSet<CryptoHash>,
 
@@ -354,18 +356,17 @@ impl ChunkExecutorActor {
 
         let apply_done_sender = self.myself_sender.clone();
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
-            let mut apply_results = Vec::new();
             let block_hash = *block.hash();
-            for (shard_id, _, result) in do_apply_chunks(BlockToApply::Normal(block_hash), block.header().height(), jobs) {
-                match result {
-                    Ok(shard_update_result) => apply_results.push(shard_update_result),
-                    Err(err) => {
-                        tracing::error!(target: "chunk_executor", ?err, ?block_hash, ?shard_id, "failed to apply chunk");
-                    }
-                }
-            }
-            apply_done_sender
-                .send(ExecutorApplyChunksDone { block_hash, apply_results });
+            let apply_results =
+                do_apply_chunks(BlockToApply::Normal(block_hash), block.header().height(), jobs)
+                    .into_iter()
+                    .map(|(shard_id, _, result)| {
+                        result.unwrap_or_else(|err| {
+                    panic!("failed to apply block {block_hash:?} chunk for shard {shard_id}: {err}")
+                })
+                    })
+                    .collect();
+            apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
         });
         Ok(())
     }
