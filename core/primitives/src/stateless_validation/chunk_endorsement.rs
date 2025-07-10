@@ -17,7 +17,7 @@ use super::ChunkProductionKey;
 pub enum ChunkEndorsement {
     V1, // Deprecated
     V2(ChunkEndorsementV2),
-    V3(ChunkEndorsementV3),
+    V3(SpiceChunkEndorsementV3),
 }
 
 impl ChunkEndorsement {
@@ -57,10 +57,13 @@ impl ChunkEndorsement {
             height_created: chunk_header.height_created(),
         };
         let metadata_signature = signer.sign_bytes(&borsh::to_vec(&metadata).unwrap());
-        let inner =
-            ChunkEndorsementInnerV2::new(chunk_header.chunk_hash().clone(), Some(execution_result));
+        let inner = SpiceChunkEndorsementInnerV2::new(
+            chunk_header.chunk_hash().clone(),
+            Some(execution_result),
+        );
         let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
-        let endorsement = ChunkEndorsementV3 { inner, signature, metadata, metadata_signature };
+        let endorsement =
+            SpiceChunkEndorsementV3 { inner, signature, metadata, metadata_signature };
         ChunkEndorsement::V3(endorsement)
     }
 
@@ -199,9 +202,9 @@ impl ChunkEndorsementInnerV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ChunkEndorsementV3 {
+pub struct SpiceChunkEndorsementV3 {
     // This is the part of the chunk endorsement that signed and included in the block header
-    inner: ChunkEndorsementInnerV2,
+    inner: SpiceChunkEndorsementInnerV2,
     // This is the signature of the inner field, to be included in the block header
     signature: Signature,
     // This consists of the metadata for chunk endorsement used in validation
@@ -210,7 +213,7 @@ pub struct ChunkEndorsementV3 {
     metadata_signature: Signature,
 }
 
-impl ChunkEndorsementV3 {
+impl SpiceChunkEndorsementV3 {
     fn verify(&self, public_key: &PublicKey) -> bool {
         let inner = borsh::to_vec(&self.inner).unwrap();
         let metadata = borsh::to_vec(&self.metadata).unwrap();
@@ -220,7 +223,7 @@ impl ChunkEndorsementV3 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-struct ChunkEndorsementInnerV2 {
+struct SpiceChunkEndorsementInnerV2 {
     chunk_hash: ChunkHash,
     // For storage it's redundant to include the same execution result. However execution result is
     // required in endorsements we send over the wire.
@@ -228,7 +231,7 @@ struct ChunkEndorsementInnerV2 {
     signature_differentiator: SignatureDifferentiator,
 }
 
-impl ChunkEndorsementInnerV2 {
+impl SpiceChunkEndorsementInnerV2 {
     fn new(chunk_hash: ChunkHash, execution_result: Option<ChunkExecutionResult>) -> Self {
         Self {
             chunk_hash,
