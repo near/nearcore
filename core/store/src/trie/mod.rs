@@ -689,12 +689,20 @@ impl Trie {
         root: StateRoot,
         flat_storage_used: bool,
     ) -> Self {
+        Self::from_recorded_storage_with_storage(partial_storage, root, flat_storage_used).0
+    }
+
+    pub fn from_recorded_storage_with_storage(
+        partial_storage: PartialStorage,
+        root: StateRoot,
+        flat_storage_used: bool,
+    ) -> (Self, Arc<TrieMemoryPartialStorage>) {
         let PartialState::TrieValues(nodes) = partial_storage.nodes;
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Arc::new(TrieMemoryPartialStorage::new(recorded_storage));
-        let mut trie = Self::new(storage, root, None);
+        let mut trie = Self::new(Arc::clone(&storage) as _, root, None);
         trie.use_access_tracker = !flat_storage_used;
-        trie
+        (trie, storage)
     }
 
     /// Get statistics about the recorded trie. Useful for observability and debugging.
@@ -773,7 +781,7 @@ impl Trie {
     ) -> u64 {
         // Cannot compute memory usage naively if given only partial storage.
 
-        if self.storage.as_partial_storage().is_some() {
+        if (&*self.storage as &dyn std::any::Any).is::<TrieMemoryPartialStorage>() {
             return 0;
         }
         // We don't want to impact recorded storage by retrieving nodes for
