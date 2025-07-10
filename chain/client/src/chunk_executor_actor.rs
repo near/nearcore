@@ -109,9 +109,10 @@ impl ChunkExecutorActor {
     fn find_block_hash_by_chunk_hash(
         &self,
         chunk_hash: &ChunkHash,
-        height: u64,
     ) -> Result<Option<CryptoHash>, Error> {
-        let block_hashes = self.chain_store.get_all_block_hashes_by_height(height)?;
+        let chunk = self.chain_store.get_chunk(chunk_hash)?;
+        let height_included = chunk.height_included();
+        let block_hashes = self.chain_store.get_all_block_hashes_by_height(height_included)?;
         Ok(block_hashes
             .values()
             .flatten()
@@ -151,7 +152,6 @@ pub struct ExecutorBlock {
 #[rtype(result = "()")]
 pub struct ExecutorExecutionResultEndorsed {
     pub chunk_hash: ChunkHash,
-    pub height: u64,
 }
 
 #[derive(actix::Message, Debug)]
@@ -203,16 +203,16 @@ impl Handler<ExecutorBlock> for ChunkExecutorActor {
 impl Handler<ExecutorExecutionResultEndorsed> for ChunkExecutorActor {
     fn handle(
         &mut self,
-        ExecutorExecutionResultEndorsed { chunk_hash, height }: ExecutorExecutionResultEndorsed,
+        ExecutorExecutionResultEndorsed { chunk_hash }: ExecutorExecutionResultEndorsed,
     ) {
-        let block_hash = match self.find_block_hash_by_chunk_hash(&chunk_hash, height) {
+        let block_hash = match self.find_block_hash_by_chunk_hash(&chunk_hash) {
             Ok(Some(block_hash)) => block_hash,
             Ok(None) => {
-                tracing::debug!(target: "chunk_executor", ?chunk_hash, ?height, "found no block containing the chunk");
+                tracing::debug!(target: "chunk_executor", ?chunk_hash, "found no block containing the chunk");
                 return;
             }
             Err(err) => {
-                tracing::debug!(target: "chunk_executor", ?err, ?chunk_hash, ?height, "found no block containing the chunk");
+                tracing::debug!(target: "chunk_executor", ?err, ?chunk_hash, "found no block containing the chunk");
                 return;
             }
         };

@@ -57,7 +57,6 @@ impl CoreStatementsProcessor {
     pub fn record_chunk_endorsement(&self, mut endorsement: ChunkEndorsement) {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
-        let height_created = endorsement.chunk_production_key().height_created;
         let chunk_hash = endorsement.chunk_hash();
         let execution_result = endorsement
             .take_execution_result()
@@ -68,9 +67,7 @@ impl CoreStatementsProcessor {
         // TODO(spice): Wait for enough endorsements for chunk, checking that they endorse the same
         // execution result, before recording execution result.
         tracker.execution_results.get_or_insert(chunk_hash.clone(), || execution_result);
-        tracker
-            .chunk_executor_sender
-            .send(ExecutorExecutionResultEndorsed { chunk_hash, height: height_created });
+        tracker.chunk_executor_sender.send(ExecutorExecutionResultEndorsed { chunk_hash });
     }
 
     pub fn get_execution_results(&self, block: &Block) -> HashMap<ShardId, ChunkExecutionResult> {
