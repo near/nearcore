@@ -1,6 +1,7 @@
 pub(super) mod opener;
 
-use crate::config::ArchivalConfig;
+use crate::archive::archival_storage::ArchivalStorage;
+use crate::config::ArchivalNodeConfig;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
 use opener::StoreOpener;
@@ -40,6 +41,7 @@ impl FromStr for Temperature {
 pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
     cold_storage: Option<Arc<crate::db::ColdDB>>,
+    archival_storage: Option<Arc<ArchivalStorage>>,
 }
 
 impl NodeStorage {
@@ -48,9 +50,13 @@ impl NodeStorage {
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
-        archival_config: Option<ArchivalConfig<'a>>,
+        archival_node_config: Option<ArchivalNodeConfig<'a>>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, store_config, archival_config)
+        let cold_store_config =
+            archival_node_config.as_ref().and_then(|config| config.cold_store_config);
+        let archival_storage_config =
+            archival_node_config.and_then(|config| config.archival_storage_config);
+        StoreOpener::new(home_dir, store_config, cold_store_config, archival_storage_config)
     }
 
     /// Initializes an opener for a new temporary test store.
@@ -82,7 +88,7 @@ impl NodeStorage {
             None
         };
 
-        Self { hot_storage, cold_storage: cold_db }
+        Self { hot_storage, cold_storage: cold_db, archival_storage: None }
     }
 
     /// Constructs new object backed by given database.
@@ -95,7 +101,7 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None }
+        Self { hot_storage: storage, cold_storage: None, archival_storage: None }
     }
 }
 
@@ -129,6 +135,10 @@ impl NodeStorage {
             Some(cold_storage) => Some(Store::new(cold_storage.clone())),
             None => None,
         }
+    }
+
+    pub fn get_archival_storage(&self) -> Option<&Arc<ArchivalStorage>> {
+        self.archival_storage.as_ref()
     }
 
     /// Returns an instance of recovery store. The recovery store is only available in archival
@@ -204,7 +214,11 @@ impl NodeStorage {
     }
 
     pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
-        Self { hot_storage: hot, cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))) }
+        Self {
+            hot_storage: hot,
+            cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))),
+            archival_storage: None,
+        }
     }
 
     pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {
