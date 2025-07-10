@@ -17,6 +17,7 @@ use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use proto::peer_id_or_hash::Target_type::*;
 use protobuf::MessageField as MF;
 use std::sync::Arc;
 
@@ -599,13 +600,12 @@ impl From<&PeerIdOrHash> for proto::PeerIdOrHash {
     fn from(x: &PeerIdOrHash) -> Self {
         match x {
             PeerIdOrHash::PeerId(peer_id) => proto::PeerIdOrHash {
-                target_type: Some(proto::peer_id_or_hash::Target_type::PeerId(peer_id.into())),
+                target_type: Some(PeerId(peer_id.into())),
                 ..Default::default()
             },
-            PeerIdOrHash::Hash(hash) => proto::PeerIdOrHash {
-                target_type: Some(proto::peer_id_or_hash::Target_type::Hash(hash.into())),
-                ..Default::default()
-            },
+            PeerIdOrHash::Hash(hash) => {
+                proto::PeerIdOrHash { target_type: Some(Hash(hash.into())), ..Default::default() }
+            }
         }
     }
 }
@@ -624,12 +624,10 @@ impl TryFrom<&proto::PeerIdOrHash> for PeerIdOrHash {
     type Error = ParsePeerIdOrHashError;
     fn try_from(x: &proto::PeerIdOrHash) -> Result<Self, Self::Error> {
         match x.target_type.as_ref().ok_or(Self::Error::MissingTargetType)? {
-            proto::peer_id_or_hash::Target_type::PeerId(peer_id) => {
+            PeerId(peer_id) => {
                 Ok(PeerIdOrHash::PeerId(peer_id.try_into().map_err(Self::Error::PeerId)?))
             }
-            proto::peer_id_or_hash::Target_type::Hash(hash) => {
-                Ok(PeerIdOrHash::Hash(hash.try_into().map_err(Self::Error::Hash)?))
-            }
+            Hash(hash) => Ok(PeerIdOrHash::Hash(hash.try_into().map_err(Self::Error::Hash)?)),
         }
     }
 }
