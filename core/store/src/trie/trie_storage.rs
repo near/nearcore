@@ -310,7 +310,7 @@ pub trait TrieStorage: Send + Sync + std::any::Any {
 #[derive(Default)]
 pub struct TrieMemoryPartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
-    // FIXME(perf, nagisa): consider replacing this whole map bussiness for tracking visited nodes
+    // FIXME(perf, nagisa): consider replacing this whole map business for tracking visited nodes
     // with a simple bitset of a pre-allocated size (of `recorded_storage.len()` bits) when the
     // `recorded_storage` field becomes a proper vector of some sort. This will allow an entirely
     // lock-free implementation for tracking accesses: bit position would correspond to the index
