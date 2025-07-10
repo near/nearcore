@@ -1,4 +1,3 @@
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
@@ -299,7 +298,8 @@ pub fn setup_client(
         epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.as_multi_sender(),
-        NonZeroUsize::new(1000).unwrap(),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        chunk_executor_adapter.as_sender(),
     );
 
     let chunk_executor_sender = test_loop.data.register_actor(
