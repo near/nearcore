@@ -336,7 +336,10 @@ impl TrieStorage for TrieMemoryPartialStorage {
 
 impl TrieMemoryPartialStorage {
     pub fn new(recorded_storage: HashMap<CryptoHash, Arc<[u8]>>) -> Self {
-        Self { recorded_storage, visited_nodes: Default::default() }
+        Self {
+            visited_nodes: dashmap::DashSet::with_capacity(recorded_storage.len()),
+            recorded_storage,
+        }
     }
 
     pub fn partial_state(self) -> PartialState {
