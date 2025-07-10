@@ -267,11 +267,11 @@ impl Trie {
                 .iter()
                 .map(|entry| (*entry.hash(), entry.payload().to_vec().into())),
         );
-        let final_trie =
-            Trie::new(Arc::new(TrieMemoryPartialStorage::new(all_nodes)), self.root, None);
-
+        let partial_storage = Arc::new(TrieMemoryPartialStorage::new(all_nodes));
+        let final_trie = Trie::new(Arc::clone(&partial_storage) as _, self.root, None);
         final_trie.visit_nodes_for_state_part(part_id)?;
-        let final_trie_storage = final_trie.storage.as_partial_storage().unwrap();
+        drop(final_trie);
+        let final_trie_storage = Arc::into_inner(partial_storage).unwrap();
         let final_state_part_nodes = final_trie_storage.partial_state();
         let PartialState::TrieValues(trie_values) = &final_state_part_nodes;
         let final_part_creation_duration = final_part_creation_timer.stop_and_record();
@@ -423,16 +423,15 @@ impl Trie {
     ) -> Result<(), StorageError> {
         let PartialState::TrieValues(nodes) = &partial_state;
         let num_nodes = nodes.len();
-        let trie = Trie::from_recorded_storage(
+        let (trie, storage) = Trie::from_recorded_storage_with_storage(
             PartialStorage { nodes: partial_state },
             *state_root,
             false,
         );
-
         trie.visit_nodes_for_state_part(part_id)?;
-        let storage = trie.storage.as_partial_storage().unwrap();
-
-        if storage.visited_nodes.read().len() != num_nodes {
+        drop(trie);
+        let storage = Arc::into_inner(storage).unwrap();
+        if storage.visited_nodes.len() != num_nodes {
             // As all nodes belonging to state part were visited, there is some
             // unexpected data in downloaded state part.
             return Err(StorageError::UnexpectedTrieValue);
