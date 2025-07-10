@@ -48,6 +48,17 @@ pub(crate) async fn fetch_latest_block(
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
+/// Fetches the height of the tail block.
+pub(crate) async fn fetch_tail_block_height(
+    client: &Addr<near_client::ViewClientActor>,
+) -> Result<u64, FailedToFetchData> {
+    tracing::debug!(target: INDEXER, "Fetching tail head height");
+    client
+        .send(near_client::GetTailBlockHeight.with_span_context())
+        .await?
+        .map_err(|err| FailedToFetchData::String(err.to_string()))
+}
+
 /// Fetches specific block by it's height
 pub(crate) async fn fetch_block_by_height(
     client: &Addr<near_client::ViewClientActor>,

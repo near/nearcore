@@ -1049,6 +1049,13 @@ impl From<std::io::Error> for GetSplitStorageInfoError {
     }
 }
 
+#[derive(Debug)]
+pub struct GetTailBlockHeight;
+
+impl Message for GetTailBlockHeight {
+    type Result = Result<BlockHeight, near_chain_primitives::Error>;
+}
+
 #[cfg(feature = "sandbox")]
 #[derive(Debug)]
 pub enum SandboxMessage {
