@@ -31,6 +31,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardProof;
 use near_primitives::types::EpochId;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{ShardId, ShardIndex};
 use near_primitives::utils::get_receipt_proof_key;
 use near_primitives::utils::get_receipt_proof_target_shard_prefix;
@@ -187,7 +188,6 @@ impl ChunkExecutorActor {
         let is_prev_block_genesis = *prev_block_hash == self.genesis_hash;
         let mut all_receipts: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
         let store = self.chain_store.store();
-        let current_block_epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
         let prev_block_shard_ids = self.epoch_manager.shard_ids(&prev_block_epoch_id)?;
         for &prev_block_shard_id in &prev_block_shard_ids {
@@ -199,13 +199,8 @@ impl ChunkExecutorActor {
                 prev_block_hash,
                 current_block_shard_id,
             ) {
-                let current_block_shard_uid = shard_id_to_uid(
-                    self.epoch_manager.as_ref(),
-                    current_block_shard_id,
-                    &current_block_epoch_id,
-                )?;
                 // Existing chunk extra means that the chunk for that shard was already applied
-                if self.chain_store.get_chunk_extra(block_hash, &current_block_shard_uid).is_ok() {
+                if self.chunk_extra_exists(block_hash, current_block_shard_id)? {
                     return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
                 }
 
@@ -215,32 +210,26 @@ impl ChunkExecutorActor {
                     continue;
                 }
 
-                let prev_block_shard_uid = shard_id_to_uid(
-                    self.epoch_manager.as_ref(),
-                    prev_block_shard_id,
-                    &prev_block_epoch_id,
-                )?;
-                if let Err(err) =
-                    self.chain_store.get_chunk_extra(prev_block_hash, &prev_block_shard_uid)
-                {
-                    match err {
-                        Error::DBNotFoundErr(_) => {
-                            tracing::debug!(
-                                target: "chunk_executor",
-                                %block_hash,
-                                %prev_block_hash,
-                                %prev_block_shard_id,
-                                "previous block execution is not finished yet");
-                            return Ok(TryApplyChunksOutcome::NotReady);
-                        }
-                        err => return Err(err),
-                    }
-                };
+                if !self.chunk_extra_exists(prev_block_hash, prev_block_shard_id)? {
+                    tracing::debug!(
+                        target: "chunk_executor",
+                        %block_hash,
+                        %prev_block_hash,
+                        %prev_block_shard_id,
+                        "previous block is not executed yet");
+                    return Ok(TryApplyChunksOutcome::NotReady);
+                }
 
                 let proofs =
                     get_receipt_proofs_for_shard(&store, prev_block_hash, prev_block_shard_id)?;
                 if proofs.len() != prev_block_shard_ids.len() {
-                    tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing receipts to apply all tracked chunks for a block");
+                    tracing::debug!(
+                        target: "chunk_executor",
+                        %block_hash,
+                        %prev_block_hash,
+                        %prev_block_shard_id,
+                        "missing receipts to apply all tracked chunks for a block"
+                    );
                     return Ok(TryApplyChunksOutcome::NotReady);
                 }
                 all_receipts.insert(prev_block_shard_id, proofs);
@@ -500,6 +489,28 @@ impl ChunkExecutorActor {
         let should_apply_chunk = self.shard_tracker.should_apply_chunk(mode, prev_hash, shard_id);
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         Ok(ShardContext { shard_uid, should_apply_chunk })
+    }
+
+    fn get_chunk_extra(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Option<Arc<ChunkExtra>>, Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+        match self.chain_store.get_chunk_extra(block_hash, &shard_uid) {
+            Ok(chunk_extra) => Ok(Some(chunk_extra)),
+            Err(Error::DBNotFoundErr(_)) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn chunk_extra_exists(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<bool, Error> {
+        self.get_chunk_extra(block_hash, shard_id).map(|option| option.is_some())
     }
 
     fn chain_update(&mut self) -> ChainUpdate {
