@@ -475,10 +475,6 @@ impl ChunkExecutorActor {
         block_hash: CryptoHash,
         results: Vec<ShardUpdateResult>,
     ) -> Result<(), Error> {
-        let my_signer = self
-            .validator_signer
-            .get()
-            .ok_or_else(|| Error::NotAValidator(format!("apply_chunks")))?;
         let block = self.chain_store.get_block(&block_hash).unwrap();
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
@@ -489,6 +485,11 @@ impl ChunkExecutorActor {
                 panic!("missing chunks are not expected in SPICE");
             };
             let shard_id = shard_uid.shard_id();
+            let Some(my_signer) = self.validator_signer.get() else {
+                // If node isn't validator it shouldn't send outoging receipts, endorsed and witnesses.
+                // RPC nodes can still apply chunks and tracks multiple shards.
+                continue;
+            };
             let (outgoing_receipts_root, receipt_proofs) =
                 Chain::create_receipts_proofs_from_outgoing_receipts(
                     &shard_layout,
