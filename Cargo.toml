@@ -242,7 +242,7 @@ log = "0.4"
 lru = "0.12.3"
 memoffset = "0.8"
 more-asserts = "0.2"
-near-account-id = { version = "1.1.2", features = [
+near-account-id = { git = "https://github.com/polyprogrammist/near-account-id-rs.git", branch="v1_and_v08", features = [
     "internal_unstable",
     "serde",
     "borsh",
