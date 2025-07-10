@@ -1365,8 +1365,16 @@ struct TieredRoutedMessageNoSignature<'a> {
 
 impl RoutedMessageV1 {
     pub fn hash(&self) -> CryptoHash {
-        let body = TieredMessageBody::from_routed(self.body.clone());
-        RoutedMessage::build_hash(&self.target, &self.author, &body)
+        if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
+            let body = TieredMessageBody::from_routed(self.body.clone());
+            RoutedMessage::build_hash(&self.target, &self.author, &body)
+        } else {
+            CryptoHash::hash_borsh(RoutedMessageNoSignature {
+                target: &self.target,
+                author: &self.author,
+                body: &self.body,
+            })
+        }
     }
 
     pub fn verify(&self) -> bool {
