@@ -3,7 +3,7 @@ use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::{
-    call_contract, check_txs, deploy_contract, get_tx_outcome, make_accounts, send_money,
+    call_contract, check_txs, deploy_contract, execute_tx, make_accounts, prepare_transfer_tx,
 };
 use crate::utils::{ONE_NEAR, TGAS};
 use assert_matches::assert_matches;
@@ -15,6 +15,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
+use near_parameters::RuntimeConfig;
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight};
@@ -26,7 +27,6 @@ const NUM_PRODUCERS: usize = 2;
 const NUM_VALIDATORS: usize = 2;
 const NUM_RPC: usize = 1;
 const NUM_CLIENTS: usize = NUM_PRODUCERS + NUM_VALIDATORS + NUM_RPC;
-const EPOCH_LENGTH: BlockHeightDelta = 10;
 
 /// A very simple test that exercises congestion control in the typical setup
 /// with producers, validators, rpc nodes, single shard tracking and state sync.
@@ -41,7 +41,7 @@ fn slow_test_congestion_control_simple() {
     let mut accounts = make_accounts(NUM_ACCOUNTS);
     accounts.push(contract_id.clone());
 
-    let (env, rpc_id) = setup(&accounts, &["account3", "account5", "account7"]);
+    let (env, rpc_id) = setup(&accounts, 10, &["account3", "account5", "account7"]);
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
 
     // Test
@@ -78,42 +78,59 @@ fn slow_test_one_shard_congested() {
     accounts.push(shard1_acc2.clone());
     accounts.push(shard2_acc1.clone());
 
-    let (env, rpc_id) = setup(&accounts, &["near"]);
+    let runtime_config = RuntimeConfig::test();
+    let max_missed_chunks = runtime_config.congestion_control_config.max_congestion_missed_chunks;
+    let epoch_length = max_missed_chunks * 100;
+    let (env, rpc_id) = setup(&accounts, epoch_length, &["near"]);
     assert_eq!(rpc_id, shard1_acc1);
 
+    // Assert correct shard layout
+    let shard_layout = &env.shared_state.genesis.config.shard_layout;
+    let shard1 = shard_layout.account_id_to_shard_id(&shard1_acc1);
+    let shard2 = shard_layout.account_id_to_shard_id(&shard2_acc1);
+    assert_eq!(shard1, shard_layout.account_id_to_shard_id(&shard1_acc2));
+    assert_ne!(shard1, shard2);
+
     // Configure test env to drop chunks for shard 2
-    let shard2 = env.shared_state.genesis.config.shard_layout.account_id_to_shard_id(&shard2_acc1);
     let dropped_chunks = [
-        (shard2, (0..1000).map(|_| false).collect_vec()), // Drop 1000 chunks for shard 2
+        (shard2, (0..epoch_length).map(|_| false).collect_vec()), // All chunks in the epoch
     ]
     .into_iter()
     .collect();
     let mut env = env.drop(DropCondition::ChunksProducedByHeight(dropped_chunks));
 
-    // Run for two epochs to make sure shard 2 is congested
+    // Run for `max_missed_chunks * 2` blocks to make sure shard 2 is congested
+    env.run_blocks(max_missed_chunks * 2);
+
+    // Check if shard 2 is congested
     let client_handle = env.node_datas[0].client_sender.actor_handle();
     let client_actor = env.test_loop.data.get(&client_handle);
-    let block_time = client_actor.client.config.max_block_production_delay;
-    env.test_loop.run_for(block_time * EPOCH_LENGTH as u32 * 2);
+    let head = client_actor.client.chain.get_head_block().unwrap();
+    let missed_chunks = head.block_congestion_info().get(&shard2).unwrap().missed_chunks_count;
+    assert!(missed_chunks >= max_missed_chunks);
 
     // Send transfer from shard 1 to shard 1 – should succeed
-    let tx_hash = send_money(&env, &rpc_id, &shard1_acc1, &shard1_acc2, ONE_NEAR, None);
-    env.test_loop.run_for(Duration::seconds(2));
-    let outcome = get_tx_outcome(&env, &rpc_id, &tx_hash);
-    assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
+    let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard1_acc2, ONE_NEAR);
+    let tx_outcome =
+        execute_tx(&mut env.test_loop, &rpc_id, tx, &env.node_datas, Duration::seconds(2)).unwrap();
+    assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
 
     // Send transfer from shard 1 to shard 2 – should fail, because shard 2 is congested
-    let tx_hash = send_money(&env, &rpc_id, &shard1_acc1, &shard2_acc1, ONE_NEAR, None);
-    env.test_loop.run_for(Duration::seconds(2));
-    let outcome = get_tx_outcome(&env, &rpc_id, &tx_hash);
-    assert_matches!(outcome.status, FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(InvalidTxError::ShardCongested {
+    let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard2_acc1, ONE_NEAR);
+    let tx_outcome =
+        execute_tx(&mut env.test_loop, &rpc_id, tx, &env.node_datas, Duration::seconds(2)).unwrap();
+    assert_matches!(tx_outcome.status, FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(InvalidTxError::ShardCongested {
         shard_id, ..
     })) if shard_id == Into::<u32>::into(shard2));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
-fn setup(accounts: &Vec<AccountId>, boundary_accounts: &[&str]) -> (TestLoopEnv, AccountId) {
+fn setup(
+    accounts: &Vec<AccountId>,
+    epoch_length: BlockHeightDelta,
+    boundary_accounts: &[&str],
+) -> (TestLoopEnv, AccountId) {
     let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
     // split the clients into producers, validators, and rpc nodes
@@ -132,7 +149,7 @@ fn setup(accounts: &Vec<AccountId>, boundary_accounts: &[&str]) -> (TestLoopEnv,
     let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
 
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(EPOCH_LENGTH)
+        .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
