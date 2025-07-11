@@ -111,13 +111,14 @@ fn slow_test_one_shard_congested() {
     assert!(missed_chunks >= max_missed_chunks);
 
     // Send transfer from shard 1 to shard 1 – should succeed
+    let block_time = client_actor.client.config.max_block_production_delay;
     let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard1_acc2, ONE_NEAR);
     let tx_outcome = execute_tx(
         &mut env.test_loop,
         &rpc_id,
         TransactionRunner::new(tx, false),
         &env.node_datas,
-        Duration::seconds(2),
+        block_time * 3,
     )
     .unwrap();
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
@@ -129,7 +130,7 @@ fn slow_test_one_shard_congested() {
         &rpc_id,
         TransactionRunner::new(tx, false),
         &env.node_datas,
-        Duration::seconds(2),
+        block_time * 3,
     )
     .unwrap_err();
     assert_matches!(tx_error, InvalidTxError::ShardStuck { shard_id, .. } if shard_id == Into::<u32>::into(shard2));
