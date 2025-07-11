@@ -21,6 +21,7 @@ pub fn base64(s: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(s)
 }
 
+/// An action that adds key with public key associated
 #[derive(
     BorshSerialize,
     BorshDeserialize,

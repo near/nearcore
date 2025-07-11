@@ -37,6 +37,7 @@ impl BandwidthRequests {
     }
 }
 
+/// Version 1 for list of [`BandwidthRequest`]s.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
