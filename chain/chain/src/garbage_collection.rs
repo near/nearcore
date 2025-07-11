@@ -173,8 +173,6 @@ impl ChainStore {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: &ShardTracker,
     ) -> Result<(), Error> {
-        let _span =
-            tracing::debug_span!(target: "garbage_collection", "clear_old_blocks_data").entered();
         let tries = runtime_adapter.get_tries();
         let head = self.head()?;
         if head.height == self.get_genesis_height() {
@@ -187,25 +185,53 @@ impl ChainStore {
             return Err(Error::GCError("gc_stop_height cannot be larger than head.height".into()));
         }
         let mut fork_tail = self.fork_tail()?;
+        let chunk_tail = self.chain_store().chunk_tail()?;
         metrics::TAIL_HEIGHT.set(tail as i64);
         metrics::FORK_TAIL_HEIGHT.set(fork_tail as i64);
-        metrics::CHUNK_TAIL_HEIGHT.set(self.chain_store().chunk_tail()? as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(chunk_tail as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         let last_known_gc_heigh = self.gc_stop_height()?;
         if last_known_gc_heigh != gc_stop_height {
+            tracing::debug!(
+                target: "garbage_collection",
+                gc_stop_height,
+                last_known_gc_heigh,
+                "Update last known gc_stop_height"
+            );
             let mut chain_store_update = self.store_update();
             chain_store_update.update_gc_stop_height(gc_stop_height);
             if fork_tail < gc_stop_height {
+                tracing::debug!(
+                    target: "garbage_collection",
+                    fork_tail,
+                    gc_stop_height,
+                    "Update fork_tail"
+                );
                 chain_store_update.update_fork_tail(gc_stop_height);
                 fork_tail = gc_stop_height;
             }
             chain_store_update.commit()?;
         }
         let mut gc_blocks_remaining = gc_config.gc_blocks_limit;
+        let _span = tracing::debug_span!(
+            target: "garbage_collection",
+            "clear_old_blocks_data",
+            tail,
+            fork_tail,
+            gc_stop_height,
+            chunk_tail,
+            gc_blocks_remaining,
+        )
+        .entered();
 
-        // Forks Cleaning
         let gc_fork_clean_step = gc_config.gc_fork_clean_step;
         let stop_height = tail.max(fork_tail.saturating_sub(gc_fork_clean_step));
+        tracing::debug!(
+            target: "garbage_collection",
+            stop_height,
+            gc_fork_clean_step,
+            "Start Fork Cleaning"
+        );
         for height in (stop_height..fork_tail).rev() {
             self.clear_forks_data(
                 tries.clone(),
@@ -221,7 +247,11 @@ impl ChainStore {
             chain_store_update.commit()?;
         }
 
-        // Canonical Chain Clearing
+        tracing::debug!(
+            target: "garbage_collection",
+            gc_blocks_remaining,
+            "Start Canonical Chain Clearing"
+        );
         for height in tail + 1..gc_stop_height {
             if gc_blocks_remaining == 0 {
                 return Ok(());
@@ -239,7 +269,13 @@ impl ChainStore {
                 let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
                 let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
                 if prev_block_refcount > 1 {
-                    // Block of `prev_hash` starts a Fork, stopping
+                    tracing::debug!(
+                        target: "garbage_collection",
+                        ?prev_hash,
+                        height,
+                        prev_block_refcount,
+                        "Block of prev_hash starts a Fork, stopping"
+                    );
                     break;
                 }
                 if prev_block_refcount < 1 {
@@ -358,7 +394,8 @@ impl ChainStore {
         gc_height_limit: BlockHeightDelta,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "chain", "clear_archive_data").entered();
+        let _span =
+            tracing::debug_span!(target: "chain", "clear_archive_data", gc_height_limit).entered();
 
         let head = self.head()?;
         let gc_stop_height = runtime_adapter.get_gc_stop_height(&head.last_block_hash);
@@ -399,7 +436,9 @@ impl ChainStore {
                 // and all its ancestors while there are no other sibling blocks rely on it.
                 let epoch_manager = epoch_manager.clone();
                 let mut chain_store_update = self.store_update();
-                if chain_store_update.get_block_refcount(&current_hash)? == 0 {
+                let current_block_refcount =
+                    chain_store_update.get_block_refcount(&current_hash)?;
+                if current_block_refcount == 0 {
                     let prev_hash =
                         *chain_store_update.get_block_header(&current_hash)?.prev_hash();
 
@@ -414,7 +453,13 @@ impl ChainStore {
 
                     current_hash = prev_hash;
                 } else {
-                    // Block of `current_hash` is an ancestor for some other blocks, stopping
+                    tracing::debug!(
+                        target: "garbage_collection",
+                        ?current_hash,
+                        height,
+                        current_block_refcount,
+                        "Block is an ancestor for some other blocks, stopping"
+                    );
                     break;
                 }
             }
@@ -1141,8 +1186,7 @@ fn gc_parent_shard_after_resharding(
         return Ok(());
     }
 
-    let _span = tracing::debug_span!(target: "garbage_collection", "gc_resharding").entered();
-
+    tracing::debug!(target: "garbage_collection", ?block_hash, "Resharding state cleanup");
     // Given block_hash is the resharding block, shard_layout is the shard layout of the next epoch
     // Important: We are not allowed to call `epoch_manager.get_shard_layout_from_prev_block()` as
     // the function relies on `self.get_block_info(block_info.epoch_first_block())` but epoch_first_block
@@ -1164,10 +1208,10 @@ fn gc_parent_shard_after_resharding(
         });
         if !has_active_mapping {
             // Delete the state of the parent shard
-            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup");
+            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "Resharding state cleanup for shard");
             trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
         } else {
-            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "skipping parent shard cleanup - active mappings exist");
+            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "Skipping parent shard cleanup - active mappings exist");
         }
     }
 
@@ -1193,7 +1237,7 @@ fn gc_state(
         return Ok(());
     }
 
-    let _span = tracing::debug_span!(target: "garbage_collection", "gc_state").entered();
+    tracing::debug!(target: "garbage_collection", "GC state");
     let latest_block_hash = chain_store_update.head()?.last_block_hash;
     let last_block_hash_in_gc_epoch = block_hash;
 
@@ -1228,7 +1272,7 @@ fn gc_state(
     }
 
     // Delete State of `shards_to_cleanup` and associated ShardUId mapping.
-    tracing::debug!(target: "garbage_collection", ?shards_to_cleanup, "state_cleanup");
+    tracing::debug!(target: "garbage_collection", ?shards_to_cleanup, "State shards cleanup");
     let mut trie_store_update = store.trie_store().store_update();
     for shard_uid_prefix in shards_to_cleanup {
         trie_store_update.delete_shard_uid_prefixed_state(shard_uid_prefix);
