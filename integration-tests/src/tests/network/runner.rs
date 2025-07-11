@@ -163,7 +163,7 @@ fn setup_network_node(
         ChainStore::new(runtime.store().clone(), false, genesis.config.genesis_height);
     let chunk_validation_actor = ChunkValidationActorInner::spawn_actix_actors(
         chain_store,
-        Arc::new(genesis_block.clone()),
+        Arc::new(genesis_block),
         epoch_manager.clone(),
         runtime.clone(),
         network_adapter.as_sender(),
@@ -177,7 +177,7 @@ fn setup_network_node(
     let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
         Clock::real(),
         network_adapter.as_multi_sender(),
-        chunk_validation_actor.clone().with_auto_span_context().into_multi_sender(),
+        chunk_validation_actor.with_auto_span_context().into_multi_sender(),
         validator_signer,
         epoch_manager,
         runtime,

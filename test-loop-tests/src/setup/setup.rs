@@ -367,9 +367,9 @@ pub fn setup_client(
     let chunk_validation_sender = test_loop.data.register_actor(
         identifier,
         chunk_validation_actor,
-        Some(chunk_validation_test_adapter.clone()),
+        Some(chunk_validation_test_adapter),
     );
-    chunk_validation_full_adapter.bind(chunk_validation_sender.clone().into_multi_sender());
+    chunk_validation_full_adapter.bind(chunk_validation_sender.into_multi_sender());
 
     // State sync dumper is not an Actor, handle starting separately.
     let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();
