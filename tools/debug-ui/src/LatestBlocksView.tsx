@@ -165,7 +165,7 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
             <th>Chain</th>
             <th>Height</th>
             <th>{'Hash & creator'}</th>
-            <th>Processing Time (ms)</th>
+            <th><span title="Processing Time (ms)">Proc. Time (ms)</span></th>
             <th>Block Delay (s)</th>
             <th>Gas price ratio</th>
             {[...shardIds].map((shard_id) => (
@@ -259,7 +259,7 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                     />
                 </td>
                 <td>{block.processing_time_ms}</td>
-                <td>{row.blockDelay ?? ''}</td>
+                <td>{row.blockDelay?.toFixed(3) ?? ''}</td>
                 <td>{block.gas_price_ratio}</td>
                 {block.full_block_missing && <td colSpan={numShards * 3}>header only</td>}
                 {chunkCells}
