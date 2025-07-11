@@ -311,7 +311,14 @@ pub enum ProtocolFeature {
     ReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
-    /// Increase the max congestion missed chunks from (effectively) 4 to 100.
+    /// Increase max_congestion_missed_chunks from 5 to 125.
+    /// At 125 missing chunks shard will be fully congested.
+    /// At 100 missing chunks shard will be 80% congested, and transactions
+    /// targeting it will be rejected as per reject_tx_congestion_threshold
+    /// config.
+    ///
+    /// It improves UX during long ranges of missing chunks, as transactions
+    /// are much less likely to get rejected with ShardStuck error.
     IncreaseMaxCongestionMissedChunks,
 
     RefTypesBulkMemory,

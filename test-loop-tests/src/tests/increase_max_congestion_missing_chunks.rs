@@ -14,7 +14,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_vm_runner::logic::ProtocolVersion;
+use near_primitives::version::ProtocolFeature;
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
@@ -36,8 +36,8 @@ use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block
 fn slow_test_tx_inclusion() {
     init_test_logger();
 
-    let old_protocol: ProtocolVersion = 78;
-    let new_protocol: ProtocolVersion = 79;
+    let new_protocol = ProtocolFeature::IncreaseMaxCongestionMissedChunks.protocol_version();
+    let old_protocol = new_protocol - 1;
     // Enough to have correct epoch with 15 missing chunks.
     let epoch_length: BlockHeightDelta = 20;
     let old_chunk_range_to_drop: HashMap<ShardIndex, std::ops::Range<i64>> =
@@ -56,7 +56,6 @@ fn slow_test_tx_inclusion() {
     let initial_balance = 10000 * ONE_NEAR;
     let clients = accounts.iter().take(num_clients).cloned().collect_vec();
 
-    // TODO - support different shard layouts, is there a way to make missing chunks generic?
     let boundary_accounts = ["account3", "account5", "account7"];
     let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
@@ -90,10 +89,8 @@ fn slow_test_tx_inclusion() {
         .build();
 
     let mainnet_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let mut old_epoch_config: EpochConfig =
-        mainnet_epoch_config_store.get_config(old_protocol).deref().clone();
-    let mut new_epoch_config: EpochConfig =
-        mainnet_epoch_config_store.get_config(new_protocol).deref().clone();
+    let mut old_epoch_config = mainnet_epoch_config_store.get_config(old_protocol).deref().clone();
+    let mut new_epoch_config = mainnet_epoch_config_store.get_config(new_protocol).deref().clone();
 
     // Adjust the epoch configs for the test
     let adjust_epoch_config = |config: &mut EpochConfig| {
@@ -130,15 +127,19 @@ fn slow_test_tx_inclusion() {
     let client_handle = node_datas[0].client_sender.actor_handle();
     let last_observed_height = Cell::new(0);
 
-    let observe_height = |block_header: &BlockHeader| {
-        if last_observed_height.get() != block_header.height() {
-            if last_observed_height.get() != 0 {
-                // There should be no missing blocks
-                assert_eq!(last_observed_height.get() + 1, block_header.height());
-            }
-            tracing::info!(target: "test", "Observed new block at height {}, chunk_mask: {:?}", block_header.height(), block_header.chunk_mask());
-            last_observed_height.set(block_header.height());
+    let is_new_height = |block_header: &BlockHeader| -> bool {
+        if last_observed_height.get() == 0 {
+            return false;
         }
+        if last_observed_height.get() == block_header.height() {
+            return false;
+        }
+
+        // There should be no missing blocks
+        assert_eq!(last_observed_height.get() + 1, block_header.height());
+        tracing::info!(target: "test", "Observed new block at height {}, chunk_mask: {:?}", block_header.height(), block_header.chunk_mask());
+        last_observed_height.set(block_header.height());
+        true
     };
 
     // Wait for the last epoch with old protocol version, until we see 5
@@ -150,7 +151,9 @@ fn slow_test_tx_inclusion() {
 
         // Validate the block
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
-        observe_height(&block_header);
+        if !is_new_height(&block_header) {
+            return false;
+        }
 
         // Stop if the next epoch is the one with the new protocol version
         let next_epoch_info = client.epoch_manager.get_epoch_info(&tip.next_epoch_id).unwrap();
@@ -197,7 +200,9 @@ fn slow_test_tx_inclusion() {
 
         // Validate the block
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
-        observe_height(&block_header);
+        if !is_new_height(&block_header) {
+            return false;
+        }
 
         // Stop if the next epoch is the one with the new protocol version
         let epoch_info = client.epoch_manager.get_epoch_info(&tip.epoch_id).unwrap();
