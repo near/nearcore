@@ -306,6 +306,15 @@ pub enum ProtocolFeature {
     ReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
+    /// Increase max_congestion_missed_chunks from 5 to 125.
+    /// At 125 missing chunks shard will be fully congested.
+    /// At 100 missing chunks shard will be 80% congested, and transactions
+    /// targeting it will be rejected as per reject_tx_congestion_threshold
+    /// config.
+    ///
+    /// It improves UX during long ranges of missing chunks, as transactions
+    /// are much less likely to get rejected with ShardStuck error.
+    IncreaseMaxCongestionMissedChunks,
     SaturatingFloatToInt,
     ChunkPartChecks,
 }
@@ -404,6 +413,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
+            ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
@@ -426,7 +436,7 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 75;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 78;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 79;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
