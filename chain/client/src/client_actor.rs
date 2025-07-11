@@ -275,6 +275,9 @@ pub struct ClientActorInner {
     /// With spice chunk executor executes chunks asynchronously.
     /// Should be noop sender otherwise.
     chunk_executor_sender: Sender<ExecutorBlock>,
+
+    // Largest target height that we have saved in the chain store.
+    last_saved_largest_target_height: Option<BlockHeight>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -388,6 +391,7 @@ impl ClientActorInner {
             config_updater,
             sync_jobs_sender,
             chunk_executor_sender,
+            last_saved_largest_target_height: None,
         })
     }
 }
@@ -1284,11 +1288,21 @@ impl ClientActorInner {
         // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_chain_store().store_update();
-        chain_store_update
-            .save_largest_target_height(self.client.doomslug.get_largest_target_height());
+        let doomslug_target_height = self.client.doomslug.get_largest_target_height();
+
+        let skip_update = match self.last_saved_largest_target_height {
+            Some(last_saved_largest_target_height) => {
+                last_saved_largest_target_height == doomslug_target_height
+            }
+            None => false,
+        };
+        if !skip_update {
+            chain_store_update.save_largest_target_height(doomslug_target_height);
+        }
 
         match chain_store_update.commit() {
             Ok(_) => {
+                self.last_saved_largest_target_height = Some(doomslug_target_height);
                 let head = unwrap_or_return!(self.client.chain.head());
                 if self.client.is_validator(&head.epoch_id)
                     || self.client.is_validator(&head.next_epoch_id)
