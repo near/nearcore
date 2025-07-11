@@ -386,6 +386,9 @@ impl JsonRpcHandler {
         Ok(match request.method.as_ref() {
             // Handlers ordered alphabetically
             "block" => process_method_call(request, |params| self.block(params)).await,
+            "block_effects" => {
+                process_method_call(request, |params| self.changes_in_block(params)).await
+            }
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
                     let tx = self.send_tx_async(params).to_string();
@@ -396,8 +399,17 @@ impl JsonRpcHandler {
             "broadcast_tx_commit" => {
                 process_method_call(request, |params| self.send_tx_commit(params)).await
             }
+            "changes" => {
+                process_method_call(request, |params| self.changes_in_block_by_type(params)).await
+            }
             "chunk" => process_method_call(request, |params| self.chunk(params)).await,
             "gas_price" => process_method_call(request, |params| self.gas_price(params)).await,
+            "genesis_config" => {
+                process_method_call(request, |_params: ()| async {
+                    Result::<_, std::convert::Infallible>::Ok(&self.genesis_config)
+                })
+                .await
+            }
             "health" => process_method_call(request, |_params: ()| self.health()).await,
             "light_client_proof" => {
                 process_method_call(request, |params| {
@@ -405,10 +417,16 @@ impl JsonRpcHandler {
                 })
                 .await
             }
+            "maintenance_windows" => {
+                process_method_call(request, |params| self.maintenance_windows(params)).await
+            }
             "next_light_client_block" => {
                 process_method_call(request, |params| self.next_light_client_block(params)).await
             }
             "network_info" => process_method_call(request, |_params: ()| self.network_info()).await,
+            "protocol_config" => {
+                process_method_call(request, |params| self.protocol_config(params)).await
+            }
             "send_tx" => process_method_call(request, |params| self.send_tx(params)).await,
             "status" => process_method_call(request, |_params: ()| self.status()).await,
             "tx" => {
@@ -419,9 +437,6 @@ impl JsonRpcHandler {
                 process_method_call(request, |_params: ()| self.client_config()).await
             }
             "EXPERIMENTAL_changes" => {
-                process_method_call(request, |params| self.changes_in_block_by_type(params)).await
-            }
-            "changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
             }
             "EXPERIMENTAL_changes_in_block" => {

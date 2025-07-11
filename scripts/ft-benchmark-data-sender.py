@@ -48,7 +48,7 @@ def calculate_shards() -> int:
     payload = {
         "jsonrpc": "2.0",
         "id": "dontcare",
-        "method": "EXPERIMENTAL_protocol_config",
+        "method": "protocol_config",
         "params": {
             "finality": "final"
         },
