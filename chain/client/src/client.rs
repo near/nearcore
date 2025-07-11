@@ -160,7 +160,7 @@ pub struct Client {
     pub resharding_sender: ReshardingSender,
     /// Helper module for handling chunk production.
     pub chunk_producer: ChunkProducer,
-    /// Sender to the chunk validation actor for handling chunk witness , chunk endorsements tracking, etc
+    /// Sender to the chunk validation actor for handling chunk witness, chunk endorsements tracking, etc
     pub chunk_validation_sender: ChunkValidationSender,
     /// Tracks current chunks that are ready to be included in block
     /// Also tracks banned chunk producers and filters out chunks produced by them

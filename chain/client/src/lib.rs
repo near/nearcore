@@ -40,7 +40,6 @@ mod chunk_distribution_network;
 pub mod chunk_executor_actor;
 mod chunk_inclusion_tracker;
 mod chunk_producer;
-
 mod client;
 pub mod client_actor;
 mod config_updater;

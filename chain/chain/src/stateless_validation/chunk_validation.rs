@@ -12,6 +12,7 @@ use crate::store::latest_witnesses::save_invalid_chunk_state_witness;
 use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource};
 use crate::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use crate::{Chain, ChainStore, ChainStoreAccess};
+use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_chain_primitives::Error;
@@ -361,7 +362,7 @@ pub fn pre_validate_chunk_state_witness(
                         )
                         .is_ok()
                 })
-                .collect::<Vec<_>>()
+                .collect_vec()
         }
     };
 
