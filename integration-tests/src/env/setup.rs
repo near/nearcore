@@ -28,9 +28,10 @@ use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
 use near_client::{
-    AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender, Client,
-    ClientActor, PartialWitnessActor, PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig,
-    StartClientResult, SyncStatus, ViewClientActor, ViewClientActorInner, start_client,
+    AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
+    ChunkValidationSenderForPartialWitness, Client, ClientActor, PartialWitnessActor,
+    PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
+    ViewClientActor, ViewClientActorInner, start_client,
 };
 use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
@@ -254,8 +255,9 @@ fn setup(
     let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
-    client_adapter_for_partial_witness_actor
-        .bind(chunk_validation_actor.clone().with_auto_span_context());
+    client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
+        chunk_state_witness: chunk_validation_actor.clone().with_auto_span_context().into_sender(),
+    });
 
     (
         client_actor,
