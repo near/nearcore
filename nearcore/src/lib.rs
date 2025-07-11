@@ -437,8 +437,7 @@ pub fn start_with_config_and_synchronization(
         resharding_sender.into_multi_sender(),
     );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
-    client_adapter_for_partial_witness_actor
-        .bind(chunk_validation_actor.clone().with_auto_span_context());
+    client_adapter_for_partial_witness_actor.bind(chunk_validation_actor.with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
         view_epoch_manager.clone(),

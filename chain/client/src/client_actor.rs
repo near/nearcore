@@ -199,7 +199,7 @@ pub fn start_client(
 
     let chunk_validation_actor_addr = ChunkValidationActorInner::spawn_actix_actors(
         client.chain.chain_store().clone(),
-        genesis_block.clone(),
+        genesis_block,
         epoch_manager.clone(),
         runtime.clone(),
         network_adapter.clone().into_sender(),
