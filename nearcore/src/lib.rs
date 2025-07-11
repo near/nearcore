@@ -438,7 +438,7 @@ pub fn start_with_config_and_synchronization(
     );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
-        chunk_state_witness: chunk_validation_actor.clone().with_auto_span_context().into_sender(),
+        chunk_state_witness: chunk_validation_actor.with_auto_span_context().into_sender(),
     });
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),

@@ -256,7 +256,7 @@ fn setup(
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
-        chunk_state_witness: chunk_validation_actor.clone().with_auto_span_context().into_sender(),
+        chunk_state_witness: chunk_validation_actor.with_auto_span_context().into_sender(),
     });
 
     (
@@ -466,7 +466,7 @@ pub fn setup_client_with_runtime(
     .expect("Failed to make genesis block");
     let genesis_block = Arc::new(genesis_block);
 
-    let (chunk_validation_actor, _) = spawn_actix_actor(ChunkValidationActorInner::new(
+    let chunk_validation_actor = ChunkValidationActorInner::spawn_actix_actors(
         chain_store,
         genesis_block,
         epoch_manager.clone(),
@@ -477,12 +477,13 @@ pub fn setup_client_with_runtime(
         false,
         Arc::new(RayonAsyncComputationSpawner),
         default_orphan_state_witness_max_size().as_u64(),
-    ));
+        1,
+    );
 
     let chunk_validation_sender = ChunkValidationSender {
         chunk_state_witness: chunk_validation_actor.clone().with_auto_span_context().into_sender(),
         orphan_witness: chunk_validation_actor.clone().with_auto_span_context().into_sender(),
-        block_notification: chunk_validation_actor.clone().with_auto_span_context().into_sender(),
+        block_notification: chunk_validation_actor.with_auto_span_context().into_sender(),
     };
     let mut client = Client::new(
         clock,

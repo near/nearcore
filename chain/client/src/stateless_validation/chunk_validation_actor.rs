@@ -9,8 +9,7 @@
 
 use crate::stateless_validation::chunk_validator::orphan_witness_pool::OrphanStateWitnessPool;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use actix::Actor as ActixActor;
-use near_async::actix_wrapper::{ActixWrapper, SyncActixWrapper};
+use near_async::actix_wrapper::SyncActixWrapper;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, Handler, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
@@ -44,7 +43,6 @@ use std::sync::Arc;
 /// have the previous block available (the chain head), so it wouldn't be an orphan.
 const ALLOWED_ORPHAN_WITNESS_DISTANCE_FROM_HEAD: Range<BlockHeight> = 2..6;
 
-pub type ChunkValidationActor = ActixWrapper<ChunkValidationActorInner>;
 pub type ChunkValidationSyncActor = SyncActixWrapper<ChunkValidationActorInner>;
 
 /// Outcome of processing an orphaned witness.
@@ -161,12 +159,6 @@ impl ChunkValidationActorInner {
             orphan_witness_pool: shared_orphan_pool,
             max_orphan_witness_size,
         }
-    }
-
-    pub fn spawn_actix_actor(self) -> actix::Addr<ChunkValidationActor> {
-        let actix_wrapper = ActixWrapper::new(self);
-        let arbiter = actix::Arbiter::new().handle();
-        ActixActor::start_in_arbiter(&arbiter, |_| actix_wrapper)
     }
 
     /// Spawns multiple chunk validation actors using SyncArbiter.

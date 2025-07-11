@@ -211,8 +211,6 @@ pub struct AsyncComputationMultiSpawner {
     apply_chunks: ApplyChunksSpawner,
     /// Spawner to run 'epoch sync' tasks (defaults to `RayonAsyncComputationSpawner`)
     epoch_sync: Arc<dyn AsyncComputationSpawner>,
-    /// Spawner to run 'stateless validation' tasks (see `ApplyChunksSpawner` for default)
-    stateless_validation: ApplyChunksSpawner,
 }
 
 impl Default for AsyncComputationMultiSpawner {
@@ -220,7 +218,6 @@ impl Default for AsyncComputationMultiSpawner {
         Self {
             apply_chunks: Default::default(),
             epoch_sync: Arc::new(RayonAsyncComputationSpawner),
-            stateless_validation: Default::default(),
         }
     }
 }
@@ -228,25 +225,12 @@ impl Default for AsyncComputationMultiSpawner {
 impl AsyncComputationMultiSpawner {
     /// Use a custom spawner for all kinds of tasks.
     pub fn all_custom(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
-        Self {
-            apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
-            epoch_sync: spawner.clone(),
-            stateless_validation: ApplyChunksSpawner::Custom(spawner),
-        }
+        Self { apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()), epoch_sync: spawner }
     }
 
     /// Use a custom spawner for 'apply chunks' tasks
     pub fn custom_apply_chunks(mut self, spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
         self.apply_chunks = ApplyChunksSpawner::Custom(spawner);
-        self
-    }
-
-    /// Use a custom spawner for 'stateless validation' tasks
-    pub fn custom_stateless_validation(
-        mut self,
-        spawner: Arc<dyn AsyncComputationSpawner>,
-    ) -> Self {
-        self.stateless_validation = ApplyChunksSpawner::Custom(spawner);
         self
     }
 }

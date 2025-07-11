@@ -161,7 +161,7 @@ fn setup_network_node(
     );
     let chain_store =
         ChainStore::new(runtime.store().clone(), false, genesis.config.genesis_height);
-    let (chunk_validation_actor, _) = spawn_actix_actor(ChunkValidationActorInner::new(
+    let chunk_validation_actor = ChunkValidationActorInner::spawn_actix_actors(
         chain_store,
         Arc::new(genesis_block.clone()),
         epoch_manager.clone(),
@@ -172,7 +172,8 @@ fn setup_network_node(
         false,
         Arc::new(RayonAsyncComputationSpawner),
         near_chain_configs::default_orphan_state_witness_max_size().as_u64(),
-    ));
+        1,
+    );
     let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
         Clock::real(),
         network_adapter.as_multi_sender(),
