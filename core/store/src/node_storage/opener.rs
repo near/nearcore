@@ -1,4 +1,5 @@
-use crate::config::ArchivalConfig;
+use crate::archive::archival_storage::ArchivalStorageOpener;
+use crate::config::ArchivalStorageConfig;
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
@@ -175,8 +176,8 @@ pub struct StoreOpener<'a> {
     /// version.
     migrator: Option<&'a dyn StoreMigrator>,
 
-    /// Archival config. This is set to a valid config for archival nodes.
-    archival_config: Option<ArchivalConfig<'a>>,
+    /// Opener for an instance of archival storage if one was configured.
+    archival_storage_opener: Option<ArchivalStorageOpener>,
 }
 
 /// Opener for a single RocksDB instance.
@@ -203,26 +204,20 @@ impl<'a> StoreOpener<'a> {
     pub(crate) fn new(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
-        archival_config: Option<ArchivalConfig<'a>>,
+        cold_store_config: Option<&'a StoreConfig>,
+        archival_storage_config: Option<&'a ArchivalStorageConfig>,
     ) -> Self {
-        Self {
-            hot: DBOpener::new(home_dir, store_config, Temperature::Hot),
-            cold: archival_config
-                .as_ref()
-                .map(|config| {
-                    config
-                        .cold_store_config
-                        .map(|config| DBOpener::new(home_dir, config, Temperature::Cold))
-                })
-                .flatten(),
-            archival_config,
-            migrator: None,
-        }
+        let hot = DBOpener::new(home_dir, store_config, Temperature::Hot);
+        let cold =
+            cold_store_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
+        let archival_storage_opener = archival_storage_config
+            .map(|config| ArchivalStorageOpener::new(home_dir.to_path_buf(), config.clone()));
+        Self { hot, cold, migrator: None, archival_storage_opener }
     }
 
-    /// Returns true is this opener is for an archival node.
+    /// Returns true if this opener is for an archival node.
     fn is_archive(&self) -> bool {
-        self.archival_config.is_some()
+        self.cold.is_some() || self.archival_storage_opener.is_some()
     }
 
     /// Configures the opener with specified [`StoreMigrator`].
@@ -658,11 +653,11 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
 pub fn clear_columns<'a>(
     home_dir: &std::path::Path,
     config: &StoreConfig,
-    archival_config: Option<ArchivalConfig<'a>>,
+    cold_store_config: Option<&StoreConfig>,
     cols: &[DBCol],
     recreate_dropped_columns: bool,
 ) -> anyhow::Result<()> {
-    let opener = StoreOpener::new(home_dir, config, archival_config);
+    let opener = StoreOpener::new(home_dir, config, cold_store_config, None);
     let (mut hot_db, _hot_snapshot, cold_db, _cold_snapshot) =
         opener.open_dbs(Mode::ReadWriteExisting)?;
     hot_db.clear_cols(cols)?;

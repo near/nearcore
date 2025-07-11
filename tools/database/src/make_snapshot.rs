@@ -1,6 +1,6 @@
 use near_store::{
     Mode, NodeStorage, STATE_SNAPSHOT_COLUMNS, StoreConfig,
-    checkpoint_hot_storage_and_cleanup_columns, config::ArchivalConfig,
+    checkpoint_hot_storage_and_cleanup_columns, config::ArchivalNodeConfig,
 };
 use std::path::{Path, PathBuf};
 
@@ -19,9 +19,9 @@ impl MakeSnapshotCommand {
         &self,
         home_dir: &Path,
         store_config: &StoreConfig,
-        archival_config: Option<ArchivalConfig>,
+        archival_node_config: Option<ArchivalNodeConfig>,
     ) -> anyhow::Result<()> {
-        let opener = NodeStorage::opener(home_dir, store_config, archival_config);
+        let opener = NodeStorage::opener(home_dir, store_config, archival_node_config);
         let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
         let columns_to_keep =
             if self.flat_state_only { Some(STATE_SNAPSHOT_COLUMNS) } else { None };
