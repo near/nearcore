@@ -128,15 +128,14 @@ fn slow_test_tx_inclusion() {
     let last_observed_height = Cell::new(0);
 
     let is_new_height = |block_header: &BlockHeader| -> bool {
-        if last_observed_height.get() == 0 {
-            return false;
-        }
         if last_observed_height.get() == block_header.height() {
             return false;
         }
 
         // There should be no missing blocks
-        assert_eq!(last_observed_height.get() + 1, block_header.height());
+        if last_observed_height.get() != 0 {
+            assert_eq!(last_observed_height.get() + 1, block_header.height());
+        }
         tracing::info!(target: "test", "Observed new block at height {}, chunk_mask: {:?}", block_header.height(), block_header.chunk_mask());
         last_observed_height.set(block_header.height());
         true
