@@ -17,7 +17,7 @@ use near_primitives::stateless_validation::contract_distribution::ContractCodeRe
 use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::CURRENT_PROTOCOL_VERSION;
 use near_primitives::version::ProtocolFeature;
 pub use peer::*;
 pub use state_sync::*;
@@ -68,6 +68,7 @@ use std::fmt::Debug;
 use std::io::Read;
 use std::io::Write;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tracing::Span;
 
 /// Send important messages three times.
@@ -1079,7 +1080,8 @@ impl RoutedMessageV3 {
     }
 
     pub fn verify(&self) -> bool {
-        if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && self.body.is_t1() {
+        let protocol_version = CURRENT_PROTOCOL_VERSION.load(Ordering::SeqCst);
+        if ProtocolFeature::UnsignedT1Messages.enabled(protocol_version) && self.body.is_t1() {
             self.signature.is_none()
         } else {
             let Some(signature) = &self.signature else {
@@ -1112,8 +1114,9 @@ impl RoutedMessageV3 {
 impl From<RoutedMessageV1> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV1) -> Self {
         let body = TieredMessageBody::from_routed(msg.body);
+        let protocol_version = CURRENT_PROTOCOL_VERSION.load(Ordering::SeqCst);
         let signature =
-            if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && body.is_t1() {
+            if ProtocolFeature::UnsignedT1Messages.enabled(protocol_version) && body.is_t1() {
                 None
             } else {
                 Some(msg.signature)
@@ -1197,7 +1200,8 @@ impl RoutedMessage {
     pub fn signature(&self) -> Option<&Signature> {
         match self {
             RoutedMessage::V1(msg) => {
-                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && msg.body.is_t1()
+                let protocol_version = CURRENT_PROTOCOL_VERSION.load(Ordering::SeqCst);
+                if ProtocolFeature::UnsignedT1Messages.enabled(protocol_version) && msg.body.is_t1()
                 {
                     None
                 } else {
@@ -1205,7 +1209,8 @@ impl RoutedMessage {
                 }
             }
             RoutedMessage::V2(msg) => {
-                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION)
+                let protocol_version = CURRENT_PROTOCOL_VERSION.load(Ordering::SeqCst);
+                if ProtocolFeature::UnsignedT1Messages.enabled(protocol_version)
                     && msg.msg.body.is_t1()
                 {
                     None
@@ -1313,8 +1318,9 @@ impl RoutedMessage {
     fn upgrade_to_v3(&mut self) {
         if let RoutedMessage::V1(msg) = self {
             let body = TieredMessageBody::from_routed(msg.body.clone());
+            let protocol_version = CURRENT_PROTOCOL_VERSION.load(Ordering::SeqCst);
             let signature =
-                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && body.is_t1() {
+                if ProtocolFeature::UnsignedT1Messages.enabled(protocol_version) && body.is_t1() {
                     None
                 } else {
                     Some(msg.signature.clone())
@@ -1330,8 +1336,9 @@ impl RoutedMessage {
             });
         } else if let RoutedMessage::V2(msg) = self {
             let body = TieredMessageBody::from_routed(msg.msg.body.clone());
+            let protocol_version = CURRENT_PROTOCOL_VERSION.load(Ordering::SeqCst);
             let signature =
-                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && body.is_t1() {
+                if ProtocolFeature::UnsignedT1Messages.enabled(protocol_version) && body.is_t1() {
                     None
                 } else {
                     Some(msg.msg.signature.clone())
@@ -1550,8 +1557,9 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessage {
         let author = PeerId::new(node_key.public_key());
+        let protocol_version = CURRENT_PROTOCOL_VERSION.load(Ordering::SeqCst);
         let signature =
-            if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && self.body.is_t1() {
+            if ProtocolFeature::UnsignedT1Messages.enabled(protocol_version) && self.body.is_t1() {
                 None
             } else {
                 let body = RoutedMessageBody::from(self.body.clone());
