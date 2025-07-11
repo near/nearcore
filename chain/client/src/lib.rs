@@ -18,9 +18,8 @@ pub use crate::rpc_handler::{
 };
 pub use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationActorInner, ChunkValidationSender,
-    ChunkValidationSenderForPartialWitness,
+    ChunkValidationSenderForPartialWitness, HandleOrphanWitnessOutcome,
 };
-pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::HandleOrphanWitnessOutcome;
 pub use crate::view_client_actor::{ViewClientActor, ViewClientActorInner};
 pub use chunk_producer::ProduceChunkResult;
 pub use near_chain::stateless_validation::processing_tracker::{

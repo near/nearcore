@@ -1,13 +1,16 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
+use near_async::messaging::{IntoSender, noop};
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
 use near_chain::{Block, Provenance};
 use near_chain_configs::Genesis;
 use near_chain_configs::default_orphan_state_witness_max_size;
-use near_client::DistributeStateWitnessRequest;
-use near_client::HandleOrphanWitnessOutcome;
+use near_client::{
+    ChunkValidationActorInner, DistributeStateWitnessRequest, HandleOrphanWitnessOutcome,
+};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
@@ -46,6 +49,7 @@ struct OrphanWitnessTestEnv {
     witness: ChunkStateWitness,
     excluded_validator: AccountId,
     excluded_validator_idx: usize,
+    chunk_validation_actor: ChunkValidationActorInner,
 }
 
 /// This function prepares a scenario in which an orphaned chunk witness will occur.
@@ -208,6 +212,21 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         env.process_shards_manager_responses_and_finish_processing_blocks(client_idx);
     }
 
+    // Create a ChunkValidationActorInner for testing orphan witness handling
+    let client = env.client(&excluded_validator);
+    let chunk_validation_actor = ChunkValidationActorInner::new(
+        client.chain.chain_store().clone(),
+        client.chain.genesis_block(),
+        client.epoch_manager.clone(),
+        client.runtime_adapter.clone(),
+        noop().into_sender(),
+        client.validator_signer.clone(),
+        false,
+        false,
+        Arc::new(RayonAsyncComputationSpawner),
+        default_orphan_state_witness_max_size().as_u64(),
+    );
+
     OrphanWitnessTestEnv {
         env,
         block1,
@@ -215,6 +234,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         witness,
         excluded_validator,
         excluded_validator_idx,
+        chunk_validation_actor,
     }
 }
 
@@ -257,17 +277,13 @@ fn test_orphan_witness_valid() {
 fn test_orphan_witness_too_large() {
     init_integration_logger();
 
-    let OrphanWitnessTestEnv { mut env, witness, excluded_validator, .. } =
+    let OrphanWitnessTestEnv { mut chunk_validation_actor, witness, .. } =
         setup_orphan_witness_test();
 
-    // The witness should not be saved too the pool, as it's too big
-    let outcome = env
-        .client(&excluded_validator)
-        .handle_orphan_state_witness(
-            witness,
-            default_orphan_state_witness_max_size().as_u64() as usize + 1,
-        )
-        .unwrap();
+    // Test with a witness that exceeds the max size limit
+    let oversized_witness_size = default_orphan_state_witness_max_size().as_u64() as usize + 1;
+    let outcome =
+        chunk_validation_actor.handle_orphan_witness(witness, oversized_witness_size).unwrap();
     assert!(matches!(outcome, HandleOrphanWitnessOutcome::TooBig(_)))
 }
 
@@ -276,7 +292,7 @@ fn test_orphan_witness_too_large() {
 fn test_orphan_witness_far_from_head() {
     init_integration_logger();
 
-    let OrphanWitnessTestEnv { mut env, mut witness, block1, excluded_validator, .. } =
+    let OrphanWitnessTestEnv { mut chunk_validation_actor, mut witness, block1, .. } =
         setup_orphan_witness_test();
 
     let bad_height = 10000;
@@ -288,8 +304,7 @@ fn test_orphan_witness_far_from_head() {
         ShardChunkHeaderInner::V5(inner) => inner.height_created = bad_height,
     });
 
-    let outcome =
-        env.client(&excluded_validator).handle_orphan_state_witness(witness, 2000).unwrap();
+    let outcome = chunk_validation_actor.handle_orphan_witness(witness, 2000).unwrap();
     assert_eq!(
         outcome,
         HandleOrphanWitnessOutcome::TooFarFromHead {

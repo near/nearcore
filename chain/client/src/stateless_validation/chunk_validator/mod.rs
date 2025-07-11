@@ -1,4 +1,3 @@
-pub mod orphan_witness_handling;
 pub mod orphan_witness_pool;
 
 use crate::Client;

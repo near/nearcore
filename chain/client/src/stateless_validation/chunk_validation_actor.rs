@@ -1,4 +1,12 @@
-use crate::stateless_validation::chunk_validator::orphan_witness_handling::ALLOWED_ORPHAN_WITNESS_DISTANCE_FROM_HEAD;
+//! An actor for validating chunk state witnesses and orphan witnesses.
+//!
+//! # Orphan witnesses
+//! To process a ChunkStateWitness we need its previous block, but sometimes
+//! the witness shows up before the previous block is available, so it can't be
+//! processed immediately. In such cases the witness becomes an orphaned witness
+//! and it's kept in the pool until the required block arrives. Once the block
+//! arrives, all witnesses that were waiting for it can be processed.
+
 use crate::stateless_validation::chunk_validator::orphan_witness_pool::OrphanStateWitnessPool;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use actix::Actor as ActixActor;
@@ -8,6 +16,7 @@ use near_async::messaging::{Actor, Handler, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::stateless_validation::chunk_validation::{self, MainStateTransitionCache};
+use near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::types::RuntimeAdapter;
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -25,7 +34,15 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 use parking_lot::Mutex;
+use std::ops::Range;
 use std::sync::Arc;
+
+/// We keep only orphan witnesses that are within this distance of
+/// the current chain head. This helps to reduce the size of
+/// OrphanStateWitnessPool and protects against spam attacks.
+/// The range starts at 2 because a witness at height of head+1 would
+/// have the previous block available (the chain head), so it wouldn't be an orphan.
+const ALLOWED_ORPHAN_WITNESS_DISTANCE_FROM_HEAD: Range<BlockHeight> = 2..6;
 
 pub type ChunkValidationActor = ActixWrapper<ChunkValidationActorInner>;
 pub type ChunkValidationSyncActor = SyncActixWrapper<ChunkValidationActorInner>;
@@ -50,7 +67,7 @@ pub struct ChunkValidationSender {
     pub block_notification: Sender<BlockNotificationMessage>,
 }
 
-/// Message for handling orphan witnesses that arrive before their previous block
+/// Message for handling orphan witnesses.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct OrphanWitnessMessage {
@@ -59,7 +76,7 @@ pub struct OrphanWitnessMessage {
 }
 
 /// Message to notify the chunk validation actor about new blocks
-/// so it can process orphan witnesses that were waiting for these blocks
+/// so it can process orphan witnesses that were waiting for these blocks.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct BlockNotificationMessage {
@@ -116,7 +133,7 @@ impl ChunkValidationActorInner {
         }
     }
 
-    /// Create a new actor with shared orphan witness pool (for multiple actor instances)
+    /// Creates a new actor with shared orphan witness pool (for multiple actor instances).
     pub fn new_with_shared_pool(
         chain_store: ChainStore,
         genesis_block: Arc<Block>,
@@ -152,7 +169,7 @@ impl ChunkValidationActorInner {
         ActixActor::start_in_arbiter(&arbiter, |_| actix_wrapper)
     }
 
-    /// Spawn multiple chunk validation actors using SyncArbiter
+    /// Spawns multiple chunk validation actors using SyncArbiter.
     pub fn spawn_actix_actors(
         chain_store: ChainStore,
         genesis_block: Arc<Block>,
@@ -171,7 +188,6 @@ impl ChunkValidationActorInner {
             default_orphan_state_witness_pool_size(),
         )));
 
-        // Use SyncArbiter to create multiple actors with automatic round-robin
         actix::SyncArbiter::start(num_actors, move || {
             let actor = ChunkValidationActorInner::new_with_shared_pool(
                 chain_store.clone(),
@@ -213,8 +229,7 @@ impl ChunkValidationActorInner {
         Ok(())
     }
 
-    /// Handle an orphan witness that arrived before its previous block
-    fn handle_orphan_witness(
+    pub fn handle_orphan_witness(
         &mut self,
         witness: ChunkStateWitness,
         witness_size: ChunkStateWitnessSize,
@@ -233,7 +248,7 @@ impl ChunkValidationActorInner {
         )
         .entered();
 
-        // Get chain head to check distance
+        // Don't save orphaned state witnesses which are far away from the current chain head.
         let chain_head = self.chain_store.head()?;
         let head_distance = witness_height.saturating_sub(chain_head.height);
 
@@ -249,7 +264,7 @@ impl ChunkValidationActorInner {
             });
         }
 
-        // Check witness size limit
+        // Don't save orphaned state witnesses which are bigger than the allowed limit.
         let witness_size_u64: u64 = witness_size as u64;
         if witness_size_u64 > self.max_orphan_witness_size {
             tracing::warn!(
@@ -272,7 +287,7 @@ impl ChunkValidationActorInner {
         Ok(HandleOrphanWitnessOutcome::SavedToPool)
     }
 
-    /// Process orphan witnesses that are now ready because their previous block has arrived
+    /// Processes orphan witnesses that are now ready because their previous block has arrived.
     fn process_ready_orphan_witnesses(&mut self, new_block: &Block) {
         let ready_witnesses = self
             .orphan_witness_pool
@@ -296,7 +311,7 @@ impl ChunkValidationActorInner {
         }
     }
 
-    /// Clean old orphan witnesses and process ready ones when a new block arrives
+    /// Cleans old orphan witnesses and process ready ones when a new block arrives.
     fn handle_block_notification(&mut self, new_block: &Block) {
         if self.validator_signer.get().is_some() {
             self.process_ready_orphan_witnesses(new_block);
@@ -443,7 +458,6 @@ impl ChunkValidationActorInner {
         let chunk_producer_name =
             self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
-        // Try fast path validation with chunk extra first
         if let Ok(prev_chunk_extra) = self.chain_store.get_chunk_extra(&prev_block_hash, &shard_uid)
         {
             match validate_chunk_with_chunk_extra(
@@ -455,7 +469,6 @@ impl ChunkValidationActorInner {
                 &chunk_header,
             ) {
                 Ok(()) => {
-                    // Fast path succeeded - send endorsement and return
                     send_chunk_endorsement_to_block_producers(
                         &chunk_header,
                         self.epoch_manager.as_ref(),
@@ -470,12 +483,12 @@ impl ChunkValidationActorInner {
                         ?err,
                         ?chunk_producer_name,
                         ?chunk_production_key,
-                        "Failed to validate chunk using existing chunk extra, falling back to full validation",
+                        "Failed to validate chunk using existing chunk extra",
                     );
-                    near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                    CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
                         .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
                         .inc();
-                    // Continue to full validation below
+                    return Err(err);
                 }
             }
         }
@@ -487,7 +500,7 @@ impl ChunkValidationActorInner {
             self.epoch_manager.as_ref(),
         )
         .map_err(|err| {
-            near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+            CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
                 .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
                 .inc();
             tracing::error!(
@@ -510,16 +523,6 @@ impl ChunkValidationActorInner {
         self.validation_spawner.spawn("stateless_validation", move || {
             // Capture the processing_done_tracker here - it will be dropped when this closure completes
             let _processing_done_tracker = processing_done_tracker;
-            let _span = tracing::debug_span!(
-                target: "chunk_validation",
-                "async_validating_chunk",
-                height = %state_witness.chunk_production_key().height_created,
-                shard_id = %state_witness.chunk_production_key().shard_id,
-                validator = %signer.validator_id(),
-                tag_block_production = true,
-                tag_witness_distribution = true,
-            )
-            .entered();
 
             match chunk_validation::validate_chunk_state_witness(
                 state_witness,
