@@ -406,6 +406,25 @@ pub fn call_contract(
     tx_hash
 }
 
+pub fn prepare_transfer_tx(
+    env: &TestLoopEnv,
+    sender_id: &AccountId,
+    receiver_id: &AccountId,
+    amount: u128,
+) -> SignedTransaction {
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, sender_id);
+    let signer = create_user_test_signer(sender_id);
+    SignedTransaction::send_money(
+        nonce,
+        sender_id.clone(),
+        receiver_id.clone(),
+        &signer,
+        amount,
+        block_hash,
+    )
+}
+
 /// Submit a transaction to the rpc node with the given account id.
 /// Doesn't wait for the result, it must be requested separately.
 pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
