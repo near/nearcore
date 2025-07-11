@@ -3,7 +3,8 @@ use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::{
-    call_contract, check_txs, deploy_contract, execute_tx, make_accounts, prepare_transfer_tx,
+    TransactionRunner, call_contract, check_txs, deploy_contract, execute_tx, make_accounts,
+    prepare_transfer_tx,
 };
 use crate::utils::{ONE_NEAR, TGAS};
 use assert_matches::assert_matches;
@@ -16,7 +17,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfig;
-use near_primitives::errors::{InvalidTxError, TxExecutionError};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionStatus;
@@ -111,17 +112,27 @@ fn slow_test_one_shard_congested() {
 
     // Send transfer from shard 1 to shard 1 – should succeed
     let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard1_acc2, ONE_NEAR);
-    let tx_outcome =
-        execute_tx(&mut env.test_loop, &rpc_id, tx, &env.node_datas, Duration::seconds(2)).unwrap();
+    let tx_outcome = execute_tx(
+        &mut env.test_loop,
+        &rpc_id,
+        TransactionRunner::new(tx, false),
+        &env.node_datas,
+        Duration::seconds(2),
+    )
+    .unwrap();
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
 
     // Send transfer from shard 1 to shard 2 – should fail, because shard 2 is congested
     let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard2_acc1, ONE_NEAR);
-    let tx_outcome =
-        execute_tx(&mut env.test_loop, &rpc_id, tx, &env.node_datas, Duration::seconds(2)).unwrap();
-    assert_matches!(tx_outcome.status, FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(InvalidTxError::ShardCongested {
-        shard_id, ..
-    })) if shard_id == Into::<u32>::into(shard2));
+    let tx_error = execute_tx(
+        &mut env.test_loop,
+        &rpc_id,
+        TransactionRunner::new(tx, false),
+        &env.node_datas,
+        Duration::seconds(2),
+    )
+    .unwrap_err();
+    assert_matches!(tx_error, InvalidTxError::ShardStuck { shard_id, .. } if shard_id == Into::<u32>::into(shard2));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
