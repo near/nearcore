@@ -15,6 +15,7 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
+use near_client::spice_core::CoreStatementsProcessor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
@@ -131,6 +132,8 @@ pub fn setup_client(
     let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
         test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
     ));
+
+    let spice_core_processor = CoreStatementsProcessor::new(chunk_executor_adapter.as_sender());
     let client = Client::new(
         test_loop.clock(),
         client_config.clone(),
@@ -151,6 +154,7 @@ pub fn setup_client(
         client_adapter.as_multi_sender(),
         client_adapter.as_multi_sender(),
         upgrade_schedule.clone(),
+        spice_core_processor.clone(),
     )
     .unwrap();
 
@@ -298,6 +302,9 @@ pub fn setup_client(
         epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.as_multi_sender(),
+        validator_signer.clone(),
+        spice_core_processor,
+        client_actor.client.chunk_endorsement_tracker.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
         chunk_executor_adapter.as_sender(),
     );
