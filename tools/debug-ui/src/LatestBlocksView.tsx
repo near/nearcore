@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Fragment, ReactElement, useCallback, useMemo, useState } from 'react';
+import { Dispatch, Fragment, ReactElement, SetStateAction, useCallback, useMemo, useState } from 'react';
 import Xarrow, { Xwrapper, useXarrow } from 'react-xarrows';
 import { DebugBlockStatus, MissedHeightInfo, fetchBlockStatus, fetchFullStatus } from './api';
 import './LatestBlocksView.scss';
@@ -129,6 +129,24 @@ function sortBlocksAndDetermineBlockGraphLayout(
     return rows;
 }
 
+type ToggleButtonProps = {
+    name: string;
+    enabled: boolean;
+    setEnabled: Dispatch<SetStateAction<boolean>>;
+};
+
+const ToggleButton = ({ name, enabled, setEnabled }: ToggleButtonProps) => {
+    return (
+        <button
+            className={enabled ? "toggle-button-enabled" : undefined}
+            onClick={() => setEnabled((value) => !value)}
+        >
+            {name}
+        </button>
+    );
+};
+
+
 type BlocksTableProps = {
     rows: BlockTableRow[];
     knownProducers: Set<string>;
@@ -137,6 +155,53 @@ type BlocksTableProps = {
 };
 
 const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: BlocksTableProps) => {
+    const PROCESSING_TIME_LABEL = "Processing Time (ms)";
+    const BLOCK_DELAY_LABEL = "Block Delay (s)";
+    const GAS_PRICE_RATIO_LABEL = "Gas Price Ratio";
+    const GAS_USED_LABEL = "Gas Used (Tgas)"
+
+    const [displayBlockDelay, setDisplayBlockDelay] = useState(true);
+    const [displayBlockProcessingTime, setDisplayBlockProcessingTime] = useState(false);
+    const [displayGasPriceRatio, setDisplayGasPriceRatio] = useState(false);
+    const blockFields = (
+        <div className="toggle-fields">
+            <span className="toggle-fields-label">Block fields:</span>
+            <ToggleButton
+                enabled={displayBlockDelay}
+                setEnabled={setDisplayBlockDelay}
+                name={BLOCK_DELAY_LABEL}
+            />
+            <ToggleButton
+                enabled={displayBlockProcessingTime}
+                setEnabled={setDisplayBlockProcessingTime}
+                name={PROCESSING_TIME_LABEL}
+            />
+            <ToggleButton
+                enabled={displayGasPriceRatio}
+                setEnabled={setDisplayGasPriceRatio}
+                name={GAS_PRICE_RATIO_LABEL}
+            />
+        </div>
+    );
+
+    const [displayGasUsed, setDisplayGasUsed] = useState(true);
+    const [displayChunkProcessingTime, setDisplayChunkProcessingTime] = useState(false);
+    const chunkFields = (
+        <div className="toggle-fields">
+            <span className="toggle-fields-label">Chunk fields:</span>
+            <ToggleButton
+                enabled={displayGasUsed}
+                setEnabled={setDisplayGasUsed}
+                name={GAS_USED_LABEL}
+            />
+            <ToggleButton
+                enabled={displayChunkProcessingTime}
+                setEnabled={setDisplayChunkProcessingTime}
+                name={PROCESSING_TIME_LABEL}
+            />
+        </div>
+    )
+
     let numGraphColumns = 1; // either 1 or 2; determines the width of leftmost td
     const shardIdsSet = new Set<number>();
     for (const row of rows.slice()) {
@@ -160,20 +225,44 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
         shardIdToUIIndex.set(shardId, index);
     });
 
+    const chunkColSpan = 1
+        + (displayGasUsed ? 1 : 0)
+        + (displayChunkProcessingTime ? 1 : 0);
     const header = (
-        <tr>
-            <th>Chain</th>
-            <th>Height</th>
-            <th>{'Hash & creator'}</th>
-            <th><span title="Processing Time (ms)">Proc. Time (ms)</span></th>
-            <th>Block Delay (s)</th>
-            <th>Gas price ratio</th>
-            {[...shardIds].map((shard_id) => (
-                <th key={shard_id} colSpan={3}>
-                    Shard {shard_id} (hash/gas(Tgas)/time(ms))
-                </th>
-            ))}
-        </tr>
+        <Fragment>
+            <tr>
+                <th rowSpan={2}>Chain</th>
+                <th rowSpan={2}>Height</th>
+                <th rowSpan={2}>{'Hash & Creator'}</th>
+                {displayBlockDelay &&
+                    <th rowSpan={2}>{BLOCK_DELAY_LABEL}</th>
+                }
+                {displayBlockProcessingTime &&
+                    <th rowSpan={2}><span title={PROCESSING_TIME_LABEL}>Proc. Time (ms)</span></th>
+                }
+                {displayGasPriceRatio &&
+                    <th rowSpan={2}>{GAS_PRICE_RATIO_LABEL}</th>
+                }
+                {[...shardIds].map((shard_id) => (
+                    <th key={shard_id} colSpan={chunkColSpan}>
+                        Shard {shard_id}
+                    </th>
+                ))}
+            </tr>
+            <tr>
+                {[...shardIds].map((shard_id) => (
+                    <Fragment key={shard_id}>
+                        <th>Hash & Creator</th>
+                        {displayGasUsed &&
+                            <th><span title={GAS_USED_LABEL}>Gas</span></th>
+                        }
+                        {displayChunkProcessingTime &&
+                            <th><span title={PROCESSING_TIME_LABEL}>Time</span></th>
+                        }
+                    </Fragment>
+                ))}
+            </tr>
+        </Fragment>
     );
 
     // One xarrow element per arrow (from block to block).
@@ -181,6 +270,10 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
 
     // One 'tr' element per row.
     const tableRows = [] as ReactElement[];
+    const blockColSpan = 1
+        + (displayBlockDelay ? 1 : 0)
+        + (displayBlockProcessingTime ? 1 : 0)
+        + (displayGasPriceRatio ? 1 : 0);
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         if ('missedHeight' in row) {
@@ -189,7 +282,7 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                     <tr key={row.missedHeight.block_height} className="missed-height">
                         <td className="graph-node-cell" />
                         <td>{row.missedHeight.block_height}</td>
-                        <td colSpan={4 + numShards * 3}>
+                        <td colSpan={blockColSpan + numShards * chunkColSpan}>
                             {row.missedHeight.block_producer} missed block
                         </td>
                     </tr>
@@ -204,7 +297,7 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
         // TODO add some style
         const empty = (
             <Fragment>
-                <td colSpan={3}></td>
+                <td colSpan={chunkColSpan}></td>
             </Fragment>
         );
 
@@ -227,8 +320,12 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                     <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>
                         {chunk_info}
                     </td>
-                    <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
-                    <td>{chunk.processing_time_ms}</td>
+                    {displayGasUsed &&
+                        <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
+                    }
+                    {displayChunkProcessingTime &&
+                        <td>{chunk.processing_time_ms}</td>
+                    }
                 </Fragment>
             );
             chunkCells[shardUIIndex!] = fragment;
@@ -258,10 +355,16 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                         knownProducers={knownProducers}
                     />
                 </td>
-                <td>{block.processing_time_ms}</td>
-                <td>{row.blockDelay?.toFixed(3) ?? ''}</td>
-                <td>{block.gas_price_ratio}</td>
-                {block.full_block_missing && <td colSpan={numShards * 3}>header only</td>}
+                {displayBlockDelay &&
+                    <td>{row.blockDelay?.toFixed(3) ?? ''}</td>
+                }
+                {displayBlockProcessingTime &&
+                    <td>{block.processing_time_ms}</td>
+                }
+                {displayGasPriceRatio &&
+                    <td>{block.gas_price_ratio}</td>
+                }
+                {block.full_block_missing && <td colSpan={numShards * chunkColSpan}>header only</td>}
                 {chunkCells}
             </tr>
         );
@@ -281,13 +384,17 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
     }
     return (
         <div>
-            {graphArrows}
-            <table>
-                <tbody>
-                    {header}
-                    {tableRows}
-                </tbody>
-            </table>
+            {blockFields}
+            {chunkFields}
+            <div>
+                {graphArrows}
+                <table>
+                    <tbody>
+                        {header}
+                        {tableRows}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 };
