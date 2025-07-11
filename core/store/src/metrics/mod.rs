@@ -40,6 +40,15 @@ pub static DATABASE_OPS_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub static DATABASE_BATCH_FILE_TIME: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_database_batch_file_time",
+        "Time spent writing database batch files in milliseconds.",
+        vec![0.00002, 0.0001, 0.0002, 0.0005, 0.0008, 0.001, 0.002, 0.004, 0.008, 0.1],
+    )
+    .unwrap()
+});
+
 /// Statistics for tracking database operations by column
 pub(crate) struct ColumnStats {
     pub inserts: u64,
