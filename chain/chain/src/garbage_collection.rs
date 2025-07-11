@@ -173,8 +173,6 @@ impl ChainStore {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: &ShardTracker,
     ) -> Result<(), Error> {
-        let _span =
-            tracing::debug_span!(target: "garbage_collection", "clear_old_blocks_data").entered();
         let tries = runtime_adapter.get_tries();
         let head = self.head()?;
         if head.height == self.get_genesis_height() {
@@ -215,21 +213,21 @@ impl ChainStore {
             chain_store_update.commit()?;
         }
         let mut gc_blocks_remaining = gc_config.gc_blocks_limit;
-        tracing::debug!(
+        let _span = tracing::debug_span!(
             target: "garbage_collection",
+            "clear_old_blocks_data",
             tail,
             fork_tail,
             gc_stop_height,
             chunk_tail,
             gc_blocks_remaining,
-            "Start garbage collection process"
-        );
+        )
+        .entered();
 
         let gc_fork_clean_step = gc_config.gc_fork_clean_step;
         let stop_height = tail.max(fork_tail.saturating_sub(gc_fork_clean_step));
         tracing::debug!(
             target: "garbage_collection",
-            fork_tail,
             stop_height,
             gc_fork_clean_step,
             "Start Fork Cleaning"
@@ -251,8 +249,6 @@ impl ChainStore {
 
         tracing::debug!(
             target: "garbage_collection",
-            tail,
-            gc_stop_height,
             gc_blocks_remaining,
             "Start Canonical Chain Clearing"
         );
@@ -398,7 +394,8 @@ impl ChainStore {
         gc_height_limit: BlockHeightDelta,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "chain", "clear_archive_data").entered();
+        let _span =
+            tracing::debug_span!(target: "chain", "clear_archive_data", gc_height_limit).entered();
 
         let head = self.head()?;
         let gc_stop_height = runtime_adapter.get_gc_stop_height(&head.last_block_hash);
