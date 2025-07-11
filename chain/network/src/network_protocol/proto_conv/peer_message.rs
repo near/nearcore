@@ -16,10 +16,11 @@ use near_primitives::challenge::Challenge;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::compression::CompressedData;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{CURRENT_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature};
 use proto::peer_id_or_hash::Target_type::*;
 use protobuf::MessageField as MF;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseRoutingTableUpdateError {
@@ -335,7 +336,8 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Routed(r) => {
-                    if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
+                    let protocol_version = CURRENT_PROTOCOL_VERSION.load(Ordering::SeqCst);
+                    if ProtocolFeature::UnsignedT1Messages.enabled(protocol_version) {
                         ProtoMT::RoutedV3(proto::RoutedMessageV3 {
                             target: MF::some(r.target().into()),
                             author: MF::some(r.author().public_key().into()),

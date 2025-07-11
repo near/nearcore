@@ -1,4 +1,6 @@
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use std::sync::atomic::Ordering;
+
+use near_primitives::version::{CURRENT_PROTOCOL_VERSION, ProtocolFeature};
 
 use crate::network_protocol::borsh_ as net;
 /// Contains borsh <-> network_protocol conversions.
@@ -251,7 +253,8 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::OptimisticBlock(ob) => net::PeerMessage::OptimisticBlock(ob),
             mem::PeerMessage::Transaction(t) => net::PeerMessage::Transaction(t),
             mem::PeerMessage::Routed(r) => {
-                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
+                let protocol_version = CURRENT_PROTOCOL_VERSION.load(Ordering::SeqCst);
+                if ProtocolFeature::UnsignedT1Messages.enabled(protocol_version) {
                     net::PeerMessage::RoutedV3(r)
                 } else {
                     net::PeerMessage::Routed(Box::new(r.msg_v1()))

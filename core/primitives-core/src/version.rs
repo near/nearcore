@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicU32;
+
 use crate::types::ProtocolVersion;
 
 /// New Protocol features should go here. Features are guarded by their corresponding feature flag.
@@ -443,3 +445,5 @@ const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =
     if cfg!(feature = "nightly") { NIGHTLY_PROTOCOL_VERSION } else { STABLE_PROTOCOL_VERSION };
+
+pub static CURRENT_PROTOCOL_VERSION: AtomicU32 = AtomicU32::new(0);

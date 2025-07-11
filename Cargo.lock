@@ -4516,6 +4516,7 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
+ "near-primitives-core",
  "near-schema-checker-lib",
  "near-store",
  "num-bigint 0.3.3",

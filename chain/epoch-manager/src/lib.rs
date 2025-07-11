@@ -30,6 +30,7 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
+use near_primitives_core::version::CURRENT_PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, HEADER_HEAD_KEY, Store, StoreUpdate};
 use num_rational::BigRational;
@@ -39,6 +40,7 @@ use shard_assignment::build_assignment_restrictions_v77_to_v78;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tracing::{debug, warn};
 pub use validator_selection::proposals_to_epoch_info;
 use validator_stats::get_sortable_validator_online_ratio;
@@ -710,6 +712,7 @@ impl EpochManager {
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &next_next_epoch_id, Arc::new(next_next_epoch_info))?;
+        CURRENT_PROTOCOL_VERSION.store(next_epoch_version, Ordering::SeqCst);
         Ok(())
     }
 

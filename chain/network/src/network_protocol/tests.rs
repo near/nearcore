@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use super::*;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, PeersResponse};
@@ -7,6 +9,7 @@ use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg
 use anyhow::{Context as _, bail};
 use itertools::Itertools as _;
 use near_async::time;
+use near_primitives::version::CURRENT_PROTOCOL_VERSION;
 use rand::Rng as _;
 
 #[test]
@@ -154,7 +157,8 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         let x = m.serialize(Encoding::Proto);
         assert!(x[0] >= 32, "serialize({},PROTO)[0] = {:?}, want >= 32", m, x.get(0));
         let y = m.serialize(Encoding::Borsh);
-        if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
+        let protocol_version = CURRENT_PROTOCOL_VERSION.load(Ordering::SeqCst);
+        if ProtocolFeature::UnsignedT1Messages.enabled(protocol_version) {
             assert!(y[0] <= 30, "serialize({},BORSH)[0] = {:?}, want <= 21", m, y.get(0));
         } else {
             assert!(y[0] <= 21, "serialize({},BORSH)[0] = {:?}, want <= 21", m, y.get(0));
