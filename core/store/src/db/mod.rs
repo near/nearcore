@@ -46,13 +46,13 @@ pub const TRIE_STATE_RESHARDING_STATUS_KEY: &[u8] = b"TRIE_STATE_RESHARDING_STAT
 pub const LATEST_WITNESSES_INFO: &[u8] = b"LATEST_WITNESSES_INFO";
 pub const INVALID_WITNESSES_INFO: &[u8] = b"INVALID_WITNESSES_INFO";
 
-#[derive(Default, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Default, Debug, BorshSerialize, BorshDeserialize, Clone)]
 pub struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,
     pub(crate) is_async: bool,
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Clone)]
 pub(crate) enum DBOp {
     /// Sets `key` to `value`, without doing any checks.
     Set { col: DBCol, key: Vec<u8>, value: Vec<u8> },

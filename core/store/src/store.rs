@@ -259,34 +259,38 @@ impl Store {
 
         if !transaction.ops.is_empty() {
             let timer = DATABASE_BATCH_FILE_TIME.start_timer();
-            // Combine all column names (sorted) into a single string
-            let col_names = transaction
-                .ops
-                .iter()
-                .map(|op| op.col().into())
-                .collect::<BTreeSet<&str>>()
-                .into_iter()
-                .collect::<Vec<_>>()
-                .join("-");
+            let transaction = transaction.clone();
+            std::thread::spawn(move || {
+                // Combine all column names (sorted) into a single string
+                let col_names = transaction
+                    .ops
+                    .iter()
+                    .map(|op| op.col().into())
+                    .collect::<BTreeSet<&str>>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .join("-");
 
-            // Get time in milliseconds since the UNIX epoch
-            let now = Utc::now_utc().unix_timestamp_nanos();
+                // Get time in milliseconds since the UNIX epoch
+                let now = Utc::now_utc().unix_timestamp_nanos();
 
-            // Open a file for writing
-            tracing::info!(
-                target: "store",
-                now = %now,
-                col_names = %col_names,
-                "Writing transaction to file",
-            );
-            let col_names_trunc = &col_names[..std::cmp::min(col_names.len(), 128)];
-            let file_name = format!("/tmp/{}-{}.batch", now, col_names_trunc);
-            let mut file = File::create(&file_name)
-                .map_err(|e| io::Error::new(e.kind(), format!("Failed to create file: {e}")))?;
-            // Write the transaction to the file
-            borsh::to_writer(&mut file, &transaction)?;
-            drop(file);
-            timer.observe_duration();
+                // Open a file for writing
+                tracing::info!(
+                    target: "store",
+                    now = %now,
+                    col_names = %col_names,
+                    "Writing transaction to file",
+                );
+                let col_names_trunc = &col_names[..std::cmp::min(col_names.len(), 128)];
+                let file_name = format!("/tmp/{}-{}.batch", now, col_names_trunc);
+                let mut file =
+                    File::create(&file_name).expect("Failed to create file for transaction batch");
+                // Write the transaction to the file
+                borsh::to_writer(&mut file, &transaction)
+                    .expect("Failed to write transaction to file");
+                drop(file);
+                timer.observe_duration();
+            });
         }
 
         // XXX: Lifetime hack, should move spawning of async writes here where we control the lifetime.
