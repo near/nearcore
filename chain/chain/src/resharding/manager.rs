@@ -223,9 +223,13 @@ impl ReshardingManager {
                 retain_mode,
             )?;
 
-            // Split the parent trie and create a new child trie. Save the trie nodes in store and memtrie.
-            // Note that we only apply the insertions from the trie changes as we don't want to delete
-            // nodes associated with retain_split_shard operation for the child.
+            // Split the parent trie and create a new child trie. Save the trie
+            // nodes in store and memtrie. Note that we only apply the
+            // insertions from the trie changes as we don't want to delete nodes
+            // associated with retain_split_shard operation for the child.
+            //
+            // Please note that the trie_changes are not stored into the store.
+            // The trie_changes are stored later in the state resharding.
             let trie_changes = parent_trie.retain_split_shard(boundary_account, retain_mode)?;
             tries.apply_insertions(&trie_changes, *parent_shard_uid, &mut store_update);
             tries.apply_memtrie_changes(&trie_changes, *parent_shard_uid, block_height);
