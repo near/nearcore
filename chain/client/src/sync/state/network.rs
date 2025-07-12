@@ -72,7 +72,7 @@ impl StateSyncDownloadSourcePeerSharedState {
         };
 
         let Some(request) = self.pending_requests.get(&key) else {
-            tracing::debug!(target: "sync", "Received {:?} expecting {:?}", key, self.pending_requests.keys());
+            tracing::debug!(target: "sync", "Received {:?} from {} expecting {:?}", key, peer_id, self.pending_requests.keys());
             return Err(near_chain::Error::Other("Unexpected state response".to_owned()));
         };
 
