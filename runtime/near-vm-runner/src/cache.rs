@@ -1,5 +1,5 @@
 // cspell:ignore NOENT, RDONLY, RGRP, RUSR, TRUNC, WGRP, WRONLY, WUSR
-// cspell:ignore mikan, fstat, openat, renameat
+// cspell:ignore mikan, fstat, openat, renameat, unlinkat
 
 use crate::ContractCode;
 use crate::errors::ContractPrecompilatonResult;
@@ -235,11 +235,16 @@ struct FilesystemContractRuntimeCacheState {
 
 #[cfg(not(windows))]
 impl FilesystemContractRuntimeCache {
-    pub fn new<SP: AsRef<std::path::Path> + ?Sized>(
+    pub fn new<SP, CCP>(
         home_dir: &std::path::Path,
         store_path: Option<&SP>,
-    ) -> std::io::Result<Self> {
-        Self::with_memory_cache(home_dir, store_path, 0)
+        contract_cache_path: &CCP,
+    ) -> std::io::Result<Self>
+    where
+        SP: AsRef<std::path::Path> + ?Sized,
+        CCP: AsRef<std::path::Path> + ?Sized,
+    {
+        Self::with_memory_cache(home_dir, store_path, contract_cache_path, 0)
     }
 
     /// When setting up a cache of compiled contracts, also set-up a `size` element in-memory
@@ -250,14 +255,26 @@ impl FilesystemContractRuntimeCache {
     ///
     /// Note though, that this memory cache is *not* used to additionally cache files from the
     /// filesystem – OS page cache already does that for us transparently.
-    pub fn with_memory_cache<SP: AsRef<std::path::Path> + ?Sized>(
+    pub fn with_memory_cache<SP, CCP>(
         home_dir: &std::path::Path,
         store_path: Option<&SP>,
+        contract_cache_path: &CCP,
         memory_cache_size: usize,
-    ) -> std::io::Result<Self> {
+    ) -> std::io::Result<Self>
+    where
+        SP: AsRef<std::path::Path> + ?Sized,
+        CCP: AsRef<std::path::Path> + ?Sized,
+    {
         let store_path = store_path.map(AsRef::as_ref).unwrap_or_else(|| "data".as_ref());
-        let path: std::path::PathBuf =
+        let legacy_path: std::path::PathBuf =
             [home_dir, store_path, "contracts".as_ref()].into_iter().collect();
+        let path: std::path::PathBuf =
+            [home_dir, contract_cache_path.as_ref()].into_iter().collect();
+        // Rename the old contracts directory to a new name. This should only succeed the first
+        // time this code encounters the legacy contract directory. If this fails the first time
+        // for some reason, a new directory will be created for the new cache anyway, and future
+        // launches won't be able to overwrite it anymore. This is also fine.
+        let _ = std::fs::rename(legacy_path, &path);
         std::fs::create_dir_all(&path)?;
         let dir =
             rustix::fs::open(&path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())?;
@@ -277,7 +294,7 @@ impl FilesystemContractRuntimeCache {
 
     pub fn test() -> std::io::Result<Self> {
         let tempdir = tempfile::TempDir::new()?;
-        let mut cache = Self::new(tempdir.path(), None::<&str>)?;
+        let mut cache = Self::new(tempdir.path(), None::<&str>, "contract.cache")?;
         Arc::get_mut(&mut cache.state).unwrap().test_temp_dir = Some(tempdir);
         Ok(cache)
     }
@@ -426,27 +443,30 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     /// The cache must be created using `test` method, otherwise this method will panic.
     #[cfg(feature = "test_features")]
     fn test_only_clear(&self) -> std::io::Result<()> {
-        let Some(temp_dir) = &self.state.test_temp_dir else {
+        use rustix::fs::AtFlags;
+        let Some(_temp_dir) = &self.state.test_temp_dir else {
             panic!("must be called for testing only");
         };
         self.memory_cache().clear();
-        let dir_path: std::path::PathBuf =
-            [temp_dir.path(), "data".as_ref(), "contracts".as_ref()].into_iter().collect();
-        for entry in std::fs::read_dir(dir_path).unwrap() {
+        for entry in rustix::fs::Dir::read_from(&self.state.dir).unwrap() {
             if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_dir() {
+                let filename_bytes = entry.file_name().to_bytes();
+                if filename_bytes == b"." || filename_bytes == b".." {
+                    continue;
+                } else if entry.file_type().is_dir() {
                     debug_assert!(
                         false,
-                        "Contract code cache directory should only contain files but found directory: {}",
-                        path.display()
+                        "contract code cache should not contain any directories such as {:?}",
+                        entry.file_name()
                     );
                 } else {
-                    if let Err(err) = std::fs::remove_file(&path) {
+                    if let Err(err) =
+                        rustix::fs::unlinkat(&self.state.dir, entry.file_name(), AtFlags::empty())
+                    {
                         tracing::error!(
-                            "Failed to remove contract cache file {}: {}",
-                            path.display(),
-                            err
+                            file_name = ?entry.file_name(),
+                            err = &err as &dyn std::error::Error,
+                            "Failed to remove contract cache file",
                         );
                     }
                 }

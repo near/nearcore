@@ -21,22 +21,27 @@ def test_sanity_spin_up():
     This is just a sanity check that the neard binary isn’t borked too much.
     See <https://github.com/near/nearcore/issues/4993>.
     """
-    # cspell:ignore atad
-    nodes = cluster.start_cluster(
-        2,
-        0,
-        1,
-        None, [],
-        client_config_changes={1: {
-            'store': {
-                'path': 'atad'
-            }
-        }})
+    # cspell:ignore atad, ehcac, tcartnoc
+    nodes = cluster.start_cluster(2,
+                                  0,
+                                  1,
+                                  None, [],
+                                  client_config_changes={
+                                      1: {
+                                          'store': {
+                                              'path': 'atad'
+                                          },
+                                          'contract_cache_path':
+                                              'atad/ehcac.tcartnoc'
+                                      }
+                                  })
     utils.wait_for_blocks(nodes[0], target=4)
     # Verify that second node created RocksDB in ‘atad’ directory rather than
     # ‘data’.
     assert not (pathlib.Path(nodes[1].node_dir) / 'data').exists()
     assert (pathlib.Path(nodes[1].node_dir) / 'atad').exists()
+    assert not (pathlib.Path(nodes[1].node_dir) / 'atad' /
+                'contract.cache').exists()
 
 
 if __name__ == '__main__':
