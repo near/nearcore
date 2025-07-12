@@ -27,6 +27,7 @@ pub use client_config::{
     default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
     default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
     default_view_client_threads, default_view_client_throttle_period,
+    default_view_client_num_state_requests_per_throttle_period,
 };
 pub use genesis_config::{
     Genesis, GenesisChangeConfig, GenesisConfig, GenesisContents, GenesisRecords,
