@@ -7,6 +7,7 @@
 import unittest
 import sys
 import pathlib
+from collections import defaultdict
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -120,11 +121,11 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
 
             num_headers = 0
             num_parts = 0
-            num_retries = 0
+            num_failed = defaultdict(int)
 
             for key, value in down:
                 if key['result'] != 'success':
-                    num_retries += 1
+                    num_failed[key['source']] += 1
                     continue
 
                 if key['source'] != 'network':
@@ -140,9 +141,9 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
             print(
                 f"Node {i} downloaded {num_headers} state headers and {num_parts} parts from peers"
             )
-            if num_retries > 0:
+            if num_failed:
                 print(
-                    f"WARN: Node {i} made {num_retries} unsuccessful requests for state data"
+                    f"WARN: Node {i} made {dict(num_failed)} unsuccessful requests for state data"
                 )
             assert num_headers > 0 and num_parts > 0, f"Node {i} did not state sync, but is expected to in this test"
 

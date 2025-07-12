@@ -113,9 +113,6 @@ impl ViewClientRequestManager {
 impl Actor for ViewClientActorInner {}
 
 impl ViewClientActorInner {
-    /// Maximum number of state requests allowed per `view_client_throttle_period`.
-    const MAX_NUM_STATE_REQUESTS: usize = 30;
-
     pub fn spawn_actix_actor(
         clock: Clock,
         chain_genesis: ChainGenesis,
@@ -684,7 +681,7 @@ impl ViewClientActorInner {
                 break;
             }
         }
-        if cache.len() >= Self::MAX_NUM_STATE_REQUESTS {
+        if cache.len() >= self.config.view_client_num_state_requests_per_throttle_period {
             return true;
         }
         cache.push_back(now);
