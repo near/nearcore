@@ -28,6 +28,7 @@ const STATE_FILE_END_MARK: u8 = 255;
 pub struct Store {
     storage: Arc<dyn Database>,
     cache: Arc<deserialized_column::Cache>,
+    output_batches: bool,
 }
 
 impl StoreAdapter for Store {
@@ -39,7 +40,11 @@ impl StoreAdapter for Store {
 impl Store {
     pub fn new(storage: Arc<dyn Database>) -> Self {
         let cache = storage.deserialized_column_cache();
-        Self { storage, cache }
+        Self { storage, cache, output_batches: true }
+    }
+
+    pub fn set_output_batches(&mut self, output_batches: bool) {
+        self.output_batches = output_batches;
     }
 
     pub fn database(&self) -> &dyn Database {
@@ -257,7 +262,7 @@ impl Store {
             }
         }
 
-        if !transaction.ops.is_empty() {
+        if self.output_batches && !transaction.ops.is_empty() {
             let timer = DATABASE_BATCH_FILE_TIME.start_timer();
             let transaction = transaction.clone();
             std::thread::spawn(move || {
