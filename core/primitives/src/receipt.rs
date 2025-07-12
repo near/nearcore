@@ -614,12 +614,14 @@ impl Receipt {
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ReceiptEnum {
-    Action(ActionReceipt),
-    Data(DataReceipt),
-    PromiseYield(ActionReceipt),
-    PromiseResume(DataReceipt),
-    GlobalContractDistribution(GlobalContractDistributionReceipt),
+    Action(ActionReceipt) = 0,
+    Data(DataReceipt) = 1,
+    PromiseYield(ActionReceipt) = 2,
+    PromiseResume(DataReceipt) = 3,
+    GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -716,9 +718,11 @@ impl fmt::Debug for ReceivedData {
     serde::Serialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum GlobalContractDistributionReceipt {
-    V1(GlobalContractDistributionReceiptV1),
+    V1(GlobalContractDistributionReceiptV1) = 0,
 }
 
 impl GlobalContractDistributionReceipt {

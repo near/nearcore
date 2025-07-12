@@ -8,8 +8,10 @@ use super::contract_distribution::{CodeBytes, CodeHash};
 /// Stored on disk for each chunk, including missing chunks, in order to
 /// produce a chunk state witness when needed.
 #[derive(Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum StoredChunkStateTransitionData {
-    V1(StoredChunkStateTransitionDataV1),
+    V1(StoredChunkStateTransitionDataV1) = 0,
 }
 
 impl StoredChunkStateTransitionData {

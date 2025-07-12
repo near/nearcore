@@ -102,9 +102,11 @@ impl ChunkStateWitnessAck {
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ChunkStateWitness {
-    V1(ChunkStateWitnessV1),
-    V2(ChunkStateWitnessV2),
+    V1(ChunkStateWitnessV1) = 0,
+    V2(ChunkStateWitnessV2) = 1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]

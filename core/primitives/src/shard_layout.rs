@@ -46,11 +46,13 @@ pub type ShardVersion = u32;
     Eq,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ShardLayout {
-    V0(ShardLayoutV0),
-    V1(ShardLayoutV1),
-    V2(ShardLayoutV2),
+    V0(ShardLayoutV0) = 0,
+    V1(ShardLayoutV1) = 1,
+    V2(ShardLayoutV2) = 2,
 }
 
 /// A shard layout that maps accounts evenly across all shards -- by calculate the hash of account

@@ -300,11 +300,13 @@ impl EdgeInner {
 /// Every edge starts in `Active` state. It can be removed and go to `Removed` state, and then
 /// added back to go to `Active` state, etc.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, Hash, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum EdgeState {
     /// `Edge` is `Active` if there is an active connection between two peers on the network.
-    Active,
+    Active = 0,
     /// `Edge` is in `Removed` state if it was previously in `Active` state, but has been removed.
     /// A signature of one of the peers is requires, otherwise the edge will stay active.
     /// Though, it may be removed  from memory if both peers become unreachable.
-    Removed,
+    Removed = 1,
 }
