@@ -154,11 +154,22 @@ type BlocksTableProps = {
     hideMissingHeights: boolean;
 };
 
+function endorsementRatioBackgroundColor(ratio: number | undefined): string {
+    if (!ratio) {
+        return "transparent";
+    }
+    let endorsementThreshold = 2 / 3;
+    let redRatio = 1.0 - Math.max(ratio - endorsementThreshold, 0) / (1.0 - endorsementThreshold);
+    let red = Math.round(255 * redRatio);
+    return `rgba(${red}, 255, 0, 0.2)`;
+}
+
 const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: BlocksTableProps) => {
     const PROCESSING_TIME_LABEL = "Processing Time (ms)";
     const BLOCK_DELAY_LABEL = "Block Delay (s)";
     const GAS_PRICE_RATIO_LABEL = "Gas Price Ratio";
     const GAS_USED_LABEL = "Gas Used (Tgas)"
+    const ENDORSEMENT_RATIO_LABEL = "Endorsement Ratio"
 
     const [displayBlockDelay, setDisplayBlockDelay] = useState(true);
     const [displayBlockProcessingTime, setDisplayBlockProcessingTime] = useState(false);
@@ -186,6 +197,7 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
 
     const [displayGasUsed, setDisplayGasUsed] = useState(true);
     const [displayChunkProcessingTime, setDisplayChunkProcessingTime] = useState(false);
+    const [displayChunkEndorsementRatio, setDisplayChunkEndorsementRatio] = useState(false);
     const chunkFields = (
         <div className="toggle-fields">
             <span className="toggle-fields-label">Chunk fields:</span>
@@ -198,6 +210,11 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                 enabled={displayChunkProcessingTime}
                 setEnabled={setDisplayChunkProcessingTime}
                 name={PROCESSING_TIME_LABEL}
+            />
+            <ToggleButton
+                enabled={displayChunkEndorsementRatio}
+                setEnabled={setDisplayChunkEndorsementRatio}
+                name={ENDORSEMENT_RATIO_LABEL}
             />
         </div>
     )
@@ -227,7 +244,8 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
 
     const chunkColSpan = 1
         + (displayGasUsed ? 1 : 0)
-        + (displayChunkProcessingTime ? 1 : 0);
+        + (displayChunkProcessingTime ? 1 : 0)
+        + (displayChunkEndorsementRatio ? 1 : 0);
     const header = (
         <Fragment>
             <tr>
@@ -258,6 +276,9 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                         }
                         {displayChunkProcessingTime &&
                             <th><span title={PROCESSING_TIME_LABEL}>Time</span></th>
+                        }
+                        {displayChunkEndorsementRatio &&
+                            <th><span title={ENDORSEMENT_RATIO_LABEL}>E-nt</span></th>
                         }
                     </Fragment>
                 ))}
@@ -325,6 +346,11 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                     }
                     {displayChunkProcessingTime &&
                         <td>{chunk.processing_time_ms}</td>
+                    }
+                    {displayChunkEndorsementRatio &&
+                        <td style={{ backgroundColor: endorsementRatioBackgroundColor(chunk.endorsement_ratio)}}>
+                            {chunk.endorsement_ratio?.toFixed(2)}
+                        </td>
                     }
                 </Fragment>
             );
