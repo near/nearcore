@@ -826,7 +826,7 @@ impl ClientConfig {
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             view_client_throttle_period: Duration::seconds(1),
-            view_client_num_state_requests_per_throttle_period: 1,
+            view_client_num_state_requests_per_throttle_period: 30,
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
             enable_statistics_export: true,
