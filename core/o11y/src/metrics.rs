@@ -206,6 +206,20 @@ pub fn try_create_histogram_vec(
     Ok(histogram)
 }
 
+pub mod config {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static STRAIN_FOR_METRICS: AtomicBool = AtomicBool::new(false);
+
+    pub fn strain_for_metrics(yes: bool) {
+        STRAIN_FOR_METRICS.store(yes, Ordering::Relaxed);
+    }
+
+    pub fn should_strain_for_metrics() -> bool {
+        STRAIN_FOR_METRICS.load(Ordering::Relaxed)
+    }
+}
+
 static EXCEPTIONS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     HashSet::from([
         "flat_storage_cached_changes_num_items",

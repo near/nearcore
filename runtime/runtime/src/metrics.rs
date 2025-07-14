@@ -808,27 +808,30 @@ pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
             shard_id = %apply_state.shard_id,
             block_height = apply_state.block_height)
     .entered();
+    if near_o11y::metrics::config::should_strain_for_metrics() {
+        let Some(trie_recorder_stats) = trie.recorder_stats() else {
+            return;
+        };
+        let mut total_size = SubtreeSize::default();
+        let shard_id_str = apply_state.shard_id.to_string();
+        for column in &trie_recorder_stats.trie_column_sizes {
+            let column_size = column.size.nodes_size.saturating_add(column.size.values_size);
+            CHUNK_RECORDED_TRIE_COLUMN_SIZE
+                .with_label_values(&[shard_id_str.as_str(), column.column_name])
+                .observe(column_size as f64);
 
-    let Some(trie_recorder_stats) = trie.recorder_stats() else {
-        return;
-    };
-
-    let mut total_size = SubtreeSize::default();
-
-    let shard_id_str = apply_state.shard_id.to_string();
-    for column in &trie_recorder_stats.trie_column_sizes {
-        let column_size = column.size.nodes_size.saturating_add(column.size.values_size);
-        CHUNK_RECORDED_TRIE_COLUMN_SIZE
-            .with_label_values(&[shard_id_str.as_str(), column.column_name])
-            .observe(column_size as f64);
-
-        total_size = total_size.saturating_add(column.size);
+            total_size = total_size.saturating_add(column.size);
+        }
+        CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
+            .with_label_values(&[shard_id_str.as_str(), "nodes"])
+            .observe(total_size.nodes_size as f64);
+        CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
+            .with_label_values(&[shard_id_str.as_str(), "values"])
+            .observe(total_size.values_size as f64);
+    } else {
+        let shard_id_str = apply_state.shard_id.to_string();
+        CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
+            .with_label_values(&[shard_id_str.as_str(), "values"])
+            .observe(trie.recorded_storage_size() as f64);
     }
-
-    CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
-        .with_label_values(&[shard_id_str.as_str(), "nodes"])
-        .observe(total_size.nodes_size as f64);
-    CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
-        .with_label_values(&[shard_id_str.as_str(), "values"])
-        .observe(total_size.values_size as f64);
 }
