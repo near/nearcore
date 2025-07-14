@@ -351,7 +351,7 @@ impl ShardWitnessTracker {
 pub struct PartialEncodedStateWitnessTracker {
     /// Sender to send the encoded state witness to the client actor.
     client_sender: ClientSenderForPartialWitness,
-    /// Sender to send the encoded state wtiness to the spice chunk validator.
+    /// Sender to send the encoded state witness to the spice chunk validator.
     spice_witness_validator_sender: SpiceChunkValidatorWitnessSender,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,

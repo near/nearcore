@@ -124,7 +124,7 @@ pub fn spice_pre_validate_chunk_state_witness(
             let prev_execution_result = prev_execution_results
                 .0
                 .get(prev_chunk_header.chunk_hash())
-                .expect("execution results for all prev_block chunks should be availalbe");
+                .expect("execution results for all prev_block chunks should be available");
             chunk_header.into_spice_chunk_execution_header(&prev_execution_result.chunk_extra)
         };
 
@@ -186,7 +186,7 @@ fn validate_source_receipts_proofs(
         let prev_execution_result = prev_execution_results
             .0
             .get(chunk_hash)
-            .expect("execution results for all prev_block chunks should be availalbe");
+            .expect("execution results for all prev_block chunks should be available");
         let Some(receipt_proof) = source_receipt_proofs.get(&chunk_hash) else {
             return Err(Error::InvalidChunkStateWitness(format!(
                 "Missing source receipt proof for chunk {:?}",
