@@ -19,7 +19,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::TGAS;
 use crate::utils::setups::standard_setup_1;
-use crate::utils::transactions::{execute_tx, get_shared_block_hash, run_tx};
+use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block_hash, run_tx};
 
 /// Generating receipts larger than the size limit should cause the transaction to fail.
 #[test]
@@ -40,8 +40,13 @@ fn slow_test_max_receipt_size() {
         account0_signer,
         get_shared_block_hash(&node_datas, &test_loop.data),
     );
-    let large_tx_exec_res =
-        execute_tx(&mut test_loop, &rpc_id, large_tx, &node_datas, Duration::seconds(5));
+    let large_tx_exec_res = execute_tx(
+        &mut test_loop,
+        &rpc_id,
+        TransactionRunner::new(large_tx, true),
+        &node_datas,
+        Duration::seconds(5),
+    );
     assert_matches!(large_tx_exec_res, Err(InvalidTxError::TransactionSizeExceeded { .. }));
 
     // Let's test it by running a contract that generates a large receipt.
@@ -85,7 +90,7 @@ fn slow_test_max_receipt_size() {
     let too_large_receipt_tx_exec_res = execute_tx(
         &mut test_loop,
         &rpc_id,
-        too_large_receipt_tx,
+        TransactionRunner::new(too_large_receipt_tx, true),
         &node_datas,
         Duration::seconds(5),
     )
@@ -313,9 +318,14 @@ fn test_max_receipt_size_yield_resume() {
         300 * TGAS,
         get_shared_block_hash(&node_datas, &test_loop.data),
     );
-    let yield_receipt_res =
-        execute_tx(&mut test_loop, &rpc_id, yield_receipt_tx, &node_datas, Duration::seconds(10))
-            .unwrap();
+    let yield_receipt_res = execute_tx(
+        &mut test_loop,
+        &rpc_id,
+        TransactionRunner::new(yield_receipt_tx, true),
+        &node_datas,
+        Duration::seconds(10),
+    )
+    .unwrap();
 
     let expected_yield_status =
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
@@ -343,9 +353,14 @@ fn test_max_receipt_size_yield_resume() {
         300 * TGAS,
         get_shared_block_hash(&node_datas, &test_loop.data),
     );
-    let resume_receipt_res =
-        execute_tx(&mut test_loop, &rpc_id, resume_receipt_tx, &node_datas, Duration::seconds(5))
-            .unwrap();
+    let resume_receipt_res = execute_tx(
+        &mut test_loop,
+        &rpc_id,
+        TransactionRunner::new(resume_receipt_tx, true),
+        &node_datas,
+        Duration::seconds(5),
+    )
+    .unwrap();
 
     let expected_resume_status =
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {

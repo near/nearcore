@@ -287,3 +287,9 @@ fn test_proto_conv_t1() {
     let message_v3 = make_block_approval_message();
     test_proto_conv_inner(message_v3);
 }
+
+#[test]
+fn test_body_variant_granularity() {
+    let message_v3 = make_chunk_request_message();
+    assert_eq!(message_v3.body_variant(), "PartialEncodedChunkRequest");
+}
