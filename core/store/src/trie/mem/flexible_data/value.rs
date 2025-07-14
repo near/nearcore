@@ -50,8 +50,9 @@ impl FlexibleDataHeader for EncodedValueHeader {
         }
     }
 
-    fn flexible_data_length(&self) -> usize {
+    fn flexible_data_length(&self, real: bool) -> usize {
         let (length, inlined) = self.decode();
+        if real { return length as usize; }
         if inlined { length as usize } else { std::mem::size_of::<CryptoHash>() }
     }
 

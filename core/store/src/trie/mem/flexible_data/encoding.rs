@@ -51,7 +51,7 @@ impl<'a, A: ArenaMut> RawEncoder<'a, A> {
     /// Note that the header itself is NOT encoded; only the flexible part is.
     /// The header is expected to have been encoded earlier.
     pub fn encode_flexible<T: FlexibleDataHeader>(&mut self, header: &T, data: &T::InputData) {
-        let length = header.flexible_data_length();
+        let length = header.flexible_data_length(false);
         header.encode_flexible_data(data, &mut self.data.subslice_mut(self.pos, length));
         self.pos += length;
     }
@@ -97,7 +97,7 @@ impl<'a, M: ArenaMemory> RawDecoder<'a, M> {
     /// and then advances the position by the size of the flexibly-sized part,
     /// as returned by `header.flexible_data_length()`.
     pub fn decode_flexible<T: FlexibleDataHeader>(&mut self, header: &T) -> T::View<'a, M> {
-        let length = header.flexible_data_length();
+        let length = header.flexible_data_length(false);
         let view = header.decode_flexible_data(&self.data.slice(self.pos, length));
         self.pos += length;
         view

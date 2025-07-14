@@ -1,4 +1,4 @@
-use crate::utils::open_rocksdb;
+use crate::utils::{open_rocksdb, MemtrieSizeCalculator};
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_chain::resharding::event_type::ReshardingSplitShardParams;
@@ -10,19 +10,16 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_o11y::default_subscriber;
 use near_o11y::env_filter::EnvFilterBuilder;
-use near_primitives::block::{Block, Tip};
+use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, ShardId};
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::db::RocksDB;
 use near_store::db::rocksdb::snapshot::Snapshot;
-use near_store::trie::mem::node::MemTrieNodeView;
-use near_store::{DBCol, HEAD_KEY, Mode, ShardTries, ShardUId, Temperature};
+use near_store::{DBCol, HEAD_KEY, Mode, ShardUId, Temperature};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
-use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -167,7 +164,7 @@ impl SplitShardTrieCommand {
 
         // Get parent shard size
         let size_calculator = MemtrieSizeCalculator::new(store.chain_store(), &shard_tries, &block);
-        let parent_size = size_calculator.get_shard_trie_size(self.shard_uid)?;
+        let (parent_size, _) = size_calculator.get_shard_trie_size(self.shard_uid, false)?;
         println!("Parent shard size: {parent_size} bytes");
 
         // Re-create epoch manager with new shard layout
@@ -211,8 +208,8 @@ impl SplitShardTrieCommand {
         )?;
         println!("Resharding done");
 
-        let left_size = size_calculator.get_shard_trie_size(left_child_shard)?;
-        let right_size = size_calculator.get_shard_trie_size(right_child_shard)?;
+        let (left_size, _) = size_calculator.get_shard_trie_size(left_child_shard, false)?;
+        let (right_size, _) = size_calculator.get_shard_trie_size(right_child_shard, false)?;
         println!("Left child state size: {left_size} bytes");
         println!("Right child state size: {right_size} bytes");
         println!(
@@ -225,50 +222,5 @@ impl SplitShardTrieCommand {
         println!("Database snapshot removed");
 
         Ok(())
-    }
-}
-
-struct MemtrieSizeCalculator<'a, 'b> {
-    chain_store: ChainStoreAdapter,
-    shard_tries: &'a ShardTries,
-    block: &'b Block,
-}
-
-impl<'a, 'b> MemtrieSizeCalculator<'a, 'b> {
-    fn new(chain_store: ChainStoreAdapter, shard_tries: &'a ShardTries, block: &'b Block) -> Self {
-        Self { chain_store, shard_tries, block }
-    }
-
-    /// Get RAM usage of a shard trie
-    /// Does a BFS of the whole memtrie
-    fn get_shard_trie_size(&self, shard_uid: ShardUId) -> anyhow::Result<u64> {
-        let chunk_extra = self.chain_store.get_chunk_extra(self.block.hash(), &shard_uid)?;
-        let state_root = chunk_extra.state_root();
-        println!("Shard {shard_uid}: state root: {state_root}");
-
-        let memtries = self
-            .shard_tries
-            .get_memtries(shard_uid)
-            .ok_or_else(|| anyhow::anyhow!("Cannot get memtrie"))?;
-        let read_guard = memtries.read();
-        let root_ptr = read_guard.get_root(state_root)?;
-
-        let mut queue = VecDeque::new();
-        queue.push_back(root_ptr);
-        let mut total_size = 0;
-
-        while let Some(node_ptr) = queue.pop_front() {
-            total_size += node_ptr.size_of_allocation() as u64;
-            match node_ptr.view() {
-                MemTrieNodeView::Leaf { .. } => {}
-                MemTrieNodeView::Extension { child, .. } => queue.push_back(child),
-                MemTrieNodeView::Branch { children, .. }
-                | MemTrieNodeView::BranchWithValue { children, .. } => {
-                    queue.extend(children.iter())
-                }
-            }
-        }
-
-        Ok(total_size)
     }
 }

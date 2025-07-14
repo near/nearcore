@@ -39,7 +39,7 @@ pub trait FlexibleDataHeader {
     /// Calculates the length of the flexibly-sized part of the data.
     /// This is used to allocate the right amount of memory for the containing
     /// flexibly-sized structure.
-    fn flexible_data_length(&self) -> usize;
+    fn flexible_data_length(&self, real: bool) -> usize;
 
     /// Encodes the flexibly-sized part of the data into the given memory
     /// slice. This function must be implemented in a way that writes
