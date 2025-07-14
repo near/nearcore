@@ -39,8 +39,8 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::{
-    ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges,
+    ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshot, StateSnapshotConfig,
+    Store, Trie, TrieConfig, TrieUpdate, WrappedTrieChanges,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -52,6 +52,7 @@ use node_runtime::{
     get_signer_and_access_key, set_tx_state_changes, validate_transaction,
     verify_and_charge_tx_ephemeral,
 };
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -90,6 +91,7 @@ impl NightshadeRuntime {
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
+        state_snapshot: Arc<RwLock<Option<StateSnapshot>>>,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -101,12 +103,13 @@ impl NightshadeRuntime {
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let epoch_config = epoch_manager.read().get_epoch_config(genesis_config.protocol_version);
         let shard_uids: Vec<_> = epoch_config.shard_layout.shard_uids().collect();
-        let tries = ShardTries::new(
+        let tries = ShardTries::new_with_state_snapshot(
             store.trie_store(),
             trie_config,
             &shard_uids,
             flat_storage_manager,
             state_snapshot_config,
+            state_snapshot,
         );
         if let Err(err) = tries.maybe_open_state_snapshot(|prev_block_hash: CryptoHash| {
             let epoch_manager = epoch_manager.read();

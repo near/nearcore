@@ -307,11 +307,12 @@ pub fn start_with_config_and_synchronization(
                 epoch_manager.clone(),
                 config.validator_signer.clone(),
             );
-            let view_runtime = NightshadeRuntime::from_config(
+            let view_runtime = NightshadeRuntime::from_config_and_state_snapshot(
                 home_dir,
                 split_store.clone(),
                 &config,
                 view_epoch_manager.clone(),
+                runtime.get_tries().state_snapshot().clone(),
             )
             .context("could not create the transaction runtime")?;
             (view_epoch_manager, view_shard_tracker, view_runtime)

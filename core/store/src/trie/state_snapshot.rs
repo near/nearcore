@@ -370,6 +370,13 @@ impl ShardTries {
             .state_snapshots_dir()
             .ok_or_else(|| anyhow::anyhow!("State snapshots disabled"))?;
 
+        let mut guard = self.state_snapshot().write();
+        if guard.is_some() {
+            // Snapshot is already opened, this can be the case for the archival node,
+            // where the view_runtime is given the same state snapshot as the main runtime.
+            return Ok(());
+        }
+
         // directly return error if no snapshot is found
         let snapshot_hash = self.store().get_state_snapshot_hash()?;
 
@@ -387,7 +394,6 @@ impl ShardTries {
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
 
         let shard_indexes_and_uids = get_shard_indexes_and_uids_fn(snapshot_hash)?;
-        let mut guard = self.state_snapshot().write();
         *guard = Some(StateSnapshot::new(
             store,
             snapshot_hash,

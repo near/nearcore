@@ -67,6 +67,24 @@ impl ShardTries {
         flat_storage_manager: FlatStorageManager,
         state_snapshot_config: StateSnapshotConfig,
     ) -> Self {
+        Self::new_with_state_snapshot(
+            store,
+            trie_config,
+            shard_uids,
+            flat_storage_manager,
+            state_snapshot_config,
+            Default::default(),
+        )
+    }
+
+    pub fn new_with_state_snapshot(
+        store: TrieStoreAdapter,
+        trie_config: TrieConfig,
+        shard_uids: &[ShardUId],
+        flat_storage_manager: FlatStorageManager,
+        state_snapshot_config: StateSnapshotConfig,
+        state_snapshot: Arc<RwLock<Option<StateSnapshot>>>,
+    ) -> Self {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         metrics::HAS_STATE_SNAPSHOT.set(0);
@@ -78,7 +96,7 @@ impl ShardTries {
             view_caches: Mutex::new(view_caches),
             flat_storage_manager,
             prefetchers: Default::default(),
-            state_snapshot: Default::default(),
+            state_snapshot,
             state_snapshot_config,
             temp_split_shard_map: Default::default(),
         }))
@@ -214,7 +232,7 @@ impl ShardTries {
         self.state_snapshot_config().state_snapshots_dir()
     }
 
-    pub(crate) fn state_snapshot(&self) -> &Arc<RwLock<Option<StateSnapshot>>> {
+    pub fn state_snapshot(&self) -> &Arc<RwLock<Option<StateSnapshot>>> {
         &self.0.state_snapshot
     }
 

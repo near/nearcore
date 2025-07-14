@@ -55,10 +55,11 @@ use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::{
     ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig, StateSnapshotType,
 };
-use near_store::{StateSnapshotConfig, Store, TrieConfig};
+use near_store::{StateSnapshot, StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use num_rational::Rational32;
+use parking_lot::RwLock;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -699,6 +700,22 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
+        Self::from_config_and_state_snapshot(
+            home_dir,
+            store,
+            config,
+            epoch_manager,
+            Default::default(),
+        )
+    }
+
+    pub fn from_config_and_state_snapshot(
+        home_dir: &Path,
+        store: Store,
+        config: &NearConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        state_snapshot: Arc<RwLock<Option<StateSnapshot>>>,
+    ) -> std::io::Result<Arc<NightshadeRuntime>> {
         #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
         let state_snapshot_config =
             match config.config.store.state_snapshot_config.state_snapshot_type {
@@ -728,6 +745,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
+            state_snapshot,
         ))
     }
 }
