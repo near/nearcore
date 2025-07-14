@@ -16,8 +16,8 @@ use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
-use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
-use near_chain_configs::default_orphan_state_witness_max_size;
+use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
     MutableValidatorSigner, ReshardingConfig, ReshardingHandle, TrackedShardsConfig,
@@ -443,7 +443,7 @@ pub fn setup_client_with_runtime(
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: MutableValidatorSigner,
     resharding_sender: ReshardingSender,
-) -> Client {
+) -> (Client, ChunkValidationActorInner) {
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.save_tx_outcomes = save_tx_outcomes;
@@ -452,49 +452,23 @@ pub fn setup_client_with_runtime(
     let multi_spawner = AsyncComputationMultiSpawner::default()
         .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
 
-    // Create a chunk validation actor
-    let chain_store = ChainStore::new(runtime.store().clone(), false, chain_genesis.height);
-    let state_roots = near_store::get_genesis_state_roots(runtime.store())
-        .expect("Failed to get genesis state roots")
-        .expect("Genesis should be initialized");
-    let (genesis_block, _) = Chain::make_genesis_block(
-        epoch_manager.as_ref(),
-        runtime.as_ref(),
-        &chain_genesis,
-        state_roots,
-    )
-    .expect("Failed to make genesis block");
-    let genesis_block = Arc::new(genesis_block);
-
-    let chunk_validation_actor = ChunkValidationActorInner::spawn_actix_actors(
-        chain_store,
-        genesis_block,
-        epoch_manager.clone(),
-        runtime.clone(),
-        network_adapter.clone().into_sender(),
-        validator_signer.clone(),
-        false,
-        false,
-        Arc::new(RayonAsyncComputationSpawner),
-        default_orphan_state_witness_max_size().as_u64(),
-        1,
-    );
-
+    // TestEnv bypasses chunk validation actors and handles chunk validation
+    // directly through propagate_chunk_state_witnesses method
     let chunk_validation_sender = ChunkValidationSender {
-        chunk_state_witness: chunk_validation_actor.clone().with_auto_span_context().into_sender(),
-        orphan_witness: chunk_validation_actor.clone().with_auto_span_context().into_sender(),
-        block_notification: chunk_validation_actor.with_auto_span_context().into_sender(),
+        chunk_state_witness: noop().into_sender(),
+        orphan_witness: noop().into_sender(),
+        block_notification: noop().into_sender(),
     };
     let mut client = Client::new(
         clock,
         config,
         chain_genesis,
-        epoch_manager,
+        epoch_manager.clone(),
         shard_tracker,
-        runtime,
-        network_adapter,
+        runtime.clone(),
+        network_adapter.clone(),
         shards_manager_adapter.into_sender(),
-        validator_signer,
+        validator_signer.clone(),
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
@@ -509,7 +483,24 @@ pub fn setup_client_with_runtime(
     )
     .unwrap();
     client.sync_handler.sync_status = SyncStatus::NoSync;
-    client
+
+    // Create chunk validation actor to use it later for SW validation
+    let chain_store = client.chain.chain_store().clone();
+    let genesis_block = client.chain.genesis_block();
+    let chunk_validation_inner = ChunkValidationActorInner::new(
+        chain_store,
+        genesis_block,
+        epoch_manager,
+        runtime,
+        network_adapter.into_sender(),
+        validator_signer,
+        false,
+        false,
+        Arc::new(RayonAsyncComputationSpawner),
+        near_chain_configs::default_orphan_state_witness_max_size().as_u64(),
+    );
+
+    (client, chunk_validation_inner)
 }
 
 pub fn setup_synchronous_shards_manager(
