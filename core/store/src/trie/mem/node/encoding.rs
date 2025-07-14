@@ -154,8 +154,8 @@ impl MemTrieNodeId {
                 let mut data = RawEncoder::new(
                     arena,
                     LeafHeader::SERIALIZED_SIZE
-                        + extension_header.flexible_data_length()
-                        + value_header.flexible_data_length(),
+                        + extension_header.flexible_data_length(false)
+                        + value_header.flexible_data_length(false),
                 );
                 data.encode(LeafHeader {
                     common: CommonHeader { refcount: 0, kind: NodeKind::Leaf },
@@ -170,7 +170,7 @@ impl MemTrieNodeId {
                 let extension_header = EncodedExtensionHeader::from_input(&extension);
                 let mut data = RawEncoder::new(
                     arena,
-                    ExtensionHeader::SERIALIZED_SIZE + extension_header.flexible_data_length(),
+                    ExtensionHeader::SERIALIZED_SIZE + extension_header.flexible_data_length(false),
                 );
                 let (node_hash, memory_usage) = node_hash_and_memory_usage.unwrap();
                 data.encode(ExtensionHeader {
@@ -186,7 +186,7 @@ impl MemTrieNodeId {
                 let children_header = EncodedChildrenHeader::from_input(&children);
                 let mut data = RawEncoder::new(
                     arena,
-                    BranchHeader::SERIALIZED_SIZE + children_header.flexible_data_length(),
+                    BranchHeader::SERIALIZED_SIZE + children_header.flexible_data_length(false),
                 );
                 let (node_hash, memory_usage) = node_hash_and_memory_usage.unwrap();
                 data.encode(BranchHeader {
@@ -203,8 +203,8 @@ impl MemTrieNodeId {
                 let mut data = RawEncoder::new(
                     arena,
                     BranchWithValueHeader::SERIALIZED_SIZE
-                        + children_header.flexible_data_length()
-                        + value_header.flexible_data_length(),
+                        + children_header.flexible_data_length(false)
+                        + value_header.flexible_data_length(false),
                 );
                 let (node_hash, memory_usage) = node_hash_and_memory_usage.unwrap();
                 data.encode(BranchWithValueHeader {
@@ -256,7 +256,7 @@ impl MemTrieNodeId {
             for child in node_ptr.view().iter_children() {
                 children_to_unref.push(child.id().pos);
             }
-            let alloc_size = node_ptr.size_of_allocation();
+            let alloc_size = node_ptr.size_of_allocation(false);
             arena.dealloc(self.pos, alloc_size);
             for child in &children_to_unref {
                 MemTrieNodeId { pos: *child }.remove_ref(arena);
@@ -323,29 +323,29 @@ impl<'a, M: ArenaMemory> MemTrieNodePtr<'a, M> {
 
     /// Calculates the size of the allocation with only a pointer to the start
     /// of the trie node's allocation.
-    pub fn size_of_allocation(&self) -> usize {
+    pub fn size_of_allocation(&self, real: bool) -> usize {
         let mut decoder = self.decoder();
         let kind = decoder.peek::<CommonHeader>().kind;
         match kind {
             NodeKind::Leaf => {
                 let header = decoder.decode::<LeafHeader>();
                 LeafHeader::SERIALIZED_SIZE
-                    + header.extension.flexible_data_length()
-                    + header.value.flexible_data_length()
+                    + header.extension.flexible_data_length(real)
+                    + header.value.flexible_data_length(real)
             }
             NodeKind::Extension => {
                 let header = decoder.decode::<ExtensionHeader>();
-                ExtensionHeader::SERIALIZED_SIZE + header.extension.flexible_data_length()
+                ExtensionHeader::SERIALIZED_SIZE + header.extension.flexible_data_length(real)
             }
             NodeKind::Branch => {
                 let header = decoder.decode::<BranchHeader>();
-                BranchHeader::SERIALIZED_SIZE + header.children.flexible_data_length()
+                BranchHeader::SERIALIZED_SIZE + header.children.flexible_data_length(real)
             }
             NodeKind::BranchWithValue => {
                 let header = decoder.decode::<BranchWithValueHeader>();
                 BranchWithValueHeader::SERIALIZED_SIZE
-                    + header.children.flexible_data_length()
-                    + header.value.flexible_data_length()
+                    + header.children.flexible_data_length(real)
+                    + header.value.flexible_data_length(real)
             }
         }
     }

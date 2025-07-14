@@ -33,7 +33,7 @@ impl FlexibleDataHeader for EncodedChildrenHeader {
         EncodedChildrenHeader { mask }
     }
 
-    fn flexible_data_length(&self) -> usize {
+    fn flexible_data_length(&self, _real: bool) -> usize {
         self.mask.count_ones() as usize * size_of::<usize>()
     }
 

@@ -14,6 +14,7 @@ pub(crate) struct SetVersionCommand {
 }
 
 impl SetVersionCommand {
+    #[allow(dead_code)]
     pub(crate) fn run(
         &self,
         home_dir: &Path,

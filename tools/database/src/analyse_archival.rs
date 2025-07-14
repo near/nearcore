@@ -4,24 +4,31 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::usize;
 
+use anyhow::Context;
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use clap::Parser;
-use near_chain::Block;
-use near_primitives::block::MaybeNew;
+use near_chain::types::RuntimeAdapter;
+use near_chain::{Block, ChainStore};
+use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_primitives::block::ChunkType;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{account_id_to_shard_uid, get_block_shard_uid, ShardLayout};
+use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::adapter::flat_store::decode_flat_state_db_key;
+use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store};
+use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 
-use crate::utils::open_rocksdb;
+use crate::utils::{open_rocksdb, MemtrieSizeCalculator};
 
+/// Example usage: neard database analyse-archival memtrie --shard-id 0,1,2
 #[derive(Parser)]
 pub(crate) struct AnalyseArchivalCommand {
     /// Number entries to consider, corresponds to iterator `.take`
@@ -32,50 +39,120 @@ pub(crate) struct AnalyseArchivalCommand {
     #[arg(long, default_value_t = 3)]
     compression_level: usize,
 
-    /// Columns to analyse
-    #[arg(long)]
-    columns: Vec<AnalyseColumn>,
+    /// Stuff to analyze
+    #[arg(long, use_value_delimiter = true, value_delimiter = ',')]
+    targets: Vec<AnalyseTarget>,
+
+    #[clap(long, use_value_delimiter = true, value_delimiter = ',')]
+    shard_id: Option<Vec<ShardId>>,
 }
 
 #[derive(clap::ValueEnum, Clone)]
-pub enum AnalyseColumn {
+pub enum AnalyseTarget {
     BlockRelatedData,
     ChunkRelatedData,
     FlatState,
     StateChanges,
+    Memtrie,
 }
 
 impl AnalyseArchivalCommand {
-    pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
+    pub(crate) fn run(&self, home: &PathBuf, genesis_validation: GenesisValidationMode) -> anyhow::Result<()> {
         let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
         let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
-        eprintln!("Start archival analysis");
-        for column in &self.columns {
-            match column {
-                AnalyseColumn::FlatState => {
-                    self.analyse_flat_state(store.clone());
+        let near_config = nearcore::config::load_config(&home, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        let genesis_config = &near_config.genesis.config;
+        let chain_store = ChainStore::new(
+            store.clone(),
+            true,
+            near_config.genesis.config.transaction_validity_period,
+        );
+        let final_head = chain_store.final_head()?;
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
+        let runtime =
+            NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager.clone())
+                .context("could not create the transaction runtime")?;
+        let block = chain_store.get_block(&final_head.prev_block_hash)?;
+        let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id)?;
+        let shard_uids: Vec<ShardUId> = match &self.shard_id {
+            None => shard_layout.shard_uids().collect(),
+            Some(shard_ids) => shard_layout.shard_uids()
+                .filter(|uid| shard_ids.contains(&uid.shard_id()))
+                .map(|uid| uid)
+                .collect(),
+        };
+        eprintln!("Start archival analysis for shards: {shard_uids:?}");
+        for target in &self.targets {
+            match target {
+                AnalyseTarget::FlatState => {
+                    self.analyse_flat_state(store.clone(), &shard_uids);
                 }
-                AnalyseColumn::StateChanges => {
-                    self.analyse_state_changes(store.clone());
+                AnalyseTarget::StateChanges => {
+                    self.analyse_state_changes(store.clone(), &shard_layout);
                 }
-                AnalyseColumn::BlockRelatedData => {
+                AnalyseTarget::BlockRelatedData => {
                     self.analyse_block_related_data(store.clone());
                 }
-                AnalyseColumn::ChunkRelatedData => {
-                    self.analyse_chunk_related_data(store.clone());
+                AnalyseTarget::ChunkRelatedData => {
+                    self.analyse_chunk_related_data(store.clone(), &shard_layout);
+                }
+                AnalyseTarget::Memtrie => {
+                    self.analyze_memtrie(store.clone(), &runtime, &shard_uids, &block);
                 }
             }
         }
         Ok(())
     }
 
-    fn analyse_flat_state(&self, store: Store) {
+    fn analyze_memtrie(&self, store: Store, runtime: &Arc<NightshadeRuntime>, shards: &Vec<ShardUId>, block: &Block) {
+        eprintln!("Analyse Trie");
+        let mut total_inlined_memtries = 0;
+        let mut total_inlined_leaves = 0;
+        let mut total_non_inlined_memtries = 0;
+        let mut total_non_inlined_leaves = 0;
+        for shard_uid in shards {
+            eprintln!("Analysing shard {}", shard_uid.shard_id());
+            let shard_tries = runtime.get_tries();
+            shard_tries.load_memtrie(&shard_uid, None, false).unwrap();
+
+            let size_calculator = MemtrieSizeCalculator::new(store.chain_store(), &shard_tries, &block);
+            let (memtrie_size, leaves_size) = size_calculator.get_shard_trie_size(*shard_uid, false).unwrap();
+            println!(
+                "[Inlined] trie size: {} bytes, leaves: {}",
+                ByteSize::b(memtrie_size as u64),
+                ByteSize::b(leaves_size as u64),
+            );
+            total_inlined_memtries += memtrie_size;
+            total_inlined_leaves += leaves_size;
+            let (memtrie_size, leaves_size) = size_calculator.get_shard_trie_size(*shard_uid, true).unwrap();
+            println!(
+                "[Non-inlined] trie size: {} bytes, leaves: {}",
+                ByteSize::b(memtrie_size as u64),
+                ByteSize::b(leaves_size as u64),
+            );
+            total_non_inlined_memtries += memtrie_size;
+            total_non_inlined_leaves += leaves_size;
+            shard_tries.unload_memtrie(shard_uid);
+        }
+        println!(
+            "Total inlined memtries: {}, leaves: {}",
+            ByteSize::b(total_inlined_memtries as u64),
+            ByteSize::b(total_inlined_leaves as u64),
+        );
+        println!(
+            "Total non-inlined memtries: {}, leaves: {}",
+            ByteSize::b(total_non_inlined_memtries as u64),
+            ByteSize::b(total_non_inlined_leaves as u64),
+        );
+    }
+
+    fn analyse_flat_state(&self, store: Store, shards: &Vec<ShardUId>) {
         eprintln!("Analyse FlatState column");
-        let shard_layout = ShardLayout::get_simple_nightshade_layout_v3();
-        let shard_uids = shard_layout.shard_uids();
-        let mut total_stats = SizeStats::default();
+        let mut total_size = 0;
         let mut total_compressed = 0;
-        for shard_uid in shard_uids {
+        for shard_uid in shards {
             eprintln!("Analysing shard {}", shard_uid.shard_id());
             let mut shard_stats = SizeStats::default();
             let db_key_from = shard_uid.to_bytes().to_vec();
@@ -87,8 +164,7 @@ impl AnalyseArchivalCommand {
             {
                 let (key, value) = res.unwrap();
                 let (key_shard_uid, trie_key) = decode_flat_state_db_key(&key).unwrap();
-                assert_eq!(shard_uid, key_shard_uid);
-                total_stats.update(&trie_key, &value);
+                assert_eq!(*shard_uid, key_shard_uid);
                 shard_stats.update(&trie_key, &value);
                 shard_entries.push((trie_key, value));
             }
@@ -102,18 +178,18 @@ impl AnalyseArchivalCommand {
                 ByteSize::b(data.len() as u64),
                 ByteSize::b(compressed.len() as u64)
             );
+            total_size += data.len();
             total_compressed += compressed.len();
         }
-        eprintln!("Overall stats: {}", total_stats);
-        eprintln!("Overall compressed size: {}", ByteSize::b(total_compressed as u64));
+        eprintln!("Total size: {}", ByteSize::b(total_size as u64));
+        eprintln!("Total compressed size: {}", ByteSize::b(total_compressed as u64));
     }
 
-    fn analyse_state_changes(&self, store: Store) {
+    fn analyse_state_changes(&self, store: Store, shard_layout: &ShardLayout) {
         eprintln!("Analyse StateChanges column");
         let mut blocks = HashSet::new();
         let mut shard_changes =
             HashMap::<ShardUId, HashMap<CryptoHash, Vec<RawStateChangesWithTrieKey>>>::new();
-        let shard_layout = ShardLayout::get_simple_nightshade_layout_v3();
         for res in store.iter(DBCol::StateChanges).take(self.limit()) {
             let (key, value) = res.unwrap();
             let changes: RawStateChangesWithTrieKey = borsh::from_slice(value.as_ref()).unwrap();
@@ -121,7 +197,7 @@ impl AnalyseArchivalCommand {
             let block_hash = CryptoHash::try_from(key.split_at(CryptoHash::LENGTH).0).unwrap();
             blocks.insert(block_hash);
             let shard_uid = if let Some(account_id) = changes.trie_key.get_account_id() {
-                account_id_to_shard_uid(&account_id, &shard_layout)
+                shard_layout.account_id_to_shard_uid(&account_id)
             } else {
                 KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
                     &key,
@@ -137,7 +213,7 @@ impl AnalyseArchivalCommand {
                 .or_default()
                 .push(changes);
         }
-        eprintln!("Blocks count: {}", blocks.len());
+        let mut total_size = 0;
         let mut total_compressed = 0;
         for shard_uid in shard_layout.shard_uids() {
             eprintln!("Analyse changes for shard {}", shard_uid.shard_id());
@@ -149,21 +225,24 @@ impl AnalyseArchivalCommand {
             let avg_per_block = bytes.len() / block_changes.len();
             let compressed =
                 zstd::encode_all(bytes.as_slice(), self.compression_level as i32).unwrap();
+            total_size += bytes.len();
             total_compressed += compressed.len();
             eprintln!(
                 "Changes raw size: {}, compressed size {}, avg per block: {}",
                 ByteSize::b(bytes.len() as u64),
                 ByteSize::b(compressed.len() as u64),
-                ByteSize::b(avg_per_block as u64)
+                ByteSize::b(avg_per_block as u64),
             );
         }
+        eprintln!("Blocks count: {}", blocks.len());
+        eprintln!("Total size {}", ByteSize::b(total_size as u64));
         eprintln!("Total compressed size {}", ByteSize::b(total_compressed as u64));
     }
 
     fn analyse_block_related_data(&self, store: Store) {
         eprintln!("Analyse block-related data");
         let mut block_data = HashMap::<CryptoHash, Vec<Box<[u8]>>>::new();
-        for col in [DBCol::Block, DBCol::BlockExtra, DBCol::BlockInfo, DBCol::TransactionResultForBlock] {
+        for col in [DBCol::Block, DBCol::BlockInfo, DBCol::TransactionResultForBlock] {
             eprintln!("- Analysing column: {col}");
             let mut stats = SizeStats::default();
             let mut skipped_cnt = 0;
@@ -226,19 +305,21 @@ impl AnalyseArchivalCommand {
         Ok(borsh::to_vec(&chunk_related_data).unwrap())
     }
 
-    fn analyse_chunk_related_data(&self, store: Store) {
+    fn analyse_chunk_related_data(&self, store: Store, shard_layout: &ShardLayout) {
         eprintln!("Analyse chunk-related data");
         let mut shard_data = HashMap::<ShardId, HashMap::<ChunkHash, Vec<Vec<u8>>>>::new();
         let mut stats = HashMap::<ShardId, SizeStats>::new();
-        let shard_layout = ShardLayout::get_simple_nightshade_layout_v3();
         for res in store
             .iter_ser::<Block>(DBCol::Block)
             .take(self.limit())
         {
             let (key, block) = res.unwrap();
+            if block.header().is_genesis() {
+                continue;
+            }
             let block_hash = CryptoHash::try_from_slice(&key).unwrap();
             for chunk in block.chunks().iter() {
-                let MaybeNew::New(chunk) = chunk else { continue; };
+                let ChunkType::New(chunk) = chunk else { continue; };
                 let chunk_hash = chunk.chunk_hash();
                 let shard_id = chunk.shard_id();
                 let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
@@ -247,7 +328,7 @@ impl AnalyseArchivalCommand {
                     continue;
                 };
                 stats.entry(shard_id).or_default().update(chunk_hash.as_bytes(), &data);
-                shard_data.entry(shard_id).or_default().entry(chunk_hash).or_default().push(data);
+                shard_data.entry(shard_id).or_default().entry(chunk_hash.clone()).or_default().push(data);
             }
         }
         let mut overall_size = 0;
@@ -302,7 +383,7 @@ impl Display for SizeStats {
             self.keys,
             self.values,
             self.keys + self.values,
-            ByteSize::b((self.keys.0 + self.values.0) / self.cnt as u64),
+            ByteSize::b((self.keys.0 + self.values.0) / (self.cnt + 1) as u64),
         )
     }
 }

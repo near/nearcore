@@ -21,7 +21,7 @@ impl FlexibleDataHeader for EncodedExtensionHeader {
         EncodedExtensionHeader { length: extension.len() as u16 }
     }
 
-    fn flexible_data_length(&self) -> usize {
+    fn flexible_data_length(&self, _real: bool) -> usize {
         self.length as usize
     }
 
