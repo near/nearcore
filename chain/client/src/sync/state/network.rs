@@ -188,7 +188,7 @@ impl StateSyncDownloadSourcePeer {
             }
         };
 
-        tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "state_sync: p2p request sent");
+        tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request sent");
 
         let state_value =
             PendingPeerRequestValue { peer_id: Some(request_sent_to_peer.clone()), sender };
@@ -205,7 +205,7 @@ impl StateSyncDownloadSourcePeer {
         select! {
             _ = clock.sleep_until(deadline) => {
                 increment_download_count(key.shard_id, typ, "network", "timeout");
-                tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "state_sync: p2p request timed out");
+                tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request timed out");
                 Err(near_chain::Error::Other("Timeout".to_owned()))
             }
             _ = cancel.cancelled() => {
@@ -215,7 +215,7 @@ impl StateSyncDownloadSourcePeer {
             result = receiver => {
                 match result {
                     Ok(result) => {
-                        tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "state_sync: p2p request succeeded");
+                        tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request succeeded");
                         increment_download_count(key.shard_id, typ, "network", "success");
                         Ok(result)
                     }
