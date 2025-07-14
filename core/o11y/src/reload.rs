@@ -86,11 +86,12 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
             config.rust_log.as_deref(),
             config.verbose_module.as_deref(),
             config.opentelemetry.as_deref(),
+            config.expensive_metrics,
         )
     } else {
         // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
         // when the node was started.
-        reload(None, None, None)
+        reload(None, None, None, None)
     };
     match result {
         Ok(_) => {
@@ -118,7 +119,10 @@ pub fn reload(
     rust_log: Option<&str>,
     verbose_module: Option<&str>,
     opentelemetry: Option<&str>,
+    expensive_metrics: Option<bool>,
 ) -> Result<(), Vec<ReloadError>> {
+    crate::metrics::config::strain_for_metrics(expensive_metrics.unwrap_or_default());
+
     let log_reload_result = LOG_LAYER_RELOAD_HANDLE.get().map_or(
         Err(ReloadError::NoLogReloadHandle),
         |reload_handle| {
