@@ -245,8 +245,11 @@ impl Trie {
         let local_trie_creation_timer = metrics::GET_STATE_PART_CREATE_TRIE_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
-        let local_state_part_trie =
-            Trie::new(Arc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
+        let local_state_part_trie = Trie::new(
+            Arc::new(TrieMemoryPartialStorage::<false>::default()),
+            StateRoot::new(),
+            None,
+        );
         let local_state_part_nodes = local_state_part_trie
             .update(all_state_part_items.into_iter(), AccessOptions::DEFAULT)?
             .insertions;
@@ -267,7 +270,7 @@ impl Trie {
                 .iter()
                 .map(|entry| (*entry.hash(), entry.payload().to_vec().into())),
         );
-        let partial_storage = Arc::new(TrieMemoryPartialStorage::new(all_nodes));
+        let partial_storage = Arc::new(TrieMemoryPartialStorage::<true>::new(all_nodes));
         let final_trie = Trie::new(Arc::clone(&partial_storage) as _, self.root, None);
         final_trie.visit_nodes_for_state_part(part_id)?;
         drop(final_trie);
@@ -423,7 +426,7 @@ impl Trie {
     ) -> Result<(), StorageError> {
         let PartialState::TrieValues(nodes) = &partial_state;
         let num_nodes = nodes.len();
-        let (trie, storage) = Trie::from_recorded_storage_with_storage(
+        let (trie, storage) = Trie::from_recorded_storage_with_storage::<true>(
             PartialStorage { nodes: partial_state },
             *state_root,
             false,

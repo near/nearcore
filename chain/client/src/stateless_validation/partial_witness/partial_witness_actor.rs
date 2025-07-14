@@ -42,6 +42,9 @@ use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::{ContractCode, ContractRuntimeCache, get_contract_cache_key};
 use rand::Rng;
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+};
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
@@ -282,7 +285,7 @@ impl PartialWitnessActor {
         let (parts, encoded_length) = encoder.encode(&witness_bytes);
 
         chunk_validators
-            .iter()
+            .par_iter()
             .zip_eq(parts)
             .enumerate()
             .map(|(part_ord, (chunk_validator, part))| {
@@ -292,13 +295,13 @@ impl PartialWitnessActor {
                     epoch_id,
                     chunk_header.clone(),
                     part_ord,
-                    part.unwrap().to_vec(),
+                    part.unwrap().into_vec(),
                     encoded_length,
                     signer,
                 );
                 (chunk_validator.clone(), partial_witness)
             })
-            .collect_vec()
+            .collect()
     }
 
     fn generate_contract_deploys_parts(
@@ -318,7 +321,7 @@ impl PartialWitnessActor {
         let signer = self.my_validator_signer()?;
 
         Ok(part_owners
-            .into_iter()
+            .into_par_iter()
             .zip_eq(parts)
             .enumerate()
             .map(|(part_ord, (validator, part))| {
@@ -326,14 +329,14 @@ impl PartialWitnessActor {
                     key.clone(),
                     PartialEncodedContractDeploysPart {
                         part_ord,
-                        data: part.unwrap().to_vec().into_boxed_slice(),
+                        data: part.unwrap(),
                         encoded_length,
                     },
                     &signer,
                 );
                 (validator, partial_deploys)
             })
-            .collect_vec())
+            .collect())
     }
 
     // Break the state witness into parts and send each part to the corresponding chunk validator owner.
