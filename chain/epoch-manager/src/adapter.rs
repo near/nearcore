@@ -53,6 +53,8 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn genesis_protocol_version(&self) -> ProtocolVersion;
 
+    fn latest_protocol_version(&self) -> ProtocolVersion;
+
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         self.get_epoch_info(epoch_id).is_ok()
@@ -787,6 +789,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn genesis_protocol_version(&self) -> ProtocolVersion {
         let epoch_manager = self.read();
         epoch_manager.config.genesis_protocol_version()
+    }
+
+    fn latest_protocol_version(&self) -> ProtocolVersion {
+        let epoch_manager = self.read();
+        epoch_manager.latest_protocol_version
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {

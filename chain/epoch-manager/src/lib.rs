@@ -144,6 +144,8 @@ pub struct EpochManager {
     epoch_info_aggregator: EpochInfoAggregator,
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
+    /// Latest protocol version.
+    latest_protocol_version: ProtocolVersion,
     /// Cache for chunk_validators
     chunk_validators_cache:
         SyncLruCache<(EpochId, ShardId, BlockHeight), Arc<ChunkValidatorAssignments>>,
@@ -242,6 +244,7 @@ impl EpochManager {
             #[cfg(test)]
             epoch_info_aggregator_loop_counter: Default::default(),
             largest_final_height: 0,
+            latest_protocol_version: 0,
         };
         if !epoch_manager.has_epoch_info(&EpochId::default())? {
             epoch_manager.initialize_genesis_epoch_info(validators)?;
@@ -767,6 +770,7 @@ impl EpochManager {
                 self.save_block_info(&mut store_update, Arc::clone(&block_info))?;
                 if block_info.last_finalized_height() > self.largest_final_height {
                     self.largest_final_height = block_info.last_finalized_height();
+                    self.latest_protocol_version = *block_info.latest_protocol_version();
 
                     // Update epoch info aggregator.  We only update the if
                     // there is a change in the last final block.  This way we
