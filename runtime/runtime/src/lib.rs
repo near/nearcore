@@ -2621,10 +2621,10 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
 /// Interface provided for gas cost estimations.
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
-    use crate::congestion_control::ReceiptSinkV2Info;
     use crate::ApplyState;
     use crate::BandwidthSchedulerOutput;
     use crate::congestion_control::ReceiptSinkV2;
+    use crate::congestion_control::ReceiptSinkV2Info;
     use crate::congestion_control::ReceiptSinkV2WithInfo;
     use crate::pipelining::ReceiptPreparationPipeline;
     use near_primitives::bandwidth_scheduler::BandwidthSchedulerParams;
@@ -2678,7 +2678,7 @@ pub mod estimator {
             bandwidth_scheduler_output: BandwidthSchedulerOutput::no_granted_bandwidth(params),
             stats: ReceiptSinkStats::default(),
         };
-        let info = ReceiptSinkV2Info::new(apply_state.epoch_id.clone(), epoch_info_provider)?;
+        let info = ReceiptSinkV2Info::new(apply_state.epoch_id, epoch_info_provider)?;
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),

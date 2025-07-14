@@ -123,7 +123,7 @@ impl ReceiptSink {
         stats.set_outgoing_limits(
             outgoing_limit.iter().map(|(shard_id, limit)| (*shard_id, (limit.size, limit.gas))),
         );
-        let info = ReceiptSinkV2Info::new(apply_state.epoch_id.clone(), epoch_info_provider)?;
+        let info = ReceiptSinkV2Info::new(apply_state.epoch_id, epoch_info_provider)?;
         let sink = ReceiptSinkV2 {
             own_congestion_info: prev_own_congestion_info,
             outgoing_receipts: Vec::new(),
