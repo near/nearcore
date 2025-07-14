@@ -28,16 +28,12 @@ use super::node::{MemTrieNodeId, MemTrieNodePtr};
 /// holds an Rc of the root of each trie.
 pub struct MemTries {
     pub(super) arena: HybridArena,
-    /// Maps a state root to a list of nodes that have the same root hash.
-    /// The reason why this is a list is because we do not have a node
-    /// deduplication mechanism so we can't guarantee that nodes of the
-    /// same hash are unique. During lookup, any of these nodes can be provided
-    /// as they all logically represent the same trie.
-    roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
+    /// Maps a state root to the node that has the same root hash.
+    roots: HashMap<StateRoot, MemTrieNodeId>,
     /// Maps a block height to a list of state roots present at that height.
     /// This is used for GC. The invariant is that for any state root, the
     /// number of times the state root appears in this map is equal to the
-    /// sum of the refcounts of each `MemTrieNodeId`s in `roots[state hash]`.
+    /// refcounts of the `MemTrieNodeId` in `roots[state hash]`.
     heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
     /// Shard UID, for exporting metrics only.
     shard_uid: ShardUId,
@@ -48,7 +44,7 @@ pub struct MemTries {
 #[derive(Clone)]
 pub struct FrozenMemTries {
     arena: FrozenArena,
-    roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
+    roots: HashMap<StateRoot, MemTrieNodeId>,
     heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
 }
 
@@ -115,9 +111,9 @@ impl MemTries {
         assert_ne!(state_root, CryptoHash::default());
         let heights = self.heights.entry(block_height).or_default();
         heights.push(state_root);
-        let new_ref = mem_root.add_ref(self.arena.memory_mut());
-        if new_ref == 1 {
-            self.roots.entry(state_root).or_default().push(mem_root);
+        mem_root.add_ref(self.arena.memory_mut());
+        if let Some(_) = self.roots.insert(state_root, mem_root) {
+            debug_assert!(false, "Existing entry for state root {}", state_root);
         }
         MEMTRIE_NUM_ROOTS
             .with_label_values(&[&self.shard_uid.to_string()])
@@ -130,7 +126,7 @@ impl MemTries {
         state_root: &CryptoHash,
     ) -> Result<MemTrieNodePtr<HybridArenaMemory>, StorageError> {
         assert_ne!(state_root, &CryptoHash::default());
-        self.roots.get(state_root).map(|ids| ids[0].as_ptr(self.arena.memory())).ok_or_else(|| {
+        self.roots.get(state_root).map(|id| id.as_ptr(self.arena.memory())).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Failed to find root node {:?} in memtrie",
                 state_root
@@ -160,15 +156,9 @@ impl MemTries {
     }
 
     fn delete_root(&mut self, state_root: &CryptoHash) {
-        if let Some(ids) = self.roots.get_mut(state_root) {
-            let last_id = ids.last().unwrap();
-            let new_ref = last_id.remove_ref(&mut self.arena);
-            if new_ref == 0 {
-                ids.pop();
-                if ids.is_empty() {
-                    self.roots.remove(state_root);
-                }
-            }
+        if let Some(id) = self.roots.get_mut(state_root) {
+            id.remove_ref(&mut self.arena);
+            self.roots.remove(state_root);
         } else {
             debug_assert!(false, "Deleting non-existent root: {}", state_root);
         }
