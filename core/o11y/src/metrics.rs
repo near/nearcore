@@ -209,14 +209,14 @@ pub fn try_create_histogram_vec(
 pub mod config {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    static STRAIN_FOR_METRICS: AtomicBool = AtomicBool::new(false);
+    static ENABLE_EXPENSIVE_METRICS: AtomicBool = AtomicBool::new(false);
 
-    pub fn strain_for_metrics(yes: bool) {
-        STRAIN_FOR_METRICS.store(yes, Ordering::Relaxed);
+    pub fn enable_expensive_metrics(yes: bool) {
+        ENABLE_EXPENSIVE_METRICS.store(yes, Ordering::Relaxed);
     }
 
-    pub fn should_strain_for_metrics() -> bool {
-        STRAIN_FOR_METRICS.load(Ordering::Relaxed)
+    pub fn expensive_metrics() -> bool {
+        ENABLE_EXPENSIVE_METRICS.load(Ordering::Relaxed)
     }
 }
 

@@ -808,7 +808,7 @@ pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
             shard_id = %apply_state.shard_id,
             block_height = apply_state.block_height)
     .entered();
-    if near_o11y::metrics::config::should_strain_for_metrics() {
+    if near_o11y::metrics::config::expensive_metrics() {
         let Some(trie_recorder_stats) = trie.recorder_stats() else {
             return;
         };

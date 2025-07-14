@@ -121,7 +121,7 @@ pub fn reload(
     opentelemetry: Option<&str>,
     expensive_metrics: Option<bool>,
 ) -> Result<(), Vec<ReloadError>> {
-    crate::metrics::config::strain_for_metrics(expensive_metrics.unwrap_or_default());
+    crate::metrics::config::enable_expensive_metrics(expensive_metrics.unwrap_or_default());
 
     let log_reload_result = LOG_LAYER_RELOAD_HANDLE.get().map_or(
         Err(ReloadError::NoLogReloadHandle),
