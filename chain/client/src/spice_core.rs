@@ -58,6 +58,9 @@ impl CoreStatementsProcessor {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
         let chunk_hash = endorsement.chunk_hash();
+        let block_hash = endorsement
+            .block_hash()
+            .expect("with spice endorsements should always contain block hash");
         let execution_result = endorsement
             .take_execution_result()
             .expect("with spice endorsements should always contain execution results");
@@ -67,7 +70,11 @@ impl CoreStatementsProcessor {
         // TODO(spice): Wait for enough endorsements for chunk, checking that they endorse the same
         // execution result, before recording execution result.
         tracker.execution_results.get_or_insert(chunk_hash.clone(), || execution_result);
-        tracker.chunk_executor_sender.send(ExecutorExecutionResultEndorsed { chunk_hash });
+        // TODO(spice): Send this only once all chunks from the block have their execution results
+        // endorsed and don't send chunk_hash.
+        tracker
+            .chunk_executor_sender
+            .send(ExecutorExecutionResultEndorsed { block_hash, chunk_hash });
     }
 
     pub fn get_execution_results(&self, block: &Block) -> HashMap<ShardId, ChunkExecutionResult> {

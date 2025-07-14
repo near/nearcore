@@ -105,26 +105,6 @@ impl ChunkExecutorActor {
             chunk_endorsement_tracker,
         }
     }
-
-    fn find_block_hash_by_chunk_hash(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<CryptoHash>, Error> {
-        let chunk = self.chain_store.get_chunk(chunk_hash)?;
-        let height_included = chunk.height_included();
-        let block_hashes = self.chain_store.get_all_block_hashes_by_height(height_included)?;
-        Ok(block_hashes
-            .values()
-            .flatten()
-            .find(|block_hash| {
-                let Ok(block) = self.chain_store.get_block(block_hash) else {
-                    tracing::debug!(target: "chunk_executor", %block_hash, "failed to get block with hash");
-                    return false;
-                };
-                block.chunks().iter_raw().any(|chunk| chunk.chunk_hash() == chunk_hash)
-            })
-            .copied())
-    }
 }
 
 impl near_async::messaging::Actor for ChunkExecutorActor {}
@@ -151,6 +131,8 @@ pub struct ExecutorBlock {
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ExecutorExecutionResultEndorsed {
+    pub block_hash: CryptoHash,
+    // This isn't used, but better conveys what the message means.
     pub chunk_hash: ChunkHash,
 }
 
@@ -203,20 +185,8 @@ impl Handler<ExecutorBlock> for ChunkExecutorActor {
 impl Handler<ExecutorExecutionResultEndorsed> for ChunkExecutorActor {
     fn handle(
         &mut self,
-        ExecutorExecutionResultEndorsed { chunk_hash }: ExecutorExecutionResultEndorsed,
+        ExecutorExecutionResultEndorsed { block_hash, .. }: ExecutorExecutionResultEndorsed,
     ) {
-        let block_hash = match self.find_block_hash_by_chunk_hash(&chunk_hash) {
-            Ok(Some(block_hash)) => block_hash,
-            Ok(None) => {
-                tracing::debug!(target: "chunk_executor", ?chunk_hash, "found no block containing the chunk");
-                return;
-            }
-            Err(err) => {
-                tracing::debug!(target: "chunk_executor", ?err, ?chunk_hash, "found no block containing the chunk");
-                return;
-            }
-        };
-
         if let Err(err) = self.try_process_next_blocks(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process next blocks");
         }
@@ -511,6 +481,7 @@ impl ChunkExecutorActor {
                 let endorsement = ChunkEndorsement::new_with_execution_result(
                     epoch_id,
                     execution_result,
+                    block_hash,
                     chunk_header,
                     &my_signer,
                 );

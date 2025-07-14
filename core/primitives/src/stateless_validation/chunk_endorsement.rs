@@ -5,6 +5,7 @@ use crate::types::{ChunkExecutionResult, EpochId, SignatureDifferentiator};
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
@@ -48,6 +49,7 @@ impl ChunkEndorsement {
     pub fn new_with_execution_result(
         epoch_id: EpochId,
         execution_result: ChunkExecutionResult,
+        block_hash: CryptoHash,
         chunk_header: &ShardChunkHeader,
         signer: &ValidatorSigner,
     ) -> ChunkEndorsement {
@@ -61,6 +63,7 @@ impl ChunkEndorsement {
         };
         let metadata_signature = signer.sign_bytes(&borsh::to_vec(&metadata).unwrap());
         let inner = SpiceChunkEndorsementInnerV2::new(
+            block_hash,
             chunk_header.chunk_hash().clone(),
             Some(execution_result),
         );
@@ -83,6 +86,14 @@ impl ChunkEndorsement {
             ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(_) => None,
             ChunkEndorsement::V3(v3) => v3.inner.execution_result.take(),
+        }
+    }
+
+    pub fn block_hash(&mut self) -> Option<CryptoHash> {
+        match self {
+            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
+            ChunkEndorsement::V2(_) => None,
+            ChunkEndorsement::V3(v3) => Some(v3.inner.block_hash),
         }
     }
 
@@ -227,6 +238,8 @@ impl SpiceChunkEndorsementV3 {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 struct SpiceChunkEndorsementInnerV2 {
+    // Hash of the block that contains the chunk with specified execution results.
+    block_hash: CryptoHash,
     chunk_hash: ChunkHash,
     // For storage it's redundant to include the same execution result. However execution result is
     // required in endorsements we send over the wire.
@@ -235,8 +248,13 @@ struct SpiceChunkEndorsementInnerV2 {
 }
 
 impl SpiceChunkEndorsementInnerV2 {
-    fn new(chunk_hash: ChunkHash, execution_result: Option<ChunkExecutionResult>) -> Self {
+    fn new(
+        block_hash: CryptoHash,
+        chunk_hash: ChunkHash,
+        execution_result: Option<ChunkExecutionResult>,
+    ) -> Self {
         Self {
+            block_hash,
             chunk_hash,
             execution_result,
             signature_differentiator: "ChunkEndorsement".to_owned(),
