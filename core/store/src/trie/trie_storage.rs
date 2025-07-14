@@ -308,7 +308,7 @@ pub trait TrieStorage: Send + Sync + std::any::Any {
 /// Storage for validating recorded partial storage.
 /// visited_nodes are to validate that partial storage doesn't contain unnecessary nodes.
 #[derive(Default)]
-pub struct TrieMemoryPartialStorage {
+pub struct TrieMemoryPartialStorage<const TRACK_VISITED_NODES: bool> {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
     // FIXME(perf, nagisa): consider replacing this whole map business for tracking visited nodes
     // with a simple bitset of a pre-allocated size (of `recorded_storage.len()` bits) when the
@@ -319,10 +319,14 @@ pub struct TrieMemoryPartialStorage {
     pub(crate) visited_nodes: dashmap::DashSet<CryptoHash>,
 }
 
-impl TrieStorage for TrieMemoryPartialStorage {
+impl<const TRACK_VISITED_NODES: bool> TrieStorage
+    for TrieMemoryPartialStorage<TRACK_VISITED_NODES>
+{
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         if let Some(value) = self.recorded_storage.get(hash).cloned() {
-            self.visited_nodes.insert(*hash);
+            if TRACK_VISITED_NODES {
+                self.visited_nodes.insert(*hash);
+            }
             Ok(value)
         } else {
             metrics::TRIE_MEMORY_PARTIAL_STORAGE_MISSING_VALUES_COUNT.inc();
@@ -334,14 +338,18 @@ impl TrieStorage for TrieMemoryPartialStorage {
     }
 }
 
-impl TrieMemoryPartialStorage {
+impl<const TRACK_VISITED_NODES: bool> TrieMemoryPartialStorage<TRACK_VISITED_NODES> {
     pub fn new(recorded_storage: HashMap<CryptoHash, Arc<[u8]>>) -> Self {
-        Self {
-            visited_nodes: dashmap::DashSet::with_capacity(recorded_storage.len()),
-            recorded_storage,
-        }
+        let visited_nodes = if TRACK_VISITED_NODES {
+            dashmap::DashSet::with_capacity(recorded_storage.len())
+        } else {
+            dashmap::DashSet::new()
+        };
+        Self { visited_nodes, recorded_storage }
     }
+}
 
+impl TrieMemoryPartialStorage<true> {
     pub fn partial_state(self) -> PartialState {
         let Self { recorded_storage, visited_nodes } = self;
         let mut nodes: Vec<_> = recorded_storage

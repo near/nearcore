@@ -14,6 +14,7 @@ use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
+use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSyncActor,
@@ -165,6 +166,8 @@ pub fn start_client(
 
     let chunk_validation_adapter = LateBoundSender::<ChunkValidationSender>::new();
 
+    // TODO(spice): Initialize CoreStatementsProcessor properly.
+    let spice_core_processor = CoreStatementsProcessor::new(noop().into_sender());
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -186,6 +189,7 @@ pub fn start_client(
         client_sender_for_client.as_multi_sender(),
         chunk_validation_adapter.as_multi_sender(),
         protocol_upgrade_schedule,
+        spice_core_processor,
     )
     .unwrap();
 

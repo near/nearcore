@@ -20,6 +20,8 @@ pub struct LogConfig {
     /// individual spans with something like `debug,store::trie=trace` to have specific targets be
     /// more verbose than the default.
     pub opentelemetry: Option<String>,
+    /// Should we collect expensive metrics?
+    pub expensive_metrics: Option<bool>,
 }
 
 impl LogConfig {

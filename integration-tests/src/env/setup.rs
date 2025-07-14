@@ -27,6 +27,7 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
+use near_client::spice_core::CoreStatementsProcessor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
     ChunkValidationSenderForPartialWitness, Client, ClientActor, PartialWitnessActor,
@@ -459,6 +460,7 @@ pub fn setup_client_with_runtime(
         orphan_witness: noop().into_sender(),
         block_notification: noop().into_sender(),
     };
+    let spice_core_processor = CoreStatementsProcessor::new(noop().into_sender());
     let mut client = Client::new(
         clock,
         config,
@@ -480,6 +482,7 @@ pub fn setup_client_with_runtime(
         noop().into_multi_sender(), // apply chunks ping not necessary for these tests
         chunk_validation_sender,
         protocol_upgrade_schedule,
+        spice_core_processor,
     )
     .unwrap();
     client.sync_handler.sync_status = SyncStatus::NoSync;

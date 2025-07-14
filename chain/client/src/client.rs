@@ -9,6 +9,7 @@ use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
+use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     BlockNotificationMessage, ChunkValidationSender,
@@ -257,6 +258,7 @@ impl Client {
         myself_sender: ClientSenderForClient,
         chunk_validation_sender: ChunkValidationSender,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
+        spice_core_processor: CoreStatementsProcessor,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -339,6 +341,7 @@ impl Client {
         let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
             epoch_manager.clone(),
             chain.chain_store().store(),
+            spice_core_processor,
         ));
         let chunk_producer = ChunkProducer::new(
             clock.clone(),

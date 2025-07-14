@@ -30,9 +30,32 @@ impl TrieStoreAdapter {
         TrieStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
+    /// Here we are first trying to get the value with shard_uid as prefix.
+    /// If that fails, we try to get the value with the mapped shard_uid as prefix.
+    ///
+    /// Note we should not first get the mapping and then try to get the value with the mapped
+    /// shard_uid as prefix. This doesn't work with SplitDB, which has hot and cold stores.
+    ///
+    /// Since the mapping is deleted from the hot store after resharding is completed but never
+    /// from the cold store, SplitDB (archive nodes) would return the mapping from the cold store,
+    /// which can lead to a MissingTrieValue, for example when the value is in the hot store but not
+    /// yet copied to the cold store.
     fn get_ref(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<DBSlice<'_>, StorageError> {
-        let mapped_shard_uid = get_shard_uid_mapping(&self.store, shard_uid);
-        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
+        match self.get_ref_inner(shard_uid, hash) {
+            Ok(value) => Ok(value),
+            Err(err) => match maybe_get_shard_uid_mapping(&self.store, shard_uid) {
+                Some(mapped_shard_uid) => self.get_ref_inner(mapped_shard_uid, hash),
+                None => Err(err),
+            },
+        }
+    }
+
+    fn get_ref_inner(
+        &self,
+        shard_uid: ShardUId,
+        hash: &CryptoHash,
+    ) -> Result<DBSlice<'_>, StorageError> {
+        let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
         self.store
             .get(DBCol::State, key.as_ref())
             .map_err(|_| StorageError::StorageInternalError)?
@@ -231,8 +254,9 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
 
-    use crate::NodeStorage;
-    use crate::adapter::trie_store::TrieStoreAdapter;
+    use crate::adapter::StoreAdapter;
+    use crate::db::metadata::{DB_VERSION, DbKind};
+    use crate::test_utils::{create_test_node_storage_with_cold, create_test_store};
 
     const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
         Some(num) => num,
@@ -241,8 +265,7 @@ mod tests {
 
     #[test]
     fn test_trie_store_adapter() {
-        let (_tmp_dir, opener) = NodeStorage::test_opener();
-        let store = TrieStoreAdapter::new(opener.open().unwrap().get_hot_store());
+        let store = create_test_store().trie_store();
         let shard_uids: Vec<ShardUId> =
             (0..3).map(|i| ShardUId { version: 0, shard_id: i }).collect();
         let dummy_hash = CryptoHash::default();
@@ -272,8 +295,7 @@ mod tests {
 
     #[test]
     fn test_shard_uid_mapping() {
-        let (_tmp_dir, opener) = NodeStorage::test_opener();
-        let store = TrieStoreAdapter::new(opener.open().unwrap().get_hot_store());
+        let store = create_test_store().trie_store();
         let parent_shard = ShardUId { version: 0, shard_id: 0 };
         let child_shard = ShardUId { version: 0, shard_id: 1 };
         let dummy_hash = CryptoHash::default();
@@ -332,5 +354,38 @@ mod tests {
             store.get(child_shard, &dummy_hash),
             Err(StorageError::MissingTrieValue(_))
         );
+    }
+
+    // Simulate a scenario where we have an archival node with split store configured.
+    // A resharding has recently completed so the hot_store doesn't have the shard_uid mapping
+    // but the cold_store does.
+    // The data we are trying to read is currently in the hot store but cold store loop has not yet
+    // copied it to the cold store.
+    #[test]
+    fn test_split_store_shard_uid_mapping() {
+        let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+        let hot_store = storage.get_hot_store().trie_store();
+        let cold_store = storage.get_cold_store().unwrap().trie_store();
+        let store = storage.get_split_store().unwrap().trie_store();
+
+        let parent_shard = ShardUId { version: 0, shard_id: 0 };
+        let child_shard = ShardUId { version: 0, shard_id: 1 };
+        let dummy_hash = CryptoHash::default();
+
+        // Set the shard_uid mapping from `child_shard` to `parent_shard` in cold store ONLY.
+        {
+            let mut store_update = cold_store.store_update();
+            store_update.set_shard_uid_mapping(child_shard, parent_shard);
+            store_update.commit().unwrap();
+        }
+        // Write some data to `child_shard` in hot store ONLY.
+        {
+            let mut store_update = hot_store.store_update();
+            store_update.increment_refcount_by(child_shard, &dummy_hash, &[0], ONE);
+            store_update.commit().unwrap();
+        }
+
+        // Now try to read the data from split store. It should be present
+        assert_eq!(*store.get(child_shard, &dummy_hash).unwrap(), [0]);
     }
 }
