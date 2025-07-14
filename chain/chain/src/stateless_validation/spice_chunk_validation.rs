@@ -134,6 +134,7 @@ pub fn spice_pre_validate_chunk_state_witness(
             }),
             state_patch: Default::default(),
         };
+        let is_new_chunk = true;
         MainTransition::NewChunk {
             new_chunk_data: NewChunkData {
                 chunk_header: spice_chunk_header,
@@ -141,9 +142,12 @@ pub fn spice_pre_validate_chunk_state_witness(
                     state_witness.transactions().clone(),
                     transaction_validity_check_results,
                 ),
-
                 receipts: receipts_to_apply,
-                block: Chain::get_apply_chunk_block_context(&block, &prev_block_header, true)?,
+                block: Chain::get_apply_chunk_block_context(
+                    &block,
+                    &prev_block_header,
+                    is_new_chunk,
+                )?,
                 storage_context,
             },
             block_hash: *block.header().hash(),

@@ -141,7 +141,7 @@ pub struct ProcessedBlock {
     pub block_hash: CryptoHash,
 }
 
-/// Message that should be sent once all block's executions result is endorsed.
+/// Message that should be sent once executions results for all chunks in a block are endorsed.
 #[derive(actix::Message, Debug, Clone)]
 #[rtype(result = "()")]
 pub struct ExecutionResultEndorsed {
@@ -397,8 +397,7 @@ impl ChunkExecutorActor {
             // TODO(spice-resharding): We may need to take resharding into account here.
             let mut receipt_proofs = incoming_receipts
                 .remove(&shard_id)
-                .expect("expected receipts for all tracked shards")
-                .clone();
+                .expect("expected receipts for all tracked shards");
             shuffle_receipt_proofs(&mut receipt_proofs, receipts_shuffle_salt);
 
             let storage_context =

@@ -120,6 +120,7 @@ impl CoreStatementsProcessor {
 
         let validator_signatures = endorsements
             .iter()
+            // TODO(spice): Make sure that block hash in all endorsements is the same as well.
             .filter(|(_, result_hash, _)| &chunk_execution_result_hash == result_hash)
             .map(|(account_id, _, signature)| (account_id, signature.clone()))
             .collect();
