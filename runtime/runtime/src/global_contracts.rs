@@ -227,7 +227,6 @@ fn forward_distribution_next_shard(
             next_receipt,
             apply_state,
             state_update,
-            epoch_info_provider,
         )?;
     }
     Ok(())
