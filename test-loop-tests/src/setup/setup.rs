@@ -1,20 +1,22 @@
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
-use near_chain::ChainGenesis;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
+use near_chain::{ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
+use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_core::CoreStatementsProcessor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
@@ -65,6 +67,7 @@ pub fn setup_client(
     let sync_jobs_adapter = LateBoundSender::new();
     let resharding_sender = LateBoundSender::new();
     let chunk_executor_adapter = LateBoundSender::new();
+    let spice_chunk_validator_adapter = LateBoundSender::new();
 
     let homedir = tempdir.path().join(format!("{}", identifier));
     std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
@@ -133,7 +136,12 @@ pub fn setup_client(
         test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
     ));
 
-    let spice_core_processor = CoreStatementsProcessor::new(chunk_executor_adapter.as_sender());
+    let spice_core_processor = CoreStatementsProcessor::new(
+        runtime_adapter.store().chain_store(),
+        epoch_manager.clone(),
+        chunk_executor_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+    );
     let client = Client::new(
         test_loop.clock(),
         client_config.clone(),
@@ -221,6 +229,11 @@ pub fn setup_client(
     } else {
         noop().into_sender()
     };
+    let spice_chunk_validator_sender = if cfg!(feature = "protocol_feature_spice") {
+        spice_chunk_validator_adapter.as_sender()
+    } else {
+        noop().into_sender()
+    };
     let client_actor = ClientActorInner::new(
         test_loop.clock(),
         client,
@@ -232,6 +245,7 @@ pub fn setup_client(
         None,
         sync_jobs_adapter.as_multi_sender(),
         chunk_executor_sender,
+        spice_chunk_validator_sender,
     )
     .unwrap();
 
@@ -252,10 +266,16 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
     );
 
+    let spice_chunk_validator_sender = if cfg!(feature = "protocol_feature_spice") {
+        spice_chunk_validator_adapter.as_multi_sender()
+    } else {
+        noop().into_multi_sender()
+    };
     let partial_witness_actor = PartialWitnessActor::new(
         test_loop.clock(),
         network_adapter.as_multi_sender(),
         client_adapter.as_multi_sender(),
+        spice_chunk_validator_sender,
         validator_signer.clone(),
         epoch_manager.clone(),
         runtime_adapter.clone(),
@@ -302,17 +322,41 @@ pub fn setup_client(
         epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.as_multi_sender(),
+        partial_witness_adapter.as_multi_sender(),
         validator_signer.clone(),
-        spice_core_processor,
+        spice_core_processor.clone(),
         client_actor.client.chunk_endorsement_tracker.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
         chunk_executor_adapter.as_sender(),
+        client_config.clone(),
     );
 
     let chunk_executor_sender = test_loop.data.register_actor(
         identifier,
         chunk_executor_actor,
         Some(chunk_executor_adapter),
+    );
+
+    let spice_chunk_validator_actor = SpiceChunkValidatorActor::new(
+        runtime_adapter.store().clone(),
+        &chain_genesis,
+        runtime_adapter.clone(),
+        epoch_manager.clone(),
+        network_adapter.as_multi_sender(),
+        NonZeroUsize::new(1000).unwrap(),
+        validator_signer.clone(),
+        spice_core_processor,
+        client_actor.client.chunk_endorsement_tracker.clone(),
+        ApplyChunksSpawner::Custom(Arc::new(
+            test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
+        )),
+        client_config.clone(),
+    );
+
+    test_loop.data.register_actor(
+        identifier,
+        spice_chunk_validator_actor,
+        Some(spice_chunk_validator_adapter),
     );
 
     let state_sync_dumper = StateSyncDumper {

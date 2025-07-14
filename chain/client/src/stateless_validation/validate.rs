@@ -104,10 +104,23 @@ pub fn validate_partial_encoded_state_witness(
         store,
     )?);
 
-    let chunk_producer =
-        epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?;
-    if !partial_witness.verify(chunk_producer.public_key()) {
-        return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
+    if cfg!(feature = "protocol_feature_spice") {
+        let key = partial_witness.chunk_production_key();
+        // In spice any of the chunk executors could have produced the witness.
+        let chunk_executors =
+            epoch_manager.get_epoch_spice_chunk_executors_for_shard(&key.epoch_id, key.shard_id)?;
+        if !chunk_executors
+            .into_iter()
+            .any(|executor| partial_witness.verify(executor.public_key()))
+        {
+            return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
+        }
+    } else {
+        let chunk_producer =
+            epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?;
+        if !partial_witness.verify(chunk_producer.public_key()) {
+            return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
+        }
     }
 
     Ok(ChunkRelevance::Relevant)

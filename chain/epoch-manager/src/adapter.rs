@@ -383,6 +383,23 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<Vec<ValidatorStake>, EpochError>;
 
     /// Returns AccountIds of chunk producers that are assigned to a given shard-id in a given epoch.
+    fn get_epoch_spice_chunk_executors_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+
+        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+        let chunk_executors = chunk_producers_settlement
+            .get(shard_index)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        Ok(chunk_executors.iter().map(|index| epoch_info.get_validator(*index)).collect())
+    }
+
+    /// Returns AccountIds of chunk producers that are assigned to a given shard-id in a given epoch.
     fn get_epoch_chunk_producers_for_shard(
         &self,
         epoch_id: &EpochId,

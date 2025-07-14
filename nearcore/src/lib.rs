@@ -13,7 +13,7 @@ use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::futures::TokioRuntimeFutureSpawner;
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
@@ -374,11 +374,14 @@ pub fn start_with_config_and_synchronization(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
+    // TODO(spice): Pass in sender for spice chunk validator actor.
+    let spice_witness_validator_sender = noop().into_multi_sender();
     let (partial_witness_actor, partial_witness_arbiter) =
         spawn_actix_actor(PartialWitnessActor::new(
             Clock::real(),
             network_adapter.as_multi_sender(),
             client_adapter_for_partial_witness_actor.as_multi_sender(),
+            spice_witness_validator_sender,
             config.validator_signer.clone(),
             epoch_manager.clone(),
             runtime.clone(),

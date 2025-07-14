@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
+use crate::spice_chunk_validator_actor::SpiceChunkValidatorWitnessSender;
 use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_async::time::Instant;
@@ -350,6 +351,8 @@ impl ShardWitnessTracker {
 pub struct PartialEncodedStateWitnessTracker {
     /// Sender to send the encoded state witness to the client actor.
     client_sender: ClientSenderForPartialWitness,
+    /// Sender to send the encoded state wtiness to the spice chunk validator.
+    spice_witness_validator_sender: SpiceChunkValidatorWitnessSender,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Per-shard tracking of witness parts and processed witnesses.
@@ -362,10 +365,12 @@ pub struct PartialEncodedStateWitnessTracker {
 impl PartialEncodedStateWitnessTracker {
     pub fn new(
         client_sender: ClientSenderForPartialWitness,
+        spice_witness_validator_sender: SpiceChunkValidatorWitnessSender,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
         Self {
             client_sender,
+            spice_witness_validator_sender,
             epoch_manager,
             shard_trackers: Mutex::new(HashMap::new()),
             encoders: Mutex::new(ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS)),
@@ -512,8 +517,13 @@ impl PartialEncodedStateWitnessTracker {
                 tag_witness_distribution = true,
             )
             .entered();
-            self.client_sender
-                .send(ChunkStateWitnessMessage { witness, raw_witness_size }.span_wrap());
+            let witness_message =
+                ChunkStateWitnessMessage { witness, raw_witness_size }.span_wrap();
+            if cfg!(feature = "protocol_feature_spice") {
+                self.spice_witness_validator_sender.send(witness_message);
+            } else {
+                self.client_sender.send(witness_message);
+            }
 
             total_size
         } else {

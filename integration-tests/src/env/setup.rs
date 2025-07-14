@@ -168,10 +168,12 @@ fn setup(
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
+    let spice_witness_validator_sender = noop().into_multi_sender();
     let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
         network_adapter.clone(),
         client_adapter_for_partial_witness_actor.as_multi_sender(),
+        spice_witness_validator_sender,
         signer.clone(),
         epoch_manager.clone(),
         runtime.clone(),
@@ -438,7 +440,12 @@ pub fn setup_client_with_runtime(
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
         .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
-    let spice_core_processor = CoreStatementsProcessor::new(noop().into_sender());
+    let spice_core_processor = CoreStatementsProcessor::new(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+        noop().into_sender(),
+        noop().into_sender(),
+    );
     let mut client = Client::new(
         clock,
         config,
