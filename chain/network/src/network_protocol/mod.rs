@@ -1079,11 +1079,7 @@ impl RoutedMessageV3 {
 
     pub fn verify(&self) -> bool {
         if self.body.is_t1() {
-            if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
-                self.signature.is_none()
-            } else {
-                true
-            }
+            true
         } else {
             let Some(signature) = &self.signature else {
                 return false;
