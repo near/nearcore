@@ -159,6 +159,7 @@ pub enum ShardAcceptsTransactions {
 }
 
 /// Detailed information for why a shard rejects new transactions.
+#[derive(Debug)]
 pub enum RejectTransactionReason {
     IncomingCongestion { congestion_level: NotNan<f64> },
     OutgoingCongestion { congestion_level: NotNan<f64> },

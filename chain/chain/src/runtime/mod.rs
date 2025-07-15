@@ -528,6 +528,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             if let ShardAcceptsTransactions::No(reason) =
                 congestion_control.shard_accepts_transactions()
             {
+                tracing::error!(
+                    target: "mirror", "Tx rejected due to congestion: from {} to {}: {:?}",
+                    signed_tx.transaction.signer_id(),
+                    signed_tx.transaction.receiver_id(),
+                    reason,
+                );
                 let shard_id =
                     shard_layout.account_id_to_shard_id(signed_tx.transaction.receiver_id()).into();
                 let err = match reason {
