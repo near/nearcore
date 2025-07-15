@@ -31,12 +31,10 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
-    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
+    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, TxStatusRequest, TxStatusResponse,
 };
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
-    StateResponseInfo, StateResponseInfoV2,
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
@@ -47,9 +45,6 @@ use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::state_sync::{
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
-};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
@@ -64,13 +59,13 @@ use near_primitives::views::{
     TxExecutionStatus, TxStatusView,
 };
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;

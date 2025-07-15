@@ -89,7 +89,7 @@ impl StateRequestActorInner {
     // XXX: TODO: Figure out how to do the check_sync_hash_validity check here.
     fn check_sync_hash_validity(
         &self,
-        sync_hash: &near_primitives::hash::CryptoHash,
+        _sync_hash: &near_primitives::hash::CryptoHash,
     ) -> Result<bool, near_chain::Error> {
         Ok(true) // Placeholder for actual implementation
     }
