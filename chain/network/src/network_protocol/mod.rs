@@ -17,6 +17,8 @@ use near_primitives::stateless_validation::contract_distribution::ContractCodeRe
 use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::ProtocolFeature;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -1188,20 +1190,8 @@ impl RoutedMessage {
 
     pub fn signature(&self) -> Option<&Signature> {
         match self {
-            RoutedMessage::V1(msg) => {
-                if msg.body.is_t1() {
-                    None
-                } else {
-                    Some(&msg.signature)
-                }
-            }
-            RoutedMessage::V2(msg) => {
-                if msg.msg.body.is_t1() {
-                    None
-                } else {
-                    Some(&msg.msg.signature)
-                }
-            }
+            RoutedMessage::V1(msg) => Some(&msg.signature),
+            RoutedMessage::V2(msg) => Some(&msg.msg.signature),
             RoutedMessage::V3(msg) => msg.signature.as_ref(),
         }
     }
@@ -1529,9 +1519,14 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessage {
         let author = PeerId::new(node_key.public_key());
-        let body = RoutedMessageBody::from(self.body.clone());
-        let hash = RoutedMessage::build_hash(&self.target, &author, &body);
-        let signature = Some(node_key.sign(hash.as_ref()));
+        let signature =
+            if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && self.body.is_t1() {
+                None
+            } else {
+                let body = RoutedMessageBody::from(self.body.clone());
+                let hash = RoutedMessage::build_hash(&self.target, &author, &body);
+                Some(node_key.sign(hash.as_ref()))
+            };
         RoutedMessage::V3(RoutedMessageV3 {
             target: self.target,
             author,
