@@ -17,6 +17,8 @@ use near_primitives::stateless_validation::contract_distribution::ContractCodeRe
 use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::ProtocolFeature;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -1077,7 +1079,11 @@ impl RoutedMessageV3 {
 
     pub fn verify(&self) -> bool {
         if self.body.is_t1() {
-            self.signature.is_none()
+            if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
+                self.signature.is_none()
+            } else {
+                true
+            }
         } else {
             let Some(signature) = &self.signature else {
                 return false;
