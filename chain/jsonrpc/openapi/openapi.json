@@ -9678,6 +9678,12 @@
             ],
             "description": "Version of the binary."
           },
+          "view_client_num_state_requests_per_throttle_period": {
+            "description": "Maximum number of state requests served per `view_client_throttle_period`",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
           "view_client_threads": {
             "description": "Number of threads for ViewClientActor pool.",
             "format": "uint",
@@ -9685,7 +9691,7 @@
             "type": "integer"
           },
           "view_client_throttle_period": {
-            "description": "Number of seconds between state requests for view client.",
+            "description": "Throttling window for state requests (headers and parts).",
             "items": {
               "format": "uint64",
               "minimum": 0,
@@ -9737,6 +9743,7 @@
           "save_tx_outcomes",
           "view_client_threads",
           "view_client_throttle_period",
+          "view_client_num_state_requests_per_throttle_period",
           "enable_statistics_export",
           "client_background_migration_threads",
           "state_sync_enabled",
