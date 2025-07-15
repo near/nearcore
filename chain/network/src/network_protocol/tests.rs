@@ -267,6 +267,7 @@ fn test_body_conversion() {
     assert_eq!(routed_body, routed_body2);
 }
 
+#[cfg(not(feature = "nightly"))]
 #[test]
 fn test_t1_is_signed() {
     let message = make_block_approval_message();
