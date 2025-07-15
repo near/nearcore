@@ -1110,14 +1110,12 @@ impl RoutedMessageV3 {
 
 impl From<RoutedMessageV1> for RoutedMessageV3 {
     fn from(msg: RoutedMessageV1) -> Self {
-        let body = TieredMessageBody::from_routed(msg.body);
-        let signature = if body.is_t1() { None } else { Some(msg.signature) };
         Self {
             target: msg.target,
             author: msg.author,
             ttl: msg.ttl,
-            body,
-            signature,
+            body: TieredMessageBody::from_routed(msg.body),
+            signature: Some(msg.signature),
             created_at: None,
             num_hops: 0,
         }
