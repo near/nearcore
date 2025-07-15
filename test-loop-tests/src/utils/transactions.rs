@@ -482,7 +482,14 @@ pub fn run_tx(
     node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) -> Vec<u8> {
-    let tx_res = execute_tx(test_loop, rpc_id, tx, node_datas, maximum_duration).unwrap();
+    let tx_res = execute_tx(
+        test_loop,
+        rpc_id,
+        TransactionRunner::new(tx, true),
+        node_datas,
+        maximum_duration,
+    )
+    .unwrap();
     assert_matches!(tx_res.status, FinalExecutionStatus::SuccessValue(_));
     match tx_res.status {
         FinalExecutionStatus::SuccessValue(res) => res,
@@ -520,21 +527,19 @@ pub fn run_txs_parallel(
     );
 }
 
-/// Submit a transaction and wait for the execution result.
+/// Submit a transaction inside `tx_runner` and wait for the execution result.
 /// For invalid transactions returns an error.
 /// For valid transactions returns the execution result (which could have an execution error inside, check it!).
 pub fn execute_tx(
     test_loop: &mut TestLoopV2,
     rpc_id: &AccountId,
-    tx: SignedTransaction,
+    mut tx_runner: TransactionRunner,
     node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
     let client_sender = &get_node_data(node_datas, rpc_id).client_sender;
     let tx_processor_sender = &get_node_data(node_datas, rpc_id).rpc_handler_sender;
     let future_spawner = test_loop.future_spawner("TransactionRunner");
-
-    let mut tx_runner = TransactionRunner::new(tx, true);
 
     let mut res = None;
     test_loop.run_until(
