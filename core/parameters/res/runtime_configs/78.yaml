@@ -8,3 +8,11 @@ pessimistic_gas_price_inflation:
   }
 refund_gas_price_changes: { old: true, new: false }
 global_contract_host_fns: { old: false, new: true }
+
+# Increasing the max_congestion_missed_chunks to 125
+# At 125 missing chunks shard will be fully congested
+# At 100 missing chunks shard will be 80% congested, and transactions targeting it will be rejected as per reject_tx_congestion_threshold config
+max_congestion_missed_chunks: {
+  old : 5,
+  new : 125,
+}
