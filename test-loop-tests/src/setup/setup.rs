@@ -138,7 +138,7 @@ pub fn setup_client(
         test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
     ));
 
-    let chunk_validation_full_adapter = LateBoundSender::<ChunkValidationSender>::new();
+    let chunk_validation_client_sender = LateBoundSender::<ChunkValidationSender>::new();
 
     let spice_core_processor = CoreStatementsProcessor::new(chunk_executor_adapter.as_sender());
     let client = Client::new(
@@ -160,7 +160,7 @@ pub fn setup_client(
         Arc::new(test_loop.future_spawner(identifier)),
         client_adapter.as_multi_sender(),
         client_adapter.as_multi_sender(),
-        chunk_validation_full_adapter.as_multi_sender(),
+        chunk_validation_client_sender.as_multi_sender(),
         upgrade_schedule.clone(),
         spice_core_processor.clone(),
     )
@@ -368,14 +368,23 @@ pub fn setup_client(
     let resharding_sender =
         test_loop.data.register_actor(identifier, resharding_actor, Some(resharding_sender));
 
-    // Register chunk validation actor and bind the late bound sender
-    let chunk_validation_test_adapter = LateBoundSender::new();
     let chunk_validation_sender = test_loop.data.register_actor(
         identifier,
         chunk_validation_actor,
-        Some(chunk_validation_test_adapter),
+        None, // No adapter needed, we'll bind directly
     );
-    chunk_validation_full_adapter.bind(chunk_validation_sender.into_multi_sender());
+
+    let chunk_validation_multi_sender = ChunkValidationSender {
+        chunk_state_witness: chunk_validation_sender.clone().into_sender(),
+        orphan_witness: chunk_validation_sender.clone().into_sender(),
+        block_notification: chunk_validation_sender.into_sender(),
+    };
+
+    chunk_validation_client_sender.bind(chunk_validation_multi_sender.clone());
+
+    chunk_validation_adapter.bind(ChunkValidationSenderForPartialWitness {
+        chunk_state_witness: chunk_validation_multi_sender.chunk_state_witness,
+    });
 
     // State sync dumper is not an Actor, handle starting separately.
     let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();
