@@ -1,7 +1,7 @@
 use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
 use near_primitives_core::config::AccountIdValidityRulesVersion;
-use near_primitives_core::types::Gas;
+use near_gas::NearGas;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -60,7 +60,7 @@ pub enum StorageGetMode {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
-    pub max_gas_burnt: Gas,
+    pub max_gas_burnt: NearGas,
 
     /// How tall the stack is allowed to grow?
     ///
@@ -91,7 +91,7 @@ pub struct LimitConfig {
     pub max_total_log_length: u64,
 
     /// Max total prepaid gas for all function call actions per receipt.
-    pub max_total_prepaid_gas: Gas,
+    pub max_total_prepaid_gas: NearGas,
 
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u64,
@@ -203,7 +203,7 @@ impl Config {
         };
         self.grow_mem_cost = 0;
         self.regular_op_cost = 0;
-        self.limit_config.max_gas_burnt = u64::MAX;
+        self.limit_config.max_gas_burnt = NearGas::gas_limit();
     }
 
     pub fn enable_all_features(&mut self) {

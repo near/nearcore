@@ -8,6 +8,7 @@ use crate::vm::VMKind;
 use crate::vm::{Config, StorageGetMode};
 use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::types::AccountId;
+use near_gas::NearGas;
 use num_rational::Rational32;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -139,7 +140,7 @@ impl TryFrom<&ParameterValue> for Fee {
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
             &ParameterValue::Fee { send_sir, send_not_sir, execution } => {
-                Ok(Fee { send_sir, send_not_sir, execution })
+                Ok(Fee { send_sir: NearGas::from_gas(send_sir), send_not_sir: NearGas::from_gas(send_not_sir), execution: NearGas::from_gas(execution) })
             }
             _ => Err(ValueConversionError::ParseType(std::any::type_name::<Fee>(), value.clone())),
         }

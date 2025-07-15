@@ -1,6 +1,7 @@
 use crate::parameter::Parameter;
 use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
+use near_gas::NearGas;
 use near_primitives_core::types::{Balance, Compute, Gas};
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_schema_checker_lib::ProtocolSchema;
@@ -15,26 +16,26 @@ use num_rational::Rational32;
 pub struct Fee {
     /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
     /// the shard.
-    pub send_sir: Gas,
+    pub send_sir: NearGas,
     /// Fee for sending an object potentially across the shards.
-    pub send_not_sir: Gas,
+    pub send_not_sir: NearGas,
     /// Fee for executing the object.
-    pub execution: Gas,
+    pub execution: NearGas,
 }
 
 impl Fee {
     #[inline]
     pub fn send_fee(&self, sir: bool) -> Gas {
-        if sir { self.send_sir } else { self.send_not_sir }
+        (if sir { self.send_sir } else { self.send_not_sir }).as_gas()
     }
 
     pub fn exec_fee(&self) -> Gas {
-        self.execution
+        self.execution.as_gas()
     }
 
     /// The minimum fee to send and execute.
     pub fn min_send_and_exec_fee(&self) -> Gas {
-        std::cmp::min(self.send_sir, self.send_not_sir) + self.execution
+        std::cmp::min(self.send_sir, self.send_not_sir).as_gas() + self.execution.as_gas()
     }
 }
 
@@ -492,104 +493,104 @@ impl RuntimeFeesConfig {
             },
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee {
-                    send_sir: 3_850_000_000_000,
-                    send_not_sir: 3_850_000_000_000,
-                    execution: 3_850_000_000_000,
+                    send_sir: NearGas::from_gas(3_850_000_000_000),
+                    send_not_sir: NearGas::from_gas(3_850_000_000_000),
+                    execution: NearGas::from_gas(3_850_000_000_000),
                 },
                 ActionCosts::delete_account => Fee {
-                    send_sir: 147489000000,
-                    send_not_sir: 147489000000,
-                    execution: 147489000000,
+                    send_sir: NearGas::from_gas(147489000000),
+                    send_not_sir: NearGas::from_gas(147489000000),
+                    execution: NearGas::from_gas(147489000000),
                 },
                 ActionCosts::deploy_contract_base => Fee {
-                    send_sir: 184765750000,
-                    send_not_sir: 184765750000,
-                    execution: 184765750000,
+                    send_sir: NearGas::from_gas(184765750000),
+                    send_not_sir: NearGas::from_gas(184765750000),
+                    execution: NearGas::from_gas(184765750000),
                 },
                 ActionCosts::deploy_contract_byte => Fee {
-                    send_sir: 6812999,
-                    send_not_sir: 6812999,
-                    execution: 6812999,
+                    send_sir: NearGas::from_gas(6812999),
+                    send_not_sir: NearGas::from_gas(6812999),
+                    execution: NearGas::from_gas(6812999),
                 },
                 ActionCosts::function_call_base => Fee {
-                    send_sir: 2319861500000,
-                    send_not_sir: 2319861500000,
-                    execution: 2319861500000,
+                    send_sir: NearGas::from_gas(2319861500000),
+                    send_not_sir: NearGas::from_gas(2319861500000),
+                    execution: NearGas::from_gas(2319861500000),
                 },
                 ActionCosts::function_call_byte => Fee {
-                    send_sir: 2235934,
-                    send_not_sir: 2235934,
-                    execution: 2235934,
+                    send_sir: NearGas::from_gas(2235934),
+                    send_not_sir: NearGas::from_gas(2235934),
+                    execution: NearGas::from_gas(2235934),
                 },
                 ActionCosts::transfer => Fee {
-                    send_sir: 115123062500,
-                    send_not_sir: 115123062500,
-                    execution: 115123062500,
+                    send_sir: NearGas::from_gas(115123062500),
+                    send_not_sir: NearGas::from_gas(115123062500),
+                    execution: NearGas::from_gas(115123062500),
                 },
                 ActionCosts::stake => Fee {
-                    send_sir: 141715687500,
-                    send_not_sir: 141715687500,
-                    execution: 102217625000,
+                    send_sir: NearGas::from_gas(141715687500),
+                    send_not_sir: NearGas::from_gas(141715687500),
+                    execution: NearGas::from_gas(102217625000),
                 },
                 ActionCosts::add_full_access_key => Fee {
-                    send_sir: 101765125000,
-                    send_not_sir: 101765125000,
-                    execution: 101765125000,
+                    send_sir: NearGas::from_gas(101765125000),
+                    send_not_sir: NearGas::from_gas(101765125000),
+                    execution: NearGas::from_gas(101765125000),
                 },
                 ActionCosts::add_function_call_key_base => Fee {
-                    send_sir: 102217625000,
-                    send_not_sir: 102217625000,
-                    execution: 102217625000,
+                    send_sir: NearGas::from_gas(102217625000),
+                    send_not_sir: NearGas::from_gas(102217625000),
+                    execution: NearGas::from_gas(102217625000),
                 },
                 ActionCosts::add_function_call_key_byte => Fee {
-                    send_sir: 1925331,
-                    send_not_sir: 1925331,
-                    execution: 1925331,
+                    send_sir: NearGas::from_gas(1925331),
+                    send_not_sir: NearGas::from_gas(1925331),
+                    execution: NearGas::from_gas(1925331),
                 },
                 ActionCosts::delete_key => Fee {
-                    send_sir: 94946625000,
-                    send_not_sir: 94946625000,
-                    execution: 94946625000,
+                    send_sir: NearGas::from_gas(94946625000),
+                    send_not_sir: NearGas::from_gas(94946625000),
+                    execution: NearGas::from_gas(94946625000),
                 },
                 ActionCosts::new_action_receipt => Fee {
-                    send_sir: 108059500000,
-                    send_not_sir: 108059500000,
-                    execution: 108059500000,
+                    send_sir: NearGas::from_gas(108059500000),
+                    send_not_sir: NearGas::from_gas(108059500000),
+                    execution: NearGas::from_gas(108059500000),
                 },
                 ActionCosts::new_data_receipt_base => Fee {
-                    send_sir: 4697339419375,
-                    send_not_sir: 4697339419375,
-                    execution: 4697339419375,
+                    send_sir: NearGas::from_gas(4697339419375),
+                    send_not_sir: NearGas::from_gas(4697339419375),
+                    execution: NearGas::from_gas(4697339419375),
                 },
                 ActionCosts::new_data_receipt_byte => Fee {
-                    send_sir: 59357464,
-                    send_not_sir: 59357464,
-                    execution: 59357464,
+                    send_sir: NearGas::from_gas(59357464),
+                    send_not_sir: NearGas::from_gas(59357464),
+                    execution: NearGas::from_gas(59357464),
                 },
                 ActionCosts::delegate => Fee {
-                    send_sir: 200_000_000_000,
-                    send_not_sir: 200_000_000_000,
-                    execution: 200_000_000_000,
+                    send_sir: NearGas::from_gas(200_000_000_000),
+                    send_not_sir: NearGas::from_gas(200_000_000_000),
+                    execution: NearGas::from_gas(200_000_000_000),
                 },
                 ActionCosts::deploy_global_contract_base => Fee {
-                    send_sir: 184_765_750_000,
-                    send_not_sir: 184_765_750_000,
-                    execution: 184_765_750_000,
+                    send_sir: NearGas::from_gas(184_765_750_000),
+                    send_not_sir: NearGas::from_gas(184_765_750_000),
+                    execution: NearGas::from_gas(184_765_750_000),
                 },
                 ActionCosts::deploy_global_contract_byte => Fee {
-                    send_sir: 6_812_999,
-                    send_not_sir: 6_812_999,
-                    execution: 70_000_000,
+                    send_sir: NearGas::from_gas(6_812_999),
+                    send_not_sir: NearGas::from_gas(6_812_999),
+                    execution: NearGas::from_gas(70_000_000),
                 },
                 ActionCosts::use_global_contract_base => Fee {
-                    send_sir: 184_765_750_000,
-                    send_not_sir: 184_765_750_000,
-                    execution: 184_765_750_000,
+                    send_sir: NearGas::from_gas(184_765_750_000),
+                    send_not_sir: NearGas::from_gas(184_765_750_000),
+                    execution: NearGas::from_gas(184_765_750_000),
                 },
                 ActionCosts::use_global_contract_byte => Fee {
-                    send_sir: 6_812_999,
-                    send_not_sir: 47_683_715,
-                    execution: 64_572_944,
+                    send_sir: NearGas::from_gas(6_812_999),
+                    send_not_sir: NearGas::from_gas(47_683_715),
+                    execution: NearGas::from_gas(64_572_944),
                 },
             },
         }
@@ -598,7 +599,7 @@ impl RuntimeFeesConfig {
     pub fn free() -> Self {
         Self {
             action_fees: enum_map::enum_map! {
-                _ => Fee { send_sir: 0, send_not_sir: 0, execution: 0 }
+                _ => Fee { send_sir: NearGas::from_gas(0), send_not_sir: NearGas::from_gas(0), execution: NearGas::from_gas(0) }
             },
             storage_usage_config: StorageUsageConfig::free(),
             burnt_gas_reward: Rational32::from_integer(0),

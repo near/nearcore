@@ -3,11 +3,12 @@ use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayoutError;
 use crate::sharding::ChunkHash;
-use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
+use crate::types::{AccountId, Balance, EpochId, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
+use near_gas::NearGas;
 use std::fmt::{Debug, Display};
 
 /// Error returned in the ExecutionOutcome in case of failure
@@ -342,7 +343,7 @@ pub enum ActionsValidationError {
     /// The delete action must be a final action in transaction
     DeleteActionMustBeFinal = 0,
     /// The total prepaid gas (for all given actions) exceeded the limit.
-    TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas } = 1,
+    TotalPrepaidGasExceeded { total_prepaid_gas: NearGas, limit: NearGas } = 1,
     /// The number of actions exceeded the given limit.
     TotalNumberOfActionsExceeded { total_number_of_actions: u64, limit: u64 } = 2,
     /// The total number of bytes of the method names exceeded the limit in a Add Key action.

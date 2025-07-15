@@ -26,6 +26,7 @@ clap = { workspace = true, optional = true }
 # FIXME: this ideally should not depend on near-primitives-core...
 near-primitives-core.workspace = true
 near-account-id.workspace = true
+near-gas = { workspace = true, features = ["serde", "borsh", "schemars-v1"]}
 near-schema-checker-lib.workspace = true
 
 [dev-dependencies]

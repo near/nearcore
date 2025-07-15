@@ -2,11 +2,12 @@
 use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
+use near_gas::NearGas;
 #[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
+    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::version::Version;
 use near_time::Duration;
@@ -708,7 +709,7 @@ pub struct ClientConfig {
     /// Max burnt gas per view method.  If present, overrides value stored in
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
-    pub max_gas_burnt_view: Option<Gas>,
+    pub max_gas_burnt_view: Option<NearGas>,
     /// Re-export storage layer statistics as prometheus metrics.
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
