@@ -30,11 +30,17 @@ pub(crate) enum ReceiptSink {
     V2(ReceiptSinkV2WithInfo),
 }
 
+/// Separates out the supporting information about the chunk from the sink structures themselves.
+///
+/// This is largely necessary to work around borrowing limitations and the code structure: we want
+/// to iterate over shards immutably and at the same time mutate the congestion info via calls to
+/// functions that receive `ReceiptSinkV2` as a receiver.
 pub(crate) struct ReceiptSinkV2WithInfo {
     pub(crate) sink: ReceiptSinkV2,
     pub(crate) info: ReceiptSinkV2Info,
 }
 
+/// Refer to [`ReceiptSinkV2WithInfo`].
 pub(crate) struct ReceiptSinkV2Info {
     epoch_id: EpochId,
     shard_layout: ShardLayout,
