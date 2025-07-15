@@ -11,7 +11,9 @@ use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
+use near_async::actix_wrapper::{
+    ActixWrapper, SyncActixWrapper, spawn_actix_actor, spawn_sync_actix_actor,
+};
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
@@ -215,7 +217,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
-    pub state_request_client: Addr<ActixWrapper<StateRequestActor>>,
+    pub state_request_client: Addr<SyncActixWrapper<StateRequestActor>>,
     pub rpc_handler: Addr<RpcHandlerActor>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
@@ -357,14 +359,21 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer.clone(),
     );
 
-    let (state_request_addr, state_request_arbiter) = spawn_actix_actor(StateRequestActor::new(
-        Clock::real(),
-        runtime.clone(),
-        epoch_manager.clone(),
-        genesis_id.hash,
-        config.client_config.view_client_throttle_period,
-        config.client_config.view_client_num_state_requests_per_throttle_period,
-    ));
+    // TODO(darioush): For now this is using the same number of threads as the view client.
+    let state_request_addr = {
+        let runtime = runtime.clone();
+        let epoch_manager = epoch_manager.clone();
+        spawn_sync_actix_actor(config.client_config.view_client_threads, move || {
+            StateRequestActor::new(
+                Clock::real(),
+                runtime.clone(),
+                epoch_manager.clone(),
+                genesis_id.hash,
+                config.client_config.view_client_throttle_period,
+                config.client_config.view_client_num_state_requests_per_throttle_period,
+            )
+        })
+    };
 
     let state_snapshot_sender = LateBoundSender::new();
     let state_snapshot_actor = StateSnapshotActor::new(
@@ -552,7 +561,6 @@ pub fn start_with_config_and_synchronization(
 
     let mut arbiters = vec![
         client_arbiter_handle,
-        state_request_arbiter,
         shards_manager_arbiter_handle,
         trie_metrics_arbiter,
         state_snapshot_arbiter,
