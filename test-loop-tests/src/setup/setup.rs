@@ -19,7 +19,7 @@ use near_client::spice_core::CoreStatementsProcessor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
-    StateRequestActorConfig, StateRequestActorInner, ViewClientActorInner,
+    StateRequestActorInner, ViewClientActorInner,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -201,14 +201,11 @@ pub fn setup_client(
     .unwrap();
     let state_request_actor = StateRequestActorInner::new(
         test_loop.clock(),
-        *view_client_actor.chain.genesis().hash(),
-        StateRequestActorConfig {
-            view_client_throttle_period: client_config.view_client_throttle_period,
-            view_client_num_state_requests_per_throttle_period: client_config
-                .view_client_num_state_requests_per_throttle_period,
-        },
         runtime_adapter.clone(),
         epoch_manager.clone(),
+        *view_client_actor.chain.genesis().hash(),
+        client_config.view_client_throttle_period,
+        client_config.view_client_num_state_requests_per_throttle_period,
     );
 
     let head = client.chain.head().unwrap();

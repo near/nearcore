@@ -24,25 +24,22 @@ pub type StateRequestActor = ActixWrapper<StateRequestActorInner>;
 
 pub struct StateRequestActorInner {
     clock: Clock,
-    genesis_hash: CryptoHash,
-    state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
-    config: StateRequestActorConfig,
     state_sync_adapter: ChainStateSyncAdapter,
     chain_store: ChainStoreAdapter,
-}
-
-pub struct StateRequestActorConfig {
-    pub view_client_throttle_period: Duration,
-    pub view_client_num_state_requests_per_throttle_period: usize,
+    genesis_hash: CryptoHash,
+    throttle_period: Duration,
+    num_state_requests_per_throttle_period: usize,
+    state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
 }
 
 impl StateRequestActorInner {
     pub fn new(
         clock: Clock,
-        genesis_hash: CryptoHash,
-        config: StateRequestActorConfig,
         runtime: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        genesis_hash: CryptoHash,
+        throttle_period: Duration,
+        num_state_requests_per_throttle_period: usize,
     ) -> Self {
         let chain_store = ChainStoreAdapter::new(runtime.store().clone());
         let state_sync_adapter = ChainStateSyncAdapter::new(
@@ -53,11 +50,12 @@ impl StateRequestActorInner {
         );
         Self {
             clock,
-            genesis_hash,
-            state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
-            config,
             state_sync_adapter,
             chain_store,
+            genesis_hash,
+            throttle_period,
+            num_state_requests_per_throttle_period,
+            state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
         }
     }
 
@@ -67,7 +65,7 @@ impl StateRequestActorInner {
         let mut cache = self.state_request_cache.lock();
         let now = self.clock.now();
         while let Some(&instant) = cache.front() {
-            if now - instant > self.config.view_client_throttle_period {
+            if now - instant > self.throttle_period {
                 cache.pop_front();
             } else {
                 // Assume that time is linear. While in different threads there might be some small differences,
@@ -75,7 +73,7 @@ impl StateRequestActorInner {
                 break;
             }
         }
-        if cache.len() >= self.config.view_client_num_state_requests_per_throttle_period {
+        if cache.len() >= self.num_state_requests_per_throttle_period {
             return true;
         }
         cache.push_back(now);

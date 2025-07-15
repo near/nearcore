@@ -12,8 +12,8 @@ use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValu
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::{
-    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActorConfig,
-    StateRequestActorInner, ViewClientActorInner, spawn_rpc_handler_actor, start_client,
+    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActorInner,
+    ViewClientActorInner, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -134,14 +134,11 @@ fn setup_network_node(
     );
     let (state_request_addr, _) = spawn_actix_actor(StateRequestActorInner::new(
         Clock::real(),
-        genesis_id.hash,
-        StateRequestActorConfig {
-            view_client_num_state_requests_per_throttle_period: client_config
-                .view_client_num_state_requests_per_throttle_period,
-            view_client_throttle_period: client_config.view_client_throttle_period,
-        },
         runtime.clone(),
         epoch_manager.clone(),
+        genesis_id.hash,
+        client_config.view_client_throttle_period,
+        client_config.view_client_num_state_requests_per_throttle_period,
     ));
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: client_config.transaction_request_handler_threads,

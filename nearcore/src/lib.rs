@@ -29,8 +29,8 @@ use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
     ClientActor, ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig,
-    StartClientResult, StateRequestActor, StateRequestActorConfig, StateRequestActorInner,
-    ViewClientActor, ViewClientActorInner, spawn_rpc_handler_actor, start_client,
+    StartClientResult, StateRequestActor, StateRequestActorInner, ViewClientActor,
+    ViewClientActorInner, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -360,15 +360,11 @@ pub fn start_with_config_and_synchronization(
     let (state_request_addr, state_request_arbiter) =
         spawn_actix_actor(StateRequestActorInner::new(
             Clock::real(),
-            genesis_id.hash,
-            StateRequestActorConfig {
-                view_client_num_state_requests_per_throttle_period: config
-                    .client_config
-                    .view_client_num_state_requests_per_throttle_period,
-                view_client_throttle_period: config.client_config.view_client_throttle_period,
-            },
             runtime.clone(),
             epoch_manager.clone(),
+            genesis_id.hash,
+            config.client_config.view_client_throttle_period,
+            config.client_config.view_client_num_state_requests_per_throttle_period,
         ));
 
     let state_snapshot_sender = LateBoundSender::new();
