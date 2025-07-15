@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 
-use near_async::futures::ActixArbiterHandleFutureSpawner;
+use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -60,7 +60,9 @@ fn slow_test_state_dump() {
         "validator_signer",
     );
 
-    let arbiter = actix::Arbiter::new();
+    let state_dump_runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+    let state_dump_spawner = Arc::new(TokioRuntimeFutureSpawner(Arc::new(state_dump_runtime)));
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config,
@@ -69,7 +71,7 @@ fn slow_test_state_dump() {
         shard_tracker,
         runtime,
         validator,
-        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
+        future_spawner: state_dump_spawner,
         handle: None,
     };
     state_sync_dumper.start().unwrap();
@@ -170,7 +172,9 @@ fn run_state_sync_with_dumped_parts(
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
     });
-    let arbiter = actix::Arbiter::new();
+    let state_dump_runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+    let state_dump_spawner = Arc::new(TokioRuntimeFutureSpawner(Arc::new(state_dump_runtime)));
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config.clone(),
@@ -179,7 +183,7 @@ fn run_state_sync_with_dumped_parts(
         shard_tracker,
         runtime,
         validator,
-        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
+        future_spawner: state_dump_spawner,
         handle: None,
     };
     state_sync_dumper.start().unwrap();

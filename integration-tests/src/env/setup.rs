@@ -6,7 +6,7 @@ use crate::utils::peer_manager_mock::PeerManagerMock;
 use actix::{Actor, Addr, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
-use near_async::futures::ActixFutureSpawner;
+use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{
     IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
 };
@@ -189,6 +189,9 @@ fn setup(
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
+    let state_sync_runtime =
+        Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
+    let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime));
     let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         clock,
         config.clone(),
@@ -197,7 +200,7 @@ fn setup(
         shard_tracker.clone(),
         runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        Arc::new(ActixFutureSpawner),
+        state_sync_spawner,
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
         signer.clone(),
@@ -439,6 +442,9 @@ pub fn setup_client_with_runtime(
     let multi_spawner = AsyncComputationMultiSpawner::default()
         .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
     let spice_core_processor = CoreStatementsProcessor::new(noop().into_sender());
+    let state_sync_runtime =
+        Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
+    let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime));
     let mut client = Client::new(
         clock,
         config,
@@ -455,7 +461,7 @@ pub fn setup_client_with_runtime(
         multi_spawner,
         partial_witness_adapter,
         resharding_sender,
-        Arc::new(ActixFutureSpawner),
+        state_sync_spawner,
         noop().into_multi_sender(), // state sync ignored for these tests
         noop().into_multi_sender(), // apply chunks ping not necessary for these tests
         protocol_upgrade_schedule,

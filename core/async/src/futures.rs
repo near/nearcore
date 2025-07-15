@@ -60,15 +60,6 @@ pub fn respawn_for_parallelism<T: Send + 'static>(
     async move { receiver.await.unwrap() }
 }
 
-/// A FutureSpawner that hands over the future to Actix.
-pub struct ActixFutureSpawner;
-
-impl FutureSpawner for ActixFutureSpawner {
-    fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
-        near_performance_metrics::actix::spawn(description, f);
-    }
-}
-
 /// A FutureSpawner that gives futures to a tokio Runtime, possibly supporting
 /// multiple threads.
 pub struct TokioRuntimeFutureSpawner(pub Arc<tokio::runtime::Runtime>);
@@ -76,19 +67,6 @@ pub struct TokioRuntimeFutureSpawner(pub Arc<tokio::runtime::Runtime>);
 impl FutureSpawner for TokioRuntimeFutureSpawner {
     fn spawn_boxed(&self, _description: &'static str, f: BoxFuture<'static, ()>) {
         self.0.spawn(f);
-    }
-}
-
-pub struct ActixArbiterHandleFutureSpawner(pub actix::ArbiterHandle);
-
-impl FutureSpawner for ActixArbiterHandleFutureSpawner {
-    fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
-        if !self.0.spawn(f) {
-            near_o11y::tracing::error!(
-                "Failed to spawn future: {}, arbiter has exited",
-                description
-            );
-        }
     }
 }
 
