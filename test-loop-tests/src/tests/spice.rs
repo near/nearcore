@@ -29,7 +29,7 @@ fn test_spice_chain() {
     let accounts: Vec<AccountId> =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect_vec();
 
-    let num_block_producers = 4;
+    let num_block_producers = 2;
     let num_validators = 0;
 
     let block_and_chunk_producers =
@@ -87,7 +87,7 @@ fn test_spice_chain() {
         let view_client = test_loop_data.get_mut(&view_client_handle);
 
         let query_response = view_client.handle(Query::new(
-            BlockReference::latest(),
+            BlockReference::Finality(near_primitives::types::Finality::Final),
             QueryRequest::ViewAccount { account_id: account.clone() },
         ));
 

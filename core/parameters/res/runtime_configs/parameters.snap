@@ -208,7 +208,7 @@ reftypes_bulk_memory                    false
 max_congestion_incoming_gas             400_000_000_000_000_000
 max_congestion_outgoing_gas             10_000_000_000_000_000
 max_congestion_memory_consumption              1_000_000_000
-max_congestion_missed_chunks                               5
+max_congestion_missed_chunks                             125
 max_outgoing_gas                        300_000_000_000_000_000
 min_outgoing_gas                        1_000_000_000_000_000
 allowed_shard_outgoing_gas              1_000_000_000_000_000

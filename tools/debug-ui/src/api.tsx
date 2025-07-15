@@ -174,6 +174,7 @@ export interface DebugChunkStatus {
     chunk_producer: string | null;
     gas_used: number;
     processing_time_ms?: number;
+    endorsement_ratio?: number;
 }
 
 export interface EpochInfoView {

@@ -406,6 +406,25 @@ pub fn call_contract(
     tx_hash
 }
 
+pub fn prepare_transfer_tx(
+    env: &TestLoopEnv,
+    sender_id: &AccountId,
+    receiver_id: &AccountId,
+    amount: u128,
+) -> SignedTransaction {
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, sender_id);
+    let signer = create_user_test_signer(sender_id);
+    SignedTransaction::send_money(
+        nonce,
+        sender_id.clone(),
+        receiver_id.clone(),
+        &signer,
+        amount,
+        block_hash,
+    )
+}
+
 /// Submit a transaction to the rpc node with the given account id.
 /// Doesn't wait for the result, it must be requested separately.
 pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
@@ -482,7 +501,14 @@ pub fn run_tx(
     node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) -> Vec<u8> {
-    let tx_res = execute_tx(test_loop, rpc_id, tx, node_datas, maximum_duration).unwrap();
+    let tx_res = execute_tx(
+        test_loop,
+        rpc_id,
+        TransactionRunner::new(tx, true),
+        node_datas,
+        maximum_duration,
+    )
+    .unwrap();
     assert_matches!(tx_res.status, FinalExecutionStatus::SuccessValue(_));
     match tx_res.status {
         FinalExecutionStatus::SuccessValue(res) => res,
@@ -520,21 +546,19 @@ pub fn run_txs_parallel(
     );
 }
 
-/// Submit a transaction and wait for the execution result.
+/// Submit a transaction inside `tx_runner` and wait for the execution result.
 /// For invalid transactions returns an error.
 /// For valid transactions returns the execution result (which could have an execution error inside, check it!).
 pub fn execute_tx(
     test_loop: &mut TestLoopV2,
     rpc_id: &AccountId,
-    tx: SignedTransaction,
+    mut tx_runner: TransactionRunner,
     node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
     let client_sender = &get_node_data(node_datas, rpc_id).client_sender;
     let tx_processor_sender = &get_node_data(node_datas, rpc_id).rpc_handler_sender;
     let future_spawner = test_loop.future_spawner("TransactionRunner");
-
-    let mut tx_runner = TransactionRunner::new(tx, true);
 
     let mut res = None;
     test_loop.run_until(
