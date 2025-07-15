@@ -543,16 +543,15 @@ impl fmt::Debug for TieredMessageBody {
 }
 
 impl TieredMessageBody {
-<<<<<<< HEAD
     pub fn is_t1(&self) -> bool {
         matches!(self, TieredMessageBody::T1(_))
-=======
+    }
+
     pub fn variant(&self) -> &'static str {
         match self {
             TieredMessageBody::T1(body) => (&(**body)).into(),
             TieredMessageBody::T2(body) => (&(**body)).into(),
         }
->>>>>>> master
     }
 
     pub fn message_resend_count(&self) -> usize {
