@@ -17,6 +17,7 @@ mod garbage_collection;
 mod global_contracts;
 mod global_contracts_distribution;
 mod in_memory_tries;
+mod increase_max_congestion_missing_chunks;
 mod malicious_chunk_producer;
 mod max_receipt_size;
 mod multinode_stateless_validators;

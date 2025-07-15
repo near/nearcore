@@ -16,6 +16,8 @@ use serde_with::serde_as;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use self::chunk_extra::ChunkExtra;
+
 mod chunk_validator_stats;
 
 /// Hash used by to store state root.
@@ -1269,6 +1271,13 @@ pub struct StateChangesForBlock {
 pub struct StateChangesForShard {
     pub shard_id: ShardId,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
+}
+
+/// Chunk application result.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkExecutionResult {
+    pub chunk_extra: ChunkExtra,
+    pub outgoing_receipts_root: CryptoHash,
 }
 
 #[cfg(test)]

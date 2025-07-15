@@ -26,6 +26,21 @@
         margin-bottom: 10px;
     }
 
+    .toggle-fields {
+        display: flex;
+        margin-top: 10px;
+        margin-bottom: 10px;
+
+        .toggle-fields-label {
+            align-content: center;
+            width: 100px;
+        }
+
+        .toggle-button-enabled {
+            box-shadow: inset 0 0 2px 20px lightgray;
+        }
+    }
+
     button {
         margin-right: 8px;
     }

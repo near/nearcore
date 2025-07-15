@@ -279,3 +279,9 @@ fn test_t2_is_signed() {
     let message = make_chunk_request_message();
     assert!(message.signature().is_some());
 }
+
+#[test]
+fn test_body_variant_granularity() {
+    let message_v3 = make_chunk_request_message();
+    assert_eq!(message_v3.body_variant(), "PartialEncodedChunkRequest");
+}

@@ -527,15 +527,7 @@ impl PeerMessage {
 /// `TieredMessageBody` is used to distinguish between T1 and T2 messages.
 /// T1 messages are sent over T1 connections and they are critical for the progress of the network.
 /// T2 messages are sent over T2 connections and they are routed over multiple hops.
-#[derive(
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    strum::IntoStaticStr,
-    ProtocolSchema,
-)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, ProtocolSchema)]
 pub enum TieredMessageBody {
     T1(Box<T1MessageBody>),
     T2(Box<T2MessageBody>),
@@ -551,8 +543,16 @@ impl fmt::Debug for TieredMessageBody {
 }
 
 impl TieredMessageBody {
+<<<<<<< HEAD
     pub fn is_t1(&self) -> bool {
         matches!(self, TieredMessageBody::T1(_))
+=======
+    pub fn variant(&self) -> &'static str {
+        match self {
+            TieredMessageBody::T1(body) => (&(**body)).into(),
+            TieredMessageBody::T2(body) => (&(**body)).into(),
+        }
+>>>>>>> master
     }
 
     pub fn message_resend_count(&self) -> usize {
@@ -1288,7 +1288,7 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => (&msg.body).into(),
             RoutedMessage::V2(msg) => (&msg.msg.body).into(),
-            RoutedMessage::V3(msg) => (&msg.body).into(),
+            RoutedMessage::V3(msg) => msg.body.variant(),
         }
     }
 

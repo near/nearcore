@@ -968,7 +968,7 @@ impl PeerActor {
         target = "network",
         "receive_routed_message",
         skip_all,
-        fields(body_type = <&'static str>::from(&body)),
+        fields(body_type = body.variant()),
     )]
     async fn receive_routed_message(
         clock: &time::Clock,

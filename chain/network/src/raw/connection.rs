@@ -450,7 +450,7 @@ impl Connection {
         if !self.target_is_for_me(msg.target()) {
             tracing::debug!(
                 target: "network", "{:?} dropping routed message {} for {:?}",
-                &self, <&'static str>::from(msg.body()), msg.target()
+                &self, msg.body_variant(), msg.target()
             );
             return None;
         }

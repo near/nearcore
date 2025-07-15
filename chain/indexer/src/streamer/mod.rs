@@ -386,39 +386,32 @@ pub(crate) async fn start(
         match indexer_config.await_for_node_synced {
             AwaitForNodeSyncedEnum::WaitForFullSync => {
                 let status = fetch_status(&client).await;
-                if let Ok(status) = status {
-                    if status.sync_info.syncing {
-                        continue;
-                    }
+                let Ok(status) = status else {
+                    tracing::error!(target: INDEXER, ?status, "Failed to fetch node status. Retrying.");
+                    continue;
+                };
+                if status.sync_info.syncing {
+                    tracing::debug!(target: INDEXER, ?status, "The node is syncing. Waiting.");
+                    continue;
                 }
             }
             AwaitForNodeSyncedEnum::StreamWhileSyncing => {}
         };
 
-        let block =
-            if let Ok(block) = fetch_latest_block(&view_client, &indexer_config.finality).await {
-                block
-            } else {
-                continue;
-            };
+        tracing::debug!(target: INDEXER, "Starting streaming the next block range.");
+        let block = fetch_latest_block(&view_client, &indexer_config.finality).await;
+        let Ok(block) = block else {
+            tracing::error!(target: INDEXER, ?block, "Failed to fetch latest block. Retrying.");
+            continue;
+        };
 
         let latest_block_height = block.header.height;
-        let start_syncing_block_height = if let Some(last_synced_block_height) =
-            last_synced_block_height
-        {
-            last_synced_block_height + 1
-        } else {
-            match indexer_config.sync_mode {
-                crate::SyncModeEnum::FromInterruption => {
-                    match db.get(b"last_synced_block_height").unwrap() {
-                        Some(value) => String::from_utf8(value).unwrap().parse::<u64>().unwrap(),
-                        None => latest_block_height,
-                    }
-                }
-                crate::SyncModeEnum::LatestSynced => latest_block_height,
-                crate::SyncModeEnum::BlockHeight(height) => height,
-            }
-        };
+        let start_syncing_block_height = get_start_syncing_block_height(
+            &db,
+            &indexer_config,
+            last_synced_block_height,
+            latest_block_height,
+        );
 
         debug!(
             target: INDEXER,
@@ -430,34 +423,63 @@ pub(crate) async fn start(
         metrics::LATEST_BLOCK_HEIGHT.set(latest_block_height as i64);
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
-            if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response =
-                    Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
 
-                match response {
-                    Ok(streamer_message) => {
-                        debug!(target: INDEXER, "Sending streamer message for block #{} to the listener", streamer_message.block.header.height);
-                        if blocks_sink.send(streamer_message).await.is_err() {
-                            error!(
-                                target: INDEXER,
-                                "Unable to send StreamerMessage to listener, listener doesn't listen. terminating..."
-                            );
-                            break 'main;
-                        } else {
-                            metrics::NUM_STREAMER_MESSAGES_SENT.inc();
-                        }
-                    }
-                    Err(err) => {
-                        debug!(
-                            target: INDEXER,
-                            "Missing data, skipping block #{}...", block_height
-                        );
-                        debug!(target: INDEXER, "{:#?}", err);
-                    }
-                }
-            }
+            // This error handling is sketchy. It conflates two cases:
+            // 1. The block is missing - totally fine and expected.
+            // 2. Real error occurred while fetching the block.
+            let block = fetch_block_by_height(&view_client, block_height).await;
+            let Ok(block) = block else {
+                tracing::debug!(target: INDEXER, ?block_height, ?block, "Failed to fetch block. Skipping.");
+                continue;
+            };
+
+            // Build the StreamerMessage for the block
+            let streamer_message =
+                Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
+            let Ok(streamer_message) = streamer_message else {
+                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "Failed to build StreamerMessage. Skipping.");
+                continue;
+            };
+
+            debug!(target: INDEXER, ?block_height, "Sending streamer message to the listener");
+            let send_result = blocks_sink.send(streamer_message).await;
+            if send_result.is_err() {
+                error!(
+                    target: INDEXER,
+                    ?block_height,
+                    ?send_result,
+                    "Unable to send StreamerMessage to listener, listener doesn't listen. terminating..."
+                );
+                break 'main;
+            };
+
+            metrics::NUM_STREAMER_MESSAGES_SENT.inc();
             db.put(b"last_synced_block_height", &block_height.to_string()).unwrap();
             last_synced_block_height = Some(block_height);
         }
+    }
+}
+
+fn get_start_syncing_block_height(
+    db: &rocksdb::DB,
+    indexer_config: &IndexerConfig,
+    last_synced_block_height: Option<u64>,
+    latest_block_height: u64,
+) -> u64 {
+    // If last synced is set, start from the next height
+    if let Some(last_synced_block_height) = last_synced_block_height {
+        return last_synced_block_height + 1;
+    }
+
+    // Otherwise determine the start height based on the sync mode
+    match indexer_config.sync_mode {
+        crate::SyncModeEnum::FromInterruption => {
+            match db.get(b"last_synced_block_height").unwrap() {
+                Some(value) => String::from_utf8(value).unwrap().parse::<u64>().unwrap(),
+                None => latest_block_height,
+            }
+        }
+        crate::SyncModeEnum::LatestSynced => latest_block_height,
+        crate::SyncModeEnum::BlockHeight(height) => height,
     }
 }

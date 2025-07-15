@@ -465,7 +465,7 @@ pub(crate) enum MessageDropped {
 
 impl MessageDropped {
     pub fn inc(self, msg: &TieredMessageBody) {
-        self.inc_msg_type(msg.into())
+        self.inc_msg_type(msg.variant())
     }
 
     pub fn inc_unknown_msg(self) {

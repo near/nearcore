@@ -44,6 +44,7 @@ pub mod gc_actor;
 mod info;
 pub mod metrics;
 mod rpc_handler;
+pub mod spice_core;
 mod stateless_validation;
 pub mod sync;
 pub mod sync_jobs_actor;
