@@ -10,6 +10,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
 use near_performance_metrics_macros::perf;
+use near_primitives::hash::CryptoHash;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
 };
@@ -23,9 +24,11 @@ pub type StateRequestActor = ActixWrapper<StateRequestActorInner>;
 
 pub struct StateRequestActorInner {
     clock: Clock,
+    genesis_hash: CryptoHash,
     state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
     config: StateRequestActorConfig,
     state_sync_adapter: ChainStateSyncAdapter,
+    chain_store: ChainStoreAdapter,
 }
 
 pub struct StateRequestActorConfig {
@@ -36,32 +39,38 @@ pub struct StateRequestActorConfig {
 impl StateRequestActorInner {
     pub fn spawn_actix_actor(
         clock: Clock,
+        genesis_hash: CryptoHash,
         config: StateRequestActorConfig,
         runtime: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> actix::Addr<StateRequestActor> {
-        let actor = StateRequestActorInner::new(clock, config, runtime, epoch_manager);
+        let actor =
+            StateRequestActorInner::new(clock, genesis_hash, config, runtime, epoch_manager);
         let (addr, _arbiter) = spawn_actix_actor(actor);
         addr
     }
 
     pub fn new(
         clock: Clock,
+        genesis_hash: CryptoHash,
         config: StateRequestActorConfig,
         runtime: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
+        let chain_store = ChainStoreAdapter::new(runtime.store().clone());
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
-            ChainStoreAdapter::new(runtime.store().clone()),
+            chain_store.clone(),
             epoch_manager,
             runtime.clone(),
         );
         Self {
             clock,
+            genesis_hash,
             state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
             config,
             state_sync_adapter,
+            chain_store,
         }
     }
 
@@ -86,12 +95,29 @@ impl StateRequestActorInner {
         false
     }
 
-    // XXX: TODO: Figure out how to do the check_sync_hash_validity check here.
+    fn get_sync_hash(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, near_chain::Error> {
+        if block_hash == &self.genesis_hash {
+            // We shouldn't be trying to sync state from before the genesis block
+            return Ok(None);
+        }
+        let header = self.chain_store.get_block_header(block_hash)?;
+        self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+    }
+
+    // XXX: TODO: Remove the code duplication with Chain.
     fn check_sync_hash_validity(
         &self,
-        _sync_hash: &near_primitives::hash::CryptoHash,
+        sync_hash: &near_primitives::hash::CryptoHash,
     ) -> Result<bool, near_chain::Error> {
-        Ok(true) // Placeholder for actual implementation
+        // It's important to check that Block exists because we will sync with it.
+        // Do not replace with `get_block_header()`.
+        let _sync_block = self.chain_store.get_block(sync_hash)?;
+
+        let good_sync_hash = self.get_sync_hash(sync_hash)?;
+        Ok(good_sync_hash.as_ref() == Some(sync_hash))
     }
 }
 

@@ -201,6 +201,7 @@ pub fn setup_client(
     .unwrap();
     let state_request_actor = StateRequestActorInner::new(
         test_loop.clock(),
+        *view_client_actor.chain.genesis().hash(),
         StateRequestActorConfig {
             view_client_throttle_period: client_config.view_client_throttle_period,
             view_client_num_state_requests_per_throttle_period: client_config

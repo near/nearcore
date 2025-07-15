@@ -359,6 +359,7 @@ pub fn start_with_config_and_synchronization(
 
     let state_request_addr = StateRequestActorInner::spawn_actix_actor(
         Clock::real(),
+        genesis_id.hash,
         StateRequestActorConfig {
             view_client_num_state_requests_per_throttle_period: config
                 .client_config

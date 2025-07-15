@@ -134,6 +134,7 @@ fn setup_network_node(
     );
     let state_request_addr = StateRequestActorInner::spawn_actix_actor(
         Clock::real(),
+        genesis_id.hash,
         StateRequestActorConfig {
             view_client_num_state_requests_per_throttle_period: client_config
                 .view_client_num_state_requests_per_throttle_period,
