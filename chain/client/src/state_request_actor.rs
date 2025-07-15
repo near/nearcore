@@ -32,6 +32,8 @@ pub struct StateRequestActorInner {
     state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
 }
 
+impl Actor for StateRequestActorInner {}
+
 impl StateRequestActorInner {
     pub fn new(
         clock: Clock,
@@ -105,8 +107,6 @@ impl StateRequestActorInner {
         Ok(good_sync_hash.as_ref() == Some(sync_hash))
     }
 }
-
-impl Actor for StateRequestActorInner {}
 
 impl Handler<StateRequestHeader> for StateRequestActorInner {
     #[perf]
