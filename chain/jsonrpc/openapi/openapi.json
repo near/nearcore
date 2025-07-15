@@ -9917,6 +9917,7 @@
         "type": "object"
       },
       "RpcHealthResponse": {
+        "additionalProperties": false,
         "type": "object"
       },
       "RpcKnownProducer": {
