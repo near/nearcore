@@ -12,7 +12,7 @@ use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValu
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::{
-    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActorInner,
+    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor,
     ViewClientActorInner, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
@@ -132,7 +132,7 @@ fn setup_network_node(
         adv,
         validator_signer.clone(),
     );
-    let (state_request_addr, _) = spawn_actix_actor(StateRequestActorInner::new(
+    let (state_request_addr, _) = spawn_actix_actor(StateRequestActor::new(
         Clock::real(),
         runtime.clone(),
         epoch_manager.clone(),

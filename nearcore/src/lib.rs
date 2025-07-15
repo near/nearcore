@@ -29,8 +29,8 @@ use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
     ClientActor, ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig,
-    StartClientResult, StateRequestActor, StateRequestActorInner, ViewClientActor,
-    ViewClientActorInner, spawn_rpc_handler_actor, start_client,
+    StartClientResult, StateRequestActor, ViewClientActor, ViewClientActorInner,
+    spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -215,7 +215,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
-    pub state_request_client: Addr<StateRequestActor>,
+    pub state_request_client: Addr<ActixWrapper<StateRequestActor>>,
     pub rpc_handler: Addr<RpcHandlerActor>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
@@ -357,15 +357,14 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer.clone(),
     );
 
-    let (state_request_addr, state_request_arbiter) =
-        spawn_actix_actor(StateRequestActorInner::new(
-            Clock::real(),
-            runtime.clone(),
-            epoch_manager.clone(),
-            genesis_id.hash,
-            config.client_config.view_client_throttle_period,
-            config.client_config.view_client_num_state_requests_per_throttle_period,
-        ));
+    let (state_request_addr, state_request_arbiter) = spawn_actix_actor(StateRequestActor::new(
+        Clock::real(),
+        runtime.clone(),
+        epoch_manager.clone(),
+        genesis_id.hash,
+        config.client_config.view_client_throttle_period,
+        config.client_config.view_client_num_state_requests_per_throttle_period,
+    ));
 
     let state_snapshot_sender = LateBoundSender::new();
     let state_snapshot_actor = StateSnapshotActor::new(

@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use near_async::actix_wrapper::ActixWrapper;
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::state_sync::ChainStateSyncAdapter;
@@ -20,9 +19,7 @@ use tracing::{error, info, warn};
 
 use crate::metrics;
 
-pub type StateRequestActor = ActixWrapper<StateRequestActorInner>;
-
-pub struct StateRequestActorInner {
+pub struct StateRequestActor {
     clock: Clock,
     state_sync_adapter: ChainStateSyncAdapter,
     chain_store: ChainStoreAdapter,
@@ -32,9 +29,9 @@ pub struct StateRequestActorInner {
     state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
 }
 
-impl Actor for StateRequestActorInner {}
+impl Actor for StateRequestActor {}
 
-impl StateRequestActorInner {
+impl StateRequestActor {
     pub fn new(
         clock: Clock,
         runtime: Arc<dyn RuntimeAdapter>,
@@ -108,7 +105,7 @@ impl StateRequestActorInner {
     }
 }
 
-impl Handler<StateRequestHeader> for StateRequestActorInner {
+impl Handler<StateRequestHeader> for StateRequestActor {
     #[perf]
     fn handle(&mut self, msg: StateRequestHeader) -> Option<StateResponse> {
         tracing::debug!(target: "client", ?msg);
@@ -179,7 +176,7 @@ impl Handler<StateRequestHeader> for StateRequestActorInner {
     }
 }
 
-impl Handler<StateRequestPart> for StateRequestActorInner {
+impl Handler<StateRequestPart> for StateRequestActor {
     #[perf]
     fn handle(&mut self, msg: StateRequestPart) -> Option<StateResponse> {
         tracing::debug!(target: "client", ?msg);
