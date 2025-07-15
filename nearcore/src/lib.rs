@@ -29,8 +29,8 @@ use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
     ClientActor, ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig,
-    StartClientResult, ViewClientActor, ViewClientActorInner, spawn_rpc_handler_actor,
-    start_client,
+    StartClientResult, StateRequestActor, StateRequestActorConfig, StateRequestActorInner,
+    ViewClientActor, ViewClientActorInner, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -215,6 +215,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
+    pub state_request_client: Addr<StateRequestActor>,
     pub rpc_handler: Addr<RpcHandlerActor>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
@@ -356,6 +357,18 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer.clone(),
     );
 
+    let state_request_addr = StateRequestActorInner::spawn_actix_actor(
+        Clock::real(),
+        StateRequestActorConfig {
+            view_client_num_state_requests_per_throttle_period: config
+                .client_config
+                .view_client_num_state_requests_per_throttle_period,
+            view_client_throttle_period: config.client_config.view_client_throttle_period,
+        },
+        runtime.clone(),
+        epoch_manager.clone(),
+    );
+
     let state_snapshot_sender = LateBoundSender::new();
     let state_snapshot_actor = StateSnapshotActor::new(
         runtime.get_flat_storage_manager(),
@@ -490,6 +503,7 @@ pub fn start_with_config_and_synchronization(
         client_sender_for_network(
             client_actor.clone(),
             view_client_addr.clone(),
+            state_request_addr.clone(),
             rpc_handler.clone(),
         ),
         network_adapter.as_multi_sender(),
@@ -561,6 +575,7 @@ pub fn start_with_config_and_synchronization(
     Ok(NearNode {
         client: client_actor,
         view_client: view_client_addr,
+        state_request_client: state_request_addr,
         rpc_handler,
         #[cfg(feature = "tx_generator")]
         tx_generator,

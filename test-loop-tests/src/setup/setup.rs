@@ -19,7 +19,7 @@ use near_client::spice_core::CoreStatementsProcessor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
-    ViewClientActorInner,
+    StateRequestActorConfig, StateRequestActorInner, ViewClientActorInner,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -199,6 +199,16 @@ pub fn setup_client(
         validator_signer.clone(),
     )
     .unwrap();
+    let state_request_actor = StateRequestActorInner::new(
+        test_loop.clock(),
+        StateRequestActorConfig {
+            view_client_throttle_period: client_config.view_client_throttle_period,
+            view_client_num_state_requests_per_throttle_period: client_config
+                .view_client_num_state_requests_per_throttle_period,
+        },
+        runtime_adapter.clone(),
+        epoch_manager.clone(),
+    );
 
     let head = client.chain.head().unwrap();
     let header_head = client.chain.header_head().unwrap();
@@ -331,6 +341,7 @@ pub fn setup_client(
     let client_sender =
         test_loop.data.register_actor(identifier, client_actor, Some(client_adapter));
     let view_client_sender = test_loop.data.register_actor(identifier, view_client_actor, None);
+    let state_request_sender = test_loop.data.register_actor(identifier, state_request_actor, None);
     let rpc_handler_sender =
         test_loop.data.register_actor(identifier, rpc_handler, Some(rpc_handler_adapter));
     let shards_manager_sender =
@@ -360,6 +371,7 @@ pub fn setup_client(
         peer_id,
         client_sender,
         view_client_sender,
+        state_request_sender,
         rpc_handler_sender,
         shards_manager_sender,
         partial_witness_sender,
