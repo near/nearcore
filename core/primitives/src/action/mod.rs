@@ -54,6 +54,7 @@ pub struct AddKeyAction {
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
 pub struct CreateAccountAction {}
 
 #[derive(

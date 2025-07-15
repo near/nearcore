@@ -636,19 +636,24 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
 }
 
 #[derive(JsonSchema)]
-struct RpcHealthRequest;
+#[serde(deny_unknown_fields)]
+struct RpcHealthRequest {}
 
 #[derive(JsonSchema)]
-struct RpcStatusRequest;
+#[serde(deny_unknown_fields)]
+struct RpcStatusRequest {}
 
 #[derive(JsonSchema)]
-struct RpcNetworkInfoRequest;
+#[serde(deny_unknown_fields)]
+struct RpcNetworkInfoRequest {}
 
 #[derive(JsonSchema)]
-struct RpcClientConfigRequest;
+#[serde(deny_unknown_fields)]
+struct RpcClientConfigRequest {}
 
 #[derive(JsonSchema)]
-struct GenesisConfigRequest;
+#[serde(deny_unknown_fields)]
+struct GenesisConfigRequest {}
 
 fn main() {
     let mut all_schemas = json!({});
