@@ -527,6 +527,22 @@ pub struct ChunkDistributionNetworkConfig {
     pub uris: ChunkDistributionUris,
 }
 
+/// Configuration for random chunk skipping behavior.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ChunkSkippingConfig {
+    /// Size of the window in which to randomly pick a skip start.
+    pub window_size: u64,
+    /// Number of consecutive chunks to skip when skipping is triggered.
+    pub skip_length: u64,
+}
+
+impl Default for ChunkSkippingConfig {
+    fn default() -> Self {
+        Self { window_size: 400, skip_length: 50 }
+    }
+}
+
 /// URIs for the Chunk Distribution Network feature.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Default)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -698,6 +714,9 @@ pub struct ClientConfig {
     /// as a large number of incoming witnesses could cause denial of service.
     pub save_latest_witnesses: bool,
     pub transaction_request_handler_threads: usize,
+    /// Configuration for random chunk skipping. If enabled, the node will skip producing chunks
+    /// at random intervals to simulate network instability.
+    pub chunk_skipping_config: ChunkSkippingConfig,
 }
 
 impl ClientConfig {
@@ -786,6 +805,7 @@ impl ClientConfig {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             save_latest_witnesses: false,
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
+            chunk_skipping_config: ChunkSkippingConfig::default(),
         }
     }
 }
