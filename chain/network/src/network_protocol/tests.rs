@@ -154,11 +154,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         let x = m.serialize(Encoding::Proto);
         assert!(x[0] >= 32, "serialize({},PROTO)[0] = {:?}, want >= 32", m, x.get(0));
         let y = m.serialize(Encoding::Borsh);
-        if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
-            assert!(y[0] <= 30, "serialize({},BORSH)[0] = {:?}, want <= 21", m, y.get(0));
-        } else {
-            assert!(y[0] <= 21, "serialize({},BORSH)[0] = {:?}, want <= 21", m, y.get(0));
-        }
+        assert!(y[0] <= 21, "serialize({},BORSH)[0] = {:?}, want <= 21", m, y.get(0));
     }
 
     // Encodings should never be compatible.

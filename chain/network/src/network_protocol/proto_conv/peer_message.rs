@@ -16,7 +16,6 @@ use near_primitives::challenge::Challenge;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::compression::CompressedData;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use proto::peer_id_or_hash::Target_type::*;
 use protobuf::MessageField as MF;
 use std::sync::Arc;
@@ -334,34 +333,19 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     borsh: borsh::to_vec(&t).unwrap(),
                     ..Default::default()
                 }),
-                PeerMessage::Routed(r) => {
-                    if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
-                        ProtoMT::RoutedV3(proto::RoutedMessageV3 {
-                            target: MF::some(r.target().into()),
-                            author: MF::some(r.author().public_key().into()),
-                            ttl: r.ttl() as u32,
-                            borsh_body: borsh::to_vec(r.body()).unwrap(),
-                            signature: MF::from_option(r.signature().map(|s| s.into())),
-                            created_at: r.created_at(),
-                            num_hops: r.num_hops(),
-                            ..Default::default()
-                        })
-                    } else {
-                        ProtoMT::Routed(proto::RoutedMessage {
-                            borsh: borsh::to_vec(&r.clone().msg_v1()).unwrap(),
-                            created_at: MF::from_option(
-                                r.created_at()
-                                    .as_ref()
-                                    .map(|t| ::time::OffsetDateTime::from_unix_timestamp(*t).ok())
-                                    .flatten()
-                                    .as_ref()
-                                    .map(utc_to_proto),
-                            ),
-                            num_hops: r.num_hops(),
-                            ..Default::default()
-                        })
-                    }
-                }
+                PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
+                    borsh: borsh::to_vec(&r.clone().msg_v1()).unwrap(),
+                    created_at: MF::from_option(
+                        r.created_at()
+                            .as_ref()
+                            .map(|t| ::time::OffsetDateTime::from_unix_timestamp(*t).ok())
+                            .flatten()
+                            .as_ref()
+                            .map(utc_to_proto),
+                    ),
+                    num_hops: r.num_hops(),
+                    ..Default::default()
+                }),
                 PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
                     remove_from_connection_store: r.remove_from_connection_store,
                     ..Default::default()
@@ -538,13 +522,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Routed(r) => {
                 let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
                 let body = TieredMessageBody::from_routed(msg.body);
-                let signature = if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION)
-                    && body.is_t1()
-                {
-                    None
-                } else {
-                    Some(msg.signature)
-                };
+                let signature = if body.is_t1() { None } else { Some(msg.signature) };
                 PeerMessage::Routed(Box::new(
                     RoutedMessageV3 {
                         target: msg.target,

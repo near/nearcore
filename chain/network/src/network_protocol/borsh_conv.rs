@@ -1,5 +1,3 @@
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-
 use crate::network_protocol::borsh_ as net;
 /// Contains borsh <-> network_protocol conversions.
 use crate::network_protocol::{self as mem, RoutedMessageV3};
@@ -250,13 +248,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::Block(b) => net::PeerMessage::Block(b),
             mem::PeerMessage::OptimisticBlock(ob) => net::PeerMessage::OptimisticBlock(ob),
             mem::PeerMessage::Transaction(t) => net::PeerMessage::Transaction(t),
-            mem::PeerMessage::Routed(r) => {
-                if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) {
-                    net::PeerMessage::RoutedV3(r)
-                } else {
-                    net::PeerMessage::Routed(Box::new(r.msg_v1()))
-                }
-            }
+            mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg_v1())),
             mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),
             mem::PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
