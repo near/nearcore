@@ -33,6 +33,7 @@ near-chain-configs.workspace = true
 near-store.workspace = true
 near-primitives.workspace = true
 near-async.workspace = true
+humantime = "2.2.0"
 
 [features]
 nightly = [

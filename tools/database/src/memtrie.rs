@@ -1,4 +1,4 @@
-use crate::utils::{open_rocksdb, MemtrieSizeCalculator};
+use crate::utils::{MemtrieSizeCalculator, open_rocksdb};
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_chain::resharding::event_type::ReshardingSplitShardParams;

@@ -7,26 +7,30 @@ use std::usize;
 use anyhow::Context;
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
+use humantime::format_duration;
 use clap::Parser;
+use near_async::time::{Clock, Instant};
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Block, ChainStore};
+use near_chain::{Block, Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
 use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::block::ChunkType;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
+use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk};
+use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use near_primitives::utils::get_block_shard_id;
-use near_store::adapter::flat_store::decode_flat_state_db_key;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::flat_store::decode_flat_state_db_key;
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 
-use crate::utils::{open_rocksdb, MemtrieSizeCalculator};
+use crate::utils::{MemtrieSizeCalculator, open_rocksdb};
 
 /// Example usage: neard database analyse-archival memtrie --shard-id 0,1,2
 #[derive(Parser)]
@@ -54,10 +58,15 @@ pub enum AnalyseTarget {
     FlatState,
     StateChanges,
     Memtrie,
+    StateParts,
 }
 
 impl AnalyseArchivalCommand {
-    pub(crate) fn run(&self, home: &PathBuf, genesis_validation: GenesisValidationMode) -> anyhow::Result<()> {
+    pub(crate) fn run(
+        &self,
+        home: &PathBuf,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
         let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
         let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
         let near_config = nearcore::config::load_config(&home, genesis_validation)
@@ -71,14 +80,37 @@ impl AnalyseArchivalCommand {
         let final_head = chain_store.final_head()?;
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
-        let runtime =
-            NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager.clone())
-                .context("could not create the transaction runtime")?;
+        let shard_tracker = ShardTracker::new(
+            near_config.client_config.tracked_shards_config.clone(),
+            epoch_manager.clone(),
+            near_config.validator_signer.clone(),
+        );
+        let runtime = NightshadeRuntime::from_config(
+            home,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .context("could not create the transaction runtime")?;
+        let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
+        let mut chain = Chain::new_for_view_client(
+            Clock::real(),
+            epoch_manager.clone(),
+            shard_tracker,
+            runtime.clone(),
+            &chain_genesis,
+            DoomslugThresholdMode::TwoThirds,
+            false,
+            near_config.validator_signer.clone(),
+        )
+        .unwrap();
+
         let block = chain_store.get_block(&final_head.prev_block_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id)?;
         let shard_uids: Vec<ShardUId> = match &self.shard_id {
             None => shard_layout.shard_uids().collect(),
-            Some(shard_ids) => shard_layout.shard_uids()
+            Some(shard_ids) => shard_layout
+                .shard_uids()
                 .filter(|uid| shard_ids.contains(&uid.shard_id()))
                 .map(|uid| uid)
                 .collect(),
@@ -101,12 +133,98 @@ impl AnalyseArchivalCommand {
                 AnalyseTarget::Memtrie => {
                     self.analyze_memtrie(store.clone(), &runtime, &shard_uids, &block);
                 }
+                AnalyseTarget::StateParts => {
+                    self.analyze_state_parts(&mut chain, &shard_uids, &block.header().prev_hash());
+                }
             }
         }
         Ok(())
     }
 
-    fn analyze_memtrie(&self, store: Store, runtime: &Arc<NightshadeRuntime>, shards: &Vec<ShardUId>, block: &Block) {
+    fn analyze_state_parts(
+        &self,
+        chain: &mut Chain,
+        shards: &Vec<ShardUId>,
+        block_hash: &CryptoHash,
+    ) {
+        eprintln!("Analyse State parts");
+        let sync_hash = chain.get_sync_hash(&block_hash).unwrap().unwrap();
+        let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
+        let sync_prev_header = chain.get_previous_header(&sync_block_header).unwrap();
+        let sync_prev_prev_hash = sync_prev_header.prev_hash();
+
+        for shard_uid in shards {
+            let shard_id = shard_uid.shard_id();
+            eprintln!("Analysing shard {shard_id}");
+            let state_header = chain
+                .state_sync_adapter
+                .compute_state_response_header(shard_id, sync_hash)
+                .unwrap();
+            let state_root = state_header.chunk_prev_state_root();
+            let num_parts = state_header.num_state_parts();
+
+            let mut total_size = 0;
+            let mut total_compressed = 0;
+            let mut state_parts = Vec::new();
+            let mut total_elapsed_sec = std::time::Duration::ZERO;
+            for part_id in 0..num_parts {
+                let state_part = chain
+                    .runtime_adapter
+                    .obtain_state_part(
+                        shard_id,
+                        sync_prev_prev_hash,
+                        &state_root,
+                        PartId::new(part_id, num_parts),
+                    )
+                    .unwrap();
+                let data = borsh::to_vec(&state_part).unwrap();
+                state_parts.push(state_part);
+                let timer = Instant::now();
+                let compressed =
+                    zstd::encode_all(data.as_slice(), self.compression_level as i32).unwrap();
+                let elapsed_sec = timer.elapsed();
+                if part_id == 0 {
+                    eprintln!(
+                        "compressed {} to {} in {}",
+                        data.len(), compressed.len(), format_duration(elapsed_sec),
+                    );
+                }
+                total_elapsed_sec += elapsed_sec;
+                total_size += data.len();
+                total_compressed += compressed.len();
+            }
+            eprintln!(
+                "Avg raw size: {}, Avg compressed size: {}",
+                ByteSize::b((total_size / num_parts as usize) as u64),
+                ByteSize::b((total_compressed / num_parts as usize) as u64),
+            );
+            eprintln!(
+                "Parts num: {}, Avg compression time: {}",
+                num_parts, format_duration(total_elapsed_sec / num_parts as u32),
+            );
+
+            let data = borsh::to_vec(&state_parts).unwrap();
+            std::mem::drop(state_parts);
+            let timer = Instant::now();
+            let compressed =
+                zstd::encode_all(data.as_slice(), self.compression_level as i32).unwrap();
+            let elapsed_sec = timer.elapsed();
+            eprintln!(
+                "Total size: {}, Total compressed size: {}, compression took {}",
+                ByteSize::b(data.len() as u64),
+                ByteSize::b(compressed.len() as u64),
+                format_duration(elapsed_sec),
+            );
+        }
+    }
+
+    fn analyze_memtrie(
+        &self,
+        store: Store,
+        runtime: &Arc<NightshadeRuntime>,
+        shards: &Vec<ShardUId>,
+        block: &Block,
+    ) {
         eprintln!("Analyse Trie");
         let mut total_inlined_memtries = 0;
         let mut total_inlined_leaves = 0;
@@ -117,8 +235,10 @@ impl AnalyseArchivalCommand {
             let shard_tries = runtime.get_tries();
             shard_tries.load_memtrie(&shard_uid, None, false).unwrap();
 
-            let size_calculator = MemtrieSizeCalculator::new(store.chain_store(), &shard_tries, &block);
-            let (memtrie_size, leaves_size) = size_calculator.get_shard_trie_size(*shard_uid, false).unwrap();
+            let size_calculator =
+                MemtrieSizeCalculator::new(store.chain_store(), &shard_tries, &block);
+            let (memtrie_size, leaves_size) =
+                size_calculator.get_shard_trie_size(*shard_uid, false).unwrap();
             println!(
                 "[Inlined] trie size: {} bytes, leaves: {}",
                 ByteSize::b(memtrie_size as u64),
@@ -126,7 +246,8 @@ impl AnalyseArchivalCommand {
             );
             total_inlined_memtries += memtrie_size;
             total_inlined_leaves += leaves_size;
-            let (memtrie_size, leaves_size) = size_calculator.get_shard_trie_size(*shard_uid, true).unwrap();
+            let (memtrie_size, leaves_size) =
+                size_calculator.get_shard_trie_size(*shard_uid, true).unwrap();
             println!(
                 "[Non-inlined] trie size: {} bytes, leaves: {}",
                 ByteSize::b(memtrie_size as u64),
@@ -247,10 +368,7 @@ impl AnalyseArchivalCommand {
             let mut stats = SizeStats::default();
             let mut skipped_cnt = 0;
             let limit = if col == DBCol::Block { self.limit() } else { usize::MAX };
-            for res in store
-                .iter(col)
-                .take(limit)
-            {
+            for res in store.iter(col).take(limit) {
                 let (key, value) = res.unwrap();
                 let block_hash = if col == DBCol::TransactionResultForBlock {
                     CryptoHash::try_from(key.split_at(CryptoHash::LENGTH).1).unwrap()
@@ -258,9 +376,7 @@ impl AnalyseArchivalCommand {
                     CryptoHash::try_from_slice(&key).unwrap()
                 };
                 let entry = if col == DBCol::Block {
-                    block_data
-                        .entry(block_hash)
-                        .or_default()
+                    block_data.entry(block_hash).or_default()
                 } else if let Some(entry) = block_data.get_mut(&block_hash) {
                     entry
                 } else {
@@ -286,49 +402,71 @@ impl AnalyseArchivalCommand {
         );
     }
 
-    fn get_chunk_related_data(store: &Store, block_hash: &CryptoHash, chunk_hash: &CryptoHash, shard_uid: &ShardUId) -> Result<Vec<u8>, anyhow::Error> {
-        let chunk = store.get_ser::<ShardChunk>(DBCol::Chunks, chunk_hash.as_bytes()).unwrap().unwrap();
+    fn get_chunk_related_data(
+        store: &Store,
+        block_hash: &CryptoHash,
+        chunk_hash: &CryptoHash,
+        shard_uid: &ShardUId,
+    ) -> Result<Vec<u8>, anyhow::Error> {
+        let chunk =
+            store.get_ser::<ShardChunk>(DBCol::Chunks, chunk_hash.as_bytes()).unwrap().unwrap();
         let block_shard_uid = get_block_shard_uid(block_hash, shard_uid);
-        let chunk_extra = store.get_ser::<ChunkExtra>(DBCol::ChunkExtra, &block_shard_uid).unwrap().unwrap();
+        let chunk_extra =
+            store.get_ser::<ChunkExtra>(DBCol::ChunkExtra, &block_shard_uid).unwrap().unwrap();
         let block_shard_id = get_block_shard_id(block_hash, shard_uid.shard_id());
-        let incoming_receipts = store.get_ser::<Vec<ReceiptProof>>(DBCol::IncomingReceipts, &block_shard_id).unwrap().unwrap();
-        let outgoing_receipts = store.get_ser::<Vec<Receipt>>(DBCol::OutgoingReceipts, &block_shard_id).unwrap().unwrap();
-        let outcome_ids = store.get_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds, &block_shard_id).unwrap().unwrap();
+        let incoming_receipts = store
+            .get_ser::<Vec<ReceiptProof>>(DBCol::IncomingReceipts, &block_shard_id)
+            .unwrap()
+            .unwrap();
+        let outgoing_receipts = store
+            .get_ser::<Vec<Receipt>>(DBCol::OutgoingReceipts, &block_shard_id)
+            .unwrap()
+            .unwrap();
+        let outcome_ids =
+            store.get_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds, &block_shard_id).unwrap().unwrap();
         // StateChanges are excluded because they are analysed separately.
         let shard_id_block = borsh::to_vec(&StateHeaderKey(shard_uid.shard_id(), *block_hash))?;
-        let state_headers = store.get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &shard_id_block).unwrap();
+        let state_headers = store
+            .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &shard_id_block)
+            .unwrap();
         if state_headers.is_some() {
             eprintln!("Found ShardStateSyncResponseHeader");
         }
-        let chunk_related_data = (chunk, chunk_extra, incoming_receipts, outgoing_receipts, outcome_ids, state_headers);
+        let chunk_related_data =
+            (chunk, chunk_extra, incoming_receipts, outgoing_receipts, outcome_ids, state_headers);
         // Transactions are excluded because they are already inside `ShardChunk`.
         Ok(borsh::to_vec(&chunk_related_data).unwrap())
     }
 
     fn analyse_chunk_related_data(&self, store: Store, shard_layout: &ShardLayout) {
         eprintln!("Analyse chunk-related data");
-        let mut shard_data = HashMap::<ShardId, HashMap::<ChunkHash, Vec<Vec<u8>>>>::new();
+        let mut shard_data = HashMap::<ShardId, HashMap<ChunkHash, Vec<Vec<u8>>>>::new();
         let mut stats = HashMap::<ShardId, SizeStats>::new();
-        for res in store
-            .iter_ser::<Block>(DBCol::Block)
-            .take(self.limit())
-        {
+        for res in store.iter_ser::<Block>(DBCol::Block).take(self.limit()) {
             let (key, block) = res.unwrap();
             if block.header().is_genesis() {
                 continue;
             }
             let block_hash = CryptoHash::try_from_slice(&key).unwrap();
             for chunk in block.chunks().iter() {
-                let ChunkType::New(chunk) = chunk else { continue; };
+                let ChunkType::New(chunk) = chunk else {
+                    continue;
+                };
                 let chunk_hash = chunk.chunk_hash();
                 let shard_id = chunk.shard_id();
                 let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                let chunk_related_data = Self::get_chunk_related_data(&store, &block_hash, &chunk_hash.0, &shard_uid);
+                let chunk_related_data =
+                    Self::get_chunk_related_data(&store, &block_hash, &chunk_hash.0, &shard_uid);
                 let Ok(data) = chunk_related_data else {
                     continue;
                 };
                 stats.entry(shard_id).or_default().update(chunk_hash.as_bytes(), &data);
-                shard_data.entry(shard_id).or_default().entry(chunk_hash.clone()).or_default().push(data);
+                shard_data
+                    .entry(shard_id)
+                    .or_default()
+                    .entry(chunk_hash.clone())
+                    .or_default()
+                    .push(data);
             }
         }
         let mut overall_size = 0;
