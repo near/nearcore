@@ -1,5 +1,4 @@
 use crate::client_actor::ClientActor;
-use crate::state_request_actor::StateRequestActor;
 use crate::{RpcHandlerActor, ViewClientActor};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::IntoSender;
@@ -8,12 +7,10 @@ use near_network::client::ClientSenderForNetwork;
 pub fn client_sender_for_network(
     client_addr: actix::Addr<ClientActor>,
     view_client_addr: actix::Addr<ViewClientActor>,
-    state_request_addr: actix::Addr<StateRequestActor>,
     rpc_handler: actix::Addr<RpcHandlerActor>,
 ) -> ClientSenderForNetwork {
     let client_addr = client_addr.with_auto_span_context();
     let view_client_addr = view_client_addr.with_auto_span_context();
-    let state_request_addr = state_request_addr.with_auto_span_context();
     let rpc_handler = rpc_handler.with_auto_span_context();
     ClientSenderForNetwork {
         block: client_addr.clone().into_sender(),
@@ -22,8 +19,6 @@ pub fn client_sender_for_network(
         block_headers_request: view_client_addr.clone().into_sender(),
         block_request: view_client_addr.clone().into_sender(),
         network_info: client_addr.clone().into_sender(),
-        state_request_header: state_request_addr.clone().into_sender(),
-        state_request_part: state_request_addr.into_sender(),
         state_response: client_addr.clone().into_sender(),
         tx_status_request: view_client_addr.clone().into_sender(),
         tx_status_response: view_client_addr.clone().into_sender(),

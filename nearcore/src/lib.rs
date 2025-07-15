@@ -504,9 +504,9 @@ pub fn start_with_config_and_synchronization(
         client_sender_for_network(
             client_actor.clone(),
             view_client_addr.clone(),
-            state_request_addr.clone(),
             rpc_handler.clone(),
         ),
+        state_request_addr.clone().with_auto_span_context().into_multi_sender(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
