@@ -14,6 +14,7 @@ use near_client::{PartialWitnessActor, RpcHandler, StateRequestActor, ViewClient
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
+use near_network::types::StateRequestSenderForNetwork;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
@@ -111,6 +112,12 @@ impl From<&NodeExecutionData> for ViewClientSenderForRpc {
 impl From<&NodeExecutionData> for ViewClientSenderForTestLoopNetwork {
     fn from(data: &NodeExecutionData) -> ViewClientSenderForTestLoopNetwork {
         data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
+    }
+}
+
+impl From<&NodeExecutionData> for StateRequestSenderForNetwork {
+    fn from(data: &NodeExecutionData) -> StateRequestSenderForNetwork {
+        data.state_request_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
     }
 }
 

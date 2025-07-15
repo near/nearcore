@@ -217,6 +217,8 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
+    // TODO(darioush): Remove once we migrate `slow_test_state_sync_headers` and
+    // `slow_test_state_sync_headers_no_tracked_shards` to testloop.
     pub state_request_client: Addr<SyncActixWrapper<StateRequestActor>>,
     pub rpc_handler: Addr<RpcHandlerActor>,
     #[cfg(feature = "tx_generator")]
