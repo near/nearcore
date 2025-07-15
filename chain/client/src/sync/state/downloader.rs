@@ -165,9 +165,13 @@ impl StateSyncDownloader {
             }
 
             let attempt = || async {
-                let source = if fallback_source.is_some()
-                    && num_prior_attempts >= num_attempts_before_fallback
-                {
+                // We cannot assume that either source is infallible. We cycle attempts
+                // to the available sources until one of them gives us the state successfully.
+                let cycle_length = num_attempts_before_fallback + 1;
+                let use_fallback = fallback_source.is_some()
+                    && num_prior_attempts % cycle_length == num_attempts_before_fallback;
+
+                let source = if use_fallback {
                     fallback_source.as_ref().unwrap().as_ref()
                 } else {
                     preferred_source.as_ref()

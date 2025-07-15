@@ -28,7 +28,8 @@ use near_chain_configs::{
     default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
     default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
     default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
+    default_view_client_num_state_requests_per_throttle_period, default_view_client_threads,
+    default_view_client_throttle_period, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -305,6 +306,8 @@ pub struct Config {
     pub chunk_validation_threads: Option<usize>,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub view_client_throttle_period: Duration,
+    /// Maximum number of state requests served per `view_client_throttle_period`
+    pub view_client_num_state_requests_per_throttle_period: usize,
     pub trie_viewer_state_size_limit: Option<u64>,
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -417,6 +420,8 @@ impl Default for Config {
             view_client_threads: default_view_client_threads(),
             chunk_validation_threads: None,
             view_client_throttle_period: default_view_client_throttle_period(),
+            view_client_num_state_requests_per_throttle_period:
+                default_view_client_num_state_requests_per_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
             store: near_store::StoreConfig::default(),
@@ -619,6 +624,8 @@ impl NearConfig {
                     .chunk_validation_threads
                     .unwrap_or_else(default_chunk_validation_threads),
                 view_client_throttle_period: config.view_client_throttle_period,
+                view_client_num_state_requests_per_throttle_period: config
+                    .view_client_num_state_requests_per_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
