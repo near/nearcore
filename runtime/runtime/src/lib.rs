@@ -1048,12 +1048,8 @@ impl Runtime {
                     ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
                 );
 
-                let res = receipt_sink.forward_or_buffer_receipt(
-                    new_receipt,
-                    apply_state,
-                    state_update,
-                    epoch_info_provider,
-                );
+                let res =
+                    receipt_sink.forward_or_buffer_receipt(new_receipt, apply_state, state_update);
                 if let Err(e) = res {
                     Some(Err(e))
                 } else if is_action {
@@ -1705,13 +1701,10 @@ impl Runtime {
             apply_state,
             own_congestion_info,
             bandwidth_scheduler_output,
-        )?;
-        // Forward buffered receipts from previous chunks.
-        receipt_sink.forward_from_buffer(
-            &mut processing_state.state_update,
-            apply_state,
             processing_state.epoch_info_provider,
         )?;
+        // Forward buffered receipts from previous chunks.
+        receipt_sink.forward_from_buffer(&mut processing_state.state_update, apply_state)?;
 
         // Step 2: process transactions.
         self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
@@ -1876,7 +1869,6 @@ impl Runtime {
                             *receipt,
                             apply_state,
                             state_update,
-                            processing_state.epoch_info_provider,
                         )?;
                     }
                     let compute = outcome.outcome.compute_usage;
@@ -2598,7 +2590,6 @@ fn resolve_promise_yield_timeouts(
                 resume_receipt,
                 apply_state,
                 &mut state_update,
-                processing_state.epoch_info_provider,
             )?;
         }
 
@@ -2846,6 +2837,8 @@ pub mod estimator {
     use crate::ApplyState;
     use crate::BandwidthSchedulerOutput;
     use crate::congestion_control::ReceiptSinkV2;
+    use crate::congestion_control::ReceiptSinkV2Info;
+    use crate::congestion_control::ReceiptSinkV2WithInfo;
     use crate::pipelining::ReceiptPreparationPipeline;
     use near_primitives::bandwidth_scheduler::BandwidthSchedulerParams;
     use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats};
@@ -2889,8 +2882,7 @@ pub mod estimator {
             NonZeroU64::new(shard_layout.num_shards()).expect("ShardLayout has zero shards!"),
             &apply_state.config,
         );
-
-        let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
+        let sink = ReceiptSinkV2 {
             own_congestion_info: congestion_info,
             outgoing_limit,
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
@@ -2898,7 +2890,9 @@ pub mod estimator {
             outgoing_metadatas,
             bandwidth_scheduler_output: BandwidthSchedulerOutput::no_granted_bandwidth(params),
             stats: ReceiptSinkStats::default(),
-        });
+        };
+        let info = ReceiptSinkV2Info::new(apply_state.epoch_id, epoch_info_provider)?;
+        let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
