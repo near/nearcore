@@ -45,13 +45,21 @@ pub struct MemtrieSizeCalculator<'a, 'b> {
 }
 
 impl<'a, 'b> MemtrieSizeCalculator<'a, 'b> {
-    pub fn new(chain_store: ChainStoreAdapter, shard_tries: &'a ShardTries, block: &'b Block) -> Self {
+    pub fn new(
+        chain_store: ChainStoreAdapter,
+        shard_tries: &'a ShardTries,
+        block: &'b Block,
+    ) -> Self {
         Self { chain_store, shard_tries, block }
     }
 
     /// Get RAM usage of a shard trie
     /// Does a BFS of the whole memtrie
-    pub fn get_shard_trie_size(&self, shard_uid: ShardUId, non_inlined: bool) -> anyhow::Result<(u64, u64)> {
+    pub fn get_shard_trie_size(
+        &self,
+        shard_uid: ShardUId,
+        non_inlined: bool,
+    ) -> anyhow::Result<(u64, u64)> {
         let chunk_extra = self.chain_store.get_chunk_extra(self.block.hash(), &shard_uid)?;
         let state_root = chunk_extra.state_root();
         //println!("Shard {shard_uid}: state root: {state_root}");
