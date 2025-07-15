@@ -17,8 +17,6 @@ use near_primitives::stateless_validation::contract_distribution::ContractCodeRe
 use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::version::ProtocolFeature;
 pub use peer::*;
 pub use state_sync::*;
 
