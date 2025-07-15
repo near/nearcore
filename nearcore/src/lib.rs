@@ -357,18 +357,19 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer.clone(),
     );
 
-    let state_request_addr = StateRequestActorInner::spawn_actix_actor(
-        Clock::real(),
-        genesis_id.hash,
-        StateRequestActorConfig {
-            view_client_num_state_requests_per_throttle_period: config
-                .client_config
-                .view_client_num_state_requests_per_throttle_period,
-            view_client_throttle_period: config.client_config.view_client_throttle_period,
-        },
-        runtime.clone(),
-        epoch_manager.clone(),
-    );
+    let (state_request_addr, state_request_arbiter) =
+        spawn_actix_actor(StateRequestActorInner::new(
+            Clock::real(),
+            genesis_id.hash,
+            StateRequestActorConfig {
+                view_client_num_state_requests_per_throttle_period: config
+                    .client_config
+                    .view_client_num_state_requests_per_throttle_period,
+                view_client_throttle_period: config.client_config.view_client_throttle_period,
+            },
+            runtime.clone(),
+            epoch_manager.clone(),
+        ));
 
     let state_snapshot_sender = LateBoundSender::new();
     let state_snapshot_actor = StateSnapshotActor::new(
@@ -556,6 +557,7 @@ pub fn start_with_config_and_synchronization(
 
     let mut arbiters = vec![
         client_arbiter_handle,
+        state_request_arbiter,
         shards_manager_arbiter_handle,
         trie_metrics_arbiter,
         state_snapshot_arbiter,

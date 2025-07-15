@@ -132,7 +132,7 @@ fn setup_network_node(
         adv,
         validator_signer.clone(),
     );
-    let state_request_addr = StateRequestActorInner::spawn_actix_actor(
+    let (state_request_addr, _) = spawn_actix_actor(StateRequestActorInner::new(
         Clock::real(),
         genesis_id.hash,
         StateRequestActorConfig {
@@ -142,7 +142,7 @@ fn setup_network_node(
         },
         runtime.clone(),
         epoch_manager.clone(),
-    );
+    ));
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: client_config.transaction_request_handler_threads,
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,

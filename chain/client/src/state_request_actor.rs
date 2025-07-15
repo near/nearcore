@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
+use near_async::actix_wrapper::ActixWrapper;
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::state_sync::ChainStateSyncAdapter;
@@ -37,19 +37,6 @@ pub struct StateRequestActorConfig {
 }
 
 impl StateRequestActorInner {
-    pub fn spawn_actix_actor(
-        clock: Clock,
-        genesis_hash: CryptoHash,
-        config: StateRequestActorConfig,
-        runtime: Arc<dyn RuntimeAdapter>,
-        epoch_manager: Arc<dyn EpochManagerAdapter>,
-    ) -> actix::Addr<StateRequestActor> {
-        let actor =
-            StateRequestActorInner::new(clock, genesis_hash, config, runtime, epoch_manager);
-        let (addr, _arbiter) = spawn_actix_actor(actor);
-        addr
-    }
-
     pub fn new(
         clock: Clock,
         genesis_hash: CryptoHash,
