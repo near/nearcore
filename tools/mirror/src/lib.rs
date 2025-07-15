@@ -897,8 +897,12 @@ impl<T: ChainAccess> TxMirror<T> {
                             // that some other instance of this code ran and made progress already. For now we can assume
                             // only once instance of this code will run, but this is the place to detect if that's not the case.
                             tracing::error!(
-                                target: "mirror", "Tried to send an invalid tx for ({}, {:?}) from {}: {:?}",
-                                tx.target_tx.transaction.signer_id(), tx.target_tx.transaction.public_key(), &tx.provenance, e
+                                target: "mirror", "Tried to send an invalid tx for ({}, {:?}) to {} from {}: {:?}",
+                                tx.target_tx.transaction.signer_id(),
+                                tx.target_tx.transaction.public_key(),
+                                tx.target_tx.transaction.receiver_id(),
+                                &tx.provenance,
+                                e
                             );
                             crate::metrics::TRANSACTIONS_SENT.with_label_values(&["invalid"]).inc();
                         }

@@ -10,8 +10,8 @@ use near_chain_configs::test_utils::{
 };
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ChunkSkippingConfig,
+    ClientConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
     GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
     GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
@@ -369,6 +369,7 @@ pub struct Config {
     /// as a large number of incoming witnesses could cause denial of service.
     pub save_latest_witnesses: bool,
     pub transaction_request_handler_threads: usize,
+    pub chunk_skipping_config: ChunkSkippingConfig,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -426,6 +427,7 @@ impl Default for Config {
             max_loaded_contracts: 256,
             save_latest_witnesses: false,
             transaction_request_handler_threads: 4,
+            chunk_skipping_config: ChunkSkippingConfig::default(),
         }
     }
 }
@@ -623,6 +625,7 @@ impl NearConfig {
                 orphan_state_witness_max_size: config.orphan_state_witness_max_size,
                 save_latest_witnesses: config.save_latest_witnesses,
                 transaction_request_handler_threads: config.transaction_request_handler_threads,
+                chunk_skipping_config: config.chunk_skipping_config,
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
