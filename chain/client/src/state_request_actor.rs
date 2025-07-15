@@ -91,7 +91,7 @@ impl StateRequestActor {
         self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
     }
 
-    // XXX: TODO: Remove the code duplication with Chain.
+    // TODO(darioush): Remove the code duplication with Chain.
     fn check_sync_hash_validity(
         &self,
         sync_hash: &near_primitives::hash::CryptoHash,
