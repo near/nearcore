@@ -12,7 +12,7 @@ use near_primitives::errors::{
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
-    TransactionNonce,
+    Transaction, TransactionNonce,
 };
 use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance};
@@ -90,6 +90,11 @@ pub fn validate_transaction(
     signed_tx: SignedTransaction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
+    if matches!(&signed_tx.transaction, Transaction::V2(_)) {
+        if !ProtocolFeature::GasKeys.enabled(current_protocol_version) {
+            return Err((InvalidTxError::InvalidTransactionVersion, signed_tx));
+        }
+    }
     if let Err(err) = validate_actions(
         &config.wasm_config.limit_config,
         signed_tx.transaction.actions(),
@@ -475,9 +480,13 @@ pub fn validate_action(
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => validate_delegate_action(limit_config, a, current_protocol_version),
-        Action::AddGasKey(a) => validate_add_gas_key_action(limit_config, a),
-        Action::FundGasKey(_) => Ok(()),
-        Action::DeleteGasKey(_) => Ok(()),
+        Action::AddGasKey(a) => {
+            check_gas_key_enabled(current_protocol_version)?;
+            validate_add_gas_key_action(limit_config, a)
+        }
+        Action::FundGasKey(_) | Action::DeleteGasKey(_) => {
+            check_gas_key_enabled(current_protocol_version)
+        }
     }
 }
 
@@ -611,6 +620,18 @@ fn validate_add_key_action(
         }
     }
 
+    Ok(())
+}
+
+fn check_gas_key_enabled(
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    if !ProtocolFeature::GasKeys.enabled(current_protocol_version) {
+        return Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: "GasKeys".to_owned(),
+            version: current_protocol_version,
+        });
+    }
     Ok(())
 }
 
