@@ -36,6 +36,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
+use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::state_witness::ChunkStateTransition;
@@ -51,6 +52,9 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_store::DBCol;
 use near_store::Store;
 use near_store::StoreUpdate;
+use near_store::TrieDBStorage;
+use near_store::TrieStorage;
+use near_store::adapter::trie_store::TrieStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use tracing::instrument;
 
@@ -442,12 +446,7 @@ impl ChunkExecutorActor {
         ));
     }
 
-    fn send_witness_to_chunk_validators(
-        &self,
-        state_witness: ChunkStateWitness,
-        _contract_updates: ContractUpdates,
-        _main_transition_shard_id: ShardId,
-    ) {
+    fn send_witness_to_chunk_validators(&self, state_witness: ChunkStateWitness) {
         // TODO(spice): Use distribution layer to distribute witnesses instead.
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::TestonlySpiceStateWitness { state_witness },
@@ -535,7 +534,7 @@ impl ChunkExecutorActor {
                 .expect("Node should always be able to record it's own endorsement");
         }
 
-        let (contract_updates, main_transition_shard_id, state_witness) = self.create_witness(
+        let state_witness = self.create_witness(
             block,
             apply_result,
             my_signer.validator_id().clone(),
@@ -546,11 +545,7 @@ impl ChunkExecutorActor {
             self.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
 
-        self.send_witness_to_chunk_validators(
-            state_witness,
-            contract_updates,
-            main_transition_shard_id,
-        );
+        self.send_witness_to_chunk_validators(state_witness);
         Ok(())
     }
 
@@ -560,30 +555,33 @@ impl ChunkExecutorActor {
         apply_result: &ApplyChunkResult,
         me: AccountId,
         chunk_header: &ShardChunkHeader,
-    ) -> Result<(ContractUpdates, ShardId, ChunkStateWitness), Error> {
+    ) -> Result<ChunkStateWitness, Error> {
         let block_hash = block.header().hash();
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash).unwrap();
         let prev_block = self.chain_store.get_block(block.header().prev_hash()).unwrap();
         let shard_id = chunk_header.shard_id();
 
-        let (main_transition, applied_receipts_hash, contract_updates) = {
-            let ContractUpdates { contract_accesses, contract_deploys } =
+        let applied_receipts_hash = apply_result.applied_receipts_hash;
+        let main_transition = {
+            let ContractUpdates { contract_accesses, contract_deploys: _ } =
                 apply_result.contract_updates.clone();
-            let base_state = apply_result.proof.clone().unwrap().nodes;
-            let receipts_hash = apply_result.applied_receipts_hash;
-            let contract_updates = ContractUpdates {
-                contract_accesses: contract_accesses.into_iter().collect(),
-                contract_deploys: contract_deploys.into_iter().map(|c| c.into()).collect(),
-            };
-            (
-                ChunkStateTransition {
-                    block_hash: *block_hash,
-                    base_state,
-                    post_state_root: apply_result.new_root,
-                },
-                receipts_hash,
-                contract_updates,
-            )
+
+            let PartialState::TrieValues(mut base_state_values) =
+                apply_result.proof.clone().unwrap().nodes;
+            let trie_storage = TrieDBStorage::new(
+                TrieStoreAdapter::new(self.runtime_adapter.store().clone()),
+                shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?,
+            );
+            base_state_values.reserve_exact(contract_accesses.len());
+            for contract_hash in contract_accesses {
+                let contract = trie_storage.retrieve_raw_bytes(&contract_hash.0)?;
+                base_state_values.push(contract);
+            }
+            ChunkStateTransition {
+                block_hash: *block_hash,
+                base_state: PartialState::TrieValues(base_state_values),
+                post_state_root: apply_result.new_root,
+            }
         };
         let source_receipt_proofs: HashMap<ChunkHash, ReceiptProof> = {
             let prev_block_hash = prev_block.header().hash();
@@ -609,8 +607,8 @@ impl ChunkExecutorActor {
                 })
                 .collect::<Result<_, Error>>()?
         };
+        // TODO(spice-resharding): implicit_transitions are used for resharding.
         let implicit_transitions = Vec::new();
-        let main_transition_shard_id = shard_id;
         let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let state_witness = ChunkStateWitness::new(
@@ -626,7 +624,7 @@ impl ChunkExecutorActor {
             implicit_transitions,
             protocol_version,
         );
-        Ok((contract_updates, main_transition_shard_id, state_witness))
+        Ok(state_witness)
     }
 
     fn get_update_shard_job(
