@@ -144,7 +144,7 @@ impl Handler<StateRequestHeader> for StateRequestActor {
             target: "sync",
             "StateRequestHeader",
             shard_id = %shard_id,
-            sync_hash = %sync_hash
+            sync_hash = ?sync_hash
         )
         .entered();
         tracing::debug!(target: "sync", ?msg);
@@ -198,7 +198,7 @@ impl Handler<StateRequestPart> for StateRequestActor {
             target: "sync",
             "StateRequestPart",
             shard_id = %shard_id,
-            sync_hash = %sync_hash,
+            sync_hash = ?sync_hash,
             part_id
         )
         .entered();
