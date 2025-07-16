@@ -1170,22 +1170,13 @@ impl RoutedMessage {
         match self {
             RoutedMessage::V1(msg) => msg,
             RoutedMessage::V2(msg) => msg.msg,
-            RoutedMessage::V3(msg) => {
-                let signature = if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION)
-                    && msg.body.is_t1()
-                {
-                    Signature::default()
-                } else {
-                    msg.signature.expect("Signature should be present")
-                };
-                RoutedMessageV1 {
-                    target: msg.target,
-                    author: msg.author,
-                    ttl: msg.ttl,
-                    body: msg.body.into(),
-                    signature,
-                }
-            }
+            RoutedMessage::V3(msg) => RoutedMessageV1 {
+                target: msg.target,
+                author: msg.author,
+                ttl: msg.ttl,
+                body: msg.body.into(),
+                signature: msg.signature.unwrap_or_default(),
+            },
         }
     }
 
