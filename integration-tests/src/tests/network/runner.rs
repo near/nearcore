@@ -158,12 +158,10 @@ fn setup_network_node(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    let spice_witness_validator_sender = noop().into_multi_sender();
     let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
         Clock::real(),
         network_adapter.as_multi_sender(),
         client_actor.clone().with_auto_span_context().into_multi_sender(),
-        spice_witness_validator_sender,
         validator_signer,
         epoch_manager,
         runtime,

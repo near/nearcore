@@ -168,12 +168,10 @@ fn setup(
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
-    let spice_witness_validator_sender = noop().into_multi_sender();
     let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
         network_adapter.clone(),
         client_adapter_for_partial_witness_actor.as_multi_sender(),
-        spice_witness_validator_sender,
         signer.clone(),
         epoch_manager.clone(),
         runtime.clone(),

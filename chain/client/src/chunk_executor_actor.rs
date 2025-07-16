@@ -54,8 +54,6 @@ use near_store::StoreUpdate;
 use node_runtime::SignedValidPeriodTransactions;
 use tracing::instrument;
 
-use crate::DistributeStateWitnessRequest;
-use crate::PartialWitnessSenderForClient;
 use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
@@ -66,7 +64,6 @@ pub struct ChunkExecutorActor {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     network_adapter: PeerManagerAdapter,
-    partial_witness_adapter: PartialWitnessSenderForClient,
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     myself_sender: Sender<ExecutorApplyChunksDone>,
 
@@ -94,7 +91,6 @@ impl ChunkExecutorActor {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         network_adapter: PeerManagerAdapter,
-        partial_witness_adapter: PartialWitnessSenderForClient,
         validator_signer: MutableValidatorSigner,
         core_processor: CoreStatementsProcessor,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
@@ -108,7 +104,6 @@ impl ChunkExecutorActor {
             epoch_manager,
             shard_tracker,
             network_adapter,
-            partial_witness_adapter,
             apply_chunks_spawner,
             myself_sender,
             pending_next_blocks: HashMap::new(),
@@ -447,6 +442,18 @@ impl ChunkExecutorActor {
         ));
     }
 
+    fn send_witness_to_chunk_validators(
+        &self,
+        state_witness: ChunkStateWitness,
+        _contract_updates: ContractUpdates,
+        _main_transition_shard_id: ShardId,
+    ) {
+        // TODO(spice): Use distribution layer to distribute witnesses instead.
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::TestonlySpiceStateWitness { state_witness },
+        ));
+    }
+
     fn process_apply_chunk_results(
         &mut self,
         block_hash: CryptoHash,
@@ -620,19 +627,6 @@ impl ChunkExecutorActor {
             protocol_version,
         );
         Ok((contract_updates, main_transition_shard_id, state_witness))
-    }
-
-    fn send_witness_to_chunk_validators(
-        &self,
-        state_witness: ChunkStateWitness,
-        contract_updates: ContractUpdates,
-        main_transition_shard_id: ShardId,
-    ) {
-        self.partial_witness_adapter.send(DistributeStateWitnessRequest {
-            state_witness,
-            contract_updates,
-            main_transition_shard_id,
-        });
     }
 
     fn get_update_shard_job(
