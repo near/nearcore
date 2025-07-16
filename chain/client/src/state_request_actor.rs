@@ -29,6 +29,13 @@ pub struct StateRequestActor {
 
 impl Actor for StateRequestActor {}
 
+/// Result of sync hash validation for request processing
+enum SyncHashValidationResult {
+    Valid,      // Proceed with operation
+    Invalid,    // Return None response, continue processing
+    BadRequest, // Don't respond to the node, because the request is malformed.
+}
+
 impl StateRequestActor {
     pub fn new(
         clock: Clock,
@@ -103,6 +110,27 @@ impl StateRequestActor {
         let good_sync_hash = self.get_sync_hash(sync_hash)?;
         Ok(good_sync_hash.as_ref() == Some(sync_hash))
     }
+
+    /// Validates sync hash and returns appropriate action to take.
+    fn validate_sync_hash(&self, sync_hash: &CryptoHash) -> SyncHashValidationResult {
+        match self.check_sync_hash_validity(sync_hash) {
+            Ok(true) => SyncHashValidationResult::Valid,
+            Ok(false) => {
+                tracing::warn!(target: "sync", "sync_hash didn't pass validation, possible malicious behavior");
+                SyncHashValidationResult::BadRequest
+            }
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                // This case may appear in case of latency in epoch switching.
+                // Request sender is ready to sync but we still didn't get the block.
+                tracing::info!(target: "sync", "Can't get sync_hash block for state request");
+                SyncHashValidationResult::Invalid
+            }
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, "Failed to verify sync_hash validity");
+                SyncHashValidationResult::Invalid
+            }
+        }
+    }
 }
 
 impl Handler<StateRequestHeader> for StateRequestActor {
@@ -124,8 +152,8 @@ impl Handler<StateRequestHeader> for StateRequestActor {
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
         }
-        let header = match self.check_sync_hash_validity(&sync_hash) {
-            Ok(true) => {
+        let header = match self.validate_sync_hash(&sync_hash) {
+            SyncHashValidationResult::Valid => {
                 match self.state_sync_adapter.get_state_response_header(shard_id, sync_hash) {
                     Ok(header) => Some(header),
                     Err(err) => {
@@ -134,21 +162,11 @@ impl Handler<StateRequestHeader> for StateRequestActor {
                     }
                 }
             }
-            Ok(false) => {
-                tracing::warn!(target: "sync", "sync_hash didn't pass validation, possible malicious behavior");
+            SyncHashValidationResult::BadRequest => {
                 // Don't respond to the node, because the request is malformed.
                 return None;
             }
-            Err(near_chain::Error::DBNotFoundErr(_)) => {
-                // This case may appear in case of latency in epoch switching.
-                // Request sender is ready to sync but we still didn't get the block.
-                tracing::info!(target: "sync", "Can't get sync_hash block for state request header");
-                None
-            }
-            Err(err) => {
-                tracing::error!(target: "sync", ?err, "Failed to verify sync_hash validity");
-                None
-            }
+            SyncHashValidationResult::Invalid => None,
         };
         let state_response = match header {
             Some(header) => {
@@ -190,8 +208,8 @@ impl Handler<StateRequestPart> for StateRequestActor {
             return None;
         }
         tracing::debug!(target: "sync", "Computing state request part");
-        let part = match self.check_sync_hash_validity(&sync_hash) {
-            Ok(true) => {
+        let part = match self.validate_sync_hash(&sync_hash) {
+            SyncHashValidationResult::Valid => {
                 let part = match self
                     .state_sync_adapter
                     .get_state_response_part(shard_id, part_id, sync_hash)
@@ -202,25 +220,14 @@ impl Handler<StateRequestPart> for StateRequestActor {
                         None
                     }
                 };
-
                 tracing::trace!(target: "sync", "Finished computation for state request part");
                 part
             }
-            Ok(false) => {
-                tracing::warn!(target: "sync", "sync_hash didn't pass validation, possible malicious behavior");
+            SyncHashValidationResult::BadRequest => {
                 // Do not respond, possible malicious behavior.
                 return None;
             }
-            Err(near_chain::Error::DBNotFoundErr(_)) => {
-                // This case may appear in case of latency in epoch switching.
-                // Request sender is ready to sync but we still didn't get the block.
-                tracing::info!(target: "sync", "Can't get sync_hash block for state request part");
-                None
-            }
-            Err(err) => {
-                tracing::error!(target: "sync", ?err, "Failed to verify sync_hash validity");
-                None
-            }
+            SyncHashValidationResult::Invalid => None,
         };
         let state_response = ShardStateSyncResponse::new_from_part(part);
         let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
