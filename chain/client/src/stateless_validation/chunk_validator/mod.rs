@@ -13,7 +13,7 @@ use near_chain::{ApplyChunksSpawner, Block, Chain};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -300,12 +300,10 @@ impl Client {
             witness
         );
 
-        send_state_witness_ack(
-            &witness,
-            signer.as_ref(),
-            self.epoch_manager.as_ref(),
-            &self.network_adapter,
-        )?;
+        // Send the acknowledgement for the state witness back to the chunk producer.
+        // This is currently used for network roundtrip time measurement, so we do not need to
+        // wait for validation to finish.
+        self.send_state_witness_ack(&witness, &signer)?;
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
@@ -327,6 +325,33 @@ impl Client {
             }
             Err(err) => Err(err),
         }
+    }
+
+    fn send_state_witness_ack(
+        &self,
+        witness: &ChunkStateWitness,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) -> Result<(), Error> {
+        let chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&witness.chunk_production_key())?
+            .account_id()
+            .clone();
+
+        // Skip sending ack to self.
+        if let Some(validator_signer) = signer {
+            if chunk_producer == *validator_signer.validator_id() {
+                return Ok(());
+            }
+        }
+
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ChunkStateWitnessAck(
+                chunk_producer,
+                ChunkStateWitnessAck::new(witness),
+            ),
+        ));
+        Ok(())
     }
 
     pub fn process_chunk_state_witness_with_prev_block(
@@ -353,31 +378,4 @@ impl Client {
             save_witness_if_invalid,
         )
     }
-}
-
-/// Sends the acknowledgement for the state witness back to the chunk producer.
-/// This is currently used for network roundtrip time measurement, so we do not need to
-/// wait for validation to finish.
-pub fn send_state_witness_ack(
-    witness: &ChunkStateWitness,
-    signer: Option<&Arc<ValidatorSigner>>,
-    epoch_manager: &dyn EpochManagerAdapter,
-    network_adapter: &PeerManagerAdapter,
-) -> Result<(), Error> {
-    let chunk_producer = epoch_manager
-        .get_chunk_producer_info(&witness.chunk_production_key())?
-        .account_id()
-        .clone();
-
-    // Skip sending ack to self.
-    if let Some(validator_signer) = signer {
-        if chunk_producer == *validator_signer.validator_id() {
-            return Ok(());
-        }
-    }
-
-    network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-        NetworkRequests::ChunkStateWitnessAck(chunk_producer, ChunkStateWitnessAck::new(witness)),
-    ));
-    Ok(())
 }

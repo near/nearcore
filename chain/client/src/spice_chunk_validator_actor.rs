@@ -33,7 +33,6 @@ use crate::chunk_executor_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::orphan_witness_pool::OrphanStateWitnessPool;
-use crate::stateless_validation::chunk_validator::send_state_witness_ack;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,
@@ -166,13 +165,6 @@ impl SpiceChunkValidatorActor {
             shard_id=?witness.chunk_header().shard_id(),
             "process_chunk_state_witness",
         );
-
-        send_state_witness_ack(
-            &witness,
-            Some(&signer),
-            self.epoch_manager.as_ref(),
-            &self.network_adapter,
-        )?;
 
         if self.client_config.save_latest_witnesses {
             self.chain_store.save_latest_chunk_state_witness(&witness)?;
