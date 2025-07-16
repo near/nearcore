@@ -10,14 +10,13 @@ use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_sync::{
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
-};
+use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
 
 use crate::metrics;
 
+/// Actor that handles state sync requests.
 pub struct StateRequestActor {
     clock: Clock,
     state_sync_adapter: ChainStateSyncAdapter,
@@ -158,19 +157,9 @@ impl Handler<StateRequestHeader> for StateRequestActor {
                     return None;
                 };
 
-                ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
-                    header: Some(header),
-                    part: None,
-                    cached_parts: None,  // Unused
-                    can_generate: false, // Unused
-                })
+                ShardStateSyncResponse::new_from_header(Some(header))
             }
-            None => ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
-                header: None,
-                part: None,
-                cached_parts: None,  // Unused
-                can_generate: false, // Unused
-            }),
+            None => ShardStateSyncResponse::new_from_header(None),
         };
         let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
             shard_id,
@@ -233,12 +222,7 @@ impl Handler<StateRequestPart> for StateRequestActor {
                 None
             }
         };
-        let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
-            header: None,
-            part,
-            cached_parts: None,  // Unused
-            can_generate: false, // Unused
-        });
+        let state_response = ShardStateSyncResponse::new_from_part(part);
         let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
             shard_id,
             sync_hash,
