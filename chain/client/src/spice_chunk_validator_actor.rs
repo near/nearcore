@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -32,7 +32,6 @@ use near_store::adapter::StoreAdapter as _;
 use crate::chunk_executor_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
-use crate::stateless_validation::chunk_validator::orphan_witness_pool::OrphanStateWitnessPool;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,
@@ -45,8 +44,8 @@ pub struct SpiceChunkValidatorActor {
     core_processor: CoreStatementsProcessor,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 
-    // TODO(spice): test orphans handling.
-    orphan_witness_pool: OrphanStateWitnessPool,
+    /// Map holding witnesses we cannot process yet keyed by the block hash witness is for.
+    pending_witnesses: HashMap<CryptoHash, Vec<ChunkStateWitness>>,
     main_state_transition_result_cache: MainStateTransitionCache,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
 
@@ -77,9 +76,7 @@ impl SpiceChunkValidatorActor {
         let validation_thread_limit =
             runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         Self {
-            orphan_witness_pool: OrphanStateWitnessPool::new(
-                client_config.orphan_state_witness_pool_size,
-            ),
+            pending_witnesses: HashMap::new(),
             client_config,
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
             runtime_adapter,
@@ -109,8 +106,8 @@ impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
         self.next_block_hashes.get_or_insert_mut(*prev_block_hash, || Vec::new()).push(block_hash);
 
         if let Some(signer) = self.validator_signer.get() {
-            if let Err(err) = self.process_ready_orphan_state_witnesses(block, signer) {
-                tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "failed to process orphan state witnesses");
+            if let Err(err) = self.process_ready_pending_state_witnesses(block, signer) {
+                tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "failed to process ready pending state witnesses");
             }
         }
     }
@@ -124,8 +121,9 @@ impl Handler<ExecutionResultEndorsed> for SpiceChunkValidatorActor {
                 let block = self.chain_store.get_block(&next_block_hash).expect(
                     "block added to next blocks only after it's processed so it should be in store",
                 );
-                if let Err(err) = self.process_ready_orphan_state_witnesses(block, signer.clone()) {
-                    tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "failed to process orphan state witnesses");
+                if let Err(err) = self.process_ready_pending_state_witnesses(block, signer.clone())
+                {
+                    tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "failed to process ready pending state witnesses");
                 }
             }
         }
@@ -172,7 +170,7 @@ impl SpiceChunkValidatorActor {
 
         match self.witness_processing_readiness(&witness)? {
             WitnessProcessingReadiness::NotReady => {
-                self.handle_orphan_state_witness(witness, raw_witness_size);
+                self.handle_not_ready_state_witness(witness, raw_witness_size);
                 Ok(())
             }
             WitnessProcessingReadiness::Ready(witness_validation_context) => self
@@ -224,7 +222,7 @@ impl SpiceChunkValidatorActor {
         }))
     }
 
-    fn process_ready_orphan_state_witnesses(
+    fn process_ready_pending_state_witnesses(
         &mut self,
         block: Arc<Block>,
         signer: Arc<ValidatorSigner>,
@@ -237,22 +235,20 @@ impl SpiceChunkValidatorActor {
             tracing::debug!(
                 target: "spice_chunk_validator",
                 ?prev_hash,
-                "processing_witness_orphans: new block is available, but some of the prev block execution results are still missing");
+                "process_ready_pending_state_witnesses: new block is available, but some of the prev block execution results are still missing");
             return Ok(());
         };
 
-        let ready_witnesses = self
-            .orphan_witness_pool
-            .take_spice_state_witnesses_waiting_for_block(block.header().hash());
+        let ready_witnesses = self.pending_witnesses.remove(block.header().hash());
 
         let witness_validation_context =
             WitnessValidationContext { block, prev_block, prev_block_execution_results };
-        for witness in ready_witnesses {
+        for witness in ready_witnesses.into_iter().flatten() {
             tracing::debug!(
                 target: "spice_chunk_validator",
                 ?prev_hash,
                 witness_chunk=?witness.chunk_header().chunk_hash(),
-                "processing orphan state witnesses");
+                "processing ready pending state witnesses");
             self.validate_state_witness_and_send_endorsements(
                 &witness_validation_context,
                 witness,
@@ -262,9 +258,14 @@ impl SpiceChunkValidatorActor {
         Ok(())
     }
 
-    pub fn handle_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
-        // TODO(spice): Implement additional checks before adding witness to orphan pool, see Client's orphan_witness_handling.rs.
-        self.orphan_witness_pool.add_orphan_state_witness(witness, witness_size);
+    pub fn handle_not_ready_state_witness(
+        &mut self,
+        witness: ChunkStateWitness,
+        _witness_size: usize,
+    ) {
+        // TODO(spice): Implement additional checks before adding witness to pending witnesses, see Client's orphan_witness_handling.rs.
+        let block_hash = witness.main_state_transition().block_hash;
+        self.pending_witnesses.entry(block_hash).or_default().push(witness);
     }
 
     fn validate_state_witness_and_send_endorsements(

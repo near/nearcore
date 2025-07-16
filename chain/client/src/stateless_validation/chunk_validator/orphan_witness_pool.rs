@@ -64,31 +64,6 @@ impl OrphanStateWitnessPool {
         }
     }
 
-    /// With spice find all orphaned witnesses that were waiting for this block and remove them from the pool.
-    /// The block has arrived, so they can be now processed, they're no longer orphans.
-    pub fn take_spice_state_witnesses_waiting_for_block(
-        &mut self,
-        block_hash: &CryptoHash,
-    ) -> Vec<ChunkStateWitness> {
-        let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
-        // For spice chunk in witness corresponds to the block that witness is for not for the next
-        // chunk, so we use current, not previous, block_hash for searching.
-        for (cache_key, cache_entry) in &self.witness_cache {
-            if &cache_entry.witness.main_state_transition().block_hash == block_hash {
-                to_remove.push(cache_key.clone());
-            }
-        }
-        let mut result = Vec::new();
-        for cache_key in to_remove {
-            let ready_witness = self
-                .witness_cache
-                .pop(&cache_key)
-                .expect("The cache contains this entry, a moment ago it was iterated over");
-            result.push(ready_witness.witness);
-        }
-        result
-    }
-
     /// Find all orphaned witnesses that were waiting for this block and remove them from the pool.
     /// The block has arrived, so they can be now processed, they're no longer orphans.
     pub fn take_state_witnesses_waiting_for_block(
