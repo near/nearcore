@@ -40,8 +40,8 @@ fn generate_signer() -> ValidatorSigner {
     )
 }
 
-/// Benchmark different witness sizes
-fn bench_generate_state_witness_parts_witness_sizes(bench: &mut Bencher) {
+/// Benchmark state witness part generation
+fn bench_generate_state_witness_parts(bench: &mut Bencher) {
     let chunk_validators = generate_validators(VALIDATOR_COUNT);
     let encoder = ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS).entry(VALIDATOR_COUNT);
     let epoch_id = EpochId::default();
@@ -71,10 +71,6 @@ fn bench_reed_solomon_encoding_only(bench: &mut Bencher) {
     });
 }
 
-benchmark_group!(
-    benches,
-    bench_generate_state_witness_parts_witness_sizes,
-    bench_reed_solomon_encoding_only,
-);
+benchmark_group!(benches, bench_generate_state_witness_parts, bench_reed_solomon_encoding_only,);
 
 benchmark_main!(benches);
