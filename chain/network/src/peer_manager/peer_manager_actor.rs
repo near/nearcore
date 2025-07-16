@@ -1244,6 +1244,11 @@ impl PeerManagerActor {
                 debug_assert!(false);
                 NetworkResponses::NoResponse
             }
+            // TODO(spice): remove
+            NetworkRequests::TestonlySpiceStateWitness { .. } => {
+                debug_assert!(false);
+                NetworkResponses::NoResponse
+            }
         }
     }
 
