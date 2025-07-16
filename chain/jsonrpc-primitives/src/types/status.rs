@@ -50,7 +50,6 @@ pub struct RpcDebugStatusResponse {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[serde(deny_unknown_fields)]
 pub struct RpcHealthResponse {}
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
