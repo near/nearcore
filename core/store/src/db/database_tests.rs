@@ -1,6 +1,13 @@
 #![cfg(test)]
 //! Set of tests over the 'Database' interface, that we can run over multiple implementations
 //! to make sure that they are working correctly.
+use std::collections::HashMap;
+use std::env;
+use std::path::PathBuf;
+
+use itertools::Itertools;
+use tempfile::Builder;
+
 use crate::db::{DBTransaction, TestDB};
 use crate::{DBCol, NodeStorage};
 
@@ -42,6 +49,10 @@ fn test_print_batch() {
     eprintln!("Transaction: {:#?}", transaction);
 }
 
+// cspell:words tikv jemallocator Jemalloc
+#[global_allocator]
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[test]
 fn test_replay_batches() {
     // Get environment variable BATCHES_DIR
@@ -51,7 +62,13 @@ fn test_replay_batches() {
         return;
     };
 
-    let tmp_dir = tempfile::tempdir().unwrap();
+    let home = env::var("HOME").expect("HOME not set");
+    let base_dir = PathBuf::from(home).join("tmp-db");
+    std::fs::create_dir_all(&base_dir).unwrap();
+    let tmp_dir = Builder::new().prefix("mytemp-").tempdir_in(&base_dir).unwrap();
+
+    // let tmp_dir = tempfile::tempdir().unwrap();
+
     // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
     // same configuration as in production.
     let mut store = NodeStorage::opener(tmp_dir.path(), &Default::default(), None)
@@ -131,6 +148,9 @@ fn test_replay_batches() {
         }
 
         let tx_ops_len = transaction.ops.len();
+        if cols.starts_with("Block-") || cols.starts_with("FlatState-FlatStateChanges-") {
+            //print_batch_stats(cols, &transaction);
+        }
         let now = std::time::Instant::now();
         store.write(transaction).expect("Failed to write transaction to store");
         let elapsed = now.elapsed();
@@ -151,4 +171,18 @@ fn test_replay_batches() {
             );
         }
     }
+}
+
+fn print_batch_stats(cols: &str, transaction: &DBTransaction) {
+    let mut col_ops: HashMap<&str, usize> = HashMap::new();
+    let mut col_size: HashMap<&str, usize> = HashMap::new();
+    for op in &transaction.ops {
+        let name: &'static str = op.col().into();
+        *col_ops.entry(name).or_default() += 1;
+        *col_size.entry(name).or_default() += op.bytes();
+    }
+    let col_ops_str = col_ops.iter().map(|(col, count)| format!("{}: {}", col, count)).join(", ");
+    let col_size_str =
+        col_size.iter().map(|(col, size)| format!("{}: {} bytes", col, size)).join(", ");
+    eprintln!("Transaction: {} cols: [{}] ops: [{}]", cols, col_ops_str, col_size_str);
 }
