@@ -23,8 +23,7 @@ use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::{PartialEncodedChunkWithArcReceipts, ReceiptProof};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, ContractUpdates,
-    PartialEncodedContractDeploys,
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
