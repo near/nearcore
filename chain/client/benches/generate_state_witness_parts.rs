@@ -3,7 +3,7 @@
 //!
 //! Run with `cargo bench --bench generate_state_witness_parts`
 
-use bencher::{Bencher, benchmark_group, benchmark_main, black_box};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 use near_client::stateless_validation::partial_witness::partial_witness_actor::{
     WITNESS_RATIO_DATA_PARTS, compress_witness, generate_state_witness_parts,
@@ -41,7 +41,7 @@ fn generate_signer() -> ValidatorSigner {
 }
 
 /// Benchmark state witness part generation
-fn bench_generate_state_witness_parts(bench: &mut Bencher) {
+fn bench_generate_state_witness_parts(c: &mut Criterion) {
     let chunk_validators = generate_validators(VALIDATOR_COUNT);
     let encoder = ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS).entry(VALIDATOR_COUNT);
     let epoch_id = EpochId::default();
@@ -49,28 +49,31 @@ fn bench_generate_state_witness_parts(bench: &mut Bencher) {
     let signer = generate_signer();
     let witness_bytes = generate_test_witness_bytes(15_000_000);
 
-    bench.iter(|| {
-        black_box(generate_state_witness_parts(
-            encoder.clone(),
-            epoch_id,
-            &chunk_header,
-            witness_bytes.clone(),
-            &chunk_validators,
-            &signer,
-        ));
+    c.bench_function("generate_state_witness_parts", |b| {
+        b.iter(|| {
+            black_box(generate_state_witness_parts(
+                encoder.clone(),
+                epoch_id,
+                &chunk_header,
+                witness_bytes.clone(),
+                &chunk_validators,
+                &signer,
+            ));
+        });
     });
 }
 
 /// Benchmark Reed Solomon encoding performance separately
-fn bench_reed_solomon_encoding_only(bench: &mut Bencher) {
+fn bench_reed_solomon_encoding_only(c: &mut Criterion) {
     let witness_bytes = generate_test_witness_bytes(15_000_000);
     let encoder = ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS).entry(VALIDATOR_COUNT);
 
-    bench.iter(|| {
-        black_box(encoder.encode(&witness_bytes));
+    c.bench_function("reed_solomon_encoding_only", |b| {
+        b.iter(|| {
+            black_box(encoder.encode(&witness_bytes));
+        });
     });
 }
 
-benchmark_group!(benches, bench_generate_state_witness_parts, bench_reed_solomon_encoding_only,);
-
-benchmark_main!(benches);
+criterion_group!(benches, bench_generate_state_witness_parts, bench_reed_solomon_encoding_only);
+criterion_main!(benches);

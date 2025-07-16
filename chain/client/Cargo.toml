@@ -68,7 +68,7 @@ node-runtime.workspace = true
 assert_matches.workspace = true
 near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 near-actix-test-utils.workspace = true
-bencher.workspace = true
+criterion.workspace = true
 testlib.workspace = true
 
 [[bench]]
