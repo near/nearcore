@@ -5,7 +5,7 @@ use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
 use crate::network_protocol::{
     AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
-    RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
+    RoutedMessage, RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
 };
 use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
@@ -537,26 +537,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ),
             ProtoMT::Routed(r) => {
                 let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
-                let body = TieredMessageBody::from_routed(msg.body);
-                let signature = if body.is_t1() { None } else { Some(msg.signature) };
-                PeerMessage::Routed(Box::new(
-                    RoutedMessageV3 {
-                        target: msg.target,
-                        author: msg.author,
-                        ttl: msg.ttl,
-                        body,
-                        signature,
-                        created_at: r
-                            .created_at
-                            .as_ref()
-                            .map(utc_from_proto)
-                            .transpose()
-                            .map_err(Self::Error::RoutedCreatedAtTimestamp)?
-                            .map(|t| t.unix_timestamp()),
-                        num_hops: r.num_hops,
-                    }
-                    .into(),
-                ))
+                PeerMessage::Routed(Box::new(RoutedMessage::V3(msg.into())))
             }
             ProtoMT::RoutedV3(r) => PeerMessage::Routed(Box::new(
                 RoutedMessageV3::try_from(r).map_err(Self::Error::RoutedV3)?.into(),
