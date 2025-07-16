@@ -3346,7 +3346,6 @@
         "type": "object"
       },
       "CreateAccountAction": {
-        "additionalProperties": false,
         "description": "Create account action",
         "type": "object"
       },
@@ -5357,9 +5356,11 @@
         "type": "object"
       },
       "GenesisConfigRequest": {
-        "additionalProperties": false,
-        "title": "GenesisConfigRequest",
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true,
+        "title": "GenesisConfigRequest"
       },
       "GlobalContractDeployMode": {
         "oneOf": [
@@ -9242,9 +9243,11 @@
         "type": "object"
       },
       "RpcClientConfigRequest": {
-        "additionalProperties": false,
-        "title": "RpcClientConfigRequest",
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true,
+        "title": "RpcClientConfigRequest"
       },
       "RpcClientConfigResponse": {
         "description": "ClientConfig where some fields can be updated at runtime.",
@@ -9912,12 +9915,17 @@
         "type": "object"
       },
       "RpcHealthRequest": {
-        "additionalProperties": false,
-        "title": "RpcHealthRequest",
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true,
+        "title": "RpcHealthRequest"
       },
       "RpcHealthResponse": {
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true
       },
       "RpcKnownProducer": {
         "properties": {
@@ -10130,9 +10138,11 @@
         "type": "object"
       },
       "RpcNetworkInfoRequest": {
-        "additionalProperties": false,
-        "title": "RpcNetworkInfoRequest",
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true,
+        "title": "RpcNetworkInfoRequest"
       },
       "RpcNetworkInfoResponse": {
         "properties": {
@@ -12453,9 +12463,11 @@
         "type": "object"
       },
       "RpcStatusRequest": {
-        "additionalProperties": false,
-        "title": "RpcStatusRequest",
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true,
+        "title": "RpcStatusRequest"
       },
       "RpcStatusResponse": {
         "properties": {
