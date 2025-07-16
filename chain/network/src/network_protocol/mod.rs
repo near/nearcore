@@ -1175,7 +1175,13 @@ impl RoutedMessage {
                 author: msg.author,
                 ttl: msg.ttl,
                 body: msg.body.into(),
-                signature: msg.signature.unwrap_or_default(),
+                signature: msg.signature.unwrap_or_else(|| {
+                    tracing::error!(
+                        target: "network",
+                        "Signature is missing. This should not yet happen."
+                    );
+                    Signature::default()
+                }),
             },
         }
     }

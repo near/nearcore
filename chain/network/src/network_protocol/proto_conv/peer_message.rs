@@ -538,7 +538,13 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Routed(r) => {
                 let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
                 let body = TieredMessageBody::from_routed(msg.body);
-                let signature = if body.is_t1() { None } else { Some(msg.signature) };
+                let signature = if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION)
+                    && body.is_t1()
+                {
+                    None
+                } else {
+                    Some(msg.signature)
+                };
                 PeerMessage::Routed(Box::new(
                     RoutedMessageV3 {
                         target: msg.target,
