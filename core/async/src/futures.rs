@@ -1,8 +1,6 @@
-use actix::Actor;
 use futures::FutureExt;
 pub use futures::future::BoxFuture; // pub for macros
 use near_time::Duration;
-use std::ops::DerefMut;
 use std::sync::Arc;
 
 /// Abstraction for something that can drive futures.
@@ -116,29 +114,6 @@ impl<T> DelayedActionRunnerExt<T> for dyn DelayedActionRunner<T> + '_ {
         f: impl FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static,
     ) {
         self.run_later_boxed(name, dur, Box::new(f));
-    }
-}
-
-/// Implementation of `DelayedActionRunner` for Actix. With this, any code
-/// that used to take a `&mut actix::Context` can now take a
-/// `&mut dyn DelayedActionRunner<T>` instead, which isn't actix-specific.
-impl<T, Outer> DelayedActionRunner<T> for actix::Context<Outer>
-where
-    T: 'static,
-    Outer: DerefMut<Target = T>,
-    Outer: Actor<Context = actix::Context<Outer>>,
-{
-    fn run_later_boxed(
-        &mut self,
-        _name: &str,
-        dur: Duration,
-        f: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
-    ) {
-        near_performance_metrics::actix::run_later(
-            self,
-            dur.max(Duration::ZERO).unsigned_abs(),
-            move |obj, ctx| f(&mut *obj, ctx),
-        );
     }
 }
 

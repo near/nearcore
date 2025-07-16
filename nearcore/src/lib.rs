@@ -28,9 +28,8 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
-    ClientActor, ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig,
-    StartClientResult, ViewClientActor, ViewClientActorInner, spawn_rpc_handler_actor,
-    start_client,
+    ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig, StartClientResult,
+    ViewClientActor, ViewClientActorInner, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -61,6 +60,8 @@ mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
 pub mod state_sync;
+use near_async::executor::{ExecutorHandle, ExecutorRuntime};
+use near_client::client_actor::ClientActorInner;
 #[cfg(feature = "tx_generator")]
 use near_transactions_generator::actix_actor::TxGeneratorActor;
 
@@ -213,11 +214,12 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 }
 
 pub struct NearNode {
-    pub client: Addr<ClientActor>,
+    pub client: ExecutorHandle<ClientActorInner>,
     pub view_client: Addr<ViewClientActor>,
     pub rpc_handler: Addr<RpcHandlerActor>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
+    pub executor_runtimes: Vec<ExecutorRuntime>,
     pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
@@ -435,8 +437,8 @@ pub fn start_with_config_and_synchronization(
         None,
         resharding_sender.into_multi_sender(),
     );
-    client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
-    client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
+    client_adapter_for_shards_manager.bind(client_actor.clone());
+    client_adapter_for_partial_witness_actor.bind(client_actor.clone());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
         view_epoch_manager.clone(),
@@ -510,7 +512,7 @@ pub fn start_with_config_and_synchronization(
         rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
-            client_actor.clone().with_auto_span_context().into_multi_sender(),
+            client_actor.clone().into_multi_sender(),
             view_client_addr.clone().with_auto_span_context().into_multi_sender(),
             rpc_handler.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
@@ -539,8 +541,8 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
+    let executor_runtimes = vec![client_arbiter_handle];
     let mut arbiters = vec![
-        client_arbiter_handle,
         shards_manager_arbiter_handle,
         trie_metrics_arbiter,
         state_snapshot_arbiter,
@@ -565,6 +567,7 @@ pub fn start_with_config_and_synchronization(
         #[cfg(feature = "tx_generator")]
         tx_generator,
         rpc_servers,
+        executor_runtimes,
         arbiters,
         cold_store_loop_handle,
         state_sync_dumper,

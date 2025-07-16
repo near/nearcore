@@ -1,9 +1,9 @@
 use std::ops::{Deref, DerefMut};
 
-use actix::Actor;
+use actix::{Actor, AsyncContext};
 use near_o11y::{WithSpanContext, handler_debug_span};
 
-use crate::futures::DelayedActionRunner;
+use crate::actix::{ActixAddrWithTokioRuntime, ArbitraryActixAction};
 use crate::messaging;
 
 /// Wrapper on top of a generic actor to make it implement actix::Actor trait. The wrapped actor
@@ -11,11 +11,17 @@ use crate::messaging;
 /// ActixWrapper is then used to create an actix actor that implements the CanSend trait.
 pub struct ActixWrapper<T> {
     actor: T,
+    companion_runtime: tokio::runtime::Runtime,
 }
 
 impl<T> ActixWrapper<T> {
     pub fn new(actor: T) -> Self {
-        Self { actor }
+        let companion_runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        Self { actor, companion_runtime }
     }
 }
 
@@ -26,7 +32,20 @@ where
     type Context = actix::Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.actor.start_actor(ctx);
+        let addr = ctx.address();
+        let mut delayed_action_runner =
+            ActixAddrWithTokioRuntime::new(addr, self.companion_runtime.handle().clone());
+        self.actor.start_actor(&mut delayed_action_runner);
+    }
+}
+
+impl<T: messaging::Actor + Unpin + 'static> actix::Handler<ArbitraryActixAction<T>>
+    for ActixWrapper<T>
+{
+    type Result = ();
+
+    fn handle(&mut self, msg: ArbitraryActixAction<T>, _ctx: &mut Self::Context) {
+        (msg.f)(&mut self.actor);
     }
 }
 
@@ -47,9 +66,7 @@ impl<T> DerefMut for ActixWrapper<T> {
 
 impl<M, T> actix::Handler<WithSpanContext<M>> for ActixWrapper<T>
 where
-    Self: actix::Actor,
-    Self::Context: DelayedActionRunner<T>,
-    T: messaging::HandlerWithContext<M>,
+    T: messaging::Actor + messaging::HandlerWithContext<M> + Unpin + 'static,
     M: actix::Message,
     <M as actix::Message>::Result:
         actix::dev::MessageResponse<ActixWrapper<T>, WithSpanContext<M>> + Send,
@@ -57,7 +74,9 @@ where
     type Result = M::Result;
     fn handle(&mut self, msg: WithSpanContext<M>, ctx: &mut Self::Context) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "actix_message_handler", msg);
-        self.actor.handle(msg, ctx)
+        let mut delayed_action_runner =
+            ActixAddrWithTokioRuntime::new(ctx.address(), self.companion_runtime.handle().clone());
+        self.actor.handle(msg, &mut delayed_action_runner)
     }
 }
 

@@ -6,6 +6,7 @@ use crate::utils::peer_manager_mock::PeerManagerMock;
 use actix::{Actor, Addr, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
+use near_async::executor::ExecutorHandle;
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{
     IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
@@ -26,11 +27,12 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
+use near_client::client_actor::ClientActorInner;
 use near_client::spice_core::CoreStatementsProcessor;
 use near_client::{
-    AsyncComputationMultiSpawner, Client, ClientActor, PartialWitnessActor,
-    PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
-    ViewClientActor, ViewClientActorInner, start_client,
+    AsyncComputationMultiSpawner, Client, PartialWitnessActor, PartialWitnessSenderForClient,
+    RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus, ViewClientActor,
+    ViewClientActorInner, start_client,
 };
 use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
@@ -81,7 +83,7 @@ fn setup(
     genesis_time: Utc,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (
-    Addr<ClientActor>,
+    ExecutorHandle<ClientActorInner>,
     Addr<ViewClientActor>,
     Addr<RpcHandlerActor>,
     ShardsManagerAdapterForTest,
@@ -239,7 +241,7 @@ fn setup(
         epoch_manager,
         shard_tracker,
         network_adapter.into_sender(),
-        client_actor.clone().with_auto_span_context().into_sender(),
+        client_actor.clone().into_sender(),
         MutableConfigValue::new(validator_signer, "validator_signer"),
         store,
         config.chunk_request_retry_period,
@@ -247,7 +249,7 @@ fn setup(
     let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
-    client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
+    client_adapter_for_partial_witness_actor.bind(client_actor.clone());
 
     (
         client_actor,
@@ -270,7 +272,7 @@ pub fn setup_mock(
         dyn FnMut(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
-            Addr<ClientActor>,
+            ExecutorHandle<ClientActorInner>,
             Addr<RpcHandlerActor>,
         ) -> PeerManagerMessageResponse,
     >,
@@ -296,7 +298,7 @@ pub fn setup_mock_with_validity_period(
         dyn FnMut(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
-            Addr<ClientActor>,
+            ExecutorHandle<ClientActorInner>,
             Addr<RpcHandlerActor>,
         ) -> PeerManagerMessageResponse,
     >,
@@ -348,7 +350,7 @@ pub fn setup_mock_with_validity_period(
 
 #[derive(Clone)]
 pub struct ActorHandlesForTesting {
-    pub client_actor: Addr<ClientActor>,
+    pub client_actor: ExecutorHandle<ClientActorInner>,
     pub view_client_actor: Addr<ViewClientActor>,
     pub rpc_handler_actor: Addr<RpcHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,

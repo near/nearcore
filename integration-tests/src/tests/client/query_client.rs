@@ -2,6 +2,7 @@ use crate::env::setup::setup_no_network;
 use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
+use near_async::messaging::SendAsync;
 use near_async::time::{Clock, Duration};
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, TxStatus,
@@ -106,23 +107,20 @@ fn query_status_not_crash() {
             actix::spawn(
                 actor_handles
                     .client_actor
-                    .send(
+                    .send_async(
                         BlockResponse {
                             block: next_block.into(),
                             peer_id: PeerInfo::random().id,
                             was_requested: false,
                         }
-                        .span_wrap()
-                        .with_span_context(),
+                        .span_wrap(),
                     )
                     .then(move |_| {
                         actix::spawn(
                             actor_handles
                                 .client_actor
-                                .send(
-                                    Status { is_health_check: true, detailed: false }
-                                        .span_wrap()
-                                        .with_span_context(),
+                                .send_async(
+                                    Status { is_health_check: true, detailed: false }.span_wrap(),
                                 )
                                 .then(move |_| {
                                     System::current().stop();

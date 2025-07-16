@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::QueryError as RuntimeQueryError;
-use near_client::{ClientActor, RpcHandlerActor, ViewClientActor};
 use near_client::{ProcessTxRequest, ProcessTxResponse};
+use near_client::{RpcHandlerActor, ViewClientActor};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcomeError, GetReceiptError, Query,
     QueryError, Status,
@@ -49,6 +49,9 @@ mod online;
 pub mod secret;
 
 pub use cli::MirrorCommand;
+use near_async::executor::ExecutorHandle;
+use near_async::messaging::SendAsync;
+use near_client::client_actor::ClientActorInner;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 
 #[derive(strum::EnumIter)]
@@ -1761,7 +1764,7 @@ impl<T: ChainAccess> TxMirror<T> {
         home_dir: PathBuf,
         db: Arc<DB>,
         clients_tx: tokio::sync::oneshot::Sender<(
-            Addr<ClientActor>,
+            ExecutorHandle<ClientActorInner>,
             Addr<ViewClientActor>,
             Addr<RpcHandlerActor>,
         )>,
@@ -1792,6 +1795,7 @@ impl<T: ChainAccess> TxMirror<T> {
         *target_head.write() = first_target_head;
         clients_tx
             .send((target_client.clone(), target_view_client.clone(), rpc_handler.clone()))
+            .map_err(|_| "Failed to send target client actors")
             .unwrap();
 
         loop {
@@ -1886,11 +1890,9 @@ impl<T: ChainAccess> TxMirror<T> {
         }
     }
 
-    async fn target_chain_syncing(target_client: &Addr<ClientActor>) -> bool {
+    async fn target_chain_syncing(target_client: &ExecutorHandle<ClientActorInner>) -> bool {
         target_client
-            .send(
-                Status { is_health_check: false, detailed: false }.span_wrap().with_span_context(),
-            )
+            .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
             .await
             .unwrap()
             .map(|s| s.sync_info.syncing)
@@ -1916,7 +1918,7 @@ impl<T: ChainAccess> TxMirror<T> {
         target_stream: &mut mpsc::Receiver<StreamerMessage>,
         db: &DB,
         target_view_client: &Addr<ViewClientActor>,
-        target_client: &Addr<ClientActor>,
+        target_client: &ExecutorHandle<ClientActorInner>,
     ) -> anyhow::Result<(BlockHeight, CryptoHash)> {
         let mut head = None;
 

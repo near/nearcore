@@ -15,6 +15,8 @@ pub use near_indexer_primitives::{
     StreamerMessage,
 };
 
+use near_async::executor::ExecutorHandle;
+use near_client::client_actor::ClientActorInner;
 use near_epoch_manager::shard_tracker::ShardTracker;
 pub use streamer::build_streamer_message;
 
@@ -94,7 +96,7 @@ pub struct Indexer {
     indexer_config: IndexerConfig,
     near_config: nearcore::NearConfig,
     view_client: actix::Addr<near_client::ViewClientActor>,
-    client: actix::Addr<near_client::ClientActor>,
+    client: ExecutorHandle<ClientActorInner>,
     rpc_handler: actix::Addr<near_client::RpcHandlerActor>,
     shard_tracker: ShardTracker,
 }
@@ -155,7 +157,7 @@ impl Indexer {
         &self,
     ) -> (
         actix::Addr<near_client::ViewClientActor>,
-        actix::Addr<near_client::ClientActor>,
+        ExecutorHandle<ClientActorInner>,
         actix::Addr<near_client::RpcHandlerActor>,
     ) {
         (self.view_client.clone(), self.client.clone(), self.rpc_handler.clone())

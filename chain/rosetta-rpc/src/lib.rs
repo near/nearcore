@@ -13,8 +13,11 @@ use paperclip::actix::{
 use strum::IntoEnumIterator;
 
 pub use config::RosettaRpcConfig;
+use near_async::executor::ExecutorHandle;
+use near_async::messaging::SendAsync;
 use near_chain_configs::Genesis;
-use near_client::{ClientActor, RpcHandlerActor, ViewClientActor};
+use near_client::client_actor::ClientActorInner;
+use near_client::{RpcHandlerActor, ViewClientActor};
 use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
@@ -42,7 +45,7 @@ struct GenesisWithIdentifier {
 /// `blockchain` and `network` must match and `sub_network_identifier` must not
 /// be provided.  On success returns client actor’s status response.
 async fn check_network_identifier(
-    client_addr: &web::Data<Addr<ClientActor>>,
+    client_addr: &web::Data<ExecutorHandle<ClientActorInner>>,
     identifier: models::NetworkIdentifier,
 ) -> Result<near_client::StatusResponse, errors::ErrorKind> {
     if identifier.blockchain != BLOCKCHAIN {
@@ -57,11 +60,7 @@ async fn check_network_identifier(
     }
 
     let status = client_addr
-        .send(
-            near_client::Status { is_health_check: false, detailed: false }
-                .span_wrap()
-                .with_span_context(),
-        )
+        .send_async(near_client::Status { is_health_check: false, detailed: false }.span_wrap())
         .await?
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != identifier.network {
@@ -80,15 +79,11 @@ async fn check_network_identifier(
 /// supports.
 #[api_v2_operation]
 async fn network_list(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     _body: Json<models::MetadataRequest>,
 ) -> Result<Json<models::NetworkListResponse>, models::Error> {
     let status = client_addr
-        .send(
-            near_client::Status { is_health_check: false, detailed: false }
-                .span_wrap()
-                .with_span_context(),
-        )
+        .send_async(near_client::Status { is_health_check: false, detailed: false }.span_wrap())
         .await?
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     Ok(Json(models::NetworkListResponse {
@@ -107,7 +102,7 @@ async fn network_list(
 /// NetworkIdentifier returned by /network/list should be accessible here.
 async fn network_status(
     genesis: web::Data<GenesisWithIdentifier>,
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::NetworkStatusResponse>, models::Error> {
@@ -115,18 +110,18 @@ async fn network_status(
 
     let status = check_network_identifier(&client_addr, network_identifier).await?;
 
-    let (network_info, earliest_block) = tokio::try_join!(
-        client_addr.send(near_client::GetNetworkInfo {}.span_wrap().with_span_context()),
+    let (network_info, earliest_block) = tokio::join!(
+        client_addr.send_async(near_client::GetNetworkInfo {}.span_wrap()),
         view_client_addr.send(
             near_client::GetBlock(near_primitives::types::BlockReference::SyncCheckpoint(
                 near_primitives::types::SyncCheckpoint::EarliestAvailable
             ),)
             .with_span_context()
         ),
-    )?;
-    let network_info = network_info.map_err(errors::ErrorKind::InternalError)?;
+    );
+    let network_info = network_info?.map_err(errors::ErrorKind::InternalError)?;
     let genesis_block_identifier = genesis.block_id.clone();
-    let oldest_block_identifier: models::BlockIdentifier = earliest_block
+    let oldest_block_identifier: models::BlockIdentifier = earliest_block?
         .ok()
         .map(|block| (&block).into())
         .unwrap_or_else(|| genesis_block_identifier.clone());
@@ -164,7 +159,7 @@ async fn network_status(
 /// the context of a NetworkIdentifier, it is possible to define unique options
 /// for each network.
 async fn network_options(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::NetworkOptionsResponse>, models::Error> {
     let Json(models::NetworkRequest { network_identifier }) = body;
@@ -209,7 +204,7 @@ async fn network_options(
 /// height `n` to be set to a different one.
 async fn block_details(
     genesis: web::Data<GenesisWithIdentifier>,
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     currencies: web::Data<Option<Vec<models::Currency>>>,
     body: Json<models::BlockRequest>,
@@ -285,7 +280,7 @@ async fn block_details(
 /// block to only return a single transaction.
 async fn block_transaction_details(
     genesis: web::Data<GenesisWithIdentifier>,
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     currencies: web::Data<Option<Vec<models::Currency>>>,
     body: Json<models::BlockTransactionRequest>,
@@ -336,7 +331,7 @@ async fn block_transaction_details(
 /// historical balance lookup (if the server supports it) by passing in an
 /// optional BlockIdentifier.
 async fn account_balance(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     currencies: web::Data<Option<Vec<models::Currency>>>,
     body: Json<models::AccountBalanceRequest>,
@@ -460,7 +455,7 @@ async fn account_balance(
 ///
 /// NOTE: The mempool is short-lived, so it is currently not implemented.
 async fn mempool(
-    _client_addr: web::Data<Addr<ClientActor>>,
+    _client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     _body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::MempoolResponse>, models::Error> {
     Ok(Json(models::MempoolResponse { transaction_identifiers: vec![] }))
@@ -481,7 +476,7 @@ async fn mempool(
 /// NOTE: The mempool is short-lived, so this method does not make a lot of
 /// sense to be implemented.
 async fn mempool_transaction(
-    _client_addr: web::Data<Addr<ClientActor>>,
+    _client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     _body: Json<models::MempoolTransactionRequest>,
 ) -> Result<Json<models::MempoolTransactionResponse>, models::Error> {
     Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
@@ -498,7 +493,7 @@ async fn mempool_transaction(
 /// NEAR implements explicit accounts with CREATE_ACCOUNT action and implicit
 /// accounts, where account id is just a hex of the public key.
 async fn construction_derive(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     body: Json<models::ConstructionDeriveRequest>,
 ) -> Result<Json<models::ConstructionDeriveResponse>, models::Error> {
     let Json(models::ConstructionDeriveRequest { network_identifier, public_key }) = body;
@@ -535,7 +530,7 @@ async fn construction_derive(
 /// caller (in a different execution environment) to call the
 /// /construction/metadata endpoint.
 async fn construction_preprocess(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     body: Json<models::ConstructionPreprocessRequest>,
 ) -> Result<Json<models::ConstructionPreprocessResponse>, models::Error> {
     let Json(models::ConstructionPreprocessRequest { network_identifier, operations }) = body;
@@ -568,7 +563,7 @@ async fn construction_preprocess(
 /// in /construction/payloads). This endpoint is left purposely unstructured
 /// because of the wide scope of metadata that could be required.
 async fn construction_metadata(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::ConstructionMetadataRequest>,
 ) -> Result<Json<models::ConstructionMetadataResponse>, models::Error> {
@@ -616,7 +611,7 @@ async fn construction_metadata(
 /// transaction in the Data API (when it lands on chain) will contain a superset
 /// of whatever operations were provided during construction.
 async fn construction_payloads(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     body: Json<models::ConstructionPayloadsRequest>,
 ) -> Result<Json<models::ConstructionPayloadsResponse>, models::Error> {
     let Json(models::ConstructionPayloadsRequest {
@@ -683,7 +678,7 @@ async fn construction_payloads(
 /// and an array of provided signatures. The signed transaction returned from
 /// this method will be sent to the /construction/submit endpoint by the caller.
 async fn construction_combine(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     body: Json<models::ConstructionCombineRequest>,
 ) -> Result<Json<models::ConstructionCombineResponse>, models::Error> {
     let Json(models::ConstructionCombineRequest {
@@ -720,7 +715,7 @@ async fn construction_combine(
 /// signing (after /construction/payloads) and before broadcast (after
 /// /construction/combine).
 async fn construction_parse(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     body: Json<models::ConstructionParseRequest>,
 ) -> Result<Json<models::ConstructionParseResponse>, models::Error> {
     let Json(models::ConstructionParseRequest { network_identifier, transaction, signed }) = body;
@@ -767,7 +762,7 @@ async fn construction_parse(
 /// TransactionHash returns the network-specific transaction hash for a signed
 /// transaction.
 async fn construction_hash(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     body: Json<models::ConstructionHashRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     let Json(models::ConstructionHashRequest { network_identifier, signed_transaction }) = body;
@@ -791,7 +786,7 @@ async fn construction_hash(
 /// return a 200 status if the submitted transaction could be included in the
 /// mempool. Otherwise, it should return an error.
 async fn construction_submit(
-    client_addr: web::Data<Addr<ClientActor>>,
+    client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
     tx_handler_addr: web::Data<Addr<RpcHandlerActor>>,
     body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
@@ -849,7 +844,7 @@ pub fn start_rosetta_rpc(
     config: crate::config::RosettaRpcConfig,
     genesis: Genesis,
     genesis_block_hash: &near_primitives::hash::CryptoHash,
-    client_addr: Addr<ClientActor>,
+    client_addr: ExecutorHandle<ClientActorInner>,
     view_client_addr: Addr<ViewClientActor>,
     tx_handler_addr: Addr<RpcHandlerActor>,
 ) -> actix_web::dev::ServerHandle {

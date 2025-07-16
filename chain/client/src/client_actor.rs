@@ -23,9 +23,9 @@ use crate::sync::state::chain_requests::{
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
-use actix::Actor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
+use near_async::executor::{ExecutorHandle, ExecutorRuntime, start_actor_with_new_runtime};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
@@ -120,8 +120,8 @@ fn wait_until_genesis(genesis_time: &Utc) {
 }
 
 pub struct StartClientResult {
-    pub client_actor: actix::Addr<ClientActor>,
-    pub client_arbiter_handle: actix::ArbiterHandle,
+    pub client_actor: ExecutorHandle<ClientActorInner>,
+    pub client_arbiter_handle: ExecutorRuntime,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 }
@@ -149,9 +149,6 @@ pub fn start_client(
     seed: Option<RngSeed>,
     resharding_sender: ReshardingSender,
 ) -> StartClientResult {
-    let client_arbiter = actix::Arbiter::new();
-    let client_arbiter_handle = client_arbiter.handle();
-
     wait_until_genesis(&chain_genesis.time);
 
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
@@ -205,15 +202,11 @@ pub fn start_client(
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
     let chunk_endorsement_tracker =
         Arc::clone(&client_actor_inner.client.chunk_endorsement_tracker);
-    let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_| {
-        ActixWrapper::new(client_actor_inner)
-    });
+    let (client_arbiter_handle, client_addr) = start_actor_with_new_runtime(client_actor_inner);
 
-    client_sender_for_sync_jobs
-        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
-    client_sender_for_client.bind(client_addr.clone().with_auto_span_context().into_multi_sender());
-    chain_sender_for_state_sync
-        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
+    client_sender_for_sync_jobs.bind(client_addr.clone().into_multi_sender());
+    client_sender_for_client.bind(client_addr.clone().into_multi_sender());
+    chain_sender_for_state_sync.bind(client_addr.clone().into_multi_sender());
 
     StartClientResult {
         client_actor: client_addr,

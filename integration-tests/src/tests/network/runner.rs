@@ -156,7 +156,7 @@ fn setup_network_node(
         epoch_manager.clone(),
         shard_tracker,
         network_adapter.as_sender(),
-        client_actor.clone().with_auto_span_context().into_sender(),
+        client_actor.clone().into_sender(),
         validator_signer.clone(),
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
@@ -164,7 +164,7 @@ fn setup_network_node(
     let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
         Clock::real(),
         network_adapter.as_multi_sender(),
-        client_actor.clone().with_auto_span_context().into_multi_sender(),
+        client_actor.clone().into_multi_sender(),
         validator_signer,
         epoch_manager,
         runtime,

@@ -1,4 +1,6 @@
+use crate::futures::DelayedActionRunner;
 use crate::messaging::{AsyncSendError, CanSend, MessageWithCallback};
+use actix::{Handler, Message};
 use futures::FutureExt;
 use near_o11y::{WithSpanContext, WithSpanContextExt};
 
@@ -112,5 +114,63 @@ where
             &self.inner,
             MessageWithCallback { message: message.with_span_context(), callback: responder },
         );
+    }
+}
+
+pub struct ArbitraryActixAction<T> {
+    pub name: String,
+    pub f: Box<dyn FnOnce(&mut T) + Send + 'static>,
+}
+
+impl<T> Message for ArbitraryActixAction<T> {
+    type Result = ();
+}
+
+pub struct ActixAddrWithTokioRuntime<A: actix::Actor, T> {
+    addr: actix::Addr<A>,
+    runtime: tokio::runtime::Handle,
+    _marker: std::marker::PhantomData<fn(*const T)>,
+}
+
+impl<A: actix::Actor, T> ActixAddrWithTokioRuntime<A, T> {
+    pub fn new(addr: actix::Addr<A>, runtime: tokio::runtime::Handle) -> Self {
+        Self { addr, runtime, _marker: std::marker::PhantomData }
+    }
+}
+
+impl<A: actix::Actor, T> Clone for ActixAddrWithTokioRuntime<A, T> {
+    fn clone(&self) -> Self {
+        Self {
+            addr: self.addr.clone(),
+            runtime: self.runtime.clone(),
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<A: actix::Actor, T: 'static> DelayedActionRunner<T> for ActixAddrWithTokioRuntime<A, T>
+where
+    A: Handler<ArbitraryActixAction<T>>,
+    <A as actix::Actor>::Context: actix::dev::ToEnvelope<A, ArbitraryActixAction<T>>,
+{
+    fn run_later_boxed(
+        &mut self,
+        name: &str,
+        dur: near_time::Duration,
+        f: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
+    ) {
+        let addr = self.addr.clone();
+        let mut this = self.clone();
+        let name = name.to_string();
+        self.runtime.spawn(async move {
+            tokio::time::sleep(dur.unsigned_abs()).await;
+            let action = ArbitraryActixAction {
+                name,
+                f: Box::new(move |obj| {
+                    f(obj, &mut this);
+                }),
+            };
+            addr.do_send(action);
+        });
     }
 }
