@@ -1,3 +1,4 @@
+pub mod shard_size;
 pub(crate) mod sync_utils;
 pub mod test_utils;
 
@@ -296,7 +297,7 @@ pub fn get_access_key_raw(
     )
 }
 
-/// Removes account, code and all access keys associated to it.
+/// Removes account, code, and all access keys associated with it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,

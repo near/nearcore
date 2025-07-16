@@ -69,9 +69,11 @@ pub mod col {
     /// If index is None, the value is of type `GasKey`; otherwise it is of type u64.
     pub const GAS_KEY: u8 = 19;
 
+    pub const SHARD_SIZE_CONTRIBUTION: u8 = 20;
+
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
-    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 10] = [
+    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 11] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -82,9 +84,10 @@ pub mod col {
         (CONTRACT_DATA, "ContractData"),
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
         (GAS_KEY, "GasKey"),
+        (SHARD_SIZE_CONTRIBUTION, "ShardSizeContribution"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 19] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 20] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -104,6 +107,7 @@ pub mod col {
         (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
         (GLOBAL_CONTRACT_CODE, "GlobalContractCode"),
         (GAS_KEY, "GasKey"),
+        (SHARD_SIZE_CONTRIBUTION, "ShardSizeContribution"),
     ];
 }
 
@@ -247,6 +251,12 @@ pub enum TrieKey {
         public_key: PublicKey,
         index: Option<NonceIndex>,
     },
+    /// Stores the total shard size contribution of all accounts starting with
+    /// the given prefix (if the prefix is an account ID itself, it's included).
+    /// Empty prefix represents the total shard size.
+    ShardSizeContribution {
+        account_id_prefix: Vec<u8>,
+    },
 }
 
 /// Provides `len` function.
@@ -318,18 +328,16 @@ impl TrieKey {
             }
             TrieKey::BufferedReceiptIndices => col::BUFFERED_RECEIPT_INDICES.len(),
             TrieKey::BufferedReceipt { index, .. } => {
-                col::BUFFERED_RECEIPT.len()
-                    + std::mem::size_of::<u16>()
-                    + std::mem::size_of_val(index)
+                col::BUFFERED_RECEIPT.len() + size_of::<u16>() + size_of_val(index)
             }
             TrieKey::BandwidthSchedulerState => col::BANDWIDTH_SCHEDULER_STATE.len(),
             TrieKey::BufferedReceiptGroupsQueueData { .. } => {
-                col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA.len() + std::mem::size_of::<u64>()
+                col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA.len() + size_of::<u64>()
             }
             TrieKey::BufferedReceiptGroupsQueueItem { index, .. } => {
                 col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM.len()
-                    + std::mem::size_of::<u64>()
-                    + std::mem::size_of_val(index)
+                    + size_of::<u64>()
+                    + size_of_val(index)
             }
             TrieKey::GlobalContractCode { identifier } => {
                 col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
@@ -340,6 +348,9 @@ impl TrieKey {
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + public_key.len()
                     + borsh::object_length(index).unwrap()
+            }
+            TrieKey::ShardSizeContribution { account_id_prefix } => {
+                col::SHARD_SIZE_CONTRIBUTION.len() + account_id_prefix.len()
             }
         }
     }
@@ -445,6 +456,10 @@ impl TrieKey {
                 buf.extend(borsh::to_vec(&public_key).unwrap());
                 buf.extend(borsh::to_vec(&index).unwrap());
             }
+            TrieKey::ShardSizeContribution { account_id_prefix } => {
+                buf.push(col::SHARD_SIZE_CONTRIBUTION);
+                buf.extend(account_id_prefix);
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -476,10 +491,13 @@ impl TrieKey {
             TrieKey::BandwidthSchedulerState => None,
             TrieKey::BufferedReceiptGroupsQueueData { .. } => None,
             TrieKey::BufferedReceiptGroupsQueueItem { .. } => None,
-            // Even though global contract code might be deployed under account id, it doesn't
+            // Even though global contract code might be deployed under an account id, it doesn't
             // correspond to the data stored for that account id, so always returning None here.
             TrieKey::GlobalContractCode { .. } => None,
             TrieKey::GasKey { account_id, .. } => Some(account_id.clone()),
+            TrieKey::ShardSizeContribution { account_id_prefix } => {
+                std::str::from_utf8(&account_id_prefix).ok().and_then(|v| v.parse().ok())
+            }
         }
     }
 }
@@ -659,6 +677,13 @@ pub mod trie_key_parsers {
         parse_account_id_from_slice(account_id, "ContractCode")
     }
 
+    pub fn parse_account_id_from_shard_size_contribution_key(
+        raw_key: &[u8],
+    ) -> std::io::Result<AccountId> {
+        let account_id = parse_account_id_prefix(col::SHARD_SIZE_CONTRIBUTION, raw_key)?;
+        parse_account_id_from_slice(account_id, "GasUsage")
+    }
+
     pub fn parse_trie_key_access_key_from_raw_key(
         raw_key: &[u8],
     ) -> Result<TrieKey, std::io::Error> {
@@ -685,6 +710,7 @@ pub mod trie_key_parsers {
                 col::ACCOUNT => parse_account_id_from_account_key(raw_key)?,
                 col::CONTRACT_CODE => parse_account_id_from_contract_code_key(raw_key)?,
                 col::ACCESS_KEY => parse_account_id_from_access_key_key(raw_key)?,
+                col::SHARD_SIZE_CONTRIBUTION => parse_account_id_from_gas_key_key(raw_key)?,
                 _ => parse_account_id_from_trie_key_with_separator(col, raw_key, col_name)?,
             };
             return Ok(Some(account_id));
