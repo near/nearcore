@@ -56,6 +56,12 @@ const ASYNC_WRITE_COLUMNS: &[DBCol] = &[
     DBCol::FlatState,        // Flat state data
     DBCol::FlatStateChanges, // Flat state changes
     DBCol::Transactions,     // Transaction data
+    // New columns
+    DBCol::IncomingReceipts,    // Incoming receipts data
+    DBCol::OutgoingReceipts,    // Outgoing receipts data
+    DBCol::StateChanges,        // State changes data
+    DBCol::StateTransitionData, // State transition data
+    DBCol::ChunkApplyStats,     // Chunk apply statistics
 ];
 
 /// Tracks write operations that are in progress for specific columns
