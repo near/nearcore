@@ -545,6 +545,31 @@ impl NetworkState {
         tier: tcp::Tier,
         msg: Box<RoutedMessage>,
     ) -> bool {
+        let _span = match msg.body() {
+            TieredMessageBody::T1(body) => match body.as_ref() {
+                T1MessageBody::PartialEncodedStateWitness(witness) => Some(
+                    tracing::debug_span!(target: "client", "route_to_peer",
+                        msg_type = "PartialEncodedStateWitness",
+                        part_ord = witness.part_ord(),
+                        height = witness.chunk_production_key().height_created,
+                        tag_witness_distribution = true,
+                    )
+                    .entered(),
+                ),
+                T1MessageBody::PartialEncodedStateWitnessForward(witness) => Some(
+                    tracing::debug_span!(target: "client", "route_to_peer",
+                        msg_type = "PartialEncodedStateWitnessForward",
+                        part_ord = witness.part_ord(),
+                        height = witness.chunk_production_key().height_created,
+                        tag_witness_distribution = true,
+                    )
+                    .entered(),
+                ),
+                _ => None,
+            },
+            _ => None,
+        };
+
         let my_peer_id = self.config.node_id();
 
         // Check if the message is for myself and don't try to send it in that case.
@@ -557,6 +582,31 @@ impl NetworkState {
         }
         match tier {
             tcp::Tier::T1 => {
+                let _span = match msg.body() {
+                    TieredMessageBody::T1(body) => match body.as_ref() {
+                        T1MessageBody::PartialEncodedStateWitness(witness) => Some(
+                            tracing::debug_span!(target: "client", "select_tier1_connection",
+                                msg_type = "PartialEncodedStateWitness",
+                                part_ord = witness.part_ord(),
+                                height = witness.chunk_production_key().height_created,
+                                tag_witness_distribution = true,
+                            )
+                            .entered(),
+                        ),
+                        T1MessageBody::PartialEncodedStateWitnessForward(witness) => Some(
+                            tracing::debug_span!(target: "client", "select_tier1_connection",
+                                msg_type = "PartialEncodedStateWitnessForward",
+                                part_ord = witness.part_ord(),
+                                height = witness.chunk_production_key().height_created,
+                                tag_witness_distribution = true,
+                            )
+                            .entered(),
+                        ),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+
                 let peer_id = match msg.target() {
                     // If a message is a response, we try to load the target from the route back
                     // cache.
@@ -571,6 +621,31 @@ impl NetworkState {
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T2 => {
+                let _span = match msg.body() {
+                    TieredMessageBody::T1(body) => match body.as_ref() {
+                        T1MessageBody::PartialEncodedStateWitness(witness) => Some(
+                            tracing::debug_span!(target: "client", "select_tier2_connection",
+                                msg_type = "PartialEncodedStateWitness",
+                                part_ord = witness.part_ord(),
+                                height = witness.chunk_production_key().height_created,
+                                tag_witness_distribution = true,
+                            )
+                            .entered(),
+                        ),
+                        T1MessageBody::PartialEncodedStateWitnessForward(witness) => Some(
+                            tracing::debug_span!(target: "client", "select_tier2_connection",
+                                msg_type = "PartialEncodedStateWitnessForward",
+                                part_ord = witness.part_ord(),
+                                height = witness.chunk_production_key().height_created,
+                                tag_witness_distribution = true,
+                            )
+                            .entered(),
+                        ),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+
                 match self.tier2_find_route(&clock, msg.target()) {
                     Ok(peer_id) => {
                         // Remember if we expect a response for this message.
@@ -599,6 +674,8 @@ impl NetworkState {
                 }
             }
             tcp::Tier::T3 => {
+                let _span = tracing::debug_span!(target: "client", "select_tier3_connection", tag_witness_distribution = true).entered();
+
                 let peer_id = match msg.target() {
                     PeerIdOrHash::Hash(_) => {
                         // There is no route back cache for TIER3 as all connections are direct
@@ -621,6 +698,31 @@ impl NetworkState {
         account_id: &AccountId,
         msg: TieredMessageBody,
     ) -> bool {
+        let _span = match &msg {
+            TieredMessageBody::T1(body) => match body.as_ref() {
+                T1MessageBody::PartialEncodedStateWitness(witness) => Some(
+                    tracing::debug_span!(target: "client", "lookup_account_peer",
+                        msg_type = "PartialEncodedStateWitness",
+                        part_ord = witness.part_ord(),
+                        height = witness.chunk_production_key().height_created,
+                        tag_witness_distribution = true,
+                    )
+                    .entered(),
+                ),
+                T1MessageBody::PartialEncodedStateWitnessForward(witness) => Some(
+                    tracing::debug_span!(target: "client", "lookup_account_peer",
+                        msg_type = "PartialEncodedStateWitnessForward",
+                        part_ord = witness.part_ord(),
+                        height = witness.chunk_production_key().height_created,
+                        tag_witness_distribution = true,
+                    )
+                    .entered(),
+                ),
+                _ => None,
+            },
+            _ => None,
+        };
+
         // If the message is allowed to be sent to self, we handle it directly.
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
             // For now, we don't allow some types of messages to be sent to self.
@@ -738,6 +840,14 @@ impl NetworkState {
                     None
                 }
                 T1MessageBody::PartialEncodedStateWitness(witness) => {
+                    let _span =
+                        tracing::debug_span!(target: "client", "route_received_partial_witness",
+                            msg_type = "PartialEncodedStateWitness",
+                            part_ord = witness.part_ord(),
+                            height = witness.chunk_production_key().height_created,
+                            tag_witness_distribution = true,
+                        )
+                        .entered();
                     self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
                     None
                 }

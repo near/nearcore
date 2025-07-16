@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo,
-    SyncAccountsData, SyncSnapshotHosts, TieredMessageBody,
+    SyncAccountsData, SyncSnapshotHosts, T1MessageBody, TieredMessageBody,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -158,6 +158,34 @@ impl Connection {
     // TODO(gprusak): embed Stream directly in Connection,
     // so that we can skip actix queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
+        let _span = match msg.as_ref() {
+            PeerMessage::Routed(routed_msg) => match routed_msg.body() {
+                TieredMessageBody::T1(body) => match body.as_ref() {
+                    T1MessageBody::PartialEncodedStateWitness(witness) => Some(
+                        tracing::debug_span!(target: "client", "queue_message_to_connection",
+                            msg_type = "PartialEncodedStateWitness",
+                            part_ord = witness.part_ord(),
+                            height = witness.chunk_production_key().height_created,
+                            tag_witness_distribution = true,
+                        )
+                        .entered(),
+                    ),
+                    T1MessageBody::PartialEncodedStateWitnessForward(witness) => Some(
+                        tracing::debug_span!(target: "client", "queue_message_to_connection",
+                            msg_type = "PartialEncodedStateWitnessForward",
+                            part_ord = witness.part_ord(),
+                            height = witness.chunk_production_key().height_created,
+                            tag_witness_distribution = true,
+                        )
+                        .entered(),
+                    ),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        };
+
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
         self.addr.do_send(SendMessage { message: msg }.span_wrap().with_span_context());

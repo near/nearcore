@@ -13,7 +13,7 @@ use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
     RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts,
-    T2MessageBody, TieredMessageBody,
+    T1MessageBody, T2MessageBody, TieredMessageBody,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -405,6 +405,34 @@ impl PeerActor {
     }
 
     fn send_message(&self, msg: &PeerMessage) {
+        let _span = match msg {
+            PeerMessage::Routed(routed_msg) => match routed_msg.body() {
+                TieredMessageBody::T1(body) => match body.as_ref() {
+                    T1MessageBody::PartialEncodedStateWitness(witness) => Some(
+                        tracing::debug_span!(target: "client", "tcp_send_message",
+                            msg_type = "PartialEncodedStateWitness",
+                            part_ord = witness.part_ord(),
+                            height = witness.chunk_production_key().height_created,
+                            tag_witness_distribution = true,
+                        )
+                        .entered(),
+                    ),
+                    T1MessageBody::PartialEncodedStateWitnessForward(witness) => Some(
+                        tracing::debug_span!(target: "client", "tcp_send_message",
+                            msg_type = "PartialEncodedStateWitnessForward",
+                            part_ord = witness.part_ord(),
+                            height = witness.chunk_production_key().height_created,
+                            tag_witness_distribution = true,
+                        )
+                        .entered(),
+                    ),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        };
+
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) = (&self.peer_status, msg) {
             conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
@@ -987,6 +1015,34 @@ impl PeerActor {
         conn: &connection::Connection,
         msg: PeerMessage,
     ) {
+        let _span = match &msg {
+            PeerMessage::Routed(routed_msg) => match routed_msg.body() {
+                TieredMessageBody::T1(body) => match body.as_ref() {
+                    T1MessageBody::PartialEncodedStateWitness(witness) => Some(
+                        tracing::debug_span!(target: "client", "tcp_receive_message",
+                            msg_type = "PartialEncodedStateWitness",
+                            part_ord = witness.part_ord(),
+                            height = witness.chunk_production_key().height_created,
+                            tag_witness_distribution = true,
+                        )
+                        .entered(),
+                    ),
+                    T1MessageBody::PartialEncodedStateWitnessForward(witness) => Some(
+                        tracing::debug_span!(target: "client", "tcp_receive_message",
+                            msg_type = "PartialEncodedStateWitnessForward",
+                            part_ord = witness.part_ord(),
+                            height = witness.chunk_production_key().height_created,
+                            tag_witness_distribution = true,
+                        )
+                        .entered(),
+                    ),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        };
+
         let _span = tracing::trace_span!(target: "network", "receive_message").entered();
         #[cfg(test)]
         let message_processed_event = {
@@ -1777,6 +1833,35 @@ impl actix::Handler<WithSpanContext<SpanWrapped<SendMessage>>> for PeerActor {
     fn handle(&mut self, msg: WithSpanContext<SpanWrapped<SendMessage>>, _: &mut Self::Context) {
         let (_span, msg) = handler_debug_span!(target: "network", msg);
         let msg = msg.span_unwrap();
+
+        let _span = match msg.message.as_ref() {
+            PeerMessage::Routed(routed_msg) => match routed_msg.body() {
+                TieredMessageBody::T1(body) => match body.as_ref() {
+                    T1MessageBody::PartialEncodedStateWitness(witness) => Some(
+                        tracing::debug_span!(target: "client", "peer_actor_send_message",
+                            msg_type = "PartialEncodedStateWitness",
+                            part_ord = witness.part_ord(),
+                            height = witness.chunk_production_key().height_created,
+                            tag_witness_distribution = true,
+                        )
+                        .entered(),
+                    ),
+                    T1MessageBody::PartialEncodedStateWitnessForward(witness) => Some(
+                        tracing::debug_span!(target: "client", "peer_actor_send_message",
+                            msg_type = "PartialEncodedStateWitnessForward",
+                            part_ord = witness.part_ord(),
+                            height = witness.chunk_production_key().height_created,
+                            tag_witness_distribution = true,
+                        )
+                        .entered(),
+                    ),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        };
+
         self.send_message(&msg.message);
     }
 }
