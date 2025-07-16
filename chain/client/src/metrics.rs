@@ -431,6 +431,16 @@ pub(crate) static VIEW_CLIENT_MESSAGE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_request_time",
+        "Time taken to process state sync requests",
+        &["type"],
+        Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static STATE_SYNC_REQUESTS_THROTTLED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_state_sync_requests_throttled_total",

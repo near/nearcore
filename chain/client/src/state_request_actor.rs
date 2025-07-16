@@ -15,7 +15,6 @@ use near_primitives::state_sync::{
 };
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
-use tracing::{error, info, warn};
 
 use crate::metrics;
 
@@ -26,7 +25,7 @@ pub struct StateRequestActor {
     genesis_hash: CryptoHash,
     throttle_period: Duration,
     num_state_requests_per_throttle_period: usize,
-    state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
+    state_request_timestamps: Arc<Mutex<VecDeque<Instant>>>,
 }
 
 impl Actor for StateRequestActor {}
@@ -54,28 +53,30 @@ impl StateRequestActor {
             genesis_hash,
             throttle_period,
             num_state_requests_per_throttle_period,
-            state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
+            state_request_timestamps: Arc::new(Mutex::new(VecDeque::with_capacity(
+                num_state_requests_per_throttle_period,
+            ))),
         }
     }
 
     /// Returns true if this request needs to be **dropped** due to exceeding a
     /// rate limit of state sync requests.
     fn throttle_state_sync_request(&self) -> bool {
-        let mut cache = self.state_request_cache.lock();
+        let mut timestamps = self.state_request_timestamps.lock();
         let now = self.clock.now();
-        while let Some(&instant) = cache.front() {
+        while let Some(&instant) = timestamps.front() {
+            // Assume that time is linear. While in different threads there might be some small differences,
+            // it should not matter in practice.
             if now - instant > self.throttle_period {
-                cache.pop_front();
+                timestamps.pop_front();
             } else {
-                // Assume that time is linear. While in different threads there might be some small differences,
-                // it should not matter in practice.
                 break;
             }
         }
-        if cache.len() >= self.num_state_requests_per_throttle_period {
+        if timestamps.len() >= self.num_state_requests_per_throttle_period {
             return true;
         }
-        cache.push_back(now);
+        timestamps.push_back(now);
         false
     }
 
@@ -108,11 +109,18 @@ impl StateRequestActor {
 impl Handler<StateRequestHeader> for StateRequestActor {
     #[perf]
     fn handle(&mut self, msg: StateRequestHeader) -> Option<StateResponse> {
-        tracing::debug!(target: "client", ?msg);
-        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+        let StateRequestHeader { shard_id, sync_hash } = msg;
+        let _timer = metrics::STATE_SYNC_REQUEST_TIME
             .with_label_values(&["StateRequestHeader"])
             .start_timer();
-        let StateRequestHeader { shard_id, sync_hash } = msg;
+        let _span = tracing::debug_span!(
+            target: "sync",
+            "StateRequestHeader",
+            shard_id = %shard_id,
+            sync_hash = %sync_hash
+        )
+        .entered();
+        tracing::debug!(target: "sync", ?msg);
         if self.throttle_state_sync_request() {
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
@@ -122,35 +130,32 @@ impl Handler<StateRequestHeader> for StateRequestActor {
                 match self.state_sync_adapter.get_state_response_header(shard_id, sync_hash) {
                     Ok(header) => Some(header),
                     Err(err) => {
-                        error!(target: "sync", ?err, "Cannot build state sync header");
+                        tracing::error!(target: "sync", ?err, "Cannot build state sync header");
                         None
                     }
                 }
             }
             Ok(false) => {
-                warn!(target: "sync", ?sync_hash, "sync_hash didn't pass validation, possible malicious behavior");
+                tracing::warn!(target: "sync", "sync_hash didn't pass validation, possible malicious behavior");
                 // Don't respond to the node, because the request is malformed.
                 return None;
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 // This case may appear in case of latency in epoch switching.
                 // Request sender is ready to sync but we still didn't get the block.
-                info!(target: "sync", ?sync_hash, "Can't get sync_hash block for state request header");
+                tracing::info!(target: "sync", "Can't get sync_hash block for state request header");
                 None
             }
             Err(err) => {
-                error!(target: "sync", ?err, ?sync_hash, "Failed to verify sync_hash validity");
+                tracing::error!(target: "sync", ?err, "Failed to verify sync_hash validity");
                 None
             }
         };
         let state_response = match header {
             Some(header) => {
-                let header = match header {
-                    ShardStateSyncResponseHeader::V2(inner) => inner,
-                    _ => {
-                        tracing::error!(target: "sync", ?sync_hash, %shard_id, "Invalid state sync header format");
-                        return None;
-                    }
+                let ShardStateSyncResponseHeader::V2(header) = header else {
+                    tracing::error!(target: "sync", "Invalid state sync header format");
+                    return None;
                 };
 
                 ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
@@ -179,16 +184,23 @@ impl Handler<StateRequestHeader> for StateRequestActor {
 impl Handler<StateRequestPart> for StateRequestActor {
     #[perf]
     fn handle(&mut self, msg: StateRequestPart) -> Option<StateResponse> {
-        tracing::debug!(target: "client", ?msg);
-        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
-            .with_label_values(&["StateRequestPart"])
-            .start_timer();
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;
+        let _timer =
+            metrics::STATE_SYNC_REQUEST_TIME.with_label_values(&["StateRequestPart"]).start_timer();
+        let _span = tracing::debug_span!(
+            target: "sync",
+            "StateRequestPart",
+            shard_id = %shard_id,
+            sync_hash = %sync_hash,
+            part_id
+        )
+        .entered();
+        tracing::debug!(target: "sync", ?msg);
         if self.throttle_state_sync_request() {
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
         }
-        tracing::debug!(target: "sync", %shard_id, ?sync_hash, ?part_id, "Computing state request part");
+        tracing::debug!(target: "sync", "Computing state request part");
         let part = match self.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
                 let part = match self
@@ -197,27 +209,27 @@ impl Handler<StateRequestPart> for StateRequestActor {
                 {
                     Ok(part) => Some((part_id, part)),
                     Err(err) => {
-                        error!(target: "sync", ?err, ?sync_hash, %shard_id, part_id, "Cannot build state part");
+                        tracing::error!(target: "sync", ?err, "Cannot build state part");
                         None
                     }
                 };
 
-                tracing::trace!(target: "sync", ?sync_hash, %shard_id, part_id, "Finished computation for state request part");
+                tracing::trace!(target: "sync", "Finished computation for state request part");
                 part
             }
             Ok(false) => {
-                warn!(target: "sync", ?sync_hash, %shard_id, "sync_hash didn't pass validation, possible malicious behavior");
+                tracing::warn!(target: "sync", "sync_hash didn't pass validation, possible malicious behavior");
                 // Do not respond, possible malicious behavior.
                 return None;
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 // This case may appear in case of latency in epoch switching.
                 // Request sender is ready to sync but we still didn't get the block.
-                info!(target: "sync", ?sync_hash, "Can't get sync_hash block for state request part");
+                tracing::info!(target: "sync", "Can't get sync_hash block for state request part");
                 None
             }
             Err(err) => {
-                error!(target: "sync", ?err, ?sync_hash, "Failed to verify sync_hash validity");
+                tracing::error!(target: "sync", ?err, "Failed to verify sync_hash validity");
                 None
             }
         };
