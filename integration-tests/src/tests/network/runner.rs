@@ -171,7 +171,7 @@ fn setup_network_node(
         Arc::new(RayonAsyncComputationSpawner),
         Arc::new(RayonAsyncComputationSpawner),
     ));
-    shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
+    shards_manager_adapter.bind(shards_manager_actor);
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
         db.clone(),

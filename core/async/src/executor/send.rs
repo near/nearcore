@@ -5,7 +5,7 @@ use futures::FutureExt;
 
 impl<M, T> CanSend<M> for ExecutorHandle<T>
 where
-    T: messaging::Handler<M> + messaging::Actor + 'static,
+    T: messaging::HandlerWithContext<M> + messaging::Actor + 'static,
     M: actix::Message + Send + 'static,
     M::Result: Send,
 {

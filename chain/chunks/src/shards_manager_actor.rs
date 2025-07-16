@@ -89,6 +89,7 @@ use crate::metrics;
 use ::time::ext::InstantExt as _;
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
+use near_async::executor::{ExecutorHandle, ExecutorRuntime, start_actor_with_new_runtime};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
@@ -336,8 +337,7 @@ pub fn start_shards_manager(
     validator_signer: MutableValidatorSigner,
     store: Store,
     chunk_request_retry_period: Duration,
-) -> (actix::Addr<ActixWrapper<ShardsManagerActor>>, actix::ArbiterHandle) {
-    let shards_manager_arbiter = actix::Arbiter::new().handle();
+) -> (ExecutorHandle<ShardsManagerActor>, ExecutorRuntime) {
     // TODO: make some better API for accessing chain properties like head.
     let chain_head = store
         .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
@@ -361,10 +361,8 @@ pub fn start_shards_manager(
         chunk_request_retry_period,
     );
 
-    let shards_manager_addr =
-        ActixWrapper::<ShardsManagerActor>::start_in_arbiter(&shards_manager_arbiter, move |_| {
-            ActixWrapper::new(shards_manager)
-        });
+    let (shards_manager_arbiter, shards_manager_addr) =
+        start_actor_with_new_runtime(shards_manager);
     (shards_manager_addr, shards_manager_arbiter)
 }
 

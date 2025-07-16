@@ -236,7 +236,7 @@ fn setup(
     );
 
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
-    let (shards_manager_addr, _) = start_shards_manager(
+    let (shards_manager_adapter, _) = start_shards_manager(
         epoch_manager.clone(),
         epoch_manager,
         shard_tracker,
@@ -246,7 +246,6 @@ fn setup(
         store,
         config.chunk_request_retry_period,
     );
-    let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
     client_adapter_for_partial_witness_actor.bind(client_actor.clone());

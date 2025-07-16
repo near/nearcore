@@ -449,7 +449,7 @@ pub fn start_with_config_and_synchronization(
         split_store.unwrap_or_else(|| storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
+    shards_manager_adapter.bind(shards_manager_actor);
 
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: config.client_config.transaction_request_handler_threads,
@@ -541,14 +541,9 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let executor_runtimes = vec![client_arbiter_handle];
-    let mut arbiters = vec![
-        shards_manager_arbiter_handle,
-        trie_metrics_arbiter,
-        state_snapshot_arbiter,
-        gc_arbiter,
-        partial_witness_arbiter,
-    ];
+    let executor_runtimes = vec![client_arbiter_handle, shards_manager_arbiter_handle];
+    let mut arbiters =
+        vec![trie_metrics_arbiter, state_snapshot_arbiter, gc_arbiter, partial_witness_arbiter];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }
