@@ -139,7 +139,7 @@ impl TrieRecorder {
                 nodes.push(node.into_inner().0);
             }
         }
-        nodes.sort();
+        nodes.sort_unstable();
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 

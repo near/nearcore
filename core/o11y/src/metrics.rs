@@ -206,6 +206,20 @@ pub fn try_create_histogram_vec(
     Ok(histogram)
 }
 
+pub mod config {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static ENABLE_EXPENSIVE_METRICS: AtomicBool = AtomicBool::new(false);
+
+    pub fn enable_expensive_metrics(yes: bool) {
+        ENABLE_EXPENSIVE_METRICS.store(yes, Ordering::Relaxed);
+    }
+
+    pub fn expensive_metrics() -> bool {
+        ENABLE_EXPENSIVE_METRICS.load(Ordering::Relaxed)
+    }
+}
+
 static EXCEPTIONS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     HashSet::from([
         "flat_storage_cached_changes_num_items",

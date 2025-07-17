@@ -527,6 +527,10 @@ pub fn default_view_client_throttle_period() -> Duration {
     Duration::seconds(30)
 }
 
+pub fn default_view_client_num_state_requests_per_throttle_period() -> usize {
+    30
+}
+
 pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
@@ -694,9 +698,11 @@ pub struct ClientConfig {
     pub save_tx_outcomes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
-    /// Number of seconds between state requests for view client.
+    /// Throttling window for state requests (headers and parts).
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub view_client_throttle_period: Duration,
+    /// Maximum number of state requests served per `view_client_throttle_period`
+    pub view_client_num_state_requests_per_throttle_period: usize,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     pub trie_viewer_state_size_limit: Option<u64>,
     /// Max burnt gas per view method.  If present, overrides value stored in
@@ -820,6 +826,7 @@ impl ClientConfig {
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             view_client_throttle_period: Duration::seconds(1),
+            view_client_num_state_requests_per_throttle_period: 30,
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
             enable_statistics_export: true,
