@@ -190,3 +190,8 @@ openapi-spec:
         echo "OpenAPI spec has changed, please ensure the code doesn't break Near JSON RPC clients and run 'cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json' to update it. Also update spec version accordingly in chain/jsonrpc/openapi/main.rs."
         exit 1
     fi
+
+check-cspell:
+    # You will need the cspell npm package.
+    # For nixpkgs users that's `nodePackages.cspell`
+    git ls-files | cspell --no-progress --file-list stdin
