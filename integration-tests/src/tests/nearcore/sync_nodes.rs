@@ -3,6 +3,7 @@ use crate::utils::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
+use near_async::messaging::SendAsync;
 use near_async::time::Duration;
 use near_chain_configs::Genesis;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
@@ -82,32 +83,33 @@ fn ultra_slow_test_sync_state_stake_change() {
                     let near2_copy = near2.clone();
                     let dir2_path_copy = dir2_path.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
-                    let actor = view_client1.send(GetBlock::latest().with_span_context());
+                    let actor = view_client1.send_async(GetBlock::latest());
                     let actor = actor.then(move |res| {
                         let latest_height =
                             if let Ok(Ok(block)) = res { block.header.height } else { 0 };
                         if !started_copy.load(Ordering::SeqCst) && latest_height > 2 * epoch_length
                         {
                             started_copy.store(true, Ordering::SeqCst);
-                            let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
-                                start_with_config(&dir2_path_copy, near2_copy)
-                                    .expect("start_with_config");
-                            *arbiters_holder2.write() = arbiters;
+                            let nearcore::NearNode {
+                                view_client: view_client2,
+                                executor_runtimes,
+                                ..
+                            } = start_with_config(&dir2_path_copy, near2_copy)
+                                .expect("start_with_config");
+                            *arbiters_holder2.write() = executor_runtimes;
 
                             WaitOrTimeoutActor::new(
                                 Box::new(move |_ctx| {
-                                    actix::spawn(
-                                        view_client2
-                                            .send(GetBlock::latest().with_span_context())
-                                            .then(move |res| {
-                                                if let Ok(Ok(block)) = res {
-                                                    if block.header.height > latest_height + 1 {
-                                                        System::current().stop()
-                                                    }
+                                    actix::spawn(view_client2.send_async(GetBlock::latest()).then(
+                                        move |res| {
+                                            if let Ok(Ok(block)) = res {
+                                                if block.header.height > latest_height + 1 {
+                                                    System::current().stop()
                                                 }
-                                                future::ready(())
-                                            }),
-                                    );
+                                            }
+                                            future::ready(())
+                                        },
+                                    ));
                                 }),
                                 100,
                                 30000,

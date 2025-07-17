@@ -192,6 +192,8 @@ impl Display for AsyncSendError {
     }
 }
 
+impl std::error::Error for AsyncSendError {}
+
 /// Used to implement an async sender. An async sender is just a Sender whose
 /// message is `MessageWithCallback<M, R>`, which is a message plus a
 /// callback to send the response future back.

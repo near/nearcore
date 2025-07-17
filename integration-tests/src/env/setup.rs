@@ -7,6 +7,7 @@ use actix::{Actor, Addr, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::executor::ExecutorHandle;
+use near_async::executor::sync::SyncExecutorHandle;
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{
     IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
@@ -31,8 +32,8 @@ use near_client::client_actor::ClientActorInner;
 use near_client::spice_core::CoreStatementsProcessor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, PartialWitnessSenderForClient,
-    RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus, ViewClientActor,
-    ViewClientActorInner, start_client,
+    RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus, ViewClientActorInner,
+    start_client,
 };
 use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
@@ -84,7 +85,7 @@ fn setup(
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (
     ExecutorHandle<ClientActorInner>,
-    Addr<ViewClientActor>,
+    SyncExecutorHandle<ViewClientActorInner>,
     Addr<RpcHandlerActor>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
@@ -350,7 +351,7 @@ pub fn setup_mock_with_validity_period(
 #[derive(Clone)]
 pub struct ActorHandlesForTesting {
     pub client_actor: ExecutorHandle<ClientActorInner>,
-    pub view_client_actor: Addr<ViewClientActor>,
+    pub view_client_actor: SyncExecutorHandle<ViewClientActorInner>,
     pub rpc_handler_actor: Addr<RpcHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,

@@ -7,11 +7,10 @@ use crate::metrics::spawn_trie_metrics_loop;
 use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::StateSyncDumper;
 use actix::{Actor, Addr};
-use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
+use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
@@ -29,7 +28,7 @@ use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
     ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig, StartClientResult,
-    ViewClientActor, ViewClientActorInner, spawn_rpc_handler_actor, start_client,
+    ViewClientActorInner, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -60,7 +59,8 @@ mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
 pub mod state_sync;
-use near_async::executor::{ExecutorHandle, ExecutorRuntime};
+use near_async::executor::sync::SyncExecutorHandle;
+use near_async::executor::{ExecutorHandle, ExecutorRuntime, start_actor_with_new_runtime};
 use near_client::client_actor::ClientActorInner;
 #[cfg(feature = "tx_generator")]
 use near_transactions_generator::actix_actor::TxGeneratorActor;
@@ -215,12 +215,11 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 
 pub struct NearNode {
     pub client: ExecutorHandle<ClientActorInner>,
-    pub view_client: Addr<ViewClientActor>,
+    pub view_client: SyncExecutorHandle<ViewClientActorInner>,
     pub rpc_handler: Addr<RpcHandlerActor>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
     pub executor_runtimes: Vec<ExecutorRuntime>,
-    pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to a background thread that copies data from the hot store to the cold store.
@@ -364,20 +363,20 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
     );
-    let (state_snapshot_addr, state_snapshot_arbiter) = spawn_actix_actor(state_snapshot_actor);
-    state_snapshot_sender.bind(state_snapshot_addr.clone().with_auto_span_context());
+    let (state_snapshot_arbiter, state_snapshot_addr) =
+        start_actor_with_new_runtime(state_snapshot_actor);
+    state_snapshot_sender.bind(state_snapshot_addr.clone());
 
-    let delete_snapshot_callback: Arc<dyn Fn() + Sync + Send> = get_delete_snapshot_callback(
-        state_snapshot_addr.clone().with_auto_span_context().into_multi_sender(),
-    );
+    let delete_snapshot_callback: Arc<dyn Fn() + Sync + Send> =
+        get_delete_snapshot_callback(state_snapshot_addr.clone().into_multi_sender());
     let make_snapshot_callback = get_make_snapshot_callback(
-        state_snapshot_addr.with_auto_span_context().into_multi_sender(),
+        state_snapshot_addr.into_multi_sender(),
         runtime.get_flat_storage_manager(),
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (partial_witness_actor, partial_witness_arbiter) =
-        spawn_actix_actor(PartialWitnessActor::new(
+    let (partial_witness_arbiter, partial_witness_actor) =
+        start_actor_with_new_runtime(PartialWitnessActor::new(
             Clock::real(),
             network_adapter.as_multi_sender(),
             client_adapter_for_partial_witness_actor.as_multi_sender(),
@@ -388,7 +387,7 @@ pub fn start_with_config_and_synchronization(
             Arc::new(RayonAsyncComputationSpawner),
         ));
 
-    let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
+    let (gc_arbiter, _gc_actor) = start_actor_with_new_runtime(GCActor::new(
         runtime.store().clone(),
         &chain_genesis,
         runtime.clone(),
@@ -399,13 +398,13 @@ pub fn start_with_config_and_synchronization(
     ));
 
     let resharding_handle = ReshardingHandle::new();
-    let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
-        epoch_manager.clone(),
-        runtime.clone(),
-        resharding_handle.clone(),
-        config.client_config.resharding_config.clone(),
-    ));
-    let resharding_sender = resharding_sender_addr.with_auto_span_context();
+    let (resharding_arbiter, resharding_sender) =
+        start_actor_with_new_runtime(ReshardingActor::new(
+            epoch_manager.clone(),
+            runtime.clone(),
+            resharding_handle.clone(),
+            config.client_config.resharding_config.clone(),
+        ));
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
@@ -432,7 +431,7 @@ pub fn start_with_config_and_synchronization(
         shutdown_signal,
         adv,
         config_updater,
-        partial_witness_actor.clone().with_auto_span_context().into_multi_sender(),
+        partial_witness_actor.clone().into_multi_sender(),
         true,
         None,
         resharding_sender.into_multi_sender(),
@@ -496,7 +495,7 @@ pub fn start_with_config_and_synchronization(
         ),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
-        partial_witness_actor.with_auto_span_context().into_multi_sender(),
+        partial_witness_actor.into_multi_sender(),
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
@@ -513,11 +512,11 @@ pub fn start_with_config_and_synchronization(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone().into_multi_sender(),
-            view_client_addr.clone().with_auto_span_context().into_multi_sender(),
+            view_client_addr.clone().into_multi_sender(),
             rpc_handler.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
             #[cfg(feature = "test_features")]
-            _gc_actor.with_auto_span_context().into_multi_sender(),
+            _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
         ));
     }
@@ -541,18 +540,24 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let executor_runtimes = vec![client_arbiter_handle, shards_manager_arbiter_handle];
-    let mut arbiters =
-        vec![trie_metrics_arbiter, state_snapshot_arbiter, gc_arbiter, partial_witness_arbiter];
+    let mut executor_runtimes = vec![
+        client_arbiter_handle,
+        shards_manager_arbiter_handle,
+        trie_metrics_arbiter,
+        state_snapshot_arbiter,
+        partial_witness_arbiter,
+        resharding_arbiter,
+        gc_arbiter,
+    ];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
-        arbiters.push(db_metrics_arbiter);
+        executor_runtimes.push(db_metrics_arbiter);
     }
 
     #[cfg(feature = "tx_generator")]
     let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
         config.tx_generator.unwrap_or_default(),
         rpc_handler.clone().with_auto_span_context().into_multi_sender(),
-        view_client_addr.clone().with_auto_span_context().into_multi_sender(),
+        view_client_addr.clone().into_multi_sender(),
     );
 
     Ok(NearNode {
@@ -563,7 +568,6 @@ pub fn start_with_config_and_synchronization(
         tx_generator,
         rpc_servers,
         executor_runtimes,
-        arbiters,
         cold_store_loop_handle,
         state_sync_dumper,
         resharding_handle,

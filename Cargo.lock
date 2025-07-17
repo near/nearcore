@@ -4181,12 +4181,14 @@ name = "near-async"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "crossbeam",
  "futures",
  "near-async-derive",
  "near-o11y",
  "near-performance-metrics",
  "near-time",
  "parking_lot 0.12.1",
+ "rayon",
  "serde",
  "serde_json",
  "time",
@@ -5165,6 +5167,7 @@ dependencies = [
  "itertools 0.12.1",
  "itoa",
  "lru 0.12.3",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",

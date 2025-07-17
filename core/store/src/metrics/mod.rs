@@ -1,7 +1,7 @@
 mod rocksdb_metrics;
 
 use crate::{NodeStorage, Store, Temperature};
-use actix_rt::ArbiterHandle;
+use near_async::executor::ExecutorRuntime;
 use near_o11y::metrics::{
     Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
     try_create_histogram, try_create_histogram_vec, try_create_histogram_with_buckets,
@@ -597,12 +597,12 @@ fn export_store_stats(store: &Store, temperature: Temperature) {
 pub fn spawn_db_metrics_loop(
     storage: &NodeStorage,
     period: Duration,
-) -> anyhow::Result<ArbiterHandle> {
+) -> anyhow::Result<ExecutorRuntime> {
     tracing::debug!(target:"metrics", "Spawning the db metrics loop.");
-    let db_metrics_arbiter = actix_rt::Arbiter::new();
+    let db_metrics_arbiter = ExecutorRuntime::new();
 
     let start = tokio::time::Instant::now();
-    let mut interval = actix_rt::time::interval_at(start, period.unsigned_abs());
+    let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let hot_store = storage.get_hot_store();
@@ -620,7 +620,7 @@ pub fn spawn_db_metrics_loop(
         }
     });
 
-    Ok(db_metrics_arbiter.handle())
+    Ok(db_metrics_arbiter)
 }
 
 #[cfg(test)]
@@ -681,7 +681,7 @@ mod test {
         assert_eq!(hot_gauge.get(), 42);
         assert_eq!(cold_gauge.get(), 52);
 
-        handle.stop();
+        handle.stop_only_instance_test_only();
 
         Ok(())
     }

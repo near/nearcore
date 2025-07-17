@@ -1,9 +1,11 @@
 pub mod envelope;
 pub mod send;
+pub mod sync;
 
 use crate::executor::envelope::Envelope;
 use crate::futures::DelayedActionRunner;
 use crate::messaging;
+use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -14,7 +16,15 @@ pub struct ExecutorHandle<T: messaging::Actor> {
 }
 
 pub struct ExecutorRuntime {
-    _runtime: Arc<tokio::runtime::Runtime>,
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+impl Deref for ExecutorRuntime {
+    type Target = tokio::runtime::Runtime;
+
+    fn deref(&self) -> &Self::Target {
+        &self.runtime
+    }
 }
 
 impl<T: messaging::Actor> Clone for ExecutorHandle<T> {
@@ -56,50 +66,62 @@ impl<T: messaging::Actor + 'static> DelayedActionRunner<T> for ExecutorDelayedAc
     }
 }
 
-pub fn start_actor_in_runtime<T: messaging::Actor + Send + 'static>(
-    runtime: Arc<tokio::runtime::Runtime>,
-    mut logic: T,
-) -> ExecutorHandle<T> {
-    let (sender, mut receiver) = mpsc::unbounded_channel();
-    let cancel = CancellationToken::new();
-    let mut delayed_action_runner = ExecutorDelayedActionRunner {
-        sender: sender.clone(),
-        runtime_handle: runtime.handle().clone(),
-    };
-    {
-        let cancel = cancel.clone();
-        // Note: With the way we're using the original Actix framework, we don't properly manage the
-        // lifetime of the runtime. We just start the actor and forget it. So, have the event loop
-        // prevent the dropping of the runtime until we fix all of the usage code.
-        let runtime_clone = runtime.clone();
-        runtime.spawn(async move {
-            let _runtime = runtime_clone;
-            logic.start_actor(&mut delayed_action_runner);
-            loop {
-                tokio::select! {
-                    Some(envelope) = receiver.recv() => {
-                        tracing::info!("Actor handling message: {}", envelope.describe());
-                        envelope.handle_by(&mut logic, &mut delayed_action_runner);
-                    },
-                    _ = cancel.cancelled() => {
-                        break;
+impl ExecutorRuntime {
+    pub fn new() -> Self {
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .expect("Failed to create Tokio runtime"),
+        );
+        ExecutorRuntime { runtime }
+    }
+
+    pub fn start_actor_in_runtime<T: messaging::Actor + Send + 'static>(
+        &self,
+        mut logic: T,
+    ) -> ExecutorHandle<T> {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let cancel = CancellationToken::new();
+        let mut delayed_action_runner = ExecutorDelayedActionRunner {
+            sender: sender.clone(),
+            runtime_handle: self.runtime.handle().clone(),
+        };
+        {
+            let cancel = cancel.clone();
+            // Note: With the way we're using the original Actix framework, we don't properly manage the
+            // lifetime of the runtime. We just start the actor and forget it. So, have the event loop
+            // prevent the dropping of the runtime until we fix all of the usage code.
+            let runtime_clone = self.runtime.clone();
+            self.runtime.spawn(async move {
+                let _runtime = runtime_clone;
+                logic.start_actor(&mut delayed_action_runner);
+                loop {
+                    tokio::select! {
+                        Some(envelope) = receiver.recv() => {
+                            tracing::info!("Actor handling message: {}", envelope.describe());
+                            envelope.handle_by(&mut logic, &mut delayed_action_runner);
+                        },
+                        _ = cancel.cancelled() => {
+                            break;
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
+        ExecutorHandle { sender, cancel }
     }
-    ExecutorHandle { sender, cancel }
+
+    pub fn stop_only_instance_test_only(self) {
+        Arc::into_inner(self.runtime).expect("Not the only instance").shutdown_background();
+    }
 }
 
 pub fn start_actor_with_new_runtime<T: messaging::Actor + Send + 'static>(
     logic: T,
 ) -> (ExecutorRuntime, ExecutorHandle<T>) {
-    let runtime = Arc::new(
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .expect("Failed to create Tokio runtime"),
-    );
-    (ExecutorRuntime { _runtime: runtime.clone() }, start_actor_in_runtime(runtime, logic))
+    let runtime = ExecutorRuntime::new();
+    let handle = runtime.start_actor_in_runtime(logic);
+    (runtime, handle)
 }

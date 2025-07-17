@@ -14,10 +14,11 @@ use strum::IntoEnumIterator;
 
 pub use config::RosettaRpcConfig;
 use near_async::executor::ExecutorHandle;
+use near_async::executor::sync::SyncExecutorHandle;
 use near_async::messaging::SendAsync;
 use near_chain_configs::Genesis;
 use near_client::client_actor::ClientActorInner;
-use near_client::{RpcHandlerActor, ViewClientActor};
+use near_client::{RpcHandlerActor, ViewClientActorInner};
 use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
@@ -103,7 +104,7 @@ async fn network_list(
 async fn network_status(
     genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    view_client_addr: web::Data<SyncExecutorHandle<ViewClientActorInner>>,
     body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::NetworkStatusResponse>, models::Error> {
     let Json(models::NetworkRequest { network_identifier }) = body;
@@ -112,12 +113,11 @@ async fn network_status(
 
     let (network_info, earliest_block) = tokio::join!(
         client_addr.send_async(near_client::GetNetworkInfo {}.span_wrap()),
-        view_client_addr.send(
-            near_client::GetBlock(near_primitives::types::BlockReference::SyncCheckpoint(
+        view_client_addr.send_async(near_client::GetBlock(
+            near_primitives::types::BlockReference::SyncCheckpoint(
                 near_primitives::types::SyncCheckpoint::EarliestAvailable
-            ),)
-            .with_span_context()
-        ),
+            ),
+        )),
     );
     let network_info = network_info?.map_err(errors::ErrorKind::InternalError)?;
     let genesis_block_identifier = genesis.block_id.clone();
@@ -205,7 +205,7 @@ async fn network_options(
 async fn block_details(
     genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    view_client_addr: web::Data<SyncExecutorHandle<ViewClientActorInner>>,
     currencies: web::Data<Option<Vec<models::Currency>>>,
     body: Json<models::BlockRequest>,
 ) -> Result<Json<models::BlockResponse>, models::Error> {
@@ -226,12 +226,9 @@ async fn block_details(
         block_identifier.clone()
     } else {
         let parent_block = view_client_addr
-            .send(
-                near_client::GetBlock(
-                    near_primitives::types::BlockId::Hash(block.header.prev_hash).into(),
-                )
-                .with_span_context(),
-            )
+            .send_async(near_client::GetBlock(
+                near_primitives::types::BlockId::Hash(block.header.prev_hash).into(),
+            ))
             .await?
             .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
         (&parent_block).into()
@@ -281,7 +278,7 @@ async fn block_details(
 async fn block_transaction_details(
     genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    view_client_addr: web::Data<SyncExecutorHandle<ViewClientActorInner>>,
     currencies: web::Data<Option<Vec<models::Currency>>>,
     body: Json<models::BlockTransactionRequest>,
 ) -> Result<Json<models::BlockTransactionResponse>, models::Error> {
@@ -332,7 +329,7 @@ async fn block_transaction_details(
 /// optional BlockIdentifier.
 async fn account_balance(
     client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    view_client_addr: web::Data<SyncExecutorHandle<ViewClientActorInner>>,
     currencies: web::Data<Option<Vec<models::Currency>>>,
     body: Json<models::AccountBalanceRequest>,
 ) -> Result<Json<models::AccountBalanceResponse>, models::Error> {
@@ -564,7 +561,7 @@ async fn construction_preprocess(
 /// because of the wide scope of metadata that could be required.
 async fn construction_metadata(
     client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    view_client_addr: web::Data<SyncExecutorHandle<ViewClientActorInner>>,
     body: Json<models::ConstructionMetadataRequest>,
 ) -> Result<Json<models::ConstructionMetadataResponse>, models::Error> {
     let Json(models::ConstructionMetadataRequest { network_identifier, options, public_keys }) =
@@ -845,7 +842,7 @@ pub fn start_rosetta_rpc(
     genesis: Genesis,
     genesis_block_hash: &near_primitives::hash::CryptoHash,
     client_addr: ExecutorHandle<ClientActorInner>,
-    view_client_addr: Addr<ViewClientActor>,
+    view_client_addr: SyncExecutorHandle<ViewClientActorInner>,
     tx_handler_addr: Addr<RpcHandlerActor>,
 ) -> actix_web::dev::ServerHandle {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits, currencies } = config;

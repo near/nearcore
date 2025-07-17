@@ -10,7 +10,7 @@ use assert_matches::assert_matches;
 use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
-use near_async::messaging::CanSend;
+use near_async::messaging::{CanSend, SendAsync};
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -29,7 +29,6 @@ use near_network::types::{
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerInfo, ReasonForBan};
-use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
@@ -128,9 +127,7 @@ fn receive_network_block() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = actor_handles
-            .view_client_actor
-            .send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -217,9 +214,7 @@ fn produce_block_with_approvals() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = actor_handles
-            .view_client_actor
-            .send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -328,9 +323,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = actor_handles
-            .view_client_actor
-            .send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);

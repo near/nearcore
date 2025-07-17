@@ -87,8 +87,6 @@ use crate::logic::{
 };
 use crate::metrics;
 use ::time::ext::InstantExt as _;
-use actix::Actor;
-use near_async::actix_wrapper::ActixWrapper;
 use near_async::executor::{ExecutorHandle, ExecutorRuntime, start_actor_with_new_runtime};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, Handler, HandlerWithContext, Sender};

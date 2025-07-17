@@ -14,7 +14,6 @@ use near_crypto::InMemorySigner;
 use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes, wait_or_timeout};
-use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
@@ -32,6 +31,7 @@ use std::sync::Arc;
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use crate::utils::test_helpers::heavy_test;
+use near_async::messaging::SendAsync;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -71,7 +71,7 @@ fn slow_test_sync_state_nodes() {
                         let genesis2 = genesis.clone();
                         let dir2 = dir2.clone();
 
-                        let actor = view_client1.send(GetBlock::latest().with_span_context());
+                        let actor = view_client1.send_async(GetBlock::latest());
                         let actor = actor.then(move |res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
@@ -88,12 +88,12 @@ fn slow_test_sync_state_nodes() {
 
                                         let nearcore::NearNode {
                                             view_client: view_client2,
-                                            arbiters,
+                                            executor_runtimes,
                                             ..
                                         } = start_with_config(dir2.path(), near2)
                                             .expect("start_with_config");
                                         *view_client2_holder2 = Some(view_client2);
-                                        *arbiters_holder2 = arbiters;
+                                        *arbiters_holder2 = executor_runtimes;
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height < 101 => {
@@ -108,7 +108,7 @@ fn slow_test_sync_state_nodes() {
                     }
 
                     if let Some(view_client2) = &*view_client2_holder.write() {
-                        let actor = view_client2.send(GetBlock::latest().with_span_context());
+                        let actor = view_client2.send_async(GetBlock::latest());
                         let actor = actor.then(|res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
@@ -212,7 +212,7 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                         let genesis2 = genesis.clone();
                         let dir2 = dir2.clone();
 
-                        let actor = view_client1.send(GetBlock::latest().with_span_context());
+                        let actor = view_client1.send_async(GetBlock::latest());
                         let actor = actor.then(move |res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
@@ -236,12 +236,12 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
 
                                         let nearcore::NearNode {
                                             view_client: view_client2,
-                                            arbiters,
+                                            executor_runtimes,
                                             ..
                                         } = start_with_config(dir2.path(), near2)
                                             .expect("start_with_config");
                                         *view_client2_holder2 = Some(view_client2);
-                                        *arbiter_holder2 = arbiters;
+                                        *arbiter_holder2 = executor_runtimes;
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height < 101 => {
@@ -256,7 +256,7 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                     }
 
                     if let Some(view_client2) = &*view_client2_holder.write() {
-                        let actor = view_client2.send(GetBlock::latest().with_span_context());
+                        let actor = view_client2.send_async(GetBlock::latest());
                         let actor = actor.then(|res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
@@ -359,7 +359,7 @@ fn ultra_slow_test_sync_state_dump() {
                     let arbiters_holder2 = arbiters_holder2.clone();
                     let genesis2 = genesis.clone();
 
-                    match view_client1.send(GetBlock::latest().with_span_context()).await {
+                    match view_client1.send_async(GetBlock::latest()).await {
                         // FIXME: this is not the right check after the sync hash was moved to sync the current epoch's state
                         Ok(Ok(b)) if b.header.height >= genesis.config.epoch_length + 2 => {
                             let mut view_client2_holder2 = view_client2_holder2.write();
@@ -394,11 +394,13 @@ fn ultra_slow_test_sync_state_dump() {
                                     });
 
                                 let nearcore::NearNode {
-                                    view_client: view_client2, arbiters, ..
+                                    view_client: view_client2,
+                                    executor_runtimes,
+                                    ..
                                 } = start_with_config(dir2.path(), near2)
                                     .expect("start_with_config");
                                 *view_client2_holder2 = Some(view_client2);
-                                *arbiters_holder2 = arbiters;
+                                *arbiters_holder2 = executor_runtimes;
                             }
                         }
                         Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
@@ -411,7 +413,7 @@ fn ultra_slow_test_sync_state_dump() {
                 }
 
                 if let Some(view_client2) = &*view_client2_holder.write() {
-                    match view_client2.send(GetBlock::latest().with_span_context()).await {
+                    match view_client2.send_async(GetBlock::latest()).await {
                         Ok(Ok(b)) if b.header.height >= 40 => {
                             return ControlFlow::Break(());
                         }
@@ -704,8 +706,7 @@ fn slow_test_state_sync_headers() {
             // Second, we request state sync header.
             // Third, we request state sync part with part_id = 0.
             wait_or_timeout(1000, 110000, || async {
-                let epoch_id = match view_client1.send(GetBlock::latest().with_span_context()).await
-                {
+                let epoch_id = match view_client1.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) => Some(b.header.epoch_id),
                     _ => None,
                 };
@@ -717,12 +718,9 @@ fn slow_test_state_sync_headers() {
                 tracing::info!(?epoch_id, "got epoch_id");
 
                 let epoch_start_height = match view_client1
-                    .send(
-                        GetValidatorInfo {
-                            epoch_reference: EpochReference::EpochId(EpochId(epoch_id)),
-                        }
-                        .with_span_context(),
-                    )
+                    .send_async(GetValidatorInfo {
+                        epoch_reference: EpochReference::EpochId(EpochId(epoch_id)),
+                    })
                     .await
                 {
                     Ok(Ok(v)) => Some(v.epoch_start_height),
@@ -738,7 +736,7 @@ fn slow_test_state_sync_headers() {
                 let sync_height = epoch_start_height + 3;
 
                 let block_id = BlockReference::BlockId(BlockId::Height(sync_height));
-                let block_view = view_client1.send(GetBlock(block_id).with_span_context()).await;
+                let block_view = view_client1.send_async(GetBlock(block_id)).await;
                 let Ok(Ok(block_view)) = block_view else {
                     return ControlFlow::Continue(());
                 };
@@ -749,7 +747,7 @@ fn slow_test_state_sync_headers() {
                 for shard_id in shard_ids {
                     // Make StateRequestHeader and expect that the response contains a header.
                     let state_response_info = match view_client1
-                        .send(StateRequestHeader { shard_id, sync_hash }.with_span_context())
+                        .send_async(StateRequestHeader { shard_id, sync_hash })
                         .await
                     {
                         Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
@@ -770,10 +768,7 @@ fn slow_test_state_sync_headers() {
 
                     // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
                     let state_response_info = match view_client1
-                        .send(
-                            StateRequestPart { shard_id, sync_hash, part_id: 0 }
-                                .with_span_context(),
-                        )
+                        .send_async(StateRequestPart { shard_id, sync_hash, part_id: 0 })
                         .await
                     {
                         Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
@@ -866,8 +861,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             // Second, we request state sync header.
             // Third, we request state sync part with part_id = 0.
             wait_or_timeout(1000, 110000, async || {
-                let epoch_id = match view_client2.send(GetBlock::latest().with_span_context()).await
-                {
+                let epoch_id = match view_client2.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) => Some(b.header.epoch_id),
                     _ => None,
                 };
@@ -879,12 +873,9 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 tracing::info!(?epoch_id, "got epoch_id");
 
                 let epoch_start_height = match view_client2
-                    .send(
-                        GetValidatorInfo {
-                            epoch_reference: EpochReference::EpochId(EpochId(epoch_id)),
-                        }
-                        .with_span_context(),
-                    )
+                    .send_async(GetValidatorInfo {
+                        epoch_reference: EpochReference::EpochId(EpochId(epoch_id)),
+                    })
                     .await
                 {
                     Ok(Ok(v)) => Some(v.epoch_start_height),
@@ -903,7 +894,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 let sync_height = epoch_start_height + 3;
 
                 let block_id = BlockReference::BlockId(BlockId::Height(sync_height));
-                let block_view = view_client2.send(GetBlock(block_id).with_span_context()).await;
+                let block_view = view_client2.send_async(GetBlock(block_id)).await;
                 let Ok(Ok(block_view)) = block_view else {
                     return ControlFlow::Continue(());
                 };
@@ -914,7 +905,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 for shard_id in shard_ids {
                     // Make StateRequestHeader and expect that the response contains a header.
                     let state_response_info = match view_client2
-                        .send(StateRequestHeader { shard_id, sync_hash }.with_span_context())
+                        .send_async(StateRequestHeader { shard_id, sync_hash })
                         .await
                     {
                         Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
@@ -931,10 +922,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
 
                     // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
                     let state_response_info = match view_client2
-                        .send(
-                            StateRequestPart { shard_id, sync_hash, part_id: 0 }
-                                .with_span_context(),
-                        )
+                        .send_async(StateRequestPart { shard_id, sync_hash, part_id: 0 })
                         .await
                     {
                         Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),

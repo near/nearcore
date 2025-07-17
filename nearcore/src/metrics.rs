@@ -1,5 +1,5 @@
 use crate::NearConfig;
-use actix_rt::ArbiterHandle;
+use near_async::executor::ExecutorRuntime;
 use near_async::time::Duration;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
@@ -196,12 +196,12 @@ pub fn spawn_trie_metrics_loop(
     store: Store,
     period: Duration,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> anyhow::Result<ArbiterHandle> {
+) -> anyhow::Result<ExecutorRuntime> {
     tracing::debug!(target:"metrics", "Spawning the trie metrics loop.");
-    let arbiter = actix_rt::Arbiter::new();
+    let arbiter = ExecutorRuntime::new();
 
     let start = tokio::time::Instant::now();
-    let mut interval = actix_rt::time::interval_at(start, period.unsigned_abs());
+    let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     arbiter.spawn(async move {
@@ -219,7 +219,7 @@ pub fn spawn_trie_metrics_loop(
         }
     });
 
-    Ok(arbiter.handle())
+    Ok(arbiter)
 }
 
 #[cfg(test)]

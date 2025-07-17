@@ -1,5 +1,6 @@
 use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
-use near_o11y::WithSpanContextExt;
+use near_async::executor::sync::SyncExecutorHandle;
+use near_async::messaging::SendAsync;
 use near_primitives::{types::BlockId, views::ExecutionOutcomeWithIdView};
 use std::{collections::HashMap, str::FromStr};
 pub(crate) fn collect_nep141_events(
@@ -80,7 +81,7 @@ fn compose_rosetta_nep141_events(
 }
 
 pub(crate) async fn get_fungible_token_balance_for_account(
-    view_client_addr: &actix::Addr<near_client::ViewClientActor>,
+    view_client_addr: &SyncExecutorHandle<near_client::ViewClientActorInner>,
     block_header: &near_primitives::views::BlockHeaderView,
     contract_address: &String,
     account_identifier: &AccountIdentifier,
@@ -100,7 +101,7 @@ pub(crate) async fn get_fungible_token_balance_for_account(
         args: args.into(),
     };
     let query_response = view_client_addr
-        .send(near_client::Query { block_reference, request }.with_span_context())
+        .send_async(near_client::Query { block_reference, request })
         .await?
         .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
     let call_result = if let near_primitives::views::QueryResponseKind::CallResult(result) =

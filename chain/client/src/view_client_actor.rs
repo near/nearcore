@@ -5,7 +5,6 @@ use crate::{
     GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetShardChunk, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, metrics, sync,
 };
-use actix::{Addr, SyncArbiter};
 use near_async::actix_wrapper::SyncActixWrapper;
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
@@ -123,9 +122,9 @@ impl ViewClientActorInner {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
-    ) -> Addr<ViewClientActor> {
-        SyncArbiter::start(config.view_client_threads, move || {
-            let view_client_actor = ViewClientActorInner::new(
+    ) -> SyncExecutorHandle<ViewClientActorInner> {
+        start_sync_actors(config.view_client_threads, move || {
+            ViewClientActorInner::new(
                 clock.clone(),
                 chain_genesis.clone(),
                 epoch_manager.clone(),
@@ -136,9 +135,9 @@ impl ViewClientActorInner {
                 adv.clone(),
                 validator_signer.clone(),
             )
-            .unwrap();
-            SyncActixWrapper::new(view_client_actor)
+            .unwrap()
         })
+        .1
     }
 
     pub fn new(
@@ -1203,6 +1202,7 @@ impl Handler<GetProtocolConfig> for ViewClientActorInner {
 
 #[cfg(feature = "test_features")]
 use crate::NetworkAdversarialMessage;
+use near_async::executor::sync::{SyncExecutorHandle, start_sync_actors};
 
 #[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for ViewClientActorInner {

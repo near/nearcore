@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use actix::Addr;
 use futures::{FutureExt, TryFutureExt, future, future::LocalBoxFuture};
 use integration_tests::env::setup::setup_no_network_with_validity_period;
+use near_async::executor::sync::SyncExecutorHandle;
 use near_async::{
     actix::AddrWithAutoSpanContextExt,
     messaging::{IntoMultiSender, noop},
 };
 use near_chain_configs::GenesisConfig;
-use near_client::ViewClientActor;
+use near_client::ViewClientActorInner;
 use near_jsonrpc::{RpcConfig, start_http};
 use near_jsonrpc_primitives::{
     message::{Message, from_slice},
@@ -32,7 +32,7 @@ pub enum NodeType {
 pub fn start_all(
     clock: Clock,
     node_type: NodeType,
-) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
+) -> (SyncExecutorHandle<ViewClientActorInner>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
     start_all_with_validity_period(clock, node_type, 100, false)
 }
 
@@ -41,7 +41,7 @@ pub fn start_all_with_validity_period(
     node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
-) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
+) -> (SyncExecutorHandle<ViewClientActorInner>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
     let actor_handles = setup_no_network_with_validity_period(
         clock,
         vec!["test1".parse().unwrap()],
@@ -60,7 +60,7 @@ pub fn start_all_with_validity_period(
         RpcConfig::new(addr),
         TEST_GENESIS_CONFIG.clone(),
         actor_handles.client_actor.clone().into_multi_sender(),
-        actor_handles.view_client_actor.clone().with_auto_span_context().into_multi_sender(),
+        actor_handles.view_client_actor.clone().into_multi_sender(),
         actor_handles.rpc_handler_actor.clone().with_auto_span_context().into_multi_sender(),
         noop().into_multi_sender(),
         #[cfg(feature = "test_features")]

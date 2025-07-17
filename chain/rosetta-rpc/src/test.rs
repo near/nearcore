@@ -1,11 +1,11 @@
-use actix::Addr;
 use near_parameters::RuntimeConfigView;
 use near_primitives::hash::CryptoHash;
 
 use crate::adapters::transactions::{ExecutionToReceipts, convert_block_changes_to_transactions};
+use near_async::executor::sync::SyncExecutorHandle;
 
 pub async fn test_convert_block_changes_to_transactions(
-    view_client_addr: &Addr<near_client::ViewClientActor>,
+    view_client_addr: &SyncExecutorHandle<near_client::ViewClientActorInner>,
     runtime_config: &RuntimeConfigView,
 ) {
     // cspell:ignore nfvalidator
