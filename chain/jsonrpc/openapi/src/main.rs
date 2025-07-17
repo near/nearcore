@@ -118,9 +118,6 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///            "oneOf": [
 ///              {
 ///                "properties": {
-///                  "account_id": {
-///                    "$ref": "#/components/schemas/AccountId"
-///                  },
 ///                  "request_type": {
 ///                    "enum": [
 ///                      "view_account"
@@ -130,15 +127,11 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///                },
 ///                "required": [
 ///                  "request_type",
-///                  "account_id"
 ///                ],
 ///                "type": "object"
 ///              },
 ///              {
 ///                "properties": {
-///                  "account_id": {
-///                    "$ref": "#/components/schemas/AccountId"
-///                  },
 ///                  "request_type": {
 ///                    "enum": [
 ///                      "view_code"
@@ -148,7 +141,6 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///                },
 ///                "required": [
 ///                  "request_type",
-///                  "account_id"
 ///                ],
 ///                "type": "object"
 ///              },
@@ -179,9 +171,6 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///              },
 ///              {
 ///                "properties": {
-///                  "account_id": {
-///                    "$ref": "#/components/schemas/AccountId"
-///                  },
 ///                  "request_type": {
 ///                    "enum": [
 ///                      "view_account"
@@ -191,7 +180,6 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///                },
 ///                "required": [
 ///                  "request_type",
-///                  "account_id"
 ///                ],
 ///                "type": "object"
 ///              }
@@ -207,15 +195,12 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///                  }
 ///                },
 ///                "required": [
-///                  "block_id"
+///                  "block_id
 ///                ],
 ///                "type": "object"
 ///              },
 ///              {
 ///                "properties": {
-///                  "account_id": {
-///                    "$ref": "#/components/schemas/AccountId"
-///                  },
 ///                  "request_type": {
 ///                    "enum": [
 ///                      "view_code"
@@ -225,7 +210,6 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///                },
 ///                "required": [
 ///                  "request_type",
-///                  "account_id"
 ///                ],
 ///                "type": "object"
 ///              }
@@ -247,9 +231,6 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///              },
 ///              {
 ///                "properties": {
-///                  "account_id": {
-///                    "$ref": "#/components/schemas/AccountId"
-///                  },
 ///                  "request_type": {
 ///                    "enum": [
 ///                      "view_account"
@@ -259,7 +240,6 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///                },
 ///                "required": [
 ///                  "request_type",
-///                  "account_id"
 ///                ],
 ///                "type": "object"
 ///              }
@@ -281,9 +261,6 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///              },
 ///              {
 ///                "properties": {
-///                  "account_id": {
-///                    "$ref": "#/components/schemas/AccountId"
-///                  },
 ///                  "request_type": {
 ///                    "enum": [
 ///                      "view_code"
@@ -293,7 +270,6 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///                },
 ///                "required": [
 ///                  "request_type",
-///                  "account_id"
 ///                ],
 ///                "type": "object"
 ///              }
@@ -338,9 +314,6 @@ impl schemars::transform::Transform for InterchangeOneOfsAndAllOfs {
 ///              },
 ///              {
 ///                "properties": {
-///                  "account_id": {
-///                    "$ref": "#/components/schemas/AccountId"
-///                  },
 ///                  "request_type": {
 ///                    "enum": [
 ///                      "view_code"
@@ -350,7 +323,6 @@ impl schemars::transform::Transform for InterchangeOneOfsAndAllOfs {
 ///                },
 ///                "required": [
 ///                  "request_type",
-///                  "account_id"
 ///                ],
 ///                "type": "object"
 ///              }
