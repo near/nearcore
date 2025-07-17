@@ -430,11 +430,11 @@ impl TestEnv {
                         processing_done_tracker: Some(processing_done_tracker),
                     };
 
-                    // Call the chunk validation actor's handle method directly
-                    self.chunk_validation_actors[account_index].handle(witness_message);
-                    let processing_result: Result<(), near_chain::Error> = Ok(());
-                    if !allow_errors {
-                        processing_result.unwrap();
+                    // Call the chunk validation actor's processing method directly to get the actual result
+                    let processing_success = self.chunk_validation_actors[account_index]
+                        .process_chunk_state_witness_message(witness_message);
+                    if !allow_errors && !processing_success {
+                        panic!("Chunk state witness processing failed");
                     }
                 }
 

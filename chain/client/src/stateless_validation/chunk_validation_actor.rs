@@ -550,23 +550,9 @@ impl ChunkValidationActorInner {
 
         Ok(())
     }
-}
 
-impl Handler<ChunkStateWitnessMessage> for ChunkValidationActorInner {
-    #[perf]
-    fn handle(&mut self, msg: ChunkStateWitnessMessage) {
-        let ChunkStateWitnessMessage { witness, raw_witness_size: _, processing_done_tracker } =
-            msg;
-
-        let _span = tracing::debug_span!(
-            target: "chunk_validation",
-            "handle_chunk_state_witness",
-            chunk_hash = ?witness.chunk_header().chunk_hash(),
-            height = %witness.chunk_header().height_created(),
-            shard_id = %witness.chunk_header().shard_id(),
-            tag_witness_distribution = true,
-        )
-        .entered();
+    pub fn process_chunk_state_witness_message(&mut self, msg: ChunkStateWitnessMessage) -> bool {
+        let ChunkStateWitnessMessage { witness, raw_witness_size, processing_done_tracker } = msg;
 
         // Check if we're a validator
         if self.validator_signer.get().is_none() {
@@ -574,19 +560,20 @@ impl Handler<ChunkStateWitnessMessage> for ChunkValidationActorInner {
                 target: "chunk_validation",
                 "Received chunk state witness but this is not a validator node"
             );
-            return;
+            return false;
         }
 
         // Send acknowledgement back to the chunk producer
         if let Err(err) = self.send_state_witness_ack(&witness) {
             tracing::error!(target: "chunk_validation", ?err, "Failed to send state witness ack");
-            return;
+            return false;
         }
 
         // Process the witness
         match self.process_chunk_state_witness(witness.clone(), processing_done_tracker) {
             Ok(()) => {
                 tracing::debug!(target: "chunk_validation", "Chunk witness validation started successfully");
+                true
             }
             Err(Error::DBNotFoundErr(_)) => {
                 // Previous block isn't available at the moment - handle as orphan
@@ -594,20 +581,40 @@ impl Handler<ChunkStateWitnessMessage> for ChunkValidationActorInner {
                     target: "chunk_validation",
                     "Previous block not found - handling as orphan witness"
                 );
-                let witness_size = msg.raw_witness_size;
-                match self.handle_orphan_witness(witness, witness_size) {
+                match self.handle_orphan_witness(witness, raw_witness_size) {
                     Ok(outcome) => {
                         tracing::debug!(target: "chunk_validation", ?outcome, "Orphan witness handled");
+                        true
                     }
                     Err(err) => {
                         tracing::error!(target: "chunk_validation", ?err, "Failed to handle orphan witness");
+                        false
                     }
                 }
             }
             Err(err) => {
                 tracing::error!(target: "chunk_validation", ?err, "Failed to start chunk witness validation");
+                false
             }
         }
+    }
+}
+
+impl Handler<ChunkStateWitnessMessage> for ChunkValidationActorInner {
+    #[perf]
+    fn handle(&mut self, msg: ChunkStateWitnessMessage) {
+        let _span = tracing::debug_span!(
+            target: "chunk_validation",
+            "handle_chunk_state_witness",
+            chunk_hash = ?msg.witness.chunk_header().chunk_hash(),
+            height = %msg.witness.chunk_header().height_created(),
+            shard_id = %msg.witness.chunk_header().shard_id(),
+            tag_witness_distribution = true,
+        )
+        .entered();
+
+        // Error handling is done inside the called function
+        let _ = self.process_chunk_state_witness_message(msg);
     }
 }
 
