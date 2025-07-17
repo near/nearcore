@@ -329,8 +329,9 @@ impl ChunkValidationActorInner {
     }
 
     fn process_chunk_state_witness(
-        &mut self,
+        &self,
         witness: ChunkStateWitness,
+        prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
@@ -341,17 +342,6 @@ impl ChunkValidationActorInner {
             shard_id = %witness.chunk_header().shard_id(),
         )
         .entered();
-
-        // Save the witness if configured to do so
-        if self.save_latest_witnesses {
-            if let Err(err) = self.chain_store.save_latest_chunk_state_witness(&witness) {
-                tracing::error!(target: "chunk_validation", ?err, "Failed to save latest witness");
-            }
-        }
-
-        // Get the previous block
-        let prev_block_hash = *witness.chunk_header().prev_block_hash();
-        let prev_block = self.chain_store.get_block(&prev_block_hash)?;
 
         // Validate that block hash matches
         if witness.chunk_header().prev_block_hash() != prev_block.hash() {
@@ -569,11 +559,32 @@ impl ChunkValidationActorInner {
             return false;
         }
 
-        // Process the witness
-        match self.process_chunk_state_witness(witness.clone(), processing_done_tracker) {
-            Ok(()) => {
-                tracing::debug!(target: "chunk_validation", "Chunk witness validation started successfully");
-                true
+        // Save the witness if configured to do so
+        if self.save_latest_witnesses {
+            if let Err(err) = self.chain_store.save_latest_chunk_state_witness(&witness) {
+                tracing::error!(target: "chunk_validation", ?err, "Failed to save latest witness");
+            }
+        }
+
+        // Check if previous block exists to know whether or not this witness is an orphan
+        let prev_block_hash = *witness.chunk_header().prev_block_hash();
+        match self.chain_store.get_block(&prev_block_hash) {
+            Ok(prev_block) => {
+                // Previous block exists
+                match self.process_chunk_state_witness(
+                    witness,
+                    &prev_block,
+                    processing_done_tracker,
+                ) {
+                    Ok(()) => {
+                        tracing::debug!(target: "chunk_validation", "Chunk witness validation started successfully");
+                        true
+                    }
+                    Err(err) => {
+                        tracing::error!(target: "chunk_validation", ?err, "Failed to start chunk witness validation");
+                        false
+                    }
+                }
             }
             Err(Error::DBNotFoundErr(_)) => {
                 // Previous block isn't available at the moment - handle as orphan
@@ -593,7 +604,7 @@ impl ChunkValidationActorInner {
                 }
             }
             Err(err) => {
-                tracing::error!(target: "chunk_validation", ?err, "Failed to start chunk witness validation");
+                tracing::error!(target: "chunk_validation", ?err, "Failed to get previous block");
                 false
             }
         }
