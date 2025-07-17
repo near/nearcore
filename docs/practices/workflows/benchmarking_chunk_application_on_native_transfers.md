@@ -76,5 +76,5 @@ Run these commands to benchmark chunk application at the height to which the fla
 or
 
 ```shell
-./neard --home .near view-state apply-range --shard-id 0 --storage flat benchmark
+./neard --home .near view-state apply-range --shard-id 0 --storage memtrie benchmark
 ```
