@@ -230,9 +230,13 @@ fn test_protocol_config_rpc() {
     cluster.exec_until_stop(|_, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let config_response = client
-            .protocol_config(near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
-                block_reference: near_primitives::types::BlockReference::Finality(Finality::None),
-            })
+            .EXPERIMENTAL_protocol_config(
+                near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
+                    block_reference: near_primitives::types::BlockReference::Finality(
+                        Finality::None,
+                    ),
+                },
+            )
             .await
             .unwrap();
 

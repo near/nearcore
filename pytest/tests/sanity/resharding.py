@@ -63,7 +63,7 @@ class ReshardingTest(ReshardingTestBase):
             num_shards = self.get_num_shards(metrics_tracker)
 
             protocol_config = node0.json_rpc(
-                "protocol_config",
+                "EXPERIMENTAL_protocol_config",
                 {"block_id": hash},
             )
 

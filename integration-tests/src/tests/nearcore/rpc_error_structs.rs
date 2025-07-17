@@ -146,7 +146,7 @@ fn slow_test_chunk_unknown_chunk_error() {
     });
 }
 
-// Queries json-rpc protocol_config that doesn't exists
+// Queries json-rpc EXPERIMENTAL_protocol_config that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
 fn slow_test_protocol_config_unknown_block_error() {
@@ -175,7 +175,7 @@ fn slow_test_protocol_config_unknown_block_error() {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                             spawn_interruptible(
                                 client
-                                    .protocol_config(
+                                    .EXPERIMENTAL_protocol_config(
                                         near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
                                             block_reference: near_primitives::types::BlockReference::BlockId(BlockId::Height(block.header.height + 100))
                                         }
