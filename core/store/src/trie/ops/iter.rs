@@ -2,6 +2,7 @@
 use std::ops::Bound;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 
@@ -409,26 +410,20 @@ where
         path_begin: &[u8],
         path_end: &[u8],
     ) -> Result<Vec<TrieTraversalItem>, StorageError> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "visit_nodes_interval")
-        .entered();
-        let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
+        let _span = tracing::debug_span!(target: "runtime", "visit_nodes_interval").entered();
         let last_hash = self
-            .seek_nibble_slice(
-                NibbleSlice::from_encoded(&path_begin_encoded).0,
-                false,
-                AccessOptions::DEFAULT,
-            )?
+            .seek_nibble_slice(NibbleSlice::new(&path_begin), false, AccessOptions::DEFAULT)?
             .unwrap_or_default();
-        let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
+        let path_end = NibbleSlice::new(&path_end).iter().collect_vec();
+        let mut prefix = Self::common_prefix(&path_end, &self.key_nibbles);
         if self.key_nibbles[prefix..] >= path_end[prefix..] {
             return Ok(vec![]);
         }
         let mut nodes_list = Vec::new();
 
         // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
-        if &self.key_nibbles[..] >= path_begin {
+        let path_begin = NibbleSlice::new(&path_begin).iter().collect_vec();
+        if self.key_nibbles.as_slice() >= path_begin.as_slice() {
             nodes_list.push(TrieTraversalItem {
                 hash: last_hash,
                 key: self.has_value().then(|| self.key()),

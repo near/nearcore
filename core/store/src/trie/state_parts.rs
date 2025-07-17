@@ -37,7 +37,8 @@ use std::sync::Arc;
 
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
-const LAST_STATE_PART_BOUNDARY: &[u8; 1] = &[16];
+const LAST_STATE_PART_BOUNDARY: &[u8; 1] = &[0xFFu8];
+const LAST_STATE_PART_BOUNDARY_NIBBLES: &[u8; 2] = &[0xFu8, 0xFu8];
 
 impl Trie {
     /// Descends into node corresponding to `part_id`-th boundary node if state
@@ -70,7 +71,8 @@ impl Trie {
         let root_node = self.retrieve_storage_node(&self.root)?;
         let total_size = root_node.memory_usage;
         let size_start = total_size / num_parts * part_id + part_id.min(total_size % num_parts);
-        self.find_node_in_dfs_order(&root_node, size_start)
+        let nibbles = self.find_node_in_dfs_order(&root_node, size_start)?;
+        Ok(NibbleSlice::nibbles_to_bytes(&nibbles))
     }
 
     /// Generates state parts using the trie storage (i.e. State) and not using
@@ -91,8 +93,8 @@ impl Trie {
     /// in nibbles.
     fn iter_flat_state_entries<'a>(
         &'a self,
-        nibbles_begin: Vec<u8>,
-        nibbles_end: Vec<u8>,
+        path_begin: Vec<u8>,
+        path_end: Vec<u8>,
     ) -> Result<FlatStateIterator<'a>, StorageError> {
         let flat_storage_chunk_view = match &self.flat_storage_chunk_view {
             None => {
@@ -105,18 +107,14 @@ impl Trie {
 
         // If left key in nibbles is already the largest, return empty
         // iterator. Otherwise convert it to key in bytes.
-        let key_begin = if nibbles_begin == LAST_STATE_PART_BOUNDARY {
+        let key_begin = if path_begin == LAST_STATE_PART_BOUNDARY {
             return Ok(Box::new(std::iter::empty()));
         } else {
-            Some(NibbleSlice::nibbles_to_bytes(&nibbles_begin))
+            Some(path_begin)
         };
 
         // Convert right key in nibbles to key in bytes.
-        let key_end = if nibbles_end == LAST_STATE_PART_BOUNDARY {
-            None
-        } else {
-            Some(NibbleSlice::nibbles_to_bytes(&nibbles_end))
-        };
+        let key_end = if path_end == LAST_STATE_PART_BOUNDARY { None } else { Some(path_end) };
 
         Ok(flat_storage_chunk_view.iter_range(key_begin.as_deref(), key_end.as_deref()))
     }
@@ -150,9 +148,8 @@ impl Trie {
         let boundaries_read_timer = metrics::GET_STATE_PART_BOUNDARIES_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
-        let nibbles_begin = recording_trie.find_state_part_boundary(part_id.idx, part_id.total)?;
-        let nibbles_end =
-            recording_trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
+        let path_begin = recording_trie.find_state_part_boundary(part_id.idx, part_id.total)?;
+        let path_end = recording_trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
         let boundaries_read_duration = boundaries_read_timer.stop_and_record();
         let recorded_trie = recording_trie.recorded_storage().unwrap();
 
@@ -163,7 +160,7 @@ impl Trie {
             ?boundaries_read_duration,
             "Found state part boundaries",
         );
-        Ok((recorded_trie.nodes, nibbles_begin, nibbles_end))
+        Ok((recorded_trie.nodes, path_begin, path_end))
     }
 
     /// Creates state part using only the flat storage (i.e. FlatState).
@@ -192,7 +189,7 @@ impl Trie {
             .start_timer();
         // TODO(nikurt): Simplify. This is a long function with complex logic.
 
-        let (path_boundary_nodes, nibbles_begin, nibbles_end) =
+        let (path_boundary_nodes, path_begin, path_end) =
             state_trie.get_state_part_boundaries(part_id)?;
 
         let PartialState::TrieValues(path_boundary_nodes) = path_boundary_nodes;
@@ -201,7 +198,7 @@ impl Trie {
         let values_read_timer = metrics::GET_STATE_PART_READ_FS_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
-        let flat_state_iter = self.iter_flat_state_entries(nibbles_begin, nibbles_end)?;
+        let flat_state_iter = self.iter_flat_state_entries(path_begin, path_end)?;
         let mut value_refs = vec![];
         let mut values_inlined = 0;
         let mut all_state_part_items: Vec<_> = flat_state_iter
@@ -400,7 +397,7 @@ impl Trie {
         memory_threshold: u64,
     ) -> Result<Vec<u8>, StorageError> {
         if root_node.memory_usage <= memory_threshold {
-            return Ok(LAST_STATE_PART_BOUNDARY.to_vec());
+            return Ok(LAST_STATE_PART_BOUNDARY_NIBBLES.to_vec());
         }
         let mut key_nibbles: Vec<u8> = Vec::new();
         let mut node = root_node.clone();
@@ -561,19 +558,18 @@ mod tests {
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 
-        let nibbles_boundary = trie.find_state_part_boundary(0, num_parts).unwrap();
-        assert!(nibbles_boundary.is_empty());
+        let key_boundary = trie.find_state_part_boundary(0, num_parts).unwrap();
+        assert!(key_boundary.is_empty());
 
         // Check that all boundaries correspond to some state key by calling `Trie::get`.
         // Note that some state parts can be trivial, which is not a concern.
         for part_id in 1..num_parts {
-            let nibbles_boundary = trie.find_state_part_boundary(part_id, num_parts).unwrap();
-            let key_boundary = NibbleSlice::nibbles_to_bytes(&nibbles_boundary);
+            let key_boundary = trie.find_state_part_boundary(part_id, num_parts).unwrap();
             assert_matches!(trie.get(&key_boundary, AccessOptions::DEFAULT), Ok(Some(_)));
         }
 
-        let nibbles_boundary = trie.find_state_part_boundary(num_parts, num_parts).unwrap();
-        assert_eq!(nibbles_boundary, LAST_STATE_PART_BOUNDARY);
+        let key_boundary = trie.find_state_part_boundary(num_parts, num_parts).unwrap();
+        assert_eq!(key_boundary, LAST_STATE_PART_BOUNDARY);
     }
 
     /// Checks that on degenerate case when trie is a single path, state
@@ -605,9 +601,8 @@ mod tests {
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 
         for part_id in 1..num_parts {
-            let nibbles_boundary =
+            let key_boundary =
                 trie.find_state_part_boundary(part_id as u64, num_parts as u64).unwrap();
-            let key_boundary = NibbleSlice::nibbles_to_bytes(&nibbles_boundary);
             assert_eq!(key_boundary, trie_changes[part_id - 1].0);
         }
     }
@@ -840,9 +835,8 @@ mod tests {
                 // Compute proof with size and check that it doesn't exceed theoretical boundary for
                 // the path with full set of left siblings of maximal possible size.
                 let trie_recording = trie.recording_reads_new_recorder();
-                let left_nibbles_boundary =
+                let left_key_boundary =
                     trie_recording.find_state_part_boundary(part_id, num_parts).unwrap();
-                let left_key_boundary = NibbleSlice::nibbles_to_bytes(&left_nibbles_boundary);
                 if part_id != 0 {
                     assert_matches!(
                         trie.get(&left_key_boundary, AccessOptions::DEFAULT),
