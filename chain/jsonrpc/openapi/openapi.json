@@ -6266,7 +6266,7 @@
               "NotEnoughBalance": {
                 "properties": {
                   "balance": {
-                    "type": "string"
+                    "type": "strin"
                   },
                   "cost": {
                     "type": "string"
