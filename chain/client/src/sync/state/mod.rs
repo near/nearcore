@@ -22,9 +22,7 @@ use near_chain_configs::{
 };
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::{
-    PeerManagerMessageRequest, PeerManagerMessageResponse,
-};
+use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};

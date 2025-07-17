@@ -260,9 +260,7 @@ pub fn create_chunk(
 /// Note that this function does not necessarily mean that all blocks are caught up.
 /// It's possible that some blocks that need to be caught up are still being processed
 /// and the catchup process can't catch up on these blocks yet.
-pub fn run_catchup(
-    client: &mut Client,
-) -> Result<(), Error> {
+pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
     let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
