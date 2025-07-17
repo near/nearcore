@@ -324,6 +324,7 @@
         "SECP",
         "Seedable",
         "serde",
+        "schedstats",
         "schemars",
         "shardnet",
         "Shreyan",

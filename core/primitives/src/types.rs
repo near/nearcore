@@ -190,41 +190,43 @@ impl StateChangesKinds {
 
 /// A structure used to index state changes due to transaction/receipt processing and other things.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum StateChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
     /// change will lead to panic.
-    NotWritableToDisk,
+    NotWritableToDisk = 0,
     /// A type of update that is used to mark the initial storage update, e.g. during genesis
     /// or in tests setup.
-    InitialState,
+    InitialState = 1,
     /// Processing of a transaction.
-    TransactionProcessing { tx_hash: CryptoHash },
+    TransactionProcessing { tx_hash: CryptoHash } = 2,
     /// Before the receipt is going to be processed, inputs get drained from the state, which
     /// causes state modification.
-    ActionReceiptProcessingStarted { receipt_hash: CryptoHash },
+    ActionReceiptProcessingStarted { receipt_hash: CryptoHash } = 3,
     /// Computation of gas reward.
-    ActionReceiptGasReward { receipt_hash: CryptoHash },
+    ActionReceiptGasReward { receipt_hash: CryptoHash } = 4,
     /// Processing of a receipt.
-    ReceiptProcessing { receipt_hash: CryptoHash },
+    ReceiptProcessing { receipt_hash: CryptoHash } = 5,
     /// The given receipt was postponed. This is either a data receipt or an action receipt.
     /// A `DataReceipt` can be postponed if the corresponding `ActionReceipt` is not received yet,
     /// or other data dependencies are not satisfied.
     /// An `ActionReceipt` can be postponed if not all data dependencies are received.
-    PostponedReceipt { receipt_hash: CryptoHash },
+    PostponedReceipt { receipt_hash: CryptoHash } = 6,
     /// Updated delayed receipts queue in the state.
     /// We either processed previously delayed receipts or added more receipts to the delayed queue.
-    UpdatedDelayedReceipts,
+    UpdatedDelayedReceipts = 7,
     /// State change that happens when we update validator accounts. Not associated with any
     /// specific transaction or receipt.
-    ValidatorAccountsUpdate,
+    ValidatorAccountsUpdate = 8,
     /// State change that is happens due to migration that happens in first block of an epoch
     /// after protocol upgrade
-    Migration,
+    Migration = 9,
     /// Deprecated in #13155, we need to keep it to preserve enum variant tags for borsh serialization.
-    _UnusedReshardingV2,
+    _UnusedReshardingV2 = 10,
     /// Update persistent state kept by Bandwidth Scheduler after running the scheduling algorithm.
-    BandwidthSchedulerStateUpdate,
+    BandwidthSchedulerStateUpdate = 11,
 }
 
 /// This represents the committed changes in the Trie with a change cause.
@@ -618,8 +620,10 @@ pub mod validator_stake {
     /// Stores validator and its stake.
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
     #[serde(tag = "validator_stake_struct_version")]
+    #[borsh(use_discriminant = true)]
+    #[repr(u8)]
     pub enum ValidatorStake {
-        V1(ValidatorStakeV1),
+        V1(ValidatorStakeV1) = 0,
         // Warning: if you're adding a new version, make sure that the borsh encoding of
         // any `ValidatorStake` cannot be equal to the borsh encoding of any `ValidatorStakeV1`.
         // See `EpochSyncProofEpochData::use_versioned_bp_hash_format` for an explanation.
@@ -839,11 +843,13 @@ pub mod chunk_extra {
 
     /// Information after chunk was processed, used to produce or check next chunk.
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
+    #[borsh(use_discriminant = true)]
+    #[repr(u8)]
     pub enum ChunkExtra {
-        V1(ChunkExtraV1),
-        V2(ChunkExtraV2),
-        V3(ChunkExtraV3),
-        V4(ChunkExtraV4),
+        V1(ChunkExtraV1) = 0,
+        V2(ChunkExtraV2) = 1,
+        V3(ChunkExtraV3) = 2,
+        V4(ChunkExtraV4) = 3,
     }
 
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
@@ -1197,15 +1203,17 @@ pub enum ValidatorInfoIdentifier {
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ValidatorKickoutReason {
     /// Deprecated
-    _UnusedSlashed,
+    _UnusedSlashed = 0,
     /// Validator didn't produce enough blocks.
-    NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
+    NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks } = 1,
     /// Validator didn't produce enough chunks.
-    NotEnoughChunks { produced: NumBlocks, expected: NumBlocks },
+    NotEnoughChunks { produced: NumBlocks, expected: NumBlocks } = 2,
     /// Validator unstaked themselves.
-    Unstaked,
+    Unstaked = 3,
     /// Validator stake is now below threshold
     NotEnoughStake {
         #[serde(with = "dec_format", rename = "stake_u128")]
@@ -1214,14 +1222,14 @@ pub enum ValidatorKickoutReason {
         #[serde(with = "dec_format", rename = "threshold_u128")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         threshold: Balance,
-    },
+    } = 4,
     /// Enough stake but is not chosen because of seat limits.
-    DidNotGetASeat,
+    DidNotGetASeat = 5,
     /// Validator didn't produce enough chunk endorsements.
-    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
+    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks } = 6,
     /// Validator's last block proposal was for a protocol version older than
     /// the network's voted protocol version.
-    ProtocolVersionTooOld { version: ProtocolVersion, network_version: ProtocolVersion },
+    ProtocolVersionTooOld { version: ProtocolVersion, network_version: ProtocolVersion } = 7,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]

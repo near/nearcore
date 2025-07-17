@@ -48,7 +48,7 @@ mod rpc_handler;
 pub mod spice_chunk_validator_actor;
 pub mod spice_core;
 mod state_request_actor;
-mod stateless_validation;
+pub mod stateless_validation;
 pub mod sync;
 pub mod sync_jobs_actor;
 pub mod test_utils;

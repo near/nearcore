@@ -99,53 +99,57 @@ pub enum MethodResolveError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, strum::IntoStaticStr)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum CompilationError {
     CodeDoesNotExist {
         account_id: Box<str>,
-    },
-    PrepareError(PrepareError),
+    } = 0,
+    PrepareError(PrepareError) = 1,
     /// This is for defense in depth.
     /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
     /// but, if it ever misses something we’ll emit this error
     WasmerCompileError {
         msg: String,
-    },
+    } = 2,
     /// This is for defense in depth.
     /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
     /// but, if it ever misses something we’ll emit this error
     WasmtimeCompileError {
         msg: String,
-    },
+    } = 3,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
-    Serialization,
+    Serialization = 0,
     /// Error happened while deserializing the module.
-    Deserialization,
+    Deserialization = 1,
     /// Internal memory declaration has been found in the module.
-    InternalMemoryDeclared,
+    InternalMemoryDeclared = 2,
     /// Gas instrumentation failed.
     ///
     /// This most likely indicates the module isn't valid.
-    GasInstrumentation,
+    GasInstrumentation = 3,
     /// Stack instrumentation failed.
     ///
     /// This  most likely indicates the module isn't valid.
-    StackHeightInstrumentation,
+    StackHeightInstrumentation = 4,
     /// Error happened during instantiation.
     ///
     /// This might indicate that `start` function trapped, or module isn't
     /// instantiable and/or un-linkable.
-    Instantiate,
+    Instantiate = 5,
     /// Error creating memory.
-    Memory,
+    Memory = 6,
     /// Contract contains too many functions.
-    TooManyFunctions,
+    TooManyFunctions = 7,
     /// Contract contains too many locals.
-    TooManyLocals,
+    TooManyLocals = 8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
