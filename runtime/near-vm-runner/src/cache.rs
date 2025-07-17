@@ -235,14 +235,14 @@ struct FilesystemContractRuntimeCacheState {
 
 #[cfg(not(windows))]
 impl FilesystemContractRuntimeCache {
-    pub fn new<SP, CCP>(
+    pub fn new<StorePath, ContractCachePath>(
         home_dir: &std::path::Path,
-        store_path: Option<&SP>,
-        contract_cache_path: &CCP,
+        store_path: Option<&StorePath>,
+        contract_cache_path: &ContractCachePath,
     ) -> std::io::Result<Self>
     where
-        SP: AsRef<std::path::Path> + ?Sized,
-        CCP: AsRef<std::path::Path> + ?Sized,
+        StorePath: AsRef<std::path::Path> + ?Sized,
+        ContractCachePath: AsRef<std::path::Path> + ?Sized,
     {
         Self::with_memory_cache(home_dir, store_path, contract_cache_path, 0)
     }
@@ -255,15 +255,15 @@ impl FilesystemContractRuntimeCache {
     ///
     /// Note though, that this memory cache is *not* used to additionally cache files from the
     /// filesystem – OS page cache already does that for us transparently.
-    pub fn with_memory_cache<SP, CCP>(
+    pub fn with_memory_cache<StorePath, ContractCachePath>(
         home_dir: &std::path::Path,
-        store_path: Option<&SP>,
-        contract_cache_path: &CCP,
+        store_path: Option<&StorePath>,
+        contract_cache_path: &ContractCachePath,
         memory_cache_size: usize,
     ) -> std::io::Result<Self>
     where
-        SP: AsRef<std::path::Path> + ?Sized,
-        CCP: AsRef<std::path::Path> + ?Sized,
+        StorePath: AsRef<std::path::Path> + ?Sized,
+        ContractCachePath: AsRef<std::path::Path> + ?Sized,
     {
         let store_path = store_path.map(AsRef::as_ref).unwrap_or_else(|| "data".as_ref());
         let legacy_path: std::path::PathBuf =
@@ -274,7 +274,14 @@ impl FilesystemContractRuntimeCache {
         // time this code encounters the legacy contract directory. If this fails the first time
         // for some reason, a new directory will be created for the new cache anyway, and future
         // launches won't be able to overwrite it anymore. This is also fine.
-        let _ = std::fs::rename(legacy_path, &path);
+        let _ = std::fs::rename(&legacy_path, &path);
+        if std::fs::exists(legacy_path).ok() == Some(true) {
+            tracing::warn!(
+                target: "vm",
+                path = %path.display(),
+                message = "the legacy compiled contract cache path still exists after migration; consider removing it"
+            );
+        }
         std::fs::create_dir_all(&path)?;
         let dir =
             rustix::fs::open(&path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())?;
@@ -453,10 +460,10 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
                 let filename_bytes = entry.file_name().to_bytes();
                 if filename_bytes == b"." || filename_bytes == b".." {
                     continue;
-                } else if entry.file_type().is_dir() {
+                } else if !entry.file_type().is_file() {
                     debug_assert!(
                         false,
-                        "contract code cache should not contain any directories such as {:?}",
+                        "contract code cache should only contain file items, but found {:?}",
                         entry.file_name()
                     );
                 } else {
