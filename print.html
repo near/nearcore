@@ -4990,8 +4990,7 @@ performance characteristics, but due to its probabilistic nature it is also not 
 when it comes to small details.</p>
 <p>Linux's <code>perf</code> has been a tool of choice in most cases, although tools like Intel VTune could be
 used too. In order to use either, first prepare your system:</p>
-<pre><code class="language-command">sudo sysctl kernel.perf_event_paranoid=0
-sudo sysctl kernel.kptr_restrict=0
+<pre><code class="language-command">sudo sysctl kernel.perf_event_paranoid=0 kernel.kptr_restrict=0
 </code></pre>
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 <p>Beware that this gives access to certain kernel state and environment to the unprivileged user.
@@ -5000,20 +4999,35 @@ better yet, reboot.</p>
 <p>Definitely do not run untrusted code after running these commands.</p>
 </blockquote>
 <p>Then collect a profile as such:</p>
-<pre><code class="language-command">$ perf record -e cpu-clock -F1000 -g --call-graph dwarf,65528 YOUR_COMMAND_HERE
+<!-- cspell: ignore ecpu esyscalls epoll esched -->
+<pre><code class="language-command">$ perf record -ecpu-clock -esyscalls:sys_enter_{&quot;epoll_*wait*&quot;,&quot;futex_wait*&quot;,futex_wake,io_uring_enter,nanosleep,pause,&quot;*poll&quot;,&quot;*select*&quot;,sched_yield,&quot;wait*&quot;} -esched:sched_switch -F1000 -g --call-graph dwarf,65528 [YOUR_COMMAND_HERE]
 # or attach to a running process:
-$ perf record -e cpu-clock -F1000 -g --call-graph dwarf,65528 -p NEARD_PID
+$ perf record -ecpu-clock -esyscalls:sys_enter_{&quot;epoll_*wait*&quot;,&quot;futex_wait*&quot;,futex_wake,io_uring_enter,nanosleep,pause,&quot;*poll&quot;,&quot;*select*&quot;,sched_yield,&quot;wait*&quot;} -esched:sched_switch -F1000 -g --call-graph dwarf,65528 -p [NEARD_PID]
+# possibly with a pre-specified collection duration
+$ timeout 15 perf record -ecpu-clock -esyscalls:sys_enter_{&quot;epoll_*wait*&quot;,&quot;futex_wait*&quot;,futex_wake,io_uring_enter,nanosleep,pause,&quot;*poll&quot;,&quot;*select*&quot;,sched_yield,&quot;wait*&quot;} -esched:sched_switch -F1000 -g --call-graph dwarf,65528 -p [NEARD_PID]
 </code></pre>
 <p>This command will use the CPU time clock to determine when to trigger a sampling process and will
-do such sampling roughly 1000 times (the <code>-F</code> argument) every CPU second.</p>
+do such sampling roughly 1000 times (the <code>-F</code> argument) every CPU second. It will also sample a
+selection of syscall entries as well as scheduler switches. Readers are encouraged to adjust the
+events they record – ones in the command above are a good baseline only.</p>
 <p>Once terminated, this command will produce a profile file in the current working directory.
 Although you can inspect the profile already with <code>perf report</code>, we've had much better experience
 with using <a href="https://profiler.firefox.com/">Firefox Profiler</a> as the viewer. Although Firefox
 Profiler supports <code>perf</code> and many other different data formats, for <code>perf</code> in particular a
-conversion step is necessary:</p>
-<pre><code class="language-command">perf script -F +pid &gt; mylittleprofile.script
+conversion step is necessary. For ideal results with Firefox Profiler,
+<a href="https://github.com/mstange/samply"><code>samply</code></a> is recommended, as it produces a much better
+rendering than the <code>perf script</code> approach previously recommended by this and <a href="https://profiler.firefox.com/docs/#/./guide-perf-profiling">Firefox Profiler
+documentation</a> alike.</p>
+<pre><code class="language-command">$ cargo install samply
+$ samply import -P 3333 perf.data
 </code></pre>
-<p>Then, load this <code>mylittleprofile.script</code> file with the profiler.</p>
+<p>This will open a local server with a profiler UI. If profiling on a cloud machine, use a SSH proxy
+to access this interface (you can start another ssh session):</p>
+<pre><code>$ gcloud compute ssh --ssh-flag='-L 3333:localhost:3333' [OTHER_ARGS...]
+# open localhost:3333 in your browser
+</code></pre>
+<p>From there you can inspect the profile locally and upload it to <code>profiler.firefox.com</code> for sharing
+with others.</p>
 <h3 id="low-overhead-stack-frame-collection"><a class="header" href="#low-overhead-stack-frame-collection">Low overhead stack frame collection</a></h3>
 <p>The command above uses <code>-g --call-graph dwarf,65528</code> parameter to instruct <code>perf</code> to collect
 stack trace for each sample using DWARF unwinding metadata. This will work no matter how <code>neard</code> is
@@ -5023,8 +5037,25 @@ collection.</p>
 <pre><code class="language-command">cargo build --release --config .cargo/config.profiling.toml -p neard
 </code></pre>
 <p>Then, replace the <code>--call-graph dwarf</code> with <code>--call-graph fp</code>:</p>
-<pre><code class="language-command">perf record -e cpu-clock -F1000 -g --call-graph fp,65528 YOUR_COMMAND_HERE
+<pre><code class="language-command">perf record -ecpu-clock -esyscalls:sys_enter_{&quot;epoll_*wait*&quot;,&quot;futex_wait*&quot;,futex_wake,io_uring_enter,nanosleep,pause,&quot;*poll&quot;,&quot;*select*&quot;,sched_yield,&quot;wait*&quot;} -esched:sched_switch -F1000 -g --call-graph fp,65528 [YOUR_COMMAND_HERE]
 </code></pre>
+<h3 id="headless-samply-use"><a class="header" href="#headless-samply-use">Headless <code>samply</code> use</a></h3>
+<p>Samply instructions above require manual interaction with browsers, which makes automation
+difficult. If you'd like to just get files for, headless operation is also possible. Do note that
+the results produced this way lose some information that is otherwise made available with the
+instructions above. Most notably – kernel symbols may be lost.</p>
+<!-- cspell: ignore cswitch presymbolicate -->
+<pre><code>$ samply import --cswitch-markers --unstable-presymbolicate -s -n perf.data
+$ ls profile.json*
+</code></pre>
+<p>These files can later be viewed with</p>
+<pre><code>$ samply load
+</code></pre>
+<h3 id="lost-samples"><a class="header" href="#lost-samples">Lost samples</a></h3>
+<p>In some cases <code>perf</code> may complain about lost samples. This can happen more often when profiling
+<code>neard</code> with a large number threads. To mitigate sample loss, reduce the sampling rate, use <a href="practices/workflows/profiling.html#low-overhead-stack-frame-collection">low
+overhead stack frame collection</a> and/or record traces to a
+fast storage device (possibly <code>/tmp</code> mounted on <code>tmpfs</code>.)</p>
 <h3 id="profiling-with-hardware-counters"><a class="header" href="#profiling-with-hardware-counters">Profiling with hardware counters</a></h3>
 <p>As mentioned earlier, sampling profiler is probabilistic and the data it produces is only really
 suitable for a broad overview. Any attempt to analyze the performance of the code at the
