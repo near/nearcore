@@ -192,6 +192,6 @@ openapi-spec:
     fi
 
 check-cspell:
-    # You will need the cspell-cli npm package.
+    # You will need the cspell npm package.
     # For nixpkgs users that's `nodePackages.cspell`
-    git ls-files | cspell --file-list stdin
+    git ls-files | cspell --no-progress --file-list stdin
