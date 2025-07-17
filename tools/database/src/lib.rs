@@ -10,6 +10,7 @@ mod compact;
 mod drop_column;
 mod make_snapshot;
 mod memtrie;
+mod ordinal_inconsistency;
 mod run_migrations;
 mod set_version;
 mod state_perf;

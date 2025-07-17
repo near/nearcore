@@ -23,6 +23,8 @@ use near_primitives::version::ProtocolVersion;
 use std::collections::{BTreeMap, HashMap};
 use tracing::info;
 
+pub mod ordinal_inconsistency;
+
 pub struct BatchedStoreUpdate<'a> {
     batch_size_limit: usize,
     batch_size: usize,
@@ -526,5 +528,20 @@ pub fn migrate_44_to_45(store: &Store) -> anyhow::Result<()> {
     let mut update = store.store_update();
     update.delete(DBCol::Misc, STATE_TRANSITION_START_HEIGHTS);
     update.commit()?;
+    Ok(())
+}
+
+pub fn migrate_45_to_46(store: &Store) -> anyhow::Result<()> {
+    if store.get_db_kind()? == Some(DbKind::Cold) {
+        tracing::info!("Cold db doesn't require a migration from 45 to 46, skipping");
+        assert_eq!(DBCol::BlockHeight.is_cold(), false);
+        assert_eq!(DBCol::BlockOrdinal.is_cold(), false);
+        assert_eq!(DBCol::BlockMerkleTree.is_cold(), false);
+        return Ok(());
+    }
+
+    let inconsistencies = ordinal_inconsistency::find_ordinal_inconsistencies(store, 64)?;
+    ordinal_inconsistency::repair_ordinal_inconsistencies(store, &inconsistencies)?;
+
     Ok(())
 }
