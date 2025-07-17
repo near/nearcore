@@ -18,6 +18,7 @@ cargo build -p neard --release --features tx_generator
 Build synth-bm
 ```shell
 cd benchmarks/synth-bm
+cargo build --release
 ```
 
 Go to transaction-generator
