@@ -218,6 +218,7 @@ jobs:
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
+      - run: npm install cspell-cli
       - run: just check-cspell
 
   check_cargo_deny:
