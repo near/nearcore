@@ -21,7 +21,7 @@ use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV2};
 use near_primitives::types::{EpochId, Gas, ShardId, StateRoot};
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_store::adapter::StoreUpdateAdapter;
-use near_store::get_genesis_state_roots;
+use near_store::{Store, get_genesis_state_roots};
 use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::bootstrap_congestion_info;
 
@@ -195,10 +195,18 @@ impl Chain {
         chain_store: &ChainStore,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
-        congestion_info: Option<CongestionInfo>,
+    ) -> Result<ChunkExtra, Error> {
+        Self::build_genesis_chunk_extra(&chain_store.store(), shard_layout, shard_id, &genesis)
+    }
+
+    pub fn build_genesis_chunk_extra(
+        store: &Store,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        genesis: &Block,
     ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = *get_genesis_state_roots(&chain_store.store())?
+        let state_root = *get_genesis_state_roots(store)?
             .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
             .get(shard_index)
             .ok_or_else(|| {
@@ -213,6 +221,8 @@ impl Chain {
                 ))
             })?
             .gas_limit();
+        let congestion_info =
+            genesis.block_congestion_info().get(&shard_id).map(|info| info.congestion_info);
         Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, congestion_info))
     }
 

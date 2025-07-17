@@ -525,7 +525,7 @@ impl ChunkValidationActorInner {
                 store,
                 save_witness_if_invalid,
             ) {
-                Ok(()) => {
+                Ok(_) => {
                     send_chunk_endorsement_to_block_producers(
                         &chunk_header,
                         epoch_manager.as_ref(),

@@ -116,7 +116,12 @@ fn test_client_with_simple_test_loop() {
         client_adapter.as_multi_sender(),
         noop().into_multi_sender(),
         protocol_upgrade_schedule,
-        CoreStatementsProcessor::new(noop().into_sender()),
+        CoreStatementsProcessor::new(
+            store.chain_store(),
+            epoch_manager.clone(),
+            noop().into_sender(),
+            noop().into_sender(),
+        ),
     )
     .unwrap();
 
@@ -146,6 +151,7 @@ fn test_client_with_simple_test_loop() {
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
+        noop().into_sender(),
         noop().into_sender(),
     )
     .unwrap();

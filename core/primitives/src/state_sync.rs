@@ -75,13 +75,15 @@ pub struct ShardStateSyncResponseHeaderV2 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum CachedParts {
-    AllParts,
-    NoParts,
+    AllParts = 0,
+    NoParts = 1,
     /// Represents a subset of parts cached.
     /// Can represent both NoParts and AllParts, but in those cases use the
     /// corresponding enum values for efficiency.
-    BitArray(BitArray),
+    BitArray(BitArray) = 2,
 }
 
 /// Represents an array of boolean values in a compact form.
@@ -99,9 +101,12 @@ impl BitArray {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+#[allow(clippy::large_enum_variant)]
 pub enum ShardStateSyncResponseHeader {
-    V1(ShardStateSyncResponseHeaderV1),
-    V2(ShardStateSyncResponseHeaderV2),
+    V1(ShardStateSyncResponseHeaderV1) = 0,
+    V2(ShardStateSyncResponseHeaderV2) = 1,
 }
 
 impl ShardStateSyncResponseHeader {
@@ -212,10 +217,12 @@ pub struct ShardStateSyncResponseV3 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardStateSyncResponse {
-    V1(ShardStateSyncResponseV1),
-    V2(ShardStateSyncResponseV2),
-    V3(ShardStateSyncResponseV3),
+    V1(ShardStateSyncResponseV1) = 0,
+    V2(ShardStateSyncResponseV2) = 1,
+    V3(ShardStateSyncResponseV3) = 2,
 }
 
 impl ShardStateSyncResponse {
@@ -289,6 +296,8 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, serde::Serialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 /// Represents the progress of dumps state of a shard.
 pub enum StateSyncDumpProgress {
     /// Represents two cases:
@@ -298,9 +307,9 @@ pub enum StateSyncDumpProgress {
         /// The dumped state corresponds to the state at the beginning of the specified epoch.
         epoch_id: EpochId,
         epoch_height: EpochHeight,
-    },
+    } = 0,
     /// * An epoch dump is skipped in the epoch where shard layout changes
-    Skipped { epoch_id: EpochId, epoch_height: EpochHeight },
+    Skipped { epoch_id: EpochId, epoch_height: EpochHeight } = 1,
     /// Represents the case of an epoch being partially dumped.
     InProgress {
         /// The dumped state corresponds to the state at the beginning of the specified epoch.
@@ -309,7 +318,7 @@ pub enum StateSyncDumpProgress {
         /// Block hash of the first block of the epoch.
         /// The dumped state corresponds to the state before applying this block.
         sync_hash: CryptoHash,
-    },
+    } = 2,
 }
 
 #[cfg(test)]

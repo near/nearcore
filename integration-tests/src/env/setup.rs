@@ -460,7 +460,12 @@ pub fn setup_client_with_runtime(
         orphan_witness: noop().into_sender(),
         block_notification: noop().into_sender(),
     };
-    let spice_core_processor = CoreStatementsProcessor::new(noop().into_sender());
+    let spice_core_processor = CoreStatementsProcessor::new(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+        noop().into_sender(),
+        noop().into_sender(),
+    );
     let mut client = Client::new(
         clock,
         config,

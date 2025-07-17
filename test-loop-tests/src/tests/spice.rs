@@ -29,8 +29,8 @@ fn test_spice_chain() {
     let accounts: Vec<AccountId> =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect_vec();
 
-    let num_block_producers = 2;
-    let num_validators = 0;
+    let num_block_producers = 4;
+    let num_validators = 5;
 
     let block_and_chunk_producers =
         accounts.iter().take(num_block_producers).cloned().collect_vec();
