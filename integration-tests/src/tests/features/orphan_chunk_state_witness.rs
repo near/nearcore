@@ -39,6 +39,27 @@ impl ChunkStateWitnessExt for ChunkStateWitness {
     }
 }
 
+trait ChunkStateWitnessExt {
+    fn mut_source_receipt_proofs(&mut self) -> &mut HashMap<ChunkHash, ReceiptProof>;
+    fn mut_chunk_header(&mut self) -> &mut ShardChunkHeader;
+}
+
+impl ChunkStateWitnessExt for ChunkStateWitness {
+    fn mut_source_receipt_proofs(&mut self) -> &mut HashMap<ChunkHash, ReceiptProof> {
+        match self {
+            ChunkStateWitness::V1(witness) => &mut witness.source_receipt_proofs,
+            ChunkStateWitness::V2(witness) => &mut witness.source_receipt_proofs,
+        }
+    }
+
+    fn mut_chunk_header(&mut self) -> &mut ShardChunkHeader {
+        match self {
+            ChunkStateWitness::V1(witness) => &mut witness.chunk_header,
+            ChunkStateWitness::V2(witness) => &mut witness.chunk_header,
+        }
+    }
+}
+
 struct OrphanWitnessTestEnv {
     env: TestEnv,
     block1: Arc<Block>,

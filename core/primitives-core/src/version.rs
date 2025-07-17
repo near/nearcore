@@ -323,6 +323,7 @@ pub enum ProtocolFeature {
 
     RefTypesBulkMemory,
     SaturatingFloatToInt,
+    ChunkPartChecks,
 }
 
 impl ProtocolFeature {
@@ -419,7 +420,7 @@ impl ProtocolFeature {
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-
+            ProtocolFeature::ChunkPartChecks => 80,
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
@@ -443,7 +444,7 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 79;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;

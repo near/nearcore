@@ -25,6 +25,21 @@
 * Stabilize `EXPERIMENTAL_changes` RPC method and rename it to `changes`. ([#13722](https://github.com/near/nearcore/pull/13722))
 * Rename `TxRequestHandlerActor` to `RpcHandlerActor` to reflect the change in the scope of its responsibilities. Otherwise its API change is fully backward-compatible, so the dependent services can handle it by simply renaming the type where it is mentioned explicitly. ([#13259](https://github.com/near/nearcore/pull/13259))
 
+## [2.7.0]
+
+### Protocol Changes
+
+* A new shard layout for production networks ([#13324](https://github.com/near/nearcore/pull/13324)). Use split boundary from [#13609](https://github.com/near/nearcore/pull/13609).
+* When the protocol update version voting takes place, validators that did not upgrade to the latest version will be scheduled for removal (aka kickout) in the epoch the new version takes effect. This helps avoid missed blocks in the first epoch of the new version, as un-upgraded validators would produce invalid blocks. Technically this is a protocol change as it impacts the validator set, however it will take effect during the next version upgrade therefore does not require its own protocol version. ([#13375](https://github.com/near/nearcore/issues/13375))
+* Implement [NEP-536](https://github.com/near/NEPs/pull/536): Reduce the number of refund receipts by adding removing pessimistic gas pricing. Also introduce a gas refund penalty but set it to 0 to avoid potential negative impact. ([#13397](https://github.com/near/nearcore/issues/13397))
+* Implement P2P sync for state sync headers. ([#13377](https://github.com/near/nearcore/pull/13377))
+* Enable saturating float-to-int conversions in runtime. ([#13414](https://github.com/near/nearcore/pull/13414))
+
+### Non-protocol Changes
+* Add RPC query for viewing global contract code. ([#13547](https://github.com/near/nearcore/pull/13547))
+* Add promise batch host functions for global contracts. ([#13565](https://github.com/near/nearcore/pull/13565))
+* Stabilize `EXPERIMENTAL_changes` RPC method and rename it to `changes`. ([#13722](https://github.com/near/nearcore/pull/13722))
+
 ## [2.6.0]
 
 ### Protocol Changes

@@ -10,7 +10,7 @@ pub use crate::db::{
 use crate::db::{DBTransaction, Database, StoreStatistics, metadata};
 pub use crate::node_storage::opener::{
     StoreMigrator, StoreOpener, StoreOpenerError, checkpoint_hot_storage_and_cleanup_columns,
-    clear_columns,
+    clear_columns, rollback_database_from_27_to_26,
 };
 pub use crate::node_storage::{NodeStorage, Temperature};
 pub use crate::store::{Store, StoreUpdate};
