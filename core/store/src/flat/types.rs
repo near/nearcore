@@ -63,18 +63,20 @@ pub type FlatStorageResult<T> = Result<T, FlatStorageError>;
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema, Clone,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum FlatStorageStatus {
     /// Flat Storage is not supported.
-    Disabled,
+    Disabled = 0,
     /// Flat Storage is empty: either wasn't created yet or was deleted.
-    Empty,
+    Empty = 1,
     /// Flat Storage is in the process of being created.
     /// Deprecated: flat storage creation code was removed in #12534
-    Creation(FlatStorageCreationStatus),
+    Creation(FlatStorageCreationStatus) = 2,
     /// Flat Storage is ready to be used.
-    Ready(FlatStorageReadyStatus),
+    Ready(FlatStorageReadyStatus) = 3,
     /// Flat storage is undergoing resharding.
-    Resharding(FlatStorageReshardingStatus),
+    Resharding(FlatStorageReshardingStatus) = 4,
 }
 
 impl Into<i64> for &FlatStorageStatus {
@@ -123,11 +125,13 @@ pub struct FlatStorageReadyStatus {
     serde::Serialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum FlatStorageCreationStatus {
     /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
     /// final chain head moves after saved chain head.
-    SavingDeltas,
+    SavingDeltas = 0,
     /// Flat storage state misses key-value pairs. We need to fetch Trie state to fill flat storage for some final chain
     /// head. It is the heaviest work, so it is done in multiple steps, see comment for `FetchingStateStatus` for more
     /// details.
@@ -135,11 +139,11 @@ pub enum FlatStorageCreationStatus {
     /// Status contains block hash for which we fetch the shard state and number of current step. Progress of each step
     /// is saved to disk, so if creation is interrupted during some step, we don't repeat previous steps, starting from
     /// the saved step again.
-    FetchingState(FetchingStateStatus),
+    FetchingState(FetchingStateStatus) = 1,
     /// Flat storage data exists on disk but block which is corresponds to is earlier than chain final head.
     /// We apply deltas from disk until the head reaches final head.
     /// Includes block hash of flat storage head.
-    CatchingUp(CryptoHash),
+    CatchingUp(CryptoHash) = 2,
 }
 
 /// This struct represents what is the current status of flat storage resharding.
@@ -153,16 +157,18 @@ pub enum FlatStorageCreationStatus {
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum FlatStorageReshardingStatus {
     /// Resharding phase entered when a shard is being split.
     /// Copy key-value pairs from this shard (the parent) to children shards.
-    SplittingParent(ParentSplitParameters),
+    SplittingParent(ParentSplitParameters) = 0,
     /// Resharding phase entered when a shard is being split.
     /// This shard (child) is being built from state taken from its parent.
-    CreatingChild,
+    CreatingChild = 1,
     /// We apply deltas from disk until the head reaches final head.
     /// Includes block info for the flat storage head.
-    CatchingUp(BlockInfo),
+    CatchingUp(BlockInfo) = 2,
 }
 
 /// Current step of fetching state to fill flat storage.

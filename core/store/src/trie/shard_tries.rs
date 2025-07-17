@@ -747,6 +747,7 @@ impl KeyForStateChanges {
 
     /// Extracts ShardUId from row key which contains ShardUId encoded.
     /// See `delayed_receipt_key_from_trie_key` for encoding ShardUId into the row key.
+    #[allow(clippy::result_large_err)]
     pub fn delayed_receipt_key_decode_shard_uid(
         row_key: &[u8],
         block_hash: &CryptoHash,
