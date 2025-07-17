@@ -707,33 +707,6 @@
         }
       }
     },
-    "/protocol_config": {
-      "post": {
-        "operationId": "protocol_config",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_protocol_config"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/query": {
       "post": {
         "operationId": "query",
@@ -7116,33 +7089,6 @@
           "method"
         ],
         "title": "JsonRpcRequest_for_next_light_client_block",
-        "type": "object"
-      },
-      "JsonRpcRequest_for_protocol_config": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "protocol_config"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcProtocolConfigRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_protocol_config",
         "type": "object"
       },
       "JsonRpcRequest_for_query": {
