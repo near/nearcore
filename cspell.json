@@ -1,9 +1,13 @@
 {
     "version": "0.2",
     "ignorePaths": [
+        ".dockerignore",
+        ".gitignore",
+        ".gitpod.yml",
         "*.ros",
         "*.toml",
         "*.wast",
+        "*.wasm",
         "*.io_trace.snap",
         "benchmarks/continuous/db/tool/orm/migrations/**",
         "chain/rosetta-rpc/src/snapshots/**",
@@ -447,7 +451,15 @@
         "tesdsst",
         "Tunables",
         "WAVM",
-        "xxhash"
+        "xxhash",
+        "Barbascu",
+        "khorolets",
+        "mdbook",
+        "samply",
+        "nanosleep",
+        "tmpfs",
+        "nixpkgs",
+        "prebuilds",
     ],
     "import": []
 }
