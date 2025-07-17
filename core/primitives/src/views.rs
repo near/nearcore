@@ -139,6 +139,7 @@ impl From<AccountView> for Account {
     }
 }
 
+/// Describes the permission scope for an access key. Whether it is a function call or a full access key.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -191,6 +192,7 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
     }
 }
 
+/// Describes access key permission scope and nonce.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -264,6 +266,7 @@ pub struct StateItem {
     pub value: StoreValue,
 }
 
+/// Resulting state values for a view state query request
 #[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -275,6 +278,7 @@ pub struct ViewStateResult {
     pub proof: Vec<Arc<[u8]>>,
 }
 
+/// A result returned by contract method
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CallResult {
@@ -288,6 +292,7 @@ pub struct QueryError {
     pub logs: Vec<String>,
 }
 
+/// Describes information about an access key including the public key.
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyInfoView {
@@ -295,6 +300,7 @@ pub struct AccessKeyInfoView {
     pub access_key: AccessKeyView,
 }
 
+/// Lists access keys
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyList {
@@ -464,12 +470,30 @@ pub struct Tier1ProxyView {
     pub peer_id: PublicKey,
 }
 
+/// AccountData is a piece of global state that a validator
+/// signs and broadcasts to the network.
+///
+/// It is essentially the data that a validator wants to share with the network.
+/// All the nodes in the network are collecting the account data
+/// broadcasted by the validators.
+/// Since the number of the validators is bounded and their
+/// identity is known (and the maximal size of allowed AccountData is bounded)
+/// the global state that is distributed in the form of AccountData is bounded
+/// as well.
+/// Find more information in the docs [here](https://github.com/near/nearcore/blob/560f7fc8f4b3106e0d5d46050688610b1f104ac6/chain/client/src/client.rs#L2232)
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountDataView {
+    /// ID of the node that handles the account key (aka validator key).
     pub peer_id: PublicKey,
+    /// Proxy nodes that are directly connected to the validator node
+    /// (this list may include the validator node itself).
+    /// TIER1 nodes should connect to one of the proxies to sent TIER1
+    /// messages to the validator.
     pub proxies: Vec<Tier1ProxyView>,
+    /// Account key of the validator signing this AccountData.
     pub account_key: PublicKey,
+    /// UTC timestamp of when the AccountData has been signed.
     #[serde(with = "near_time::serde_utc_as_iso")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub timestamp: Utc,
@@ -606,6 +630,7 @@ pub struct DownloadStatusView {
     pub done: bool,
 }
 
+/// Status of the [catchup](https://near.github.io/nearcore/architecture/how/sync.html#catchup) process
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CatchupStatusView {
@@ -627,6 +652,7 @@ pub struct RequestedStatePartsView {
     pub shard_requested_parts: HashMap<ShardId, Vec<PartElapsedTimeView>>,
 }
 
+/// Height and hash of a block
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockStatusView {
@@ -850,6 +876,7 @@ pub struct StatusResponse {
     pub detailed_debug_status: Option<DetailedDebugStatus>,
 }
 
+/// Contains main info about the block.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockHeaderView {
@@ -858,6 +885,7 @@ pub struct BlockHeaderView {
     pub epoch_id: CryptoHash,
     pub next_epoch_id: CryptoHash,
     pub hash: CryptoHash,
+    /// The hash of the previous Block
     pub prev_hash: CryptoHash,
     pub prev_state_root: CryptoHash,
     pub block_body_hash: Option<CryptoHash>,
@@ -898,6 +926,7 @@ pub struct BlockHeaderView {
     pub block_merkle_root: CryptoHash,
     pub epoch_sync_data_hash: Option<CryptoHash>,
     pub approvals: Vec<Option<Box<Signature>>>,
+    /// Signature of the block producer.
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
@@ -983,6 +1012,7 @@ impl From<BlockHeaderView> for BlockHeader {
     }
 }
 
+/// A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
 #[derive(
     PartialEq,
     Eq,
@@ -996,7 +1026,9 @@ impl From<BlockHeaderView> for BlockHeader {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockHeaderInnerLiteView {
     pub height: BlockHeight,
+    /// The epoch to which the block that is the current known head belongs
     pub epoch_id: CryptoHash,
+    /// The epoch that will follow the current epoch
     pub next_epoch_id: CryptoHash,
     pub prev_state_root: CryptoHash,
     pub outcome_root: CryptoHash,
@@ -1005,7 +1037,9 @@ pub struct BlockHeaderInnerLiteView {
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub timestamp_nanosec: u64,
+    /// The hash of the block producers set for the next epoch
     pub next_bp_hash: CryptoHash,
+    /// The merkle root of all the block hashes
     pub block_merkle_root: CryptoHash,
 }
 
@@ -1041,6 +1075,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
     }
 }
 
+/// Contains main info about the chunk.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChunkHeaderView {
@@ -1208,6 +1243,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockView {
+    /// The AccountId of the author of the Block
     pub author: AccountId,
     pub header: BlockHeaderView,
     pub chunks: Vec<ChunkHeaderView>,
@@ -1598,6 +1634,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     }
 }
 
+/// Shows gas profile. More info [here](https://near.github.io/nearcore/architecture/gas/gas_profile.html?highlight=WASM_HOST_COST#example-transaction-gas-profile).
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1610,6 +1647,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CostGasUsed {
+    /// Either ACTION_COST or WASM_HOST_COST.
     pub cost_category: String,
     pub cost: String,
     #[serde(with = "dec_format")]
@@ -2315,6 +2353,7 @@ pub struct ValidatorKickoutView {
     pub reason: ValidatorKickoutReason,
 }
 
+/// Describes information about the current epoch validator
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolSchema)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CurrentEpochValidatorInfo {
@@ -2376,6 +2415,7 @@ pub struct NextEpochValidatorInfo {
     pub shards: Vec<ShardId>,
 }
 
+/// A state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
 #[derive(
     PartialEq,
     Eq,
@@ -2390,6 +2430,8 @@ pub struct NextEpochValidatorInfo {
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
     pub next_block_inner_hash: CryptoHash,
+    /// Inner part of the block header that gets hashed, split into two parts, one that is sent
+    ///    to light clients, and the rest
     pub inner_lite: BlockHeaderInnerLiteView,
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
@@ -2711,6 +2753,7 @@ pub struct SplitStorageInfoView {
     pub hot_db_kind: Option<String>,
 }
 
+/// Stores the congestion level of a shard. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CongestionInfoView {

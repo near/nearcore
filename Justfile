@@ -183,10 +183,10 @@ check-publishable-separately *OPTIONS:
 
 openapi-spec:
     #!/usr/bin/env bash
-    cargo run -p near-jsonrpc-openapi-spec > {{ justfile_directory() }}/new-openapi.json
-    cmp {{ justfile_directory() }}/new-openapi.json chain/jsonrpc/openapi/openapi.json
+    cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json
+    git diff --exit-code
     res=$?
     if [ $res -ne 0 ]; then
-        echo "OpenAPI spec has changed, please ensure the code doesn't break Near JSON RPC clients and run 'cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json' to update it."
+        echo "OpenAPI spec has changed, please ensure the code doesn't break Near JSON RPC clients and run 'cargo run -p near-jsonrpc-openapi-spec > chain/jsonrpc/openapi/openapi.json' to update it. Also update spec version accordingly in chain/jsonrpc/openapi/main.rs."
         exit 1
     fi
