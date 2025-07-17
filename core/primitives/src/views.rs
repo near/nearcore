@@ -469,8 +469,8 @@ pub struct Tier1ProxyView {
 }
 
 /// AccountData is a piece of global state that a validator
-/// signs and broadcasts to the network. 
-/// 
+/// signs and broadcasts to the network.
+///
 /// It is essentially the data that a validator wants to share with the network.
 /// All the nodes in the network are collecting the account data
 /// broadcasted by the validators.
