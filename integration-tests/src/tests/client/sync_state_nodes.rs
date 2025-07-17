@@ -693,8 +693,11 @@ fn slow_test_state_sync_headers() {
             near1.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
             near1.config.store.enable_state_snapshot();
 
-            let nearcore::NearNode { view_client: view_client1, .. } =
-                start_with_config(dir1.path(), near1).expect("start_with_config");
+            let nearcore::NearNode {
+                view_client: view_client1,
+                state_request_client: state_request_client1,
+                ..
+            } = start_with_config(dir1.path(), near1).expect("start_with_config");
 
             // First we need to find sync_hash. That is done in 3 steps:
             // 1. Get the latest block
@@ -748,7 +751,7 @@ fn slow_test_state_sync_headers() {
 
                 for shard_id in shard_ids {
                     // Make StateRequestHeader and expect that the response contains a header.
-                    let state_response_info = match view_client1
+                    let state_response_info = match state_request_client1
                         .send(StateRequestHeader { shard_id, sync_hash }.with_span_context())
                         .await
                     {
@@ -769,7 +772,7 @@ fn slow_test_state_sync_headers() {
                     }
 
                     // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
-                    let state_response_info = match view_client1
+                    let state_response_info = match state_request_client1
                         .send(
                             StateRequestPart { shard_id, sync_hash, part_id: 0 }
                                 .with_span_context(),
@@ -855,8 +858,11 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             near2.config.state_sync_enabled = false;
             near2.client_config.state_sync_enabled = false;
 
-            let nearcore::NearNode { view_client: view_client2, .. } =
-                start_with_config(dir2.path(), near2).expect("start_with_config");
+            let nearcore::NearNode {
+                view_client: view_client2,
+                state_request_client: state_request_client2,
+                ..
+            } = start_with_config(dir2.path(), near2).expect("start_with_config");
 
             // First we need to find sync_hash. That is done in 3 steps:
             // 1. Get the latest block
@@ -913,7 +919,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
 
                 for shard_id in shard_ids {
                     // Make StateRequestHeader and expect that the response contains a header.
-                    let state_response_info = match view_client2
+                    let state_response_info = match state_request_client2
                         .send(StateRequestHeader { shard_id, sync_hash }.with_span_context())
                         .await
                     {
@@ -930,7 +936,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                     assert!(!state_response.has_header());
 
                     // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
-                    let state_response_info = match view_client2
+                    let state_response_info = match state_request_client2
                         .send(
                             StateRequestPart { shard_id, sync_hash, part_id: 0 }
                                 .with_span_context(),

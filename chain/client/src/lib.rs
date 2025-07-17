@@ -16,6 +16,7 @@ pub use crate::config_updater::ConfigUpdater;
 pub use crate::rpc_handler::{
     RpcHandler, RpcHandlerActor, RpcHandlerConfig, spawn_rpc_handler_actor,
 };
+pub use crate::state_request_actor::StateRequestActor;
 pub use crate::stateless_validation::chunk_validation_actor::{
     BlockNotificationMessage, ChunkValidationActorInner, ChunkValidationSender,
     ChunkValidationSenderForPartialWitness, HandleOrphanWitnessOutcome,
@@ -49,6 +50,7 @@ pub mod metrics;
 mod rpc_handler;
 pub mod spice_chunk_validator_actor;
 pub mod spice_core;
+mod state_request_actor;
 pub mod stateless_validation;
 pub mod sync;
 pub mod sync_jobs_actor;
