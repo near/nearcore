@@ -91,8 +91,10 @@ impl OutgoingMetadatas {
 
 /// Information about a group of consecutive receipts stored in the outgoing buffer.
 #[derive(Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ReceiptGroup {
-    V0(ReceiptGroupV0),
+    V0(ReceiptGroupV0) = 0,
 }
 
 #[derive(Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -196,8 +198,10 @@ impl ReceiptGroupsConfig {
 
 /// Data of ReceiptGroupsQueue that is stored in the state.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ReceiptGroupsQueueData {
-    V0(ReceiptGroupsQueueDataV0),
+    V0(ReceiptGroupsQueueDataV0) = 0,
 }
 
 #[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize, ProtocolSchema)]

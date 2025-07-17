@@ -430,17 +430,19 @@ impl schemars::JsonSchema for SignedTransaction {
 
 /// The status of execution for a transaction or a receipt.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Default, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     #[default]
-    Unknown,
+    Unknown = 0,
     /// The execution has failed with the given execution error.
-    Failure(TxExecutionError),
+    Failure(TxExecutionError) = 1,
     /// The final action succeeded and returned some value or an empty vec.
-    SuccessValue(Vec<u8>),
+    SuccessValue(Vec<u8>) = 2,
     /// The final action of the receipt returned a promise or the signed transaction was converted
     /// to a receipt. Contains the receipt_id of the generated receipt.
-    SuccessReceiptId(CryptoHash),
+    SuccessReceiptId(CryptoHash) = 3,
 }
 
 impl fmt::Debug for ExecutionStatus {
@@ -482,11 +484,13 @@ impl From<&ExecutionOutcome> for PartialExecutionOutcome {
 
 /// ExecutionStatus for proof. Excludes failure debug info.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum PartialExecutionStatus {
-    Unknown,
-    Failure,
-    SuccessValue(Vec<u8>),
-    SuccessReceiptId(CryptoHash),
+    Unknown = 0,
+    Failure = 1,
+    SuccessValue(Vec<u8>) = 2,
+    SuccessReceiptId(CryptoHash) = 3,
 }
 
 impl From<ExecutionStatus> for PartialExecutionStatus {
@@ -543,14 +547,16 @@ pub struct ExecutionOutcome {
 #[derive(
     BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug, Default, ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ExecutionMetadata {
     /// V1: Empty Metadata
     #[default]
-    V1,
+    V1 = 0,
     /// V2: With ProfileData by legacy `Cost` enum
-    V2(crate::profile_data_v2::ProfileDataV2),
+    V2(crate::profile_data_v2::ProfileDataV2) = 1,
     /// V3: With ProfileData by gas parameters
-    V3(Box<ProfileDataV3>),
+    V3(Box<ProfileDataV3>) = 2,
 }
 
 impl fmt::Debug for ExecutionOutcome {

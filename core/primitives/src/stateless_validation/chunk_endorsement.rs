@@ -15,13 +15,15 @@ use super::ChunkProductionKey;
 /// chunk validator has verified that the chunk state witness is correct.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ChunkEndorsement {
-    V1, // Deprecated
-    V2(ChunkEndorsementV2),
+    V1 = 0, // Deprecated
+    V2(ChunkEndorsementV2) = 1,
     // Chunk endorsement for spice is larger since it contains execution results. To avoid
     // penalizing memory layout of the whole enum we use Box here. For more details see:
     // https://rust-lang.github.io/rust-clippy/master/index.html#large_enum_variant
-    V3(Box<SpiceChunkEndorsementV3>),
+    V3(Box<SpiceChunkEndorsementV3>) = 2,
 }
 
 impl ChunkEndorsement {

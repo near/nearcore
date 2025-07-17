@@ -105,10 +105,12 @@ pub(super) struct DistanceVector {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum HandshakeFailureReason {
-    ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
-    GenesisMismatch(GenesisId),
-    InvalidTarget,
+    ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 } = 0,
+    GenesisMismatch(GenesisId) = 1,
+    InvalidTarget = 2,
 }
 const _: () = assert!(
     std::mem::size_of::<HandshakeFailureReason>() <= 64,
@@ -129,50 +131,52 @@ impl std::error::Error for HandshakeFailureReason {}
 #[derive(
     BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsRefStr, ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 // TODO(#1313): Use Box
 pub(super) enum PeerMessage {
-    Handshake(Handshake),
-    HandshakeFailure(PeerInfo, HandshakeFailureReason),
+    Handshake(Handshake) = 0,
+    HandshakeFailure(PeerInfo, HandshakeFailureReason) = 1,
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
-    LastEdge(Edge),
+    LastEdge(Edge) = 2,
     /// Contains accounts and edge information.
-    SyncRoutingTable(RoutingTableUpdate),
-    RequestUpdateNonce(PartialEdgeInfo),
-    _ResponseUpdateNonce,
+    SyncRoutingTable(RoutingTableUpdate) = 3,
+    RequestUpdateNonce(PartialEdgeInfo) = 4,
+    _ResponseUpdateNonce = 5,
 
-    PeersRequest,
-    PeersResponse(Vec<PeerInfo>),
+    PeersRequest = 6,
+    PeersResponse(Vec<PeerInfo>) = 7,
 
-    BlockHeadersRequest(Vec<CryptoHash>),
-    BlockHeaders(Vec<Arc<BlockHeader>>),
+    BlockHeadersRequest(Vec<CryptoHash>) = 8,
+    BlockHeaders(Vec<Arc<BlockHeader>>) = 9,
 
-    BlockRequest(CryptoHash),
-    Block(Arc<Block>),
+    BlockRequest(CryptoHash) = 10,
+    Block(Arc<Block>) = 11,
 
-    Transaction(SignedTransaction),
-    Routed(Box<RoutedMessageV1>),
+    Transaction(SignedTransaction) = 12,
+    Routed(Box<RoutedMessageV1>) = 13,
 
     /// Gracefully disconnect from other peer.
-    Disconnect,
-    Challenge(Box<Challenge>),
+    Disconnect = 14,
+    Challenge(Box<Challenge>) = 15,
 
-    _HandshakeV2,
-    _EpochSyncRequest,
-    _EpochSyncResponse,
-    _EpochSyncFinalizationRequest,
-    _EpochSyncFinalizationResponse,
-    _RoutingTableSyncV2,
+    _HandshakeV2 = 16,
+    _EpochSyncRequest = 17,
+    _EpochSyncResponse = 18,
+    _EpochSyncFinalizationRequest = 19,
+    _EpochSyncFinalizationResponse = 20,
+    _RoutingTableSyncV2 = 21,
 
-    DistanceVector(DistanceVector),
+    DistanceVector(DistanceVector) = 22,
 
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
-    VersionedStateResponse(StateResponseInfo),
-    SyncSnapshotHosts(SyncSnapshotHosts),
+    StateRequestHeader(ShardId, CryptoHash) = 23,
+    StateRequestPart(ShardId, CryptoHash, u64) = 24,
+    VersionedStateResponse(StateResponseInfo) = 25,
+    SyncSnapshotHosts(SyncSnapshotHosts) = 26,
 
-    EpochSyncRequest,
-    EpochSyncResponse(CompressedEpochSyncProof),
-    OptimisticBlock(OptimisticBlock),
+    EpochSyncRequest = 27,
+    EpochSyncResponse(CompressedEpochSyncProof) = 28,
+    OptimisticBlock(OptimisticBlock) = 29,
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1500, "PeerMessage > 1500 bytes");
