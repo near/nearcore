@@ -1,21 +1,12 @@
 pub mod orphan_witness_pool;
 
-use crate::Client;
 use itertools::Itertools;
 use near_async::messaging::Sender;
-use near_chain::chain::ChunkStateWitnessMessage;
-use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
-use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
-use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessSize,
-};
 use near_primitives::validator_signer::ValidatorSigner;
-use std::sync::Arc;
 
 // After validating a chunk state witness, we ideally need to send the chunk endorsement
 // to just the next block producer at height h. However, it's possible that blocks at height
@@ -79,61 +70,4 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         ));
     }
     send_to_itself
-}
-
-impl Client {
-    /// Responds to a network request to verify a `ChunkStateWitness`, which is
-    /// sent by chunk producers after they produce a chunk.
-    /// State witness is processed asynchronously, if you want to wait for the processing to finish
-    /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
-    pub fn process_chunk_state_witness(
-        &mut self,
-        witness: ChunkStateWitness,
-        raw_witness_size: ChunkStateWitnessSize,
-        processing_done_tracker: Option<ProcessingDoneTracker>,
-        signer: Option<Arc<ValidatorSigner>>,
-    ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(
-            target: "client",
-            "client_process_chunk_state_witness",
-            chunk_hash = ?witness.chunk_header().chunk_hash(),
-            height = %witness.chunk_header().height_created(),
-            shard_id = %witness.chunk_header().shard_id(),
-            tag_witness_distribution = true,
-        )
-        .entered();
-
-        // Chunk producers should not receive state witness from themselves.
-        log_assert!(
-            signer.is_some(),
-            "Received a chunk state witness but this is not a validator node. Witness={:?}",
-            witness
-        );
-
-        // Shard layout check.
-        let chunk_production_key = witness.chunk_production_key();
-        let epoch_id = witness.epoch_id();
-        if !self
-            .epoch_manager
-            .get_shard_layout(&epoch_id)?
-            .shard_ids()
-            .contains(&chunk_production_key.shard_id)
-        {
-            return Err(Error::InvalidShardId(chunk_production_key.shard_id));
-        }
-
-        // Acknowledgement will be sent by the chunk validation actor.
-
-        if self.config.save_latest_witnesses {
-            self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
-        }
-
-        // Delegate all chunk validation to the chunk validation actor
-        // The actor handles both cases: when prev_block is available and when it's not
-        let witness_message =
-            ChunkStateWitnessMessage { witness, raw_witness_size, processing_done_tracker };
-        self.chunk_validation_sender.chunk_state_witness.send(witness_message);
-
-        Ok(())
-    }
 }

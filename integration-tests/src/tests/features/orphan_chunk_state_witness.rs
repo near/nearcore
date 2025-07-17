@@ -153,6 +153,12 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     env.propagate_chunk_state_witnesses(false);
     env.propagate_chunk_endorsements(false);
 
+    // At this point chunk producer for the chunk belonging to block2 produces
+    // the chunk and sends out a witness for it. Let's intercept the witness
+    // and process it on all validators except for `excluded_validator`.
+    // The witness isn't processed on `excluded_validator` to give users of
+    // `setup_orphan_witness_test()` full control over the events.
+
     // Trigger chunk production for block2 by producing the block first
     let block2 = env.client(&block2_producer).produce_block(tip.height + 2).unwrap().unwrap();
     tracing::info!(target:"test", "Producing block2 at height {}", tip.height + 2);
