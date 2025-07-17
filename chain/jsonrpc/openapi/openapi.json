@@ -992,7 +992,7 @@
         "type": "object"
       },
       "AccountDataView": {
-        "description": "AccountData is a piece of global state that a validator\nsigns and broadcasts to the network. It is essentially\nthe data that a validator wants to share with the network.\nAll the nodes in the network are collecting the account data\nbroadcasted by the validators.\nSince the number of the validators is bounded and their\nidentity is known (and the maximal size of allowed AccountData is bounded)\nthe global state that is distributed in the form of AccountData is bounded\nas well.\nFind more information in the docs [here](https://github.com/near/nearcore/blob/560f7fc8f4b3106e0d5d46050688610b1f104ac6/chain/client/src/client.rs#L2232)",
+        "description": "AccountData is a piece of global state that a validator\nsigns and broadcasts to the network.\n\nIt is essentially the data that a validator wants to share with the network.\nAll the nodes in the network are collecting the account data\nbroadcasted by the validators.\nSince the number of the validators is bounded and their\nidentity is known (and the maximal size of allowed AccountData is bounded)\nthe global state that is distributed in the form of AccountData is bounded\nas well.\nFind more information in the docs [here](https://github.com/near/nearcore/blob/560f7fc8f4b3106e0d5d46050688610b1f104ac6/chain/client/src/client.rs#L2232)",
         "properties": {
           "account_key": {
             "allOf": [
@@ -2584,7 +2584,7 @@
         ]
       },
       "BandwidthRequestsV1": {
-        "description": "Version 1 for list of [`BandwidthRequest`]s.",
+        "description": "Version 1 of [`BandwidthRequest`].",
         "properties": {
           "requests": {
             "items": {
@@ -12849,7 +12849,7 @@
         "type": "object"
       },
       "RuntimeFeesConfigView": {
-        "description": "Describes different costs for the runtime",
+        "description": "Describes different fees for the runtime",
         "properties": {
           "action_creation_config": {
             "allOf": [
