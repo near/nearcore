@@ -10,7 +10,7 @@ use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_
 use near_primitives::types::AccountId;
 use near_store::trie::AccessOptions;
 use near_store::trie::ops::iter::TrieTraversalItem;
-use near_store::{DBCol, NibbleSlice, StorageError, Store, Trie};
+use near_store::{DBCol, StorageError, Store, Trie};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 type Result<T> = std::result::Result<T, ContractAccountError>;
@@ -201,15 +201,14 @@ impl ContractAccountIterator {
         assert_eq!(suffix, "xx".as_bytes());
 
         // `visit_nodes_interval` wants nibbles stored in `Vec<u8>` as input
-        let nibbles_before: Vec<u8> = NibbleSlice::new(prefix).iter().collect();
-        let nibbles_after = {
-            let mut tmp = nibbles_before.clone();
+        let key_after = {
+            let mut tmp = prefix.to_vec();
             *tmp.last_mut().unwrap() += 1;
             tmp
         };
 
         // finally, use trie iterator to find all contract nodes
-        let vec_of_nodes = trie_iter.visit_nodes_interval(&nibbles_before, &nibbles_after)?;
+        let vec_of_nodes = trie_iter.visit_nodes_interval(prefix, &key_after)?;
         drop(trie_iter);
         let contract_nodes = VecDeque::from(vec_of_nodes);
         Ok(Self { contract_nodes, filter, trie })
