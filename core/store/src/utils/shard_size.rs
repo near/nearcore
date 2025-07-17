@@ -32,10 +32,11 @@ pub fn update_contribution(
 /// Returns `None` if the trie is empty or an empty node is found.
 pub fn find_split_account(trie: &Trie) -> Result<Option<AccountId>, StorageError> {
     // Find the split key
-    let Some(key) = (match trie.read_lock_memtries() {
+    let key = match trie.read_lock_memtries() {
         Some(memtries) => find_split_key(MemTrieIteratorInner::new(&*memtries, trie))?,
         None => find_split_key(DiskTrieIteratorInner::new(trie))?,
-    }) else {
+    };
+    let Some(key) = key else {
         return Ok(None);
     };
 
@@ -73,15 +74,14 @@ where
             }
             GenericTrieNode::Branch { children, value } => {
                 let Some(parent_value_ref) = value else { return Ok(None) };
-                let parent_contribution = get_contribution(&trie_storage, parent_value_ref)?;
-                if let Some((idx, child)) =
+                let parent_contribution = get_value_contribution(&trie_storage, parent_value_ref)?;
+                let Some((idx, child)) =
                     find_middle_child(&trie_storage, parent_contribution, *children)?
-                {
-                    key_nibbles.push(idx);
-                    current_node_ptr = child;
-                } else {
+                else {
                     return Ok(Some(NibbleSlice::nibbles_to_bytes(&key_nibbles)));
-                }
+                };
+                key_nibbles.push(idx);
+                current_node_ptr = child;
             }
         }
     }
@@ -96,19 +96,21 @@ where
     NodePtr: Copy,
     TrieStorage: GenericTrieInternalStorage<NodePtr, ValueRef>,
 {
+    let mut cumulative_contribution = ShardSizeContribution::default();
     for i in 0..children.len() {
         let Some(child_ptr) = children[i] else { continue };
         let Some(child_contribution) = get_node_contribution(trie_storage, child_ptr)? else {
             continue;
         };
-        if child_contribution >= parent_contribution / 2 {
+        cumulative_contribution += child_contribution;
+        if cumulative_contribution >= parent_contribution / 2 {
             return Ok(Some((i as u8, child_ptr)));
         }
     }
     Ok(None)
 }
 
-fn get_contribution<NodePtr, ValueRef, TrieStorage>(
+fn get_value_contribution<NodePtr, ValueRef, TrieStorage>(
     trie_storage: &TrieStorage,
     value_ref: ValueRef,
 ) -> Result<ShardSizeContribution, StorageError>
@@ -132,10 +134,12 @@ where
 {
     match trie_storage.get_node(node_ptr, AccessOptions::DEFAULT)? {
         GenericTrieNode::Empty => Ok(None),
-        GenericTrieNode::Leaf { value, .. } => Ok(Some(get_contribution(trie_storage, value)?)),
+        GenericTrieNode::Leaf { value, .. } => {
+            Ok(Some(get_value_contribution(trie_storage, value)?))
+        }
         GenericTrieNode::Extension { child, .. } => get_node_contribution(trie_storage, child),
         GenericTrieNode::Branch { value, .. } => match value {
-            Some(value) => Ok(Some(get_contribution(trie_storage, value)?)),
+            Some(value) => Ok(Some(get_value_contribution(trie_storage, value)?)),
             None => Ok(None),
         },
     }
