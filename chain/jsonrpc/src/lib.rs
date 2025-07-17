@@ -386,8 +386,10 @@ impl JsonRpcHandler {
         Ok(match request.method.as_ref() {
             // Handlers ordered alphabetically
             "block" => process_method_call(request, |params| self.block(params)).await,
-            "block_effects" => {
-                process_method_call(request, |params| self.changes_in_block(params)).await
+            match method {
+                "block_effects" | "EXPERIMENTAL_changes_in_block" => {
+                    process_method_call(request, |params| self.changes_in_block(params)).await
+                }
             }
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
@@ -399,16 +401,20 @@ impl JsonRpcHandler {
             "broadcast_tx_commit" => {
                 process_method_call(request, |params| self.send_tx_commit(params)).await
             }
-            "changes" => {
-                process_method_call(request, |params| self.changes_in_block_by_type(params)).await
+            match method {
+                "changes" | "EXPERIMENTAL_changes" => {
+                    process_method_call(request, |params| self.changes_in_block_by_type(params)).await
+                }
             }
             "chunk" => process_method_call(request, |params| self.chunk(params)).await,
             "gas_price" => process_method_call(request, |params| self.gas_price(params)).await,
-            "genesis_config" => {
-                process_method_call(request, |_params: ()| async {
-                    Result::<_, std::convert::Infallible>::Ok(&self.genesis_config)
-                })
-                .await
+            match method {
+                "genesis_config" | "EXPERIMENTAL_genesis_config" => {
+                    process_method_call(request, |_params: ()| async {
+                        Result::<_, std::convert::Infallible>::Ok(&self.genesis_config)
+                    })
+                    .await
+                }
             }
             "health" => process_method_call(request, |_params: ()| self.health()).await,
             "light_client_proof" => {
@@ -417,8 +423,10 @@ impl JsonRpcHandler {
                 })
                 .await
             }
-            "maintenance_windows" => {
-                process_method_call(request, |params| self.maintenance_windows(params)).await
+            match method {
+                "maintenance_windows" | "EXPERIMENTAL_maintenance_windows" => {
+                    process_method_call(request, |params| self.maintenance_windows(params)).await
+                }
             }
             "next_light_client_block" => {
                 process_method_call(request, |params| self.next_light_client_block(params)).await
@@ -433,20 +441,8 @@ impl JsonRpcHandler {
             "client_config" => {
                 process_method_call(request, |_params: ()| self.client_config()).await
             }
-            "EXPERIMENTAL_changes" => {
-                process_method_call(request, |params| self.changes_in_block_by_type(params)).await
-            }
-            "EXPERIMENTAL_changes_in_block" => {
-                process_method_call(request, |params| self.changes_in_block(params)).await
-            }
             "EXPERIMENTAL_congestion_level" => {
                 process_method_call(request, |params| self.congestion_level(params)).await
-            }
-            "EXPERIMENTAL_genesis_config" => {
-                process_method_call(request, |_params: ()| async {
-                    Result::<_, std::convert::Infallible>::Ok(&self.genesis_config)
-                })
-                .await
             }
             "EXPERIMENTAL_light_client_proof" => {
                 process_method_call(request, |params| {
@@ -468,9 +464,6 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_validators_ordered" => {
                 process_method_call(request, |params| self.validators_ordered(params)).await
-            }
-            "EXPERIMENTAL_maintenance_windows" => {
-                process_method_call(request, |params| self.maintenance_windows(params)).await
             }
             "EXPERIMENTAL_split_storage_info" => {
                 process_method_call(request, |params| self.split_storage_info(params)).await
