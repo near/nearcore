@@ -27,7 +27,7 @@ pub struct RuntimeConfigView {
     pub witness_config: WitnessConfigView,
 }
 
-/// Describes different costs for the runtime
+/// Describes different fees for the runtime
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RuntimeFeesConfigView {
