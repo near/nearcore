@@ -3,16 +3,19 @@ use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
+use crate::sharding::ChunkHash;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
 use near_crypto::PublicKey;
 use near_primitives_core::account::GasKey;
+use near_primitives_core::hash::hash;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -1278,6 +1281,20 @@ pub struct StateChangesForShard {
 pub struct ChunkExecutionResult {
     pub chunk_extra: ChunkExtra,
     pub outgoing_receipts_root: CryptoHash,
+}
+
+/// Execution results for all chunks in the block.
+/// For genesis inner hashmap is always empty.
+pub struct BlockExecutionResults(pub HashMap<ChunkHash, ChunkExecutionResult>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChunkExecutionResultHash(pub CryptoHash);
+
+impl ChunkExecutionResult {
+    pub fn compute_hash(&self) -> ChunkExecutionResultHash {
+        let bytes = borsh::to_vec(self).expect("Failed to serialize");
+        ChunkExecutionResultHash(hash(&bytes))
+    }
 }
 
 #[cfg(test)]

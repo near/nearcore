@@ -11,6 +11,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::BlockHeader;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_client::chunk_executor_actor::ExecutorIncomingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
@@ -217,6 +218,7 @@ struct OneClientSenders {
     partial_witness_sender: PartialWitnessSenderForNetwork,
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
     chunk_executor_sender: Sender<ExecutorIncomingReceipts>,
+    spice_chunk_validator_actor: Sender<SpanWrapped<ChunkStateWitnessMessage>>,
     peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
 }
 
@@ -244,7 +246,8 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
         partial_witness_sender: s.clone().into_multi_sender(),
         shards_manager_sender: s.clone().into_sender(),
         peer_manager_sender: s.clone().into_sender(),
-        chunk_executor_sender: s.into_sender(),
+        chunk_executor_sender: s.clone().into_sender(),
+        spice_chunk_validator_actor: s.into_sender(),
     })
 }
 
@@ -271,6 +274,7 @@ impl TestLoopNetworkSharedState {
         Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
         Sender<TestLoopNetworkBlockInfo>: From<&'a D>,
         Sender<ExecutorIncomingReceipts>: From<&'a D>,
+        Sender<SpanWrapped<ChunkStateWitnessMessage>>: From<&'a D>,
     {
         let account_id = AccountId::from(data);
         let peer_id = PeerId::from(data);
@@ -287,6 +291,9 @@ impl TestLoopNetworkSharedState {
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
                 peer_manager_sender: Sender::<TestLoopNetworkBlockInfo>::from(data),
                 chunk_executor_sender: Sender::<ExecutorIncomingReceipts>::from(data),
+                spice_chunk_validator_actor: Sender::<SpanWrapped<ChunkStateWitnessMessage>>::from(
+                    data,
+                ),
             }),
         );
     }
@@ -690,6 +697,27 @@ fn network_message_to_shards_manager_handler(
                         block_hash,
                         receipt_proofs: receipt_proofs.clone(),
                     });
+            }
+            None
+        }
+        NetworkRequests::TestonlySpiceStateWitness { state_witness } => {
+            let raw_witness_size = borsh::object_length(&state_witness).unwrap();
+            for account_id in shared_state.accounts() {
+                // TODO(spice): Exact mock here would depend on data availability layer
+                // implementation.
+                if account_id == my_account_id {
+                    continue;
+                }
+                shared_state
+                    .senders_for_account(&my_account_id, &account_id)
+                    .spice_chunk_validator_actor
+                    .send(
+                        ChunkStateWitnessMessage {
+                            witness: state_witness.clone(),
+                            raw_witness_size,
+                        }
+                        .span_wrap(),
+                    );
             }
             None
         }

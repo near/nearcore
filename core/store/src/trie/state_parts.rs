@@ -53,7 +53,7 @@ impl Trie {
     /// Note that it is used for both boundary generation and verifying. To verify
     /// a boundary, it is enough to check that method doesn't return `StorageError`
     /// and visits all provided nodes.
-    pub fn find_state_part_boundary(
+    fn find_state_part_boundary(
         &self,
         part_id: u64,
         num_parts: u64,
@@ -75,7 +75,8 @@ impl Trie {
 
     /// Generates state parts using the trie storage (i.e. State) and not using
     /// flat storage (i.e. FlatState).
-    pub fn get_trie_nodes_for_part_without_flat_storage(
+    #[cfg(test)]
+    fn get_trie_nodes_for_part_without_flat_storage(
         &self,
         part_id: PartId,
     ) -> Result<PartialState, StorageError> {
@@ -122,7 +123,7 @@ impl Trie {
 
     /// Determines the boundaries of a state part by accessing the Trie (i.e. State column).
     /// Returns the keys of the boundaries and also a set of Trie nodes needed to validate the state parts.
-    pub fn get_state_part_boundaries(
+    fn get_state_part_boundaries(
         &self,
         part_id: PartId,
     ) -> Result<(PartialState, Vec<u8>, Vec<u8>), StorageError> {
@@ -166,19 +167,12 @@ impl Trie {
     }
 
     /// Creates state part using only the flat storage (i.e. FlatState).
-    /// The boundaries of the state part must already be known.
-    /// The nodes representing the boundaries must already be provided.
     ///
     /// * part_id - number of the state part, mainly for metrics.
-    /// * partial_state - nodes needed to generate and proof state part boundaries.
-    /// * nibbles_begin and nibbles_end specify the range of flat storage to be read.
     /// * state_trie - provides access to State for random lookups of values by hash.
     pub fn get_trie_nodes_for_part_with_flat_storage(
         &self,
         part_id: PartId,
-        partial_state: PartialState,
-        nibbles_begin: Vec<u8>,
-        nibbles_end: Vec<u8>,
         state_trie: &Trie,
     ) -> Result<PartialState, StorageError> {
         // If chunk view is missing us ShardId::max() as fake value for metrics.
@@ -198,7 +192,10 @@ impl Trie {
             .start_timer();
         // TODO(nikurt): Simplify. This is a long function with complex logic.
 
-        let PartialState::TrieValues(path_boundary_nodes) = partial_state;
+        let (path_boundary_nodes, nibbles_begin, nibbles_end) =
+            state_trie.get_state_part_boundaries(part_id)?;
+
+        let PartialState::TrieValues(path_boundary_nodes) = path_boundary_nodes;
 
         // 1. Extract all key-value pairs in state part from flat storage.
         let values_read_timer = metrics::GET_STATE_PART_READ_FS_ELAPSED
@@ -1164,22 +1161,11 @@ mod tests {
         assert_eq!(Trie::validate_state_part(&root, part_id, state_part.clone()), Ok(()));
         assert!(state_part.len() > 0);
 
-        // Check that if we try to use flat storage but it is empty, state part
-        // creation fails.
-        let (partial_state, nibbles_begin, nibbles_end) =
-            trie_without_flat.get_state_part_boundaries(part_id).unwrap();
-
         let view_chunk_trie =
             tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
 
         assert_matches!(
-            view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(
-                part_id,
-                partial_state,
-                nibbles_begin,
-                nibbles_end,
-                &trie_without_flat,
-            ),
+            view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(part_id, &trie_without_flat,),
             Err(StorageError::MissingTrieValue(MissingTrieValue {
                 context: MissingTrieValueContext::TrieMemoryPartialStorage,
                 hash: _
@@ -1194,18 +1180,10 @@ mod tests {
         delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         store_update.commit().unwrap();
 
-        let (partial_state, nibbles_begin, nibbles_end) =
-            trie_without_flat.get_state_part_boundaries(part_id).unwrap();
-
         let view_chunk_trie =
             tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
-        let state_part_with_flat = view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(
-            PartId::new(1, 3),
-            partial_state.clone(),
-            nibbles_begin.clone(),
-            nibbles_end.clone(),
-            &trie_without_flat,
-        );
+        let state_part_with_flat = view_chunk_trie
+            .get_trie_nodes_for_part_with_flat_storage(PartId::new(1, 3), &trie_without_flat);
         assert_eq!(state_part_with_flat, Ok(state_part.clone()));
 
         // Remove some key from state part from trie storage.
@@ -1226,13 +1204,7 @@ mod tests {
         );
 
         assert_eq!(
-            view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(
-                part_id,
-                partial_state.clone(),
-                nibbles_begin.clone(),
-                nibbles_end.clone(),
-                &trie_without_flat,
-            ),
+            view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(part_id, &trie_without_flat,),
             Ok(state_part)
         );
 
@@ -1245,13 +1217,7 @@ mod tests {
         store_update.commit().unwrap();
 
         assert_matches!(
-            view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(
-                part_id,
-                partial_state,
-                nibbles_begin,
-                nibbles_end,
-                &trie_without_flat,
-            ),
+            view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(part_id, &trie_without_flat,),
             Err(StorageError::MissingTrieValue(MissingTrieValue {
                 context: MissingTrieValueContext::TrieMemoryPartialStorage,
                 hash: _

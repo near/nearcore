@@ -26,8 +26,25 @@ use near_store::{StorageError, TrieAccess, TrieUpdate};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-pub enum ReceiptSink {
-    V2(ReceiptSinkV2),
+pub(crate) enum ReceiptSink {
+    V2(ReceiptSinkV2WithInfo),
+}
+
+/// Separates out the supporting information about the chunk from the sink structures themselves.
+///
+/// This is largely necessary to work around borrowing limitations and the code structure: we want
+/// to iterate over shards immutably and at the same time mutate the congestion info via calls to
+/// functions that receive `ReceiptSinkV2` as a receiver.
+pub(crate) struct ReceiptSinkV2WithInfo {
+    pub(crate) sink: ReceiptSinkV2,
+    pub(crate) info: ReceiptSinkV2Info,
+}
+
+/// Refer to [`ReceiptSinkV2WithInfo`].
+pub(crate) struct ReceiptSinkV2Info {
+    epoch_id: EpochId,
+    shard_layout: ShardLayout,
+    parent_shard_ids: std::collections::BTreeSet<ShardId>,
 }
 
 /// A helper struct to buffer or forward receipts.
@@ -39,7 +56,7 @@ pub enum ReceiptSink {
 /// This is for congestion control, allowing to apply backpressure from the
 /// receiving shard and stopping us from sending more receipts to it than its
 /// nodes can keep in memory.
-pub struct ReceiptSinkV2 {
+pub(crate) struct ReceiptSinkV2 {
     /// Keeps track of the local shard's congestion info while adding and
     /// removing buffered or delayed receipts. At the end of applying receipts,
     /// it will be a field in the [`ApplyResult`]. For this chunk, it is not
@@ -72,7 +89,8 @@ impl ReceiptSink {
         apply_state: &ApplyState,
         prev_own_congestion_info: CongestionInfo,
         bandwidth_scheduler_output: BandwidthSchedulerOutput,
-    ) -> Result<Self, StorageError> {
+        epoch_info_provider: &dyn EpochInfoProvider,
+    ) -> Result<Self, RuntimeError> {
         let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
 
         let outgoing_limit: HashMap<ShardId, OutgoingLimit> = apply_state
@@ -111,8 +129,8 @@ impl ReceiptSink {
         stats.set_outgoing_limits(
             outgoing_limit.iter().map(|(shard_id, limit)| (*shard_id, (limit.size, limit.gas))),
         );
-
-        Ok(ReceiptSink::V2(ReceiptSinkV2 {
+        let info = ReceiptSinkV2Info::new(apply_state.epoch_id, epoch_info_provider)?;
+        let sink = ReceiptSinkV2 {
             own_congestion_info: prev_own_congestion_info,
             outgoing_receipts: Vec::new(),
             outgoing_limit,
@@ -120,7 +138,8 @@ impl ReceiptSink {
             outgoing_metadatas,
             bandwidth_scheduler_output,
             stats,
-        }))
+        };
+        Ok(ReceiptSink::V2(ReceiptSinkV2WithInfo { sink, info }))
     }
 
     /// Forward receipts already in the buffer to the outgoing receipts vector, as
@@ -129,11 +148,11 @@ impl ReceiptSink {
         &mut self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
-        epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         match self {
-            ReceiptSink::V2(inner) => {
-                inner.forward_from_buffer(state_update, apply_state, epoch_info_provider)
+            ReceiptSink::V2(sink_with_info) => {
+                assert_eq!(apply_state.epoch_id, sink_with_info.info.epoch_id);
+                sink_with_info.forward_from_buffer(state_update, apply_state)
             }
         }
     }
@@ -146,15 +165,12 @@ impl ReceiptSink {
         receipt: Receipt,
         apply_state: &ApplyState,
         state_update: &mut TrieUpdate,
-        epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         match self {
-            ReceiptSink::V2(inner) => inner.forward_or_buffer_receipt(
-                receipt,
-                apply_state,
-                state_update,
-                epoch_info_provider,
-            ),
+            ReceiptSink::V2(sink_with_info) => {
+                assert_eq!(apply_state.epoch_id, sink_with_info.info.epoch_id);
+                sink_with_info.forward_or_buffer_receipt(receipt, apply_state, state_update)
+            }
         }
     }
 
@@ -165,23 +181,23 @@ impl ReceiptSink {
         stats: &mut ReceiptSinkStats,
     ) -> Vec<Receipt> {
         match self {
-            ReceiptSink::V2(mut inner) => {
-                inner.record_outgoing_buffer_stats();
-                *stats = inner.stats;
-                inner.outgoing_receipts
+            ReceiptSink::V2(mut sink_with_info) => {
+                sink_with_info.sink.record_outgoing_buffer_stats();
+                *stats = sink_with_info.sink.stats;
+                sink_with_info.sink.outgoing_receipts
             }
         }
     }
 
     pub(crate) fn own_congestion_info(&self) -> CongestionInfo {
         match self {
-            ReceiptSink::V2(inner) => inner.own_congestion_info,
+            ReceiptSink::V2(sink_with_info) => sink_with_info.sink.own_congestion_info,
         }
     }
 
     pub(crate) fn bandwidth_scheduler_output(&self) -> &BandwidthSchedulerOutput {
         match self {
-            ReceiptSink::V2(inner) => &inner.bandwidth_scheduler_output,
+            ReceiptSink::V2(sink_with_info) => &sink_with_info.sink.bandwidth_scheduler_output,
         }
     }
 
@@ -194,60 +210,123 @@ impl ReceiptSink {
         stats: &mut ChunkApplyStatsV0,
     ) -> Result<BandwidthRequests, StorageError> {
         match self {
-            ReceiptSink::V2(inner) => {
-                inner.generate_bandwidth_requests(trie, shard_layout, side_effects, stats)
-            }
+            ReceiptSink::V2(sink_with_info) => sink_with_info.sink.generate_bandwidth_requests(
+                trie,
+                shard_layout,
+                side_effects,
+                stats,
+            ),
         }
     }
 }
 
-impl ReceiptSinkV2 {
+impl ReceiptSinkV2Info {
+    pub(crate) fn new(
+        epoch_id: EpochId,
+        epoch_info_provider: &dyn EpochInfoProvider,
+    ) -> Result<Self, near_primitives::errors::EpochError> {
+        let shard_layout = epoch_info_provider.shard_layout(&epoch_id)?;
+        let parent_shard_ids = shard_layout.get_split_parent_shard_ids();
+        Ok(ReceiptSinkV2Info { epoch_id, shard_layout, parent_shard_ids })
+    }
+}
+
+impl ReceiptSinkV2WithInfo {
     /// Forward receipts already in the buffer to the outgoing receipts vector, as
     /// much as the gas limits allow.
     pub(crate) fn forward_from_buffer(
         &mut self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
-        epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         tracing::debug!(target: "runtime", "forwarding receipts from outgoing buffers");
-
-        let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
-        let shard_ids = shard_layout.shard_ids().collect_vec();
-        let parent_shard_ids = shard_layout.get_split_parent_shard_ids();
 
         // There mustn't be any shard ids in both the parents and the current
         // shard ids. If this happens the same buffer will be processed twice.
         debug_assert!(
-            parent_shard_ids.intersection(&shard_ids.clone().into_iter().collect()).count() == 0
+            self.info
+                .parent_shard_ids
+                .intersection(&self.info.shard_layout.shard_ids().collect())
+                .count()
+                == 0
         );
 
         let mut all_buffers_empty = true;
 
         // First forward any receipts that may still be in the outgoing buffers
         // of the parent shards.
-        for &shard_id in &parent_shard_ids {
-            self.forward_from_buffer_to_shard(shard_id, state_update, apply_state, &shard_layout)?;
-            let is_buffer_empty = self.outgoing_buffers.to_shard(shard_id).len() == 0;
+        for &shard_id in &self.info.parent_shard_ids {
+            self.sink.forward_from_buffer_to_shard(
+                shard_id,
+                state_update,
+                apply_state,
+                &self.info.shard_layout,
+            )?;
+            let is_buffer_empty = self.sink.outgoing_buffers.to_shard(shard_id).len() == 0;
             all_buffers_empty &= is_buffer_empty;
         }
 
         // Then forward receipts from the outgoing buffers of the shard in the
         // current shard layout.
-        for &shard_id in &shard_ids {
-            self.forward_from_buffer_to_shard(shard_id, state_update, apply_state, &shard_layout)?;
-            let is_buffer_empty = self.outgoing_buffers.to_shard(shard_id).len() == 0;
+        for shard_id in self.info.shard_layout.shard_ids() {
+            self.sink.forward_from_buffer_to_shard(
+                shard_id,
+                state_update,
+                apply_state,
+                &self.info.shard_layout,
+            )?;
+            let is_buffer_empty = self.sink.outgoing_buffers.to_shard(shard_id).len() == 0;
             all_buffers_empty &= is_buffer_empty;
         }
 
         // Assert that empty buffers match zero buffered gas.
         if all_buffers_empty {
-            assert_eq!(self.own_congestion_info.buffered_receipts_gas(), 0);
+            assert_eq!(self.sink.own_congestion_info.buffered_receipts_gas(), 0);
         }
 
         Ok(())
     }
 
+    /// Put a receipt in the outgoing receipts vector (=forward) if the
+    /// congestion preventing limits allow it. Put it in the buffered receipts
+    /// queue otherwise.
+    pub(crate) fn forward_or_buffer_receipt(
+        &mut self,
+        receipt: Receipt,
+        apply_state: &ApplyState,
+        state_update: &mut TrieUpdate,
+    ) -> Result<(), RuntimeError> {
+        let shard = receipt.receiver_shard_id(&self.info.shard_layout)?;
+        let size = compute_receipt_size(&receipt)?;
+        let gas = compute_receipt_congestion_gas(&receipt, &apply_state.config)?;
+
+        match ReceiptSinkV2::try_forward(
+            receipt,
+            gas,
+            size,
+            shard,
+            &mut self.sink.outgoing_limit,
+            &mut self.sink.outgoing_receipts,
+            apply_state,
+            &mut self.sink.stats,
+        )? {
+            ReceiptForwarding::Forwarded => (),
+            ReceiptForwarding::NotForwarded(receipt) => {
+                self.sink.buffer_receipt(
+                    receipt,
+                    size,
+                    gas,
+                    state_update,
+                    shard,
+                    apply_state.config.use_state_stored_receipt,
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl ReceiptSinkV2 {
     /// Forward receipts from the outgoing buffer of buffer_shard_id to the
     /// outgoing receipts as much as the limits allow.
     ///
@@ -312,46 +391,6 @@ impl ReceiptSinkV2 {
                 gas,
                 state_update,
             )?;
-        }
-        Ok(())
-    }
-
-    /// Put a receipt in the outgoing receipts vector (=forward) if the
-    /// congestion preventing limits allow it. Put it in the buffered receipts
-    /// queue otherwise.
-    pub(crate) fn forward_or_buffer_receipt(
-        &mut self,
-        receipt: Receipt,
-        apply_state: &ApplyState,
-        state_update: &mut TrieUpdate,
-        epoch_info_provider: &dyn EpochInfoProvider,
-    ) -> Result<(), RuntimeError> {
-        let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
-        let shard = receipt.receiver_shard_id(&shard_layout)?;
-        let size = compute_receipt_size(&receipt)?;
-        let gas = compute_receipt_congestion_gas(&receipt, &apply_state.config)?;
-
-        match Self::try_forward(
-            receipt,
-            gas,
-            size,
-            shard,
-            &mut self.outgoing_limit,
-            &mut self.outgoing_receipts,
-            apply_state,
-            &mut self.stats,
-        )? {
-            ReceiptForwarding::Forwarded => (),
-            ReceiptForwarding::NotForwarded(receipt) => {
-                self.buffer_receipt(
-                    receipt,
-                    size,
-                    gas,
-                    state_update,
-                    shard,
-                    apply_state.config.use_state_stored_receipt,
-                )?;
-            }
         }
         Ok(())
     }

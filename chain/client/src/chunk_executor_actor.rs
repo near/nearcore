@@ -21,6 +21,7 @@ use near_chain::{
     Block, Chain, ChainGenesis, ChainStore, ChainUpdate, DoomslugThresholdMode, Error,
     collect_receipts, get_chunk_clone_from_header,
 };
+use near_chain_configs::ClientConfig;
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
@@ -33,8 +34,14 @@ use near_primitives::optimistic_block::{BlockToApply, CachedShardUpdateKey};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::sharding::ReceiptProof;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
+use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
+use near_primitives::stateless_validation::state_witness::ChunkStateTransition;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
+use near_primitives::types::AccountId;
 use near_primitives::types::ChunkExecutionResult;
 use near_primitives::types::EpochId;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -45,9 +52,13 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_store::DBCol;
 use near_store::Store;
 use near_store::StoreUpdate;
+use near_store::TrieDBStorage;
+use near_store::TrieStorage;
+use near_store::adapter::trie_store::TrieStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use tracing::instrument;
 
+use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
@@ -72,6 +83,7 @@ pub struct ChunkExecutorActor {
     validator_signer: MutableValidatorSigner,
     core_processor: CoreStatementsProcessor,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    client_config: ClientConfig,
 }
 
 impl ChunkExecutorActor {
@@ -88,6 +100,7 @@ impl ChunkExecutorActor {
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         myself_sender: Sender<ExecutorApplyChunksDone>,
+        client_config: ClientConfig,
     ) -> Self {
         Self {
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
@@ -103,6 +116,7 @@ impl ChunkExecutorActor {
             validator_signer,
             core_processor,
             chunk_endorsement_tracker,
+            client_config,
         }
     }
 }
@@ -119,21 +133,18 @@ pub struct ExecutorIncomingReceipts {
     pub receipt_proofs: Vec<ReceiptProof>,
 }
 
-/// Message that should be sent once block is processed to indicate that it's available for
-/// execution.
+/// Message that should be sent once block is processed.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub struct ExecutorBlock {
+pub struct ProcessedBlock {
     pub block_hash: CryptoHash,
 }
 
-/// Message that should be sent once chunk's executions result is endorsed.
-#[derive(actix::Message, Debug)]
+/// Message that should be sent once executions results for all chunks in a block are endorsed.
+#[derive(actix::Message, Debug, Clone)]
 #[rtype(result = "()")]
-pub struct ExecutorExecutionResultEndorsed {
+pub struct ExecutionResultEndorsed {
     pub block_hash: CryptoHash,
-    // This isn't used, but better conveys what the message means.
-    pub chunk_hash: ChunkHash,
 }
 
 #[derive(actix::Message, Debug)]
@@ -159,8 +170,8 @@ impl Handler<ExecutorIncomingReceipts> for ChunkExecutorActor {
     }
 }
 
-impl Handler<ExecutorBlock> for ChunkExecutorActor {
-    fn handle(&mut self, ExecutorBlock { block_hash }: ExecutorBlock) {
+impl Handler<ProcessedBlock> for ChunkExecutorActor {
+    fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         match self.try_apply_chunks(&block_hash) {
             Ok(TryApplyChunksOutcome::Scheduled) => {}
             Ok(TryApplyChunksOutcome::NotReady) => {
@@ -182,11 +193,8 @@ impl Handler<ExecutorBlock> for ChunkExecutorActor {
     }
 }
 
-impl Handler<ExecutorExecutionResultEndorsed> for ChunkExecutorActor {
-    fn handle(
-        &mut self,
-        ExecutorExecutionResultEndorsed { block_hash, .. }: ExecutorExecutionResultEndorsed,
-    ) {
+impl Handler<ExecutionResultEndorsed> for ChunkExecutorActor {
+    fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
         if let Err(err) = self.try_process_next_blocks(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process next blocks");
         }
@@ -234,7 +242,7 @@ impl ChunkExecutorActor {
             tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing execution results to allow validating receipts");
             return Ok(TryApplyChunksOutcome::NotReady);
         }
-        let execution_results = self.core_processor.get_execution_results(&prev_block);
+        let execution_results = self.core_processor.get_execution_results_by_shard_id(&prev_block);
 
         let mut all_receipts: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
@@ -438,6 +446,13 @@ impl ChunkExecutorActor {
         ));
     }
 
+    fn send_witness_to_chunk_validators(&self, state_witness: ChunkStateWitness) {
+        // TODO(spice): Use distribution layer to distribute witnesses instead.
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::TestonlySpiceStateWitness { state_witness },
+        ));
+    }
+
     fn process_apply_chunk_results(
         &mut self,
         block_hash: CryptoHash,
@@ -447,54 +462,24 @@ impl ChunkExecutorActor {
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for result in &results {
-            let ShardUpdateResult::NewChunk(NewChunkResult { shard_uid, gas_limit, apply_result }) =
-                result
-            else {
+            let ShardUpdateResult::NewChunk(new_chunk_result) = result else {
                 panic!("missing chunks are not expected in SPICE");
             };
-            let shard_id = shard_uid.shard_id();
             let Some(my_signer) = self.validator_signer.get() else {
                 // If node isn't validator it shouldn't send outgoing receipts, endorsed and witnesses.
                 // RPC nodes can still apply chunks and tracks multiple shards.
                 continue;
             };
+            let shard_id = new_chunk_result.shard_uid.shard_id();
             let (outgoing_receipts_root, receipt_proofs) =
                 Chain::create_receipts_proofs_from_outgoing_receipts(
                     &shard_layout,
                     shard_id,
-                    apply_result.outgoing_receipts.clone(),
+                    new_chunk_result.apply_result.outgoing_receipts.clone(),
                 )?;
             self.send_outgoing_receipts(block_hash, receipt_proofs);
 
-            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-            let chunks = block.chunks();
-            let chunk_header = chunks.get(shard_index).unwrap();
-
-            if self
-                .epoch_manager
-                .get_chunk_validator_assignments(&epoch_id, shard_id, block.header().height())?
-                .contains(my_signer.validator_id())
-            {
-                let execution_result =
-                    new_execution_result(gas_limit, apply_result, outgoing_receipts_root);
-                // If we're validator we can send endorsement without witness validation.
-                let endorsement = ChunkEndorsement::new_with_execution_result(
-                    epoch_id,
-                    execution_result,
-                    block_hash,
-                    chunk_header,
-                    &my_signer,
-                );
-                send_spice_chunk_endorsements(
-                    endorsement.clone(),
-                    self.epoch_manager.as_ref(),
-                    &self.network_adapter.clone().into_sender(),
-                    block.hash(),
-                    &my_signer,
-                )?;
-                self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement)?;
-            }
-            // TODO(spice): create and send state witness.
+            self.distribute_witness(&block, my_signer, new_chunk_result, outgoing_receipts_root)?;
         }
 
         let mut chain_update = self.chain_update();
@@ -506,6 +491,140 @@ impl ChunkExecutorActor {
         )?;
         chain_update.commit()?;
         Ok(())
+    }
+
+    fn distribute_witness(
+        &mut self,
+        block: &Arc<Block>,
+        my_signer: Arc<ValidatorSigner>,
+        new_chunk_result: &NewChunkResult,
+        outgoing_receipts_root: CryptoHash,
+    ) -> Result<(), Error> {
+        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
+        let shard_id = shard_uid.shard_id();
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+        let chunks = block.chunks();
+        let chunk_header = chunks.get(shard_index).unwrap();
+
+        if self
+            .epoch_manager
+            .get_chunk_validator_assignments(&epoch_id, shard_id, block.header().height())?
+            .contains(my_signer.validator_id())
+        {
+            let execution_result =
+                new_execution_result(gas_limit, apply_result, outgoing_receipts_root);
+            // If we're validator we can send endorsement without witness validation.
+            let endorsement = ChunkEndorsement::new_with_execution_result(
+                *epoch_id,
+                execution_result,
+                *block.header().hash(),
+                chunk_header,
+                &my_signer,
+            );
+            send_spice_chunk_endorsement(
+                endorsement.clone(),
+                self.epoch_manager.as_ref(),
+                &self.network_adapter.clone().into_sender(),
+                &my_signer,
+            );
+            self.chunk_endorsement_tracker
+                .process_chunk_endorsement(endorsement)
+                .expect("Node should always be able to record it's own endorsement");
+        }
+
+        let state_witness = self.create_witness(
+            block,
+            apply_result,
+            my_signer.validator_id().clone(),
+            chunk_header,
+        )?;
+
+        if self.client_config.save_latest_witnesses {
+            self.chain_store.save_latest_chunk_state_witness(&state_witness)?;
+        }
+
+        self.send_witness_to_chunk_validators(state_witness);
+        Ok(())
+    }
+
+    fn create_witness(
+        &self,
+        block: &Block,
+        apply_result: &ApplyChunkResult,
+        me: AccountId,
+        chunk_header: &ShardChunkHeader,
+    ) -> Result<ChunkStateWitness, Error> {
+        let block_hash = block.header().hash();
+        let epoch_id = self.epoch_manager.get_epoch_id(block_hash).unwrap();
+        let prev_block = self.chain_store.get_block(block.header().prev_hash()).unwrap();
+        let shard_id = chunk_header.shard_id();
+
+        let applied_receipts_hash = apply_result.applied_receipts_hash;
+        let main_transition = {
+            let ContractUpdates { contract_accesses, contract_deploys: _ } =
+                apply_result.contract_updates.clone();
+
+            let PartialState::TrieValues(mut base_state_values) =
+                apply_result.proof.clone().unwrap().nodes;
+            let trie_storage = TrieDBStorage::new(
+                TrieStoreAdapter::new(self.runtime_adapter.store().clone()),
+                shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?,
+            );
+            base_state_values.reserve_exact(contract_accesses.len());
+            for contract_hash in contract_accesses {
+                let contract = trie_storage.retrieve_raw_bytes(&contract_hash.0)?;
+                base_state_values.push(contract);
+            }
+            ChunkStateTransition {
+                block_hash: *block_hash,
+                base_state: PartialState::TrieValues(base_state_values),
+                post_state_root: apply_result.new_root,
+            }
+        };
+        let source_receipt_proofs: HashMap<ChunkHash, ReceiptProof> = {
+            let prev_block_hash = prev_block.header().hash();
+            let (prev_block_shard_layout, prev_block_shard_id, _) =
+                self.epoch_manager.get_prev_shard_id_from_prev_hash(prev_block_hash, shard_id)?;
+            let receipt_proofs = get_receipt_proofs_for_shard(
+                &self.chain_store.store(),
+                prev_block_hash,
+                prev_block_shard_id,
+            )?;
+            receipt_proofs
+                .into_iter()
+                .map(|proof| -> Result<_, Error> {
+                    let from_shard_id = proof.1.from_shard_id;
+                    let from_shard_index =
+                        prev_block_shard_layout.get_shard_index(from_shard_id)?;
+                    let chunks = prev_block.chunks();
+                    let from_chunk_hash = chunks
+                        .get(from_shard_index)
+                        .ok_or(Error::InvalidShardId(proof.1.from_shard_id))?
+                        .chunk_hash();
+                    Ok((from_chunk_hash.clone(), proof))
+                })
+                .collect::<Result<_, Error>>()?
+        };
+        // TODO(spice-resharding): implicit_transitions are used for resharding.
+        let implicit_transitions = Vec::new();
+        let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let state_witness = ChunkStateWitness::new(
+            me,
+            epoch_id,
+            // Note that for spice we send current, not next, chunk header wrt. witnessed
+            // transition.
+            chunk_header.clone(),
+            main_transition,
+            source_receipt_proofs,
+            applied_receipts_hash,
+            chunk.to_transactions().to_vec(),
+            implicit_transitions,
+            protocol_version,
+        );
+        Ok(state_witness)
     }
 
     fn get_update_shard_job(
@@ -647,39 +766,6 @@ fn new_execution_result(
         apply_result.bandwidth_requests.clone(),
     );
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
-}
-
-fn send_spice_chunk_endorsements(
-    endorsement: ChunkEndorsement,
-    epoch_manager: &dyn EpochManagerAdapter,
-    network_sender: &Sender<PeerManagerMessageRequest>,
-    block_hash: &CryptoHash,
-    signer: &ValidatorSigner,
-) -> Result<(), Error> {
-    let epoch_id = epoch_manager.get_epoch_id(block_hash)?;
-    let next_epoch_id = epoch_manager.get_next_epoch_id(block_hash)?;
-
-    // Everyone should be aware of all core statements to make sure that execution can proceed
-    // without waiting on endorsements appearing in consensus.
-    let validators = epoch_manager
-        .get_epoch_info(&epoch_id)?
-        .validators_iter()
-        // A potential optimization here is to send only to the first few block producers
-        // of the next epoch (instead of to everyone). This may reduce amount of data sent if validator
-        // sets change drastically, but may cause execution delays on epoch boundaries.
-        .chain(epoch_manager.get_epoch_info(&next_epoch_id)?.validators_iter())
-        .map(|stake| stake.take_account_id())
-        .collect::<HashSet<_>>();
-
-    for account in validators {
-        if &account == signer.validator_id() {
-            continue;
-        }
-        network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkEndorsement(account, endorsement.clone()),
-        ));
-    }
-    Ok(())
 }
 
 fn save_receipt_proof(

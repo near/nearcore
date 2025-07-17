@@ -89,7 +89,7 @@ impl ChunkEndorsement {
         }
     }
 
-    pub fn block_hash(&mut self) -> Option<CryptoHash> {
+    pub fn block_hash(&self) -> Option<CryptoHash> {
         match self {
             ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(_) => None,

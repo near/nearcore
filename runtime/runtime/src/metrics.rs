@@ -1,5 +1,5 @@
 use crate::ApplyState;
-use crate::congestion_control::ReceiptSink;
+use crate::congestion_control::{ReceiptSink, ReceiptSinkV2WithInfo};
 use near_o11y::metrics::{
     Counter, CounterVec, GaugeVec, HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
     exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
@@ -745,16 +745,16 @@ impl ApplyMetrics {
     }
 }
 
-pub fn report_congestion_metrics(
+pub(super) fn report_congestion_metrics(
     receipt_sink: &ReceiptSink,
     sender_shard_id: ShardId,
     config: &CongestionControlConfig,
 ) {
     match receipt_sink {
-        ReceiptSink::V2(inner) => {
+        ReceiptSink::V2(ReceiptSinkV2WithInfo { sink, info: _ }) => {
             let sender_shard_label = sender_shard_id.to_string();
-            report_congestion_indicators(&inner.own_congestion_info, &sender_shard_label, &config);
-            report_outgoing_buffers(inner, sender_shard_label);
+            report_congestion_indicators(&sink.own_congestion_info, &sender_shard_label, &config);
+            report_outgoing_buffers(sink, sender_shard_label);
         }
     }
 }

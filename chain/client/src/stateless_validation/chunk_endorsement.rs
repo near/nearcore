@@ -71,7 +71,7 @@ impl ChunkEndorsementTracker {
                 );
                 let shard_id = endorsement.shard_id();
                 if cfg!(feature = "protocol_feature_spice") {
-                    self.spice_core_processor.record_chunk_endorsement(endorsement);
+                    self.spice_core_processor.record_chunk_endorsement(endorsement)?;
                 }
                 metrics::CHUNK_ENDORSEMENTS_ACCEPTED
                     .with_label_values(&[&shard_id.to_string()])

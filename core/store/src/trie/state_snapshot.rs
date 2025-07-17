@@ -191,9 +191,6 @@ impl ShardTries {
         state_root: &StateRoot,
         block_hash: &CryptoHash,
         part_id: PartId,
-        path_boundary_nodes: PartialState,
-        nibbles_begin: Vec<u8>,
-        nibbles_end: Vec<u8>,
         state_trie: Trie,
     ) -> Result<PartialState, StorageError> {
         let guard = self.state_snapshot().try_read().ok_or(SnapshotError::LockWouldBlock)?;
@@ -213,13 +210,7 @@ impl ShardTries {
         let flat_storage_chunk_view = data.flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         let snapshot_trie = Trie::new(storage, *state_root, flat_storage_chunk_view);
-        snapshot_trie.get_trie_nodes_for_part_with_flat_storage(
-            part_id,
-            path_boundary_nodes,
-            nibbles_begin,
-            nibbles_end,
-            &state_trie,
-        )
+        snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, &state_trie)
     }
 
     /// Makes a snapshot of the current state of the DB, if one is not already available.

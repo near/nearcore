@@ -158,10 +158,20 @@ function endorsementRatioBackgroundColor(ratio: number | undefined): string {
     if (!ratio) {
         return "transparent";
     }
-    let endorsementThreshold = 2 / 3;
-    let redRatio = 1.0 - Math.max(ratio - endorsementThreshold, 0) / (1.0 - endorsementThreshold);
-    let red = Math.round(255 * redRatio);
+    const endorsementThreshold = 2 / 3;
+    const redRatio = 1.0 - Math.max(ratio - endorsementThreshold, 0) / (1.0 - endorsementThreshold);
+    const red = Math.round(255 * redRatio);
     return `rgba(${red}, 255, 0, 0.2)`;
+}
+
+function toTGas(gas: number): number {
+    return gas / (1024 * 1024 * 1024 * 1024);
+}
+
+function gasUsedBackgroundColor(gas: number): string {
+    const limitTGas = 300;
+    const usedTGas = toTGas(gas);
+    return `rgba(255, 255, 0, ${(0.5 * Math.min(usedTGas / limitTGas, 1.0)).toFixed(3)})`;
 }
 
 const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: BlocksTableProps) => {
@@ -342,7 +352,9 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                         {chunk_info}
                     </td>
                     {displayGasUsed &&
-                        <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
+                        <td style={{ backgroundColor: gasUsedBackgroundColor(chunk.gas_used) }} >
+                            {toTGas(chunk.gas_used).toFixed(1)}
+                        </td>
                     }
                     {displayChunkProcessingTime &&
                         <td>{chunk.processing_time_ms}</td>
