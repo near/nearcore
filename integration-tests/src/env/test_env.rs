@@ -430,10 +430,12 @@ impl TestEnv {
                     };
 
                     // Call the chunk validation actor's processing method directly to get the actual result
-                    let processing_success = self.chunk_validation_actors[account_index]
+                    let processing_result = self.chunk_validation_actors[account_index]
                         .process_chunk_state_witness_message(witness_message);
-                    if !allow_errors && !processing_success {
-                        panic!("Chunk state witness processing failed");
+                    if !allow_errors {
+                        if let Err(err) = processing_result {
+                            panic!("Chunk state witness processing failed: {}", err);
+                        }
                     }
                 }
 

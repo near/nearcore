@@ -541,22 +541,26 @@ impl ChunkValidationActorInner {
         Ok(())
     }
 
-    pub fn process_chunk_state_witness_message(&mut self, msg: ChunkStateWitnessMessage) -> bool {
+    pub fn process_chunk_state_witness_message(
+        &mut self,
+        msg: ChunkStateWitnessMessage,
+    ) -> Result<(), Error> {
         let ChunkStateWitnessMessage { witness, raw_witness_size, processing_done_tracker } = msg;
 
         // Check if we're a validator
         if self.validator_signer.get().is_none() {
+            const ERROR_MSG: &str = "Received chunk state witness but this is not a validator node";
             tracing::warn!(
                 target: "chunk_validation",
-                "Received chunk state witness but this is not a validator node"
+                ERROR_MSG
             );
-            return false;
+            return Err(Error::Other(ERROR_MSG.to_string()));
         }
 
         // Send acknowledgement back to the chunk producer
         if let Err(err) = self.send_state_witness_ack(&witness) {
             tracing::error!(target: "chunk_validation", ?err, "Failed to send state witness ack");
-            return false;
+            return Err(err);
         }
 
         // Save the witness if configured to do so
@@ -578,11 +582,11 @@ impl ChunkValidationActorInner {
                 ) {
                     Ok(()) => {
                         tracing::debug!(target: "chunk_validation", "Chunk witness validation started successfully");
-                        true
+                        Ok(())
                     }
                     Err(err) => {
                         tracing::error!(target: "chunk_validation", ?err, "Failed to start chunk witness validation");
-                        false
+                        Err(err)
                     }
                 }
             }
@@ -595,17 +599,17 @@ impl ChunkValidationActorInner {
                 match self.handle_orphan_witness(witness, raw_witness_size) {
                     Ok(outcome) => {
                         tracing::debug!(target: "chunk_validation", ?outcome, "Orphan witness handled");
-                        true
+                        Ok(())
                     }
                     Err(err) => {
                         tracing::error!(target: "chunk_validation", ?err, "Failed to handle orphan witness");
-                        false
+                        Err(err)
                     }
                 }
             }
             Err(err) => {
                 tracing::error!(target: "chunk_validation", ?err, "Failed to get previous block");
-                false
+                Err(err)
             }
         }
     }

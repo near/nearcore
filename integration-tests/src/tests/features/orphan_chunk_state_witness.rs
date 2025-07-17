@@ -1,6 +1,7 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use near_async::messaging::Handler;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
@@ -339,10 +340,15 @@ fn test_orphan_witness_not_fully_validated() {
     // There is no way to fully validate an orphan witness, so this is the correct behavior.
     // The witness will later be fully validated when the required block arrives.
     let witness_size = borsh::object_length(&witness).unwrap();
-    let client = env.client(&excluded_validator);
-    client
-        .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
-        .unwrap();
+    let witness_message = ChunkStateWitnessMessage {
+        witness,
+        raw_witness_size: witness_size,
+        processing_done_tracker: None,
+    };
+    let excluded_validator_idx = env.get_client_index(&excluded_validator);
+    let result = env.chunk_validation_actors[excluded_validator_idx]
+        .process_chunk_state_witness_message(witness_message);
+    assert!(result.is_ok(), "Orphan witness should be accepted");
 }
 
 fn modify_witness_header_inner(
