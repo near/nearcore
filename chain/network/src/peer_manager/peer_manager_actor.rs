@@ -20,7 +20,8 @@ use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
     PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StateHeaderRequestBody,
-    StatePartRequestBody, StateSyncEvent, Tier3Request, Tier3RequestBody,
+    StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent, Tier3Request,
+    Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -215,6 +216,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client: ClientSenderForNetwork,
+        state_request_adapter: StateRequestSenderForNetwork,
         peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
@@ -247,6 +249,7 @@ impl PeerManagerActor {
             config,
             genesis_id,
             client,
+            state_request_adapter,
             peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
@@ -1372,7 +1375,7 @@ impl actix::Handler<WithSpanContext<Tier3Request>> for PeerManagerActor {
             async move {
                 let tier3_response = match request.body {
                     Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
-                        match state.client.send_async(StateRequestHeader { shard_id, sync_hash }).await {
+                        match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
                             Ok(Some(client_response)) => {
                                 PeerMessage::VersionedStateResponse(*client_response.0)
                             }
@@ -1387,7 +1390,7 @@ impl actix::Handler<WithSpanContext<Tier3Request>> for PeerManagerActor {
                         }
                     }
                     Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
-                        match state.client.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
+                        match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
                             Ok(Some(client_response)) => {
                                 PeerMessage::VersionedStateResponse(*client_response.0)
                             }

@@ -226,6 +226,24 @@ pub enum ShardStateSyncResponse {
 }
 
 impl ShardStateSyncResponse {
+    pub fn new_from_header(header: Option<ShardStateSyncResponseHeaderV2>) -> Self {
+        Self::V3(ShardStateSyncResponseV3 {
+            header,
+            part: None,
+            cached_parts: None,
+            can_generate: false,
+        })
+    }
+
+    pub fn new_from_part(part: Option<(u64, Vec<u8>)>) -> Self {
+        Self::V3(ShardStateSyncResponseV3 {
+            header: None,
+            part,
+            cached_parts: None,
+            can_generate: false,
+        })
+    }
+
     pub fn part_id(&self) -> Option<u64> {
         match self {
             Self::V1(response) => response.part_id(),
