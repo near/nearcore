@@ -85,201 +85,159 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///
 /// For example, it will transform the following schema:
 /// ```json
-/// {
 ///   "RpcQueryRequest": {
-///        "allOf": [
-///          {
-///            "oneOf": [
-///              {
-///                "properties": {
-///                  "block_id": {
-///                    "$ref": "#/components/schemas/BlockId"
-///                  }
-///                },
-///                "required": [
-///                  "block_id"
-///                ],
-///                "type": "object"
-///              },
-///              {
-///                "properties": {
-///                  "finality": {
-///                    "$ref": "#/components/schemas/Finality"
-///                  }
-///                },
-///                "required": [
-///                  "finality"
-///                ],
-///                "type": "object"
-///              },
-///            ]
-///          },
-///          {
-///            "oneOf": [
-///              {
-///                "properties": {
-///                  "request_type": {
-///                    "enum": [
-///                      "view_account"
-///                    ],
-///                    "type": "string"
-///                  }
-///                },
-///                "required": [
-///                  "request_type",
-///                ],
-///                "type": "object"
-///              },
-///              {
-///                "properties": {
-///                  "request_type": {
-///                    "enum": [
-///                      "view_code"
-///                    ],
-///                    "type": "string"
-///                  }
-///                },
-///                "required": [
-///                  "request_type",
-///                ],
-///                "type": "object"
-///              },
-///            ]
-///          }
-///        ],
-///        "title": "RpcQueryRequest",
-///        "type": "object"
-///      }
-/// }
+///     "allOf": [
+///       {
+///         "oneOf": [
+///           {
+///             "properties": {
+///               "block_id": { "$ref": "#/components/schemas/BlockId" }
+///             },
+///             "required": ["block_id"],
+///             "type": "object"
+///           },
+///           {
+///             "properties": {
+///               "finality": { "$ref": "#/components/schemas/Finality" }
+///             },
+///             "required": ["finality"],
+///             "type": "object"
+///           }
+///         ]
+///       },
+///       {
+///         "oneOf": [
+///           {
+///             "properties": {
+///               "request_type": {
+///                 "type": "string",
+///                 "enum": ["view_account"]
+///               }
+///             },
+///             "required": ["request_type"],
+///             "type": "object"
+///           },
+///           {
+///             "properties": {
+///               "request_type": {
+///                 "type": "string",
+///                 "enum": ["view_code"]
+///               }
+///             },
+///             "required": ["request_type"],
+///             "type": "object"
+///           }
+///         ]
+///       }
+///     ],
+///     "title": "RpcQueryRequest",
+///     "type": "object"
+///   }
 /// ```
 /// into the following schema:
 /// ```json
-///      "RpcQueryRequest": {
-///        "oneOf": [
-///          {
-///            "allOf": [
-///              {
-///                "properties": {
-///                  "block_id": {
-///                    "$ref": "#/components/schemas/BlockId"
-///                  }
-///                },
-///                "required": [
-///                  "block_id"
-///                ],
-///                "type": "object"
-///              },
-///              {
-///                "properties": {
-///                  "request_type": {
-///                    "enum": [
-///                      "view_account"
-///                    ],
-///                    "type": "string"
-///                  }
-///                },
-///                "required": [
-///                  "request_type",
-///                ],
-///                "type": "object"
-///              }
-///            ],
-///            "title": "view_account_by_block_id"
-///          },
-///          {
-///            "allOf": [
-///              {
-///                "properties": {
-///                  "block_id": {
-///                    "$ref": "#/components/schemas/BlockId"
-///                  }
-///                },
-///                "required": [
-///                  "block_id
-///                ],
-///                "type": "object"
-///              },
-///              {
-///                "properties": {
-///                  "request_type": {
-///                    "enum": [
-///                      "view_code"
-///                    ],
-///                    "type": "string"
-///                  }
-///                },
-///                "required": [
-///                  "request_type",
-///                ],
-///                "type": "object"
-///              }
-///            ],
-///            "title": "view_code_by_block_id"
-///          },
-///          {
-///            "allOf": [
-///              {
-///                "properties": {
-///                  "finality": {
-///                    "$ref": "#/components/schemas/Finality"
-///                  }
-///                },
-///                "required": [
-///                  "finality"
-///                ],
-///                "type": "object"
-///              },
-///              {
-///                "properties": {
-///                  "request_type": {
-///                    "enum": [
-///                      "view_account"
-///                    ],
-///                    "type": "string"
-///                  }
-///                },
-///                "required": [
-///                  "request_type",
-///                ],
-///                "type": "object"
-///              }
-///            ],
-///            "title": "view_account_by_finality"
-///          },
-///          {
-///            "allOf": [
-///              {
-///                "properties": {
-///                  "finality": {
-///                    "$ref": "#/components/schemas/Finality"
-///                  }
-///                },
-///                "required": [
-///                  "finality"
-///                ],
-///                "type": "object"
-///              },
-///              {
-///                "properties": {
-///                  "request_type": {
-///                    "enum": [
-///                      "view_code"
-///                    ],
-///                    "type": "string"
-///                  }
-///                },
-///                "required": [
-///                  "request_type",
-///                ],
-///                "type": "object"
-///              }
-///            ],
-///            "title": "view_code_by_finality"
-///          },
-///        ],
-///        "title": "RpcQueryRequest",
-///        "type": "object"
-///      },
+///   "RpcQueryRequest": {
+///     "oneOf": [
+///       {
+///         "allOf": [
+///           {
+///             "properties": {
+///               "block_id": {
+///                 "$ref": "#/components/schemas/BlockId"
+///               }
+///             },
+///             "required": ["block_id"],
+///             "type": "object"
+///           },
+///           {
+///             "properties": {
+///               "request_type": {
+///                 "type": "string",
+///                 "enum": ["view_account"]
+///               }
+///             },
+///             "required": ["request_type"],
+///             "type": "object"
+///           }
+///         ],
+///         "title": "view_account_by_block_id"
+///       },
+///       {
+///         "allOf": [
+///           {
+///             "properties": {
+///               "block_id": {
+///                 "$ref": "#/components/schemas/BlockId"
+///               }
+///             },
+///             "required": ["block_id"],
+///             "type": "object"
+///           },
+///           {
+///             "properties": {
+///               "request_type": {
+///                 "type": "string",
+///                 "enum": ["view_code"]
+///               }
+///             },
+///             "required": ["request_type"],
+///             "type": "object"
+///           }
+///         ],
+///         "title": "view_code_by_block_id"
+///       },
+///       {
+///         "allOf": [
+///           {
+///             "properties": {
+///               "finality": {
+///                 "$ref": "#/components/schemas/Finality"
+///               }
+///             },
+///             "required": ["finality"],
+///             "type": "object"
+///           },
+///           {
+///             "properties": {
+///               "request_type": {
+///                 "type": "string",
+///                 "enum": ["view_account"]
+///               }
+///             },
+///             "required": ["request_type"],
+///             "type": "object"
+///           }
+///         ],
+///         "title": "view_account_by_finality"
+///       },
+///       {
+///         "allOf": [
+///           {
+///             "properties": {
+///               "finality": {
+///                 "$ref": "#/components/schemas/Finality"
+///               }
+///             },
+///             "required": ["finality"],
+///             "type": "object"
+///           },
+///           {
+///             "properties": {
+///               "request_type": {
+///                 "type": "string",
+///                 "enum": ["view_code"]
+///               }
+///             },
+///             "required": ["request_type"],
+///             "type": "object"
+///           }
+///         ],
+///         "title": "view_code_by_finality"
+///       }
+///     ],
+///     "type": "object",
+///     "title": "RpcQueryRequest"
+///   }
 #[derive(Debug, Clone)]
 pub struct InterchangeOneOfsAndAllOfs;
 
@@ -303,9 +261,7 @@ impl schemars::transform::Transform for InterchangeOneOfsAndAllOfs {
 ///            "allOf": [
 ///              {
 ///                "properties": {
-///                  "finality": {
-///                    "$ref": "#/components/schemas/Finality"
-///                  }
+///                  "finality": { "$ref": "#/components/schemas/Finality" }
 ///                },
 ///                "required": [
 ///                  "finality"
@@ -315,9 +271,7 @@ impl schemars::transform::Transform for InterchangeOneOfsAndAllOfs {
 ///              {
 ///                "properties": {
 ///                  "request_type": {
-///                    "enum": [
-///                      "view_code"
-///                    ],
+///                    "enum": [ "view_code" ],
 ///                    "type": "string"
 ///                  }
 ///                },
