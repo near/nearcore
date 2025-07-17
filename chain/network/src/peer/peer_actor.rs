@@ -413,6 +413,7 @@ impl PeerActor {
                             msg_type = "PartialEncodedStateWitness",
                             part_ord = witness.part_ord(),
                             height = witness.chunk_production_key().height_created,
+                            shard_id = %witness.chunk_production_key().shard_id,
                             tag_witness_distribution = true,
                         )
                         .entered(),
@@ -422,6 +423,7 @@ impl PeerActor {
                             msg_type = "PartialEncodedStateWitnessForward",
                             part_ord = witness.part_ord(),
                             height = witness.chunk_production_key().height_created,
+                            shard_id = %witness.chunk_production_key().shard_id,
                             tag_witness_distribution = true,
                         )
                         .entered(),
@@ -1023,6 +1025,7 @@ impl PeerActor {
                             msg_type = "PartialEncodedStateWitness",
                             part_ord = witness.part_ord(),
                             height = witness.chunk_production_key().height_created,
+                            shard_id = %witness.chunk_production_key().shard_id,
                             tag_witness_distribution = true,
                         )
                         .entered(),
@@ -1032,6 +1035,7 @@ impl PeerActor {
                             msg_type = "PartialEncodedStateWitnessForward",
                             part_ord = witness.part_ord(),
                             height = witness.chunk_production_key().height_created,
+                            shard_id = %witness.chunk_production_key().shard_id,
                             tag_witness_distribution = true,
                         )
                         .entered(),
@@ -1842,6 +1846,7 @@ impl actix::Handler<WithSpanContext<SpanWrapped<SendMessage>>> for PeerActor {
                             msg_type = "PartialEncodedStateWitness",
                             part_ord = witness.part_ord(),
                             height = witness.chunk_production_key().height_created,
+                            shard_id = %witness.chunk_production_key().shard_id,
                             tag_witness_distribution = true,
                         )
                         .entered(),
@@ -1851,6 +1856,7 @@ impl actix::Handler<WithSpanContext<SpanWrapped<SendMessage>>> for PeerActor {
                             msg_type = "PartialEncodedStateWitnessForward",
                             part_ord = witness.part_ord(),
                             height = witness.chunk_production_key().height_created,
+                            shard_id = %witness.chunk_production_key().shard_id,
                             tag_witness_distribution = true,
                         )
                         .entered(),

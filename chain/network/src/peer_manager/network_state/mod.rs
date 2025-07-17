@@ -552,6 +552,7 @@ impl NetworkState {
                         msg_type = "PartialEncodedStateWitness",
                         part_ord = witness.part_ord(),
                         height = witness.chunk_production_key().height_created,
+                        shard_id = %witness.chunk_production_key().shard_id,
                         tag_witness_distribution = true,
                     )
                     .entered(),
@@ -561,6 +562,7 @@ impl NetworkState {
                         msg_type = "PartialEncodedStateWitnessForward",
                         part_ord = witness.part_ord(),
                         height = witness.chunk_production_key().height_created,
+                        shard_id = %witness.chunk_production_key().shard_id,
                         tag_witness_distribution = true,
                     )
                     .entered(),
@@ -589,6 +591,7 @@ impl NetworkState {
                                 msg_type = "PartialEncodedStateWitness",
                                 part_ord = witness.part_ord(),
                                 height = witness.chunk_production_key().height_created,
+                                shard_id = %witness.chunk_production_key().shard_id,
                                 tag_witness_distribution = true,
                             )
                             .entered(),
@@ -598,6 +601,7 @@ impl NetworkState {
                                 msg_type = "PartialEncodedStateWitnessForward",
                                 part_ord = witness.part_ord(),
                                 height = witness.chunk_production_key().height_created,
+                                shard_id = %witness.chunk_production_key().shard_id,
                                 tag_witness_distribution = true,
                             )
                             .entered(),
@@ -628,6 +632,7 @@ impl NetworkState {
                                 msg_type = "PartialEncodedStateWitness",
                                 part_ord = witness.part_ord(),
                                 height = witness.chunk_production_key().height_created,
+                                shard_id = %witness.chunk_production_key().shard_id,
                                 tag_witness_distribution = true,
                             )
                             .entered(),
@@ -637,6 +642,7 @@ impl NetworkState {
                                 msg_type = "PartialEncodedStateWitnessForward",
                                 part_ord = witness.part_ord(),
                                 height = witness.chunk_production_key().height_created,
+                                shard_id = %witness.chunk_production_key().shard_id,
                                 tag_witness_distribution = true,
                             )
                             .entered(),
@@ -705,6 +711,7 @@ impl NetworkState {
                         msg_type = "PartialEncodedStateWitness",
                         part_ord = witness.part_ord(),
                         height = witness.chunk_production_key().height_created,
+                        shard_id = %witness.chunk_production_key().shard_id,
                         tag_witness_distribution = true,
                     )
                     .entered(),
@@ -714,6 +721,7 @@ impl NetworkState {
                         msg_type = "PartialEncodedStateWitnessForward",
                         part_ord = witness.part_ord(),
                         height = witness.chunk_production_key().height_created,
+                        shard_id = %witness.chunk_production_key().shard_id,
                         tag_witness_distribution = true,
                     )
                     .entered(),
@@ -845,6 +853,7 @@ impl NetworkState {
                             msg_type = "PartialEncodedStateWitness",
                             part_ord = witness.part_ord(),
                             height = witness.chunk_production_key().height_created,
+                            shard_id = %witness.chunk_production_key().shard_id,
                             tag_witness_distribution = true,
                         )
                         .entered();
