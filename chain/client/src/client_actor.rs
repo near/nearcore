@@ -39,9 +39,7 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::ApplyChunksSpawner;
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
-use near_chain::chain::{
-    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
-};
+use near_chain::chain::{ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse};
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -276,11 +274,6 @@ pub struct ClientSenderForClient {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct SyncJobsSenderForClient {
     pub block_catch_up: Sender<BlockCatchUpRequest>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct ChunkValidationSenderForClient {
-    pub chunk_state_witness: Sender<SpanWrapped<ChunkStateWitnessMessage>>,
 }
 
 pub struct ClientActorInner {

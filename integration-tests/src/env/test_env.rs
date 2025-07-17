@@ -47,7 +47,6 @@ use time::ext::InstantExt as _;
 
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 
-use near_async::messaging::Handler;
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_client::ChunkValidationActorInner;
 
