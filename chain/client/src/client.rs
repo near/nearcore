@@ -9,6 +9,7 @@ use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
+use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
@@ -271,6 +272,7 @@ impl Client {
         chain_sender_for_state_sync: ChainSenderForStateSync,
         myself_sender: ClientSenderForClient,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
+        spice_core_processor: CoreStatementsProcessor,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -333,7 +335,7 @@ impl Client {
             config.state_sync_retry_backoff,
             config.state_sync_external_backoff,
             &config.chain_id,
-            &config.state_sync.sync,
+            &config.state_sync,
             chain_sender_for_state_sync.clone(),
             state_sync_future_spawner.clone(),
             false,
@@ -353,6 +355,7 @@ impl Client {
         let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
             epoch_manager.clone(),
             chain.chain_store().store(),
+            spice_core_processor,
         ));
         let chunk_producer = ChunkProducer::new(
             clock.clone(),
@@ -1056,15 +1059,16 @@ impl Client {
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         let res = self.start_process_block(block, provenance, apply_chunks_done_sender);
         match &res {
+            Ok(()) => {}
             Err(near_chain::Error::Orphan) => {
-                debug!(target: "chain", ?prev_hash, "Orphan error");
+                debug!(target: "chain", ?prev_hash, "orphan error");
                 if !self.chain.is_orphan(&prev_hash) {
                     debug!(target: "chain", "not orphan");
                     self.request_block(prev_hash, peer_id)
                 }
             }
-            err => {
-                debug!(target: "chain", ?err, "some other error");
+            Err(err) => {
+                debug!(target: "chain", err=err as &dyn std::error::Error, "when starting block processing");
             }
         }
         res
@@ -2146,7 +2150,7 @@ impl Client {
                             self.config.state_sync_retry_backoff,
                             self.config.state_sync_external_backoff,
                             &self.config.chain_id,
-                            &self.config.state_sync.sync,
+                            &self.config.state_sync,
                             self.chain_sender_for_state_sync.clone(),
                             self.state_sync_future_spawner.clone(),
                             true,

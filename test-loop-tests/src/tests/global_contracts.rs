@@ -23,7 +23,7 @@ use near_vm_runner::ContractCode;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::client_queries::ClientQueries;
-use crate::utils::transactions::{self};
+use crate::utils::transactions::{self, TransactionRunner};
 use crate::utils::{ONE_NEAR, TGAS};
 
 const GAS_PRICE: Balance = 1;
@@ -420,7 +420,7 @@ impl GlobalContractsTestEnv {
         transactions::execute_tx(
             &mut self.env.test_loop,
             &self.rpc,
-            tx,
+            TransactionRunner::new(tx, true),
             &self.env.node_datas,
             Duration::seconds(5),
         )

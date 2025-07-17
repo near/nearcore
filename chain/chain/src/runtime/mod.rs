@@ -399,24 +399,12 @@ impl NightshadeRuntime {
 
         let trie_with_state =
             self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let (path_boundary_nodes, nibbles_begin, nibbles_end) = match trie_with_state
-            .get_state_part_boundaries(part_id)
-        {
-            Ok(res) => res,
-            Err(err) => {
-                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part boundaries");
-                return Err(err.into());
-            }
-        };
 
         let trie_nodes = self.tries.get_trie_nodes_for_part_from_snapshot(
             shard_uid,
             state_root,
             &prev_hash,
             part_id,
-            path_boundary_nodes,
-            nibbles_begin,
-            nibbles_end,
             trie_with_state,
         );
         let state_part = borsh::to_vec(&match trie_nodes {
