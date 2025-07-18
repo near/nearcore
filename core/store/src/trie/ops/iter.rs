@@ -85,6 +85,9 @@ where
     /// when `next()` is called.
     initialized: bool,
 
+    /// Nibbles for the right boundary of the iterator range.
+    right_boundary: Bound<Vec<u8>>,
+
     /// We use this trie_interface as a distinction point between disk and memory trie.
     /// It provides the necessary methods to fetch nodes and values.
     trie_interface: I,
@@ -119,6 +122,7 @@ where
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
             initialized: false,
+            right_boundary: Bound::Unbounded,
             trie_interface,
             prune_condition,
         };
@@ -129,6 +133,11 @@ where
     pub fn seek_prefix<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
         self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true, AccessOptions::DEFAULT)?;
         Ok(())
+    }
+
+    pub fn set_right_boundary<K: AsRef<[u8]>>(&mut self, right_boundary: Bound<K>) {
+        self.right_boundary =
+            right_boundary.map(|b| NibbleSlice::new(b.as_ref()).iter().collect_vec());
     }
 
     /// Position the iterator on the first element with key >= `key`, or the
@@ -368,6 +377,7 @@ where
                 // Skip processing node if it should be pruned.
                 (_, true) => {}
                 (IterStep::Descend(ptr), false) => {
+                    // if let Some(right_boundary) = self.right_boundary {}
                     match self.descend_into_node(Some(ptr), AccessOptions::DEFAULT) {
                         Ok(_) => {}
                         Err(e) => return Some(Err(e)),

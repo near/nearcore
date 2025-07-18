@@ -33,6 +33,7 @@ use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
 use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
+use std::ops::Bound;
 use std::sync::Arc;
 
 impl Trie {
@@ -57,6 +58,7 @@ impl Trie {
         if part_id > num_parts {
             return Err(StorageError::StorageInternalError);
         }
+        let root_node = self.retrieve_storage_node(&self.root)?;
         if part_id == 0 {
             return Ok(Some(vec![]));
         }
@@ -80,10 +82,52 @@ impl Trie {
         &self,
         part_id: PartId,
     ) -> Result<PartialState, StorageError> {
+        println!("get_trie_nodes_for_part_without_flat_storage: part_id={part_id:?}");
+
         let with_recording = self.recording_reads_new_recorder();
         with_recording.visit_nodes_for_state_part(part_id)?;
-        let recorded = with_recording.recorded_storage().unwrap();
-        Ok(recorded.nodes)
+        let nodes = with_recording.recorded_storage().unwrap().nodes;
+
+        let with_recording = self.recording_reads_new_recorder();
+        with_recording.visit_trie_nodes_for_part(part_id)?;
+        let new_nodes = with_recording.recorded_storage().unwrap().nodes;
+
+        assert_eq!(nodes.len(), new_nodes.len());
+
+        Ok(nodes)
+    }
+
+    pub fn visit_trie_nodes_for_part(&self, part_id: PartId) -> Result<(), StorageError> {
+        println!("!!!!!!!!!!!!!!!!!!!! NEW THING part_id={part_id:?}");
+        let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
+        let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
+        // let path_begin: Vec<u8> = if path_begin == LAST_STATE_PART_BOUNDARY {
+        //     vec![0xFFu8]
+        // } else {
+        //     NibbleSlice::nibbles_to_bytes(&path_begin)
+        // };
+        // let path_end = if path_end == LAST_STATE_PART_BOUNDARY {
+        //     vec![0xFFu8]
+        // } else {
+        //     NibbleSlice::nibbles_to_bytes(&path_end)
+        // };
+
+        // let mut iterator = self.disk_iter()?;
+        // let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
+
+        let locked = self.lock_for_iter();
+        let mut iter = locked.iter()?;
+        // iter.seek_prefix(path_begin)?;
+        iter.seek(Bound::Included(path_begin))?;
+        for entry in iter {
+            let (key, value) = entry?;
+            if key >= path_end {
+                self.recorder.as_ref().unwrap().unrecord(&hash(&value), value.into());
+                break;
+            }
+        }
+        println!("###################### NEW THING END: part_id={part_id:?}");
+        Ok(())
     }
 
     /// Helper to create iterator over flat storage entries corresponding to
@@ -309,6 +353,7 @@ impl Trie {
     /// Creating a StatePart takes all these nodes, validating a StatePart checks that it has the
     /// right set of nodes.
     fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
+        println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! MAIN THING: part_id={part_id:?}");
         let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
 
@@ -317,6 +362,7 @@ impl Trie {
             iterator.visit_nodes_interval(path_begin.as_deref(), path_end.as_deref())?;
         tracing::debug!(target: "state-parts", num_nodes = nodes_list.len());
 
+        println!("###################################### MAIN THING END: part_id={part_id:?}");
         Ok(())
     }
 
@@ -502,14 +548,15 @@ impl Trie {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use rand::rngs::StdRng;
     use std::collections::{HashMap, HashSet};
     use std::fmt::Debug;
     use std::hash::Hash;
     use std::sync::Arc;
 
-    use rand::Rng;
     use rand::prelude::ThreadRng;
     use rand::seq::SliceRandom;
+    use rand::{Rng, SeedableRng};
 
     use near_primitives::hash::{CryptoHash, hash};
 
@@ -741,8 +788,8 @@ mod tests {
         // Test #1: a long path where every node on the path has a large value
         let mut trie_changes = Vec::new();
         for i in 0..max_key_length {
-            // ([255,255,..,255], big_value)
-            let key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
+            // ([0xEE,0xEE,..,0xEE], big_value)
+            let key = (0..(i + 1)).map(|_| 0xEEu8).collect::<Vec<_>>();
             let value = (0..big_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
             trie_changes.push((key, Some(value)));
         }
@@ -765,14 +812,14 @@ mod tests {
                     {
                         // ([255,255,..,255]xy, small_value)
                         // this means every 000..000 node is a branch and all of its children are branches
-                        let mut key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
+                        let mut key = (0..(i + 1)).map(|_| 0xEEu8).collect::<Vec<_>>();
                         key.push(x * 16 + y);
                         let value =
                             (0..small_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                         trie_changes.push((key, Some(value)));
                     }
                     {
-                        let mut key = (0..i).map(|_| 255u8).collect::<Vec<_>>();
+                        let mut key = (0..i).map(|_| 0xEEu8).collect::<Vec<_>>();
                         key.push(16 * 15 + x);
                         key.push(y * 16);
                         let value =
@@ -780,7 +827,7 @@ mod tests {
                         trie_changes.push((key, Some(value)));
                     }
                     {
-                        let mut key = (0..i).map(|_| 255u8).collect::<Vec<_>>();
+                        let mut key = (0..i).map(|_| 0xEEu8).collect::<Vec<_>>();
                         key.push(16 * x + 15);
                         key.push(y);
                         let value =
@@ -861,6 +908,7 @@ mod tests {
         }
     }
 
+    // here
     #[test]
     fn test_parts_not_huge_1() {
         run_test_parts_not_huge(construct_trie_for_big_parts_1, 100_000);
@@ -1074,7 +1122,7 @@ mod tests {
     /// from the entire trie.
     #[test]
     fn test_get_trie_nodes_for_part() {
-        let mut rng = rand::thread_rng();
+        let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
             let tries = TestTriesBuilder::new().build();
             let trie_changes = gen_changes(&mut rng, 10);

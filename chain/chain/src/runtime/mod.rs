@@ -377,6 +377,7 @@ impl NightshadeRuntime {
         Ok(epoch_start_height)
     }
 
+    // here impl of state part
     fn obtain_state_part_impl(
         &self,
         shard_id: ShardId,
@@ -415,6 +416,29 @@ impl NightshadeRuntime {
             }
         })
             .expect("serializer should not fail");
+
+        Ok(state_part)
+    }
+
+    fn obtain_state_part_impl2(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+        state_root: &StateRoot,
+        part_id: PartId,
+    ) -> Result<Vec<u8>, Error> {
+        let _span = tracing::debug_span!(target: "runtime", "obtain_state_part", %shard_id, ?prev_hash, ?state_root, ?part_id).entered();
+        tracing::debug!(target: "state-parts", %shard_id, ?prev_hash, ?state_root, ?part_id, "obtain_state_part");
+
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+
+        let trie =
+            self.tries.get_trie_for_shard(shard_uid, *state_root).recording_reads_new_recorder();
+        assert!(trie.has_memtries());
+        trie.visit_trie_nodes_for_part(part_id)?;
+        let partial_state = trie.recorded_storage().unwrap().nodes;
+        let state_part = borsh::to_vec(&partial_state).expect("serializer should not fail");
 
         Ok(state_part)
     }

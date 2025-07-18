@@ -1706,6 +1706,9 @@ impl Chain {
         if let Err(err) = self.process_snapshot() {
             tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
         }
+        if let Err(err) = self.process_memtrie_snapshot() {
+            tracing::error!(target: "state_snapshot", ?err, "Failed to make a memtrie snapshot");
+        }
 
         let block = block.into_inner();
         let block_hash = *block.hash();
@@ -3296,6 +3299,26 @@ impl Chain {
 
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
                 make_snapshot_callback(min_chunk_prev_height, epoch_height, shard_uids, prev_block);
+            }
+            SnapshotAction::None => {}
+        };
+        Ok(())
+    }
+
+    // Here we are making the snapshot
+    // Weird things going on. We pass the prev_block to the snapshot callback function.
+    // Need to check what is the real hash we use for the snapshot.
+    fn process_memtrie_snapshot(&self) -> Result<(), Error> {
+        let snapshot_action = self.should_make_snapshot()?;
+        match snapshot_action {
+            SnapshotAction::MakeSnapshot(prev_hash) => {
+                let prev_block = self.get_block(&prev_hash)?;
+                let shard_layout = self
+                    .epoch_manager
+                    .get_shard_layout_from_prev_block(prev_block.header().prev_hash())?;
+                self.runtime_adapter
+                    .get_tries()
+                    .create_memtrie_snapshot(&prev_block, &shard_layout)?;
             }
             SnapshotAction::None => {}
         };

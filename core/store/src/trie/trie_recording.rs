@@ -47,6 +47,12 @@ impl TrieNodeWithRefcount {
         self.1 += 1;
         self.1
     }
+
+    fn decrement(&mut self) -> u32 {
+        assert!(self.1 > 0, "Reference count cannot be negative");
+        self.1 -= 1;
+        self.1
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -102,6 +108,19 @@ impl TrieRecorder {
         if times_seen == 1 {
             self.upper_bound_size.fetch_add(size, Ordering::Release).checked_add(size).unwrap();
             self.size.fetch_add(size, Ordering::Release);
+        }
+    }
+
+    // cspell:ignore unrecord
+    pub fn unrecord(&self, hash: &CryptoHash, node: Arc<[u8]>) {
+        let size = node.len();
+        let times_seen = self.recorded.get_mut(hash).unwrap().decrement();
+
+        if times_seen == 0 {
+            // This is the last time we see this value, so we can remove it.
+            self.recorded.remove(hash);
+            self.upper_bound_size.fetch_sub(size, Ordering::Release);
+            self.size.fetch_sub(size, Ordering::Release);
         }
     }
 
