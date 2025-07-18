@@ -23,7 +23,7 @@ type IdleThreadQueue = Arc<Mutex<VecDeque<oneshot::Sender<Option<Job>>>>>;
 /// configured `priority`. Realtime threads **always** take precedence over
 /// threads using normal policy (`SCHED_OTHER`), so `priority` applies **only
 /// among other realtime threads**.
-pub(crate) struct ThreadPool {
+pub struct ThreadPool {
     /// Name of the pool. Used for logging/debugging purposes.
     name: &'static str,
     /// Priority of spawned threads (must be in [0; 100] range)
@@ -39,12 +39,7 @@ pub(crate) struct ThreadPool {
 
 impl ThreadPool {
     /// Create a new thread pool. Panics if priority is out of [0; 100] range.
-    pub(crate) fn new(
-        name: &'static str,
-        idle_timeout: Duration,
-        limit: usize,
-        priority: u8,
-    ) -> Self {
+    pub fn new(name: &'static str, idle_timeout: Duration, limit: usize, priority: u8) -> Self {
         Self {
             name,
             priority: priority.try_into().expect("priority out of range"),
@@ -56,7 +51,7 @@ impl ThreadPool {
 
     /// Spawn a new task to be run on the pool. It will re-use existing idle threads
     /// if possible, or spawn a new thread. Panic when spawning a new thread fails.
-    pub(crate) fn spawn_boxed(&self, job: Job) {
+    pub fn spawn_boxed(&self, job: Job) {
         // Try to use one of the existing idle threads
         let mut job = Some(job);
         let mut queue_guard = self.idle_thread_queue.lock();

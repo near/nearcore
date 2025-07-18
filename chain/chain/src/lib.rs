@@ -1,6 +1,6 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
-pub use apply_chunks_thread_pool::ApplyChunksSpawner;
+pub use apply_chunks_thread_pool::{ApplyChunksSpawner, ThreadPool};
 pub use block_processing_utils::BlockProcessingArtifact;
 pub use chain::{Chain, check_known, collect_receipts};
 pub use chain_update::ChainUpdate;

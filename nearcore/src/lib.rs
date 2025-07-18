@@ -29,6 +29,7 @@ use near_chain_configs::ReshardingHandle;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
+use near_client::stateless_validation::WitnessCreationSpawner;
 use near_client::{
     ClientActor, ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig,
     StartClientResult, StateRequestActor, ViewClientActor, ViewClientActorInner,
@@ -405,6 +406,7 @@ pub fn start_with_config_and_synchronization(
             runtime.clone(),
             Arc::new(RayonAsyncComputationSpawner),
             Arc::new(RayonAsyncComputationSpawner),
+            WitnessCreationSpawner::default(),
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
