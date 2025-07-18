@@ -343,6 +343,16 @@ pub(crate) static BROADCAST_MESSAGES: LazyLock<IntCounterVec> = LazyLock::new(||
     try_create_int_counter_vec("near_broadcast_msg", "Broadcasted messages", &["type"]).unwrap()
 });
 
+pub(crate) static ROUTED_MESSAGE_SIGN_TIME: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram("near_routed_message_sign_time", "Time taken to sign a routed message")
+        .unwrap()
+});
+
+pub(crate) static ROUTED_MESSAGE_VERIFY_TIME: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram("near_routed_message_verify_time", "Time taken to verify a routed message")
+        .unwrap()
+});
+
 static NETWORK_ROUTED_MSG_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_network_routed_msg_latency",
