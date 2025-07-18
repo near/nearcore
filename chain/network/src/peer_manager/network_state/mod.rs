@@ -34,7 +34,7 @@ use crate::store;
 use crate::tcp;
 use crate::types::{
     ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StateHeaderRequestBody,
-    StatePartRequestBody, Tier3Request, Tier3RequestBody,
+    StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request, Tier3RequestBody,
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -110,6 +110,7 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: ClientSenderForNetwork,
+    pub state_request_adapter: StateRequestSenderForNetwork,
     pub peer_manager_adapter: PeerManagerSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
@@ -185,6 +186,7 @@ impl NetworkState {
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: ClientSenderForNetwork,
+        state_request_adapter: StateRequestSenderForNetwork,
         peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
@@ -204,6 +206,7 @@ impl NetworkState {
             })),
             genesis_id,
             client,
+            state_request_adapter,
             peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,

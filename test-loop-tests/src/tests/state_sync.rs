@@ -896,26 +896,26 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
 fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
     let sync_hash = await_sync_hash(env);
 
-    let view_client_handle = env.node_datas[0].view_client_sender.actor_handle();
-    let view_client = env.test_loop.data.get_mut(&view_client_handle);
+    let state_request_handle = env.node_datas[0].state_request_sender.actor_handle();
+    let state_request = env.test_loop.data.get_mut(&state_request_handle);
 
     for _ in 0..30 {
-        let res = view_client.handle(StateRequestHeader { shard_id: ShardId::new(0), sync_hash });
+        let res = state_request.handle(StateRequestHeader { shard_id: ShardId::new(0), sync_hash });
         assert!(res.is_some());
     }
 
     // immediately query again, should be rejected
     let shard_id = ShardId::new(0);
-    let res = view_client.handle(StateRequestHeader { shard_id, sync_hash });
+    let res = state_request.handle(StateRequestHeader { shard_id, sync_hash });
     assert!(res.is_none());
 
     env.test_loop.run_for(Duration::seconds(40));
 
     let sync_hash = await_sync_hash(env);
-    let view_client_handle = env.node_datas[0].view_client_sender.actor_handle();
-    let view_client = env.test_loop.data.get_mut(&view_client_handle);
+    let state_request_handle = env.node_datas[0].state_request_sender.actor_handle();
+    let state_request = env.test_loop.data.get_mut(&state_request_handle);
 
-    let res = view_client.handle(StateRequestHeader { shard_id, sync_hash });
+    let res = state_request.handle(StateRequestHeader { shard_id, sync_hash });
     assert!(res.is_some());
 }
 

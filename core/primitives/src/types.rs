@@ -49,6 +49,7 @@ pub enum Finality {
     Final,
 }
 
+/// Account ID with its public key.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountWithPublicKey {
@@ -1075,6 +1076,7 @@ pub struct ChunkExtraV1 {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum BlockId {
+    #[cfg_attr(feature = "schemars", schemars(title = "block_height"))]
     Height(BlockHeight),
     Hash(CryptoHash),
 }

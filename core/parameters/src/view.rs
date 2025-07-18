@@ -27,6 +27,7 @@ pub struct RuntimeConfigView {
     pub witness_config: WitnessConfigView,
 }
 
+/// Describes different fees for the runtime
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RuntimeFeesConfigView {
@@ -63,6 +64,7 @@ pub struct AccountCreationConfigView {
     pub registrar_account_id: AccountId,
 }
 
+/// The fees settings for a data receipt creation
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DataReceiptCreationConfigView {
@@ -714,6 +716,7 @@ impl From<WitnessConfig> for WitnessConfigView {
     }
 }
 
+/// The configuration for congestion control. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CongestionControlConfigView {

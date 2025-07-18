@@ -43,7 +43,7 @@ pub mod runtime;
 pub mod sharding;
 pub mod signature_verification;
 pub mod state_snapshot_actor;
-mod state_sync;
+pub mod state_sync;
 pub mod stateless_validation;
 mod store;
 pub mod store_validator;

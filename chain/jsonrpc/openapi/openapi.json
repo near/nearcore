@@ -2,11 +2,12 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "paths": {
     "/EXPERIMENTAL_changes": {
       "post": {
+        "description": "Returns changes in block for given block height or hash over all transactions for the current type. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched",
         "operationId": "EXPERIMENTAL_changes",
         "requestBody": {
           "content": {
@@ -34,6 +35,7 @@
     },
     "/EXPERIMENTAL_changes_in_block": {
       "post": {
+        "description": "Returns changes in block for given block height or hash over all transactions for all the types. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched",
         "operationId": "EXPERIMENTAL_changes_in_block",
         "requestBody": {
           "content": {
@@ -61,6 +63,7 @@
     },
     "/EXPERIMENTAL_congestion_level": {
       "post": {
+        "description": "Queries the congestion level of a shard. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)",
         "operationId": "EXPERIMENTAL_congestion_level",
         "requestBody": {
           "content": {
@@ -88,6 +91,7 @@
     },
     "/EXPERIMENTAL_genesis_config": {
       "post": {
+        "description": "Get initial state and parameters for the genesis block",
         "operationId": "EXPERIMENTAL_genesis_config",
         "requestBody": {
           "content": {
@@ -115,6 +119,7 @@
     },
     "/EXPERIMENTAL_light_client_block_proof": {
       "post": {
+        "description": "Returns the proofs for a transaction execution.",
         "operationId": "EXPERIMENTAL_light_client_block_proof",
         "requestBody": {
           "content": {
@@ -142,6 +147,7 @@
     },
     "/EXPERIMENTAL_light_client_proof": {
       "post": {
+        "description": "Returns the proofs for a transaction execution.",
         "operationId": "EXPERIMENTAL_light_client_proof",
         "requestBody": {
           "content": {
@@ -169,6 +175,7 @@
     },
     "/EXPERIMENTAL_maintenance_windows": {
       "post": {
+        "description": "Returns the future windows for maintenance in current epoch for the specified account. In the maintenance windows, the node will not be block producer or chunk producer",
         "operationId": "EXPERIMENTAL_maintenance_windows",
         "requestBody": {
           "content": {
@@ -196,6 +203,7 @@
     },
     "/EXPERIMENTAL_protocol_config": {
       "post": {
+        "description": "A configuration that defines the protocol-level parameters such as gas/storage costs, limits, feature flags, other settings",
         "operationId": "EXPERIMENTAL_protocol_config",
         "requestBody": {
           "content": {
@@ -223,6 +231,7 @@
     },
     "/EXPERIMENTAL_receipt": {
       "post": {
+        "description": "Fetches a receipt by its ID (as is, without a status or execution outcome)",
         "operationId": "EXPERIMENTAL_receipt",
         "requestBody": {
           "content": {
@@ -250,6 +259,7 @@
     },
     "/EXPERIMENTAL_split_storage_info": {
       "post": {
+        "description": "Contains the split storage information. More info on split storage [here](https://near-nodes.io/archival/split-storage-archival)",
         "operationId": "EXPERIMENTAL_split_storage_info",
         "requestBody": {
           "content": {
@@ -277,6 +287,7 @@
     },
     "/EXPERIMENTAL_tx_status": {
       "post": {
+        "description": "Queries status of a transaction by hash, returning the final transaction result and details of all receipts.",
         "operationId": "EXPERIMENTAL_tx_status",
         "requestBody": {
           "content": {
@@ -304,6 +315,7 @@
     },
     "/EXPERIMENTAL_validators_ordered": {
       "post": {
+        "description": "Returns the current epoch validators ordered in the block producer order with repetition. This endpoint is solely used for bridge currently and is not intended for other external use cases.",
         "operationId": "EXPERIMENTAL_validators_ordered",
         "requestBody": {
           "content": {
@@ -331,6 +343,7 @@
     },
     "/block": {
       "post": {
+        "description": "Returns block details for given height or hash",
         "operationId": "block",
         "requestBody": {
           "content": {
@@ -358,6 +371,7 @@
     },
     "/broadcast_tx_async": {
       "post": {
+        "description": "[Deprecated] Sends a transaction and immediately returns transaction hash. Consider using send_tx instead",
         "operationId": "broadcast_tx_async",
         "requestBody": {
           "content": {
@@ -385,6 +399,7 @@
     },
     "/broadcast_tx_commit": {
       "post": {
+        "description": "[Deprecated] Sends a transaction and waits until transaction is fully complete. (Has a 10 second timeout). Consider using send_tx instead",
         "operationId": "broadcast_tx_commit",
         "requestBody": {
           "content": {
@@ -412,6 +427,7 @@
     },
     "/changes": {
       "post": {
+        "description": "Returns changes in block for given block height or hash over all transactions for the current type. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched",
         "operationId": "changes",
         "requestBody": {
           "content": {
@@ -439,6 +455,7 @@
     },
     "/chunk": {
       "post": {
+        "description": "Returns details of a specific chunk. You can run a block details query to get a valid chunk hash.",
         "operationId": "chunk",
         "requestBody": {
           "content": {
@@ -466,6 +483,7 @@
     },
     "/client_config": {
       "post": {
+        "description": "Queries client node configuration",
         "operationId": "client_config",
         "requestBody": {
           "content": {
@@ -493,6 +511,7 @@
     },
     "/gas_price": {
       "post": {
+        "description": "Returns gas price for a specific block_height or block_hash. Using [null] will return the most recent block's gas price.",
         "operationId": "gas_price",
         "requestBody": {
           "content": {
@@ -520,6 +539,7 @@
     },
     "/health": {
       "post": {
+        "description": "Returns the current health status of the RPC node the client connects to.",
         "operationId": "health",
         "requestBody": {
           "content": {
@@ -547,6 +567,7 @@
     },
     "/light_client_proof": {
       "post": {
+        "description": "Returns the proofs for a transaction execution.",
         "operationId": "light_client_proof",
         "requestBody": {
           "content": {
@@ -574,6 +595,7 @@
     },
     "/network_info": {
       "post": {
+        "description": "Queries the current state of node network connections. This includes information about active peers, transmitted data, known producers, etc.",
         "operationId": "network_info",
         "requestBody": {
           "content": {
@@ -601,6 +623,7 @@
     },
     "/next_light_client_block": {
       "post": {
+        "description": "Returns the next light client block.",
         "operationId": "next_light_client_block",
         "requestBody": {
           "content": {
@@ -628,6 +651,7 @@
     },
     "/query": {
       "post": {
+        "description": "This module allows you to make generic requests to the network.\n\nThe `RpcQueryRequest` struct takes in a [`BlockReference`](https://docs.rs/near-primitives/0.12.0/near_primitives/types/enum.BlockReference.html) and a [`QueryRequest`](https://docs.rs/near-primitives/0.12.0/near_primitives/views/enum.QueryRequest.html).\n\nThe `BlockReference` enum allows you to specify a block by `Finality`, `BlockId` or `SyncCheckpoint`.\n\nThe `QueryRequest` enum provides multiple variants for performing the following actions:\n - View an account's details\n - View a contract's code\n - View the state of an account\n - View the `AccessKey` of an account\n - View the `AccessKeyList` of an account\n - Call a function in a contract deployed on the network.",
         "operationId": "query",
         "requestBody": {
           "content": {
@@ -655,6 +679,7 @@
     },
     "/send_tx": {
       "post": {
+        "description": "Sends transaction. Returns the guaranteed execution status and the results the blockchain can provide at the moment.",
         "operationId": "send_tx",
         "requestBody": {
           "content": {
@@ -682,6 +707,7 @@
     },
     "/status": {
       "post": {
+        "description": "Requests the status of the connected RPC node. This includes information about sync status, nearcore node version, protocol version, the current set of validators, etc.",
         "operationId": "status",
         "requestBody": {
           "content": {
@@ -709,6 +735,7 @@
     },
     "/tx": {
       "post": {
+        "description": "Queries status of a transaction by hash and returns the final transaction result.",
         "operationId": "tx",
         "requestBody": {
           "content": {
@@ -736,6 +763,7 @@
     },
     "/validators": {
       "post": {
+        "description": "Queries active validators on the network. Returns details and the state of validation on the blockchain.",
         "operationId": "validators",
         "requestBody": {
           "content": {
@@ -765,10 +793,10 @@
   "components": {
     "schemas": {
       "AccessKey": {
-        "description": "Access key provides limited access to an account. Each access key belongs to some account and\n is identified by a unique (within the account) public key. One account may have large number of\n access keys. Access keys allow to act on behalf of the account by restricting transactions\n that can be issued.\n `account_id,public_key` is a key in the state",
+        "description": "Access key provides limited access to an account. Each access key belongs to some account and\nis identified by a unique (within the account) public key. One account may have large number of\naccess keys. Access keys allow to act on behalf of the account by restricting transactions\nthat can be issued.\n`account_id,public_key` is a key in the state",
         "properties": {
           "nonce": {
-            "description": "Nonce for this access key, used for tx nonce generation. When access key is created, nonce\n is set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation.\n See <https://github.com/near/nearcore/issues/3779> for more details.",
+            "description": "Nonce for this access key, used for tx nonce generation. When access key is created, nonce\nis set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation.\nSee <https://github.com/near/nearcore/issues/3779> for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -824,6 +852,7 @@
         "type": "object"
       },
       "AccessKeyInfoView": {
+        "description": "Describes information about an access key including the public key.",
         "properties": {
           "access_key": {
             "$ref": "#/components/schemas/AccessKeyView"
@@ -839,6 +868,7 @@
         "type": "object"
       },
       "AccessKeyList": {
+        "description": "Lists access keys",
         "properties": {
           "keys": {
             "items": {
@@ -868,7 +898,7 @@
             "type": "object"
           },
           {
-            "description": "Grants full access to the account.\n NOTE: It's used to replace account-level public keys.",
+            "description": "Grants full access to the account.\nNOTE: It's used to replace account-level public keys.",
             "enum": [
               "FullAccess"
             ],
@@ -877,6 +907,7 @@
         ]
       },
       "AccessKeyPermissionView": {
+        "description": "Describes the permission scope for an access key. Whether it is a function call or a full access key.",
         "oneOf": [
           {
             "enum": [
@@ -918,6 +949,7 @@
         ]
       },
       "AccessKeyView": {
+        "description": "Describes access key permission scope and nonce.",
         "properties": {
           "nonce": {
             "format": "uint64",
@@ -940,6 +972,7 @@
           "min_allowed_top_level_account_length": {
             "description": "The minimum length of the top-level account ID that is allowed to be created by any account.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
@@ -949,7 +982,7 @@
                 "$ref": "#/components/schemas/AccountId"
               }
             ],
-            "description": "The account ID of the account registrar. This account ID allowed to create top-level\n accounts of any valid length."
+            "description": "The account ID of the account registrar. This account ID allowed to create top-level\naccounts of any valid length."
           }
         },
         "required": [
@@ -959,20 +992,33 @@
         "type": "object"
       },
       "AccountDataView": {
+        "description": "AccountData is a piece of global state that a validator\nsigns and broadcasts to the network.\n\nIt is essentially the data that a validator wants to share with the network.\nAll the nodes in the network are collecting the account data\nbroadcasted by the validators.\nSince the number of the validators is bounded and their\nidentity is known (and the maximal size of allowed AccountData is bounded)\nthe global state that is distributed in the form of AccountData is bounded\nas well.\nFind more information in the docs [here](https://github.com/near/nearcore/blob/560f7fc8f4b3106e0d5d46050688610b1f104ac6/chain/client/src/client.rs#L2232)",
         "properties": {
           "account_key": {
-            "$ref": "#/components/schemas/PublicKey"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "Account key of the validator signing this AccountData."
           },
           "peer_id": {
-            "$ref": "#/components/schemas/PublicKey"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "ID of the node that handles the account key (aka validator key)."
           },
           "proxies": {
+            "description": "Proxy nodes that are directly connected to the validator node\n(this list may include the validator node itself).\nTIER1 nodes should connect to one of the proxies to sent TIER1\nmessages to the validator.",
             "items": {
               "$ref": "#/components/schemas/Tier1ProxyView"
             },
             "type": "array"
           },
           "timestamp": {
+            "description": "UTC timestamp of when the AccountData has been signed.",
             "type": "string"
           }
         },
@@ -985,11 +1031,12 @@
         "type": "object"
       },
       "AccountId": {
-        "description": "NEAR Account Identifier.\n\n This is a unique, syntactically valid, human-readable account identifier on the NEAR network.\n\n [See the crate-level docs for information about validation.](index.html#account-id-rules)\n\n Also see [Error kind precedence](AccountId#error-kind-precedence).\n\n ## Examples\n\n ```\n use near_account_id::AccountId;\n\n let alice: AccountId = \"alice.near\".parse().unwrap();\n\n assert!(\"ƒelicia.near\".parse::<AccountId>().is_err()); // (ƒ is not f)\n ```",
+        "description": "NEAR Account Identifier.\n\nThis is a unique, syntactically valid, human-readable account identifier on the NEAR network.\n\n[See the crate-level docs for information about validation.](index.html#account-id-rules)\n\nAlso see [Error kind precedence](AccountId#error-kind-precedence).\n\n## Examples\n\n```\nuse near_account_id::AccountId;\n\nlet alice: AccountId = \"alice.near\".parse().unwrap();\n\nassert!(\"ƒelicia.near\".parse::<AccountId>().is_err()); // (ƒ is not f)\n```",
         "type": "string"
       },
       "AccountIdValidityRulesVersion": {
         "format": "uint8",
+        "maximum": 255,
         "minimum": 0,
         "type": "integer"
       },
@@ -1023,20 +1070,30 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "global_contract_account_id": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/AccountId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "global_contract_hash": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "locked": {
             "type": "string"
@@ -1063,6 +1120,7 @@
         "type": "object"
       },
       "AccountWithPublicKey": {
+        "description": "Account ID with its public key.",
         "properties": {
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
@@ -1081,7 +1139,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "Create an (sub)account using a transaction `receiver_id` as an ID for\n a new account ID must pass validation rules described here\n <http://nomicon.io/Primitives/Account.html>.",
+            "description": "Create an (sub)account using a transaction `receiver_id` as an ID for\na new account ID must pass validation rules described here\n<http://nomicon.io/Primitives/Account.html>.",
             "properties": {
               "CreateAccount": {
                 "$ref": "#/components/schemas/CreateAccountAction"
@@ -1240,7 +1298,7 @@
                 "$ref": "#/components/schemas/Fee"
               }
             ],
-            "description": "Base cost for processing a delegate action.\n\n This is on top of the costs for the actions inside the delegate action."
+            "description": "Base cost for processing a delegate action.\n\nThis is on top of the costs for the actions inside the delegate action."
           },
           "delete_account_cost": {
             "allOf": [
@@ -1326,7 +1384,7 @@
         "description": "An error happened during Action execution",
         "properties": {
           "index": {
-            "description": "Index of the failed action in the transaction.\n Action index is not defined if ActionError.kind is `ActionErrorKind::LackBalanceForState`",
+            "description": "Index of the failed action in the transaction.\nAction index is not defined if ActionError.kind is `ActionErrorKind::LackBalanceForState`",
             "format": "uint64",
             "minimum": 0,
             "nullable": true,
@@ -1446,7 +1504,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver\n or the first TX action is a `CreateAccount` action",
+            "description": "Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver\nor the first TX action is a `CreateAccount` action",
             "properties": {
               "ActorNoPermission": {
                 "properties": {
@@ -1668,7 +1726,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails\n receipt validation.",
+            "description": "Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails\nreceipt validation.",
             "properties": {
               "NewReceiptValidationError": {
                 "$ref": "#/components/schemas/ReceiptValidationError"
@@ -1681,7 +1739,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Error occurs when a `CreateAccount` action is called on a NEAR-implicit or ETH-implicit account.\n See NEAR-implicit account creation NEP: <https://github.com/nearprotocol/NEPs/pull/71>.\n Also, see ETH-implicit account creation NEP: <https://github.com/near/NEPs/issues/518>.\n\n TODO(#8598): This error is named very poorly. A better name would be\n `OnlyNamedAccountCreationAllowed`.",
+            "description": "Error occurs when a `CreateAccount` action is called on a NEAR-implicit or ETH-implicit account.\nSee NEAR-implicit account creation NEP: <https://github.com/nearprotocol/NEPs/pull/71>.\nAlso, see ETH-implicit account creation NEP: <https://github.com/near/NEPs/issues/518>.\n\nTODO(#8598): This error is named very poorly. A better name would be\n`OnlyNamedAccountCreationAllowed`.",
             "properties": {
               "OnlyImplicitAccountCreationAllowed": {
                 "properties": {
@@ -1888,8 +1946,7 @@
               "FunctionCall": {
                 "properties": {
                   "args": {
-                    "format": "bytes",
-                    "type": "string"
+                    "$ref": "#/components/schemas/FunctionArgs"
                   },
                   "deposit": {
                     "type": "string"
@@ -2411,7 +2468,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "The transaction includes a feature that the current protocol version\n does not support.\n\n Note: we stringify the protocol feature name instead of using\n `ProtocolFeature` here because we don't want to leak the internals of\n that type into observable borsh serialization.",
+            "description": "The transaction includes a feature that the current protocol version\ndoes not support.\n\nNote: we stringify the protocol feature name instead of using\n`ProtocolFeature` here because we don't want to leak the internals of\nthat type into observable borsh serialization.",
             "properties": {
               "UnsupportedProtocolFeature": {
                 "properties": {
@@ -2439,6 +2496,7 @@
         ]
       },
       "AddKeyAction": {
+        "description": "An action that adds key with public key associated",
         "properties": {
           "access_key": {
             "allOf": [
@@ -2464,7 +2522,7 @@
         "type": "object"
       },
       "BandwidthRequest": {
-        "description": "`BandwidthRequest` describes the size of receipts that a shard would like to send to another shard.\n When a shard wants to send a lot of receipts to another shard, it needs to create a request and wait\n for a bandwidth grant from the bandwidth scheduler.",
+        "description": "`BandwidthRequest` describes the size of receipts that a shard would like to send to another shard.\nWhen a shard wants to send a lot of receipts to another shard, it needs to create a request and wait\nfor a bandwidth grant from the bandwidth scheduler.",
         "properties": {
           "requested_values_bitmap": {
             "allOf": [
@@ -2477,6 +2535,7 @@
           "to_shard": {
             "description": "Requesting bandwidth to this shard.",
             "format": "uint16",
+            "maximum": 65535,
             "minimum": 0,
             "type": "integer"
           }
@@ -2488,11 +2547,12 @@
         "type": "object"
       },
       "BandwidthRequestBitmap": {
-        "description": "Bitmap which describes which values from the predefined list are being requested.\n The nth bit is set to 1 when the nth value from the list is being requested.",
+        "description": "Bitmap which describes which values from the predefined list are being requested.\nThe nth bit is set to 1 when the nth value from the list is being requested.",
         "properties": {
           "data": {
             "items": {
               "format": "uint8",
+              "maximum": 255,
               "minimum": 0,
               "type": "integer"
             },
@@ -2507,7 +2567,7 @@
         "type": "object"
       },
       "BandwidthRequests": {
-        "description": "A list of shard's bandwidth requests.\n Describes how much the shard would like to send to other shards.",
+        "description": "A list of shard's bandwidth requests.\nDescribes how much the shard would like to send to other shards.",
         "oneOf": [
           {
             "additionalProperties": false,
@@ -2524,6 +2584,7 @@
         ]
       },
       "BandwidthRequestsV1": {
+        "description": "Version 1 of [`BandwidthRequest`].",
         "properties": {
           "requests": {
             "items": {
@@ -2538,12 +2599,23 @@
         "type": "object"
       },
       "BlockHeaderInnerLiteView": {
+        "description": "A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).",
         "properties": {
           "block_merkle_root": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The merkle root of all the block hashes"
           },
           "epoch_id": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The epoch to which the block that is the current known head belongs"
           },
           "height": {
             "format": "uint64",
@@ -2551,10 +2623,20 @@
             "type": "integer"
           },
           "next_bp_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The hash of the block producers set for the next epoch"
           },
           "next_epoch_id": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The epoch that will follow the current epoch"
           },
           "outcome_root": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -2586,25 +2668,36 @@
         "type": "object"
       },
       "BlockHeaderView": {
+        "description": "Contains main info about the block.",
         "properties": {
           "approvals": {
             "items": {
-              "allOf": [
+              "anyOf": [
                 {
                   "$ref": "#/components/schemas/Signature"
+                },
+                {
+                  "enum": [
+                    null
+                  ],
+                  "nullable": true
                 }
-              ],
-              "nullable": true
+              ]
             },
             "type": "array"
           },
           "block_body_hash": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "block_merkle_root": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -2628,6 +2721,7 @@
             "items": {
               "items": {
                 "format": "uint8",
+                "maximum": 255,
                 "minimum": 0,
                 "type": "integer"
               },
@@ -2660,12 +2754,17 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "epoch_sync_data_hash": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "gas_price": {
             "type": "string"
@@ -2699,7 +2798,12 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "prev_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The hash of the previous Block"
           },
           "prev_height": {
             "format": "uint64",
@@ -2718,7 +2822,12 @@
             "type": "string"
           },
           "signature": {
-            "$ref": "#/components/schemas/Signature"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Signature"
+              }
+            ],
+            "description": "Signature of the block producer."
           },
           "timestamp": {
             "description": "Legacy json number. Should not be used.",
@@ -2781,6 +2890,7 @@
           {
             "format": "uint64",
             "minimum": 0,
+            "title": "block_height",
             "type": "integer"
           },
           {
@@ -2789,6 +2899,7 @@
         ]
       },
       "BlockStatusView": {
+        "description": "Height and hash of a block",
         "properties": {
           "hash": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -2806,6 +2917,7 @@
         "type": "object"
       },
       "CallResult": {
+        "description": "A result returned by contract method",
         "properties": {
           "logs": {
             "items": {
@@ -2816,6 +2928,7 @@
           "result": {
             "items": {
               "format": "uint8",
+              "maximum": 255,
               "minimum": 0,
               "type": "integer"
             },
@@ -2829,6 +2942,7 @@
         "type": "object"
       },
       "CatchupStatusView": {
+        "description": "Status of the [catchup](https://near.github.io/nearcore/architecture/how/sync.html#catchup) process",
         "properties": {
           "blocks_to_catchup": {
             "items": {
@@ -2837,8 +2951,11 @@
             "type": "array"
           },
           "shard_sync_status": {
-            "additionalProperties": {
-              "type": "string"
+            "additionalProperties": false,
+            "patternProperties": {
+              "^\\d+$": {
+                "type": "string"
+              }
             },
             "type": "object"
           },
@@ -2860,7 +2977,7 @@
         "type": "object"
       },
       "ChunkDistributionNetworkConfig": {
-        "description": "Config for the Chunk Distribution Network feature.\n This allows nodes to push and pull chunks from a central stream.\n The two benefits of this approach are: (1) less request/response traffic\n on the peer-to-peer network and (2) lower latency for RPC nodes indexing the chain.",
+        "description": "Config for the Chunk Distribution Network feature.\nThis allows nodes to push and pull chunks from a central stream.\nThe two benefits of this approach are: (1) less request/response traffic\non the peer-to-peer network and (2) lower latency for RPC nodes indexing the chain.",
         "properties": {
           "enabled": {
             "type": "boolean"
@@ -2894,28 +3011,39 @@
         "type": "object"
       },
       "ChunkHeaderView": {
+        "description": "Contains main info about the chunk.",
         "properties": {
           "balance_burnt": {
             "type": "string"
           },
           "bandwidth_requests": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/BandwidthRequests"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "chunk_hash": {
             "$ref": "#/components/schemas/CryptoHash"
           },
           "congestion_info": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/CongestionInfoView"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "encoded_length": {
             "format": "uint64",
@@ -3039,7 +3167,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "This is for defense in depth.\n We expect our runtime-independent preparation code to fully catch all invalid wasms,\n but, if it ever misses something we’ll emit this error",
+            "description": "This is for defense in depth.\nWe expect our runtime-independent preparation code to fully catch all invalid wasms,\nbut, if it ever misses something we’ll emit this error",
             "properties": {
               "WasmerCompileError": {
                 "properties": {
@@ -3061,21 +3189,22 @@
         ]
       },
       "CongestionControlConfigView": {
+        "description": "The configuration for congestion control. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)",
         "properties": {
           "allowed_shard_outgoing_gas": {
-            "description": "How much gas the chosen allowed shard can send to a 100% congested shard.\n\n See [`CongestionControlConfig`] for more details.",
+            "description": "How much gas the chosen allowed shard can send to a 100% congested shard.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "max_congestion_incoming_gas": {
-            "description": "How much gas in delayed receipts of a shard is 100% incoming congestion.\n\n See [`CongestionControlConfig`] for more details.",
+            "description": "How much gas in delayed receipts of a shard is 100% incoming congestion.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "max_congestion_memory_consumption": {
-            "description": "How much memory space of all delayed and buffered receipts in a shard is\n considered 100% congested.\n\n See [`CongestionControlConfig`] for more details.",
+            "description": "How much memory space of all delayed and buffered receipts in a shard is\nconsidered 100% congested.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -3087,49 +3216,49 @@
             "type": "integer"
           },
           "max_congestion_outgoing_gas": {
-            "description": "How much gas in outgoing buffered receipts of a shard is 100% congested.\n\n Outgoing congestion contributes to overall congestion, which reduces how\n much other shards are allowed to forward to this shard.",
+            "description": "How much gas in outgoing buffered receipts of a shard is 100% congested.\n\nOutgoing congestion contributes to overall congestion, which reduces how\nmuch other shards are allowed to forward to this shard.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "max_outgoing_gas": {
-            "description": "The maximum amount of gas attached to receipts a shard can forward to\n another shard per chunk.\n\n See [`CongestionControlConfig`] for more details.",
+            "description": "The maximum amount of gas attached to receipts a shard can forward to\nanother shard per chunk.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "max_tx_gas": {
-            "description": "The maximum amount of gas in a chunk spent on converting new transactions to\n receipts.\n\n See [`CongestionControlConfig`] for more details.",
+            "description": "The maximum amount of gas in a chunk spent on converting new transactions to\nreceipts.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "min_outgoing_gas": {
-            "description": "The minimum gas each shard can send to a shard that is not fully congested.\n\n See [`CongestionControlConfig`] for more details.",
+            "description": "The minimum gas each shard can send to a shard that is not fully congested.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "min_tx_gas": {
-            "description": "The minimum amount of gas in a chunk spent on converting new transactions\n to receipts, as long as the receiving shard is not congested.\n\n See [`CongestionControlConfig`] for more details.",
+            "description": "The minimum amount of gas in a chunk spent on converting new transactions\nto receipts, as long as the receiving shard is not congested.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "outgoing_receipts_big_size_limit": {
-            "description": "Large size limit for outgoing receipts to a shard, used when it's safe\n to send a lot of receipts without making the state witness too large.\n It limits the total sum of outgoing receipts, not individual receipts.",
+            "description": "Large size limit for outgoing receipts to a shard, used when it's safe\nto send a lot of receipts without making the state witness too large.\nIt limits the total sum of outgoing receipts, not individual receipts.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "outgoing_receipts_usual_size_limit": {
-            "description": "The standard size limit for outgoing receipts aimed at a single shard.\n This limit is pretty small to keep the size of source_receipt_proofs under control.\n It limits the total sum of outgoing receipts, not individual receipts.",
+            "description": "The standard size limit for outgoing receipts aimed at a single shard.\nThis limit is pretty small to keep the size of source_receipt_proofs under control.\nIt limits the total sum of outgoing receipts, not individual receipts.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "reject_tx_congestion_threshold": {
-            "description": "How much congestion a shard can tolerate before it stops all shards from\n accepting new transactions with the receiver set to the congested shard.",
+            "description": "How much congestion a shard can tolerate before it stops all shards from\naccepting new transactions with the receiver set to the congested shard.",
             "format": "double",
             "type": "number"
           }
@@ -3151,9 +3280,11 @@
         "type": "object"
       },
       "CongestionInfoView": {
+        "description": "Stores the congestion level of a shard. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)",
         "properties": {
           "allowed_shard": {
             "format": "uint16",
+            "maximum": 65535,
             "minimum": 0,
             "type": "integer"
           },
@@ -3194,11 +3325,13 @@
         "type": "object"
       },
       "CostGasUsed": {
+        "description": "Shows gas profile. More info [here](https://near.github.io/nearcore/architecture/gas/gas_profile.html?highlight=WASM_HOST_COST#example-transaction-gas-profile).",
         "properties": {
           "cost": {
             "type": "string"
           },
           "cost_category": {
+            "description": "Either ACTION_COST or WASM_HOST_COST.",
             "type": "string"
           },
           "gas_used": {
@@ -3220,6 +3353,7 @@
         "type": "string"
       },
       "CurrentEpochValidatorInfo": {
+        "description": "Describes information about the current epoch validator",
         "properties": {
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
@@ -3240,7 +3374,7 @@
           },
           "num_expected_chunks_per_shard": {
             "default": [],
-            "description": "Number of chunks this validator was expected to produce in each shard.\n Each entry in the array corresponds to the shard in the `shards_produced` array.",
+            "description": "Number of chunks this validator was expected to produce in each shard.\nEach entry in the array corresponds to the shard in the `shards_produced` array.",
             "items": {
               "format": "uint64",
               "minimum": 0,
@@ -3256,7 +3390,7 @@
           },
           "num_expected_endorsements_per_shard": {
             "default": [],
-            "description": "Number of chunks this validator was expected to validate and endorse in each shard.\n Each entry in the array corresponds to the shard in the `shards_endorsed` array.",
+            "description": "Number of chunks this validator was expected to validate and endorse in each shard.\nEach entry in the array corresponds to the shard in the `shards_endorsed` array.",
             "items": {
               "format": "uint64",
               "minimum": 0,
@@ -3333,6 +3467,7 @@
         "type": "object"
       },
       "DataReceiptCreationConfigView": {
+        "description": "The fees settings for a data receipt creation",
         "properties": {
           "base_cost": {
             "allOf": [
@@ -3340,7 +3475,7 @@
                 "$ref": "#/components/schemas/Fee"
               }
             ],
-            "description": "Base cost of creating a data receipt.\n Both `send` and `exec` costs are burned when a new receipt has input dependencies. The gas\n is charged for each input dependency. The dependencies are specified when a receipt is\n created using `promise_then` and `promise_batch_then`.\n NOTE: Any receipt with output dependencies will produce data receipts. Even if it fails.\n Even if the last action is not a function call (in case of success it will return empty\n value)."
+            "description": "Base cost of creating a data receipt.\nBoth `send` and `exec` costs are burned when a new receipt has input dependencies. The gas\nis charged for each input dependency. The dependencies are specified when a receipt is\ncreated using `promise_then` and `promise_batch_then`.\nNOTE: Any receipt with output dependencies will produce data receipts. Even if it fails.\nEven if the last action is not a function call (in case of success it will return empty\nvalue)."
           },
           "cost_per_byte": {
             "allOf": [
@@ -3348,7 +3483,7 @@
                 "$ref": "#/components/schemas/Fee"
               }
             ],
-            "description": "Additional cost per byte sent.\n Both `send` and `exec` costs are burned when a function call finishes execution and returns\n `N` bytes of data to every output dependency. For each output dependency the cost is\n `(send(sir) + exec()) * N`."
+            "description": "Additional cost per byte sent.\nBoth `send` and `exec` costs are burned when a function call finishes execution and returns\n`N` bytes of data to every output dependency. For each output dependency the cost is\n`(send(sir) + exec()) * N`."
           }
         },
         "required": [
@@ -3376,7 +3511,7 @@
         "description": "This action allows to execute the inner actions behalf of the defined sender.",
         "properties": {
           "actions": {
-            "description": "List of actions to be executed.\n\n With the meta transactions MVP defined in NEP-366, nested\n DelegateActions are not allowed. A separate type is used to enforce it.",
+            "description": "List of actions to be executed.\n\nWith the meta transactions MVP defined in NEP-366, nested\nDelegateActions are not allowed. A separate type is used to enforce it.",
             "items": {
               "$ref": "#/components/schemas/NonDelegateAction"
             },
@@ -3389,7 +3524,7 @@
             "type": "integer"
           },
           "nonce": {
-            "description": "Nonce to ensure that the same delegate action is not sent twice by a\n relayer and should match for given account's `public_key`.\n After this action is processed it will increment.",
+            "description": "Nonce to ensure that the same delegate action is not sent twice by a\nrelayer and should match for given account's `public_key`.\nAfter this action is processed it will increment.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -3538,13 +3673,18 @@
             "type": "string"
           },
           "iteration_delay": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
             ],
-            "description": "How often to check if a new epoch has started.\n Feel free to set to `None`, defaults are sensible.",
-            "nullable": true
+            "description": "How often to check if a new epoch has started.\nFeel free to set to `None`, defaults are sensible."
           },
           "location": {
             "allOf": [
@@ -3555,7 +3695,7 @@
             "description": "Specifies where to write the obtained state parts."
           },
           "restart_dump_for_shards": {
-            "description": "Use in case a node that dumps state to the external storage\n gets in trouble.",
+            "description": "Use in case a node that dumps state to the external storage\ngets in trouble.",
             "items": {
               "$ref": "#/components/schemas/ShardId"
             },
@@ -3591,24 +3731,24 @@
             "$ref": "#/components/schemas/CryptoHash"
           }
         ],
-        "description": "Epoch identifier -- wrapped hash, to make it easier to distinguish.\n EpochId of epoch T is the hash of last block in T-2\n EpochId of first two epochs is 0"
+        "description": "Epoch identifier -- wrapped hash, to make it easier to distinguish.\nEpochId of epoch T is the hash of last block in T-2\nEpochId of first two epochs is 0"
       },
       "EpochSyncConfig": {
         "properties": {
           "disable_epoch_sync_for_bootstrapping": {
             "default": false,
-            "description": "If true, even if the node started from genesis, it will not perform epoch sync.\n There should be no reason to set this flag in production, because on both mainnet\n and testnet it would be infeasible to catch up from genesis without epoch sync.",
+            "description": "If true, even if the node started from genesis, it will not perform epoch sync.\nThere should be no reason to set this flag in production, because on both mainnet\nand testnet it would be infeasible to catch up from genesis without epoch sync.",
             "type": "boolean"
           },
           "epoch_sync_horizon": {
-            "description": "This serves as two purposes: (1) the node will not epoch sync and instead resort to\n header sync, if the genesis block is within this many blocks from the current block;\n (2) the node will reject an epoch sync proof if the provided proof is for an epoch\n that is more than this many blocks behind the current block.",
+            "description": "This serves as two purposes: (1) the node will not epoch sync and instead resort to\nheader sync, if the genesis block is within this many blocks from the current block;\n(2) the node will reject an epoch sync proof if the provided proof is for an epoch\nthat is more than this many blocks behind the current block.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "ignore_epoch_sync_network_requests": {
             "default": false,
-            "description": "If true, the node will ignore epoch sync requests from the network. It is strongly\n recommended not to set this flag, because it will prevent other nodes from\n bootstrapping. This flag is only included as a kill-switch and may be removed in a\n future release. Please note that epoch sync requests are heavily rate limited and\n cached, and therefore should not affect the performance of the node or introduce\n any non-negligible increase in network traffic.",
+            "description": "If true, the node will ignore epoch sync requests from the network. It is strongly\nrecommended not to set this flag, because it will prevent other nodes from\nbootstrapping. This flag is only included as a kill-switch and may be removed in a\nfuture release. Please note that epoch sync requests are heavily rate limited and\ncached, and therefore should not affect the performance of the node or introduce\nany non-negligible increase in network traffic.",
             "type": "boolean"
           },
           "timeout_for_epoch_sync": {
@@ -3617,7 +3757,7 @@
                 "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
               }
             ],
-            "description": "Timeout for epoch sync requests. The node will continue retrying indefinitely even\n if this timeout is exceeded."
+            "description": "Timeout for epoch sync requests. The node will continue retrying indefinitely even\nif this timeout is exceeded."
           }
         },
         "required": [
@@ -3654,7 +3794,7 @@
                 "$ref": "#/components/schemas/AccountId"
               }
             ],
-            "description": "The id of the account on which the execution happens. For transaction this is signer_id,\n for receipt this is receiver_id."
+            "description": "The id of the account on which the execution happens. For transaction this is signer_id,\nfor receipt this is receiver_id."
           },
           "gas_burnt": {
             "description": "The amount of the gas burnt by the given transaction or receipt.",
@@ -3696,7 +3836,7 @@
             "description": "Execution status. Contains the result in case of successful execution."
           },
           "tokens_burnt": {
-            "description": "The amount of tokens burnt corresponding to the burnt gas amount.\n This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because\n the prepaid gas price might be lower than the actual gas price and it creates a deficit.\n `tokens_burnt` also contains the penalty subtracted from refunds, while\n `gas_burnt` only contains the gas that we actually burn for the execution.",
+            "description": "The amount of tokens burnt corresponding to the burnt gas amount.\nThis value doesn't always equal to the `gas_burnt` multiplied by the gas price, because\nthe prepaid gas price might be lower than the actual gas price and it creates a deficit.\n`tokens_burnt` also contains the penalty subtracted from refunds, while\n`gas_burnt` only contains the gas that we actually burn for the execution.",
             "type": "string"
           }
         },
@@ -3773,7 +3913,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "The final action of the receipt returned a promise or the signed transaction was converted\n to a receipt. Contains the receipt_id of the generated receipt.",
+            "description": "The final action of the receipt returned a promise or the signed transaction was converted\nto a receipt. Contains the receipt_id of the generated receipt.",
             "properties": {
               "SuccessReceiptId": {
                 "$ref": "#/components/schemas/CryptoHash"
@@ -3787,7 +3927,7 @@
         ]
       },
       "ExtCostsConfigView": {
-        "description": "Typed view of ExtCostsConfig to preserve JSON output field names in protocol\n config RPC output.",
+        "description": "Typed view of ExtCostsConfig to preserve JSON output field names in protocol\nconfig RPC output.",
         "properties": {
           "alt_bn128_g1_multiexp_base": {
             "description": "Base cost for multiexp",
@@ -4387,7 +4527,7 @@
         "properties": {
           "external_storage_fallback_threshold": {
             "default": 3,
-            "description": "The number of attempts the node will make to obtain a part from peers in\n the network before it fetches from external storage.",
+            "description": "The number of attempts the node will make to obtain a part from peers in\nthe network before it fetches from external storage.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -4402,15 +4542,17 @@
           },
           "num_concurrent_requests": {
             "default": 25,
-            "description": "When fetching state parts from external storage, throttle fetch requests\n to this many concurrent requests.",
+            "description": "When fetching state parts from external storage, throttle fetch requests\nto this many concurrent requests.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
           "num_concurrent_requests_during_catchup": {
             "default": 5,
-            "description": "During catchup, the node will use a different number of concurrent requests\n to reduce the performance impact of state sync.",
+            "description": "During catchup, the node will use a different number of concurrent requests\nto reduce the performance impact of state sync.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           }
@@ -4491,7 +4633,7 @@
         ]
       },
       "Fee": {
-        "description": "Costs associated with an object that can only be sent over the network (and executed\n by the receiver).\n NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.\n And `execution` fee is burned when the item is being executed.",
+        "description": "Costs associated with an object that can only be sent over the network (and executed\nby the receiver).\nNOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.\nAnd `execution` fee is burned when the item is being executed.",
         "properties": {
           "execution": {
             "description": "Fee for executing the object.",
@@ -4506,7 +4648,7 @@
             "type": "integer"
           },
           "send_sir": {
-            "description": "Fee for sending an object from the sender to itself, guaranteeing that it does not leave\n the shard.",
+            "description": "Fee for sending an object from the sender to itself, guaranteeing that it does not leave\nthe shard.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -4520,7 +4662,7 @@
         "type": "object"
       },
       "FinalExecutionOutcomeView": {
-        "description": "Execution outcome of the transaction and all the subsequent receipts.\n Could be not finalized yet",
+        "description": "Execution outcome of the transaction and all the subsequent receipts.\nCould be not finalized yet",
         "properties": {
           "receipts_outcome": {
             "description": "The execution outcome of receipts.",
@@ -4535,7 +4677,7 @@
                 "$ref": "#/components/schemas/FinalExecutionStatus"
               }
             ],
-            "description": "Execution status defined by chain.rs:get_final_transaction_result\n FinalExecutionStatus::NotStarted - the tx is not converted to the receipt yet\n FinalExecutionStatus::Started - we have at least 1 receipt, but the first leaf receipt_id (using dfs) hasn't finished the execution\n FinalExecutionStatus::Failure - the result of the first leaf receipt_id\n FinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id"
+            "description": "Execution status defined by chain.rs:get_final_transaction_result\nFinalExecutionStatus::NotStarted - the tx is not converted to the receipt yet\nFinalExecutionStatus::Started - we have at least 1 receipt, but the first leaf receipt_id (using dfs) hasn't finished the execution\nFinalExecutionStatus::Failure - the result of the first leaf receipt_id\nFinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id"
           },
           "transaction": {
             "allOf": [
@@ -4563,7 +4705,7 @@
         "type": "object"
       },
       "FinalExecutionOutcomeWithReceiptView": {
-        "description": "Final execution outcome of the transaction and all of subsequent the receipts. Also includes\n the generated receipt.",
+        "description": "Final execution outcome of the transaction and all of subsequent the receipts. Also includes\nthe generated receipt.",
         "properties": {
           "receipts": {
             "description": "Receipts generated from the transaction",
@@ -4585,7 +4727,7 @@
                 "$ref": "#/components/schemas/FinalExecutionStatus"
               }
             ],
-            "description": "Execution status defined by chain.rs:get_final_transaction_result\n FinalExecutionStatus::NotStarted - the tx is not converted to the receipt yet\n FinalExecutionStatus::Started - we have at least 1 receipt, but the first leaf receipt_id (using dfs) hasn't finished the execution\n FinalExecutionStatus::Failure - the result of the first leaf receipt_id\n FinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id"
+            "description": "Execution status defined by chain.rs:get_final_transaction_result\nFinalExecutionStatus::NotStarted - the tx is not converted to the receipt yet\nFinalExecutionStatus::Started - we have at least 1 receipt, but the first leaf receipt_id (using dfs) hasn't finished the execution\nFinalExecutionStatus::Failure - the result of the first leaf receipt_id\nFinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id"
           },
           "transaction": {
             "allOf": [
@@ -4666,6 +4808,11 @@
         ],
         "type": "string"
       },
+      "FunctionArgs": {
+        "description": "This type is used to mark function arguments.\n\nNOTE: The main reason for this to exist (except the type-safety) is that the value is\ntransparently serialized and deserialized as a base64-encoded string when serde is used\n(serde_json).",
+        "format": "bytes",
+        "type": "string"
+      },
       "FunctionCallAction": {
         "properties": {
           "args": {
@@ -4692,7 +4839,7 @@
         "type": "object"
       },
       "FunctionCallError": {
-        "description": "Serializable version of `near-vm-runner::FunctionCallError`.\n\n Must never reorder/remove elements, can only add new variants at the end (but do that very\n carefully). It describes stable serialization format, and only used by serialization logic.",
+        "description": "Serializable version of `near-vm-runner::FunctionCallError`.\n\nMust never reorder/remove elements, can only add new variants at the end (but do that very\ncarefully). It describes stable serialization format, and only used by serialization logic.",
         "oneOf": [
           {
             "enum": [
@@ -4716,7 +4863,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Wasm binary env link error\n\n Note: this is only to deserialize old data, use execution error for new data",
+            "description": "Wasm binary env link error\n\nNote: this is only to deserialize old data, use execution error for new data",
             "properties": {
               "LinkError": {
                 "properties": {
@@ -4750,7 +4897,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "A trap happened during execution of a binary\n\n Note: this is only to deserialize old data, use execution error for new data",
+            "description": "A trap happened during execution of a binary\n\nNote: this is only to deserialize old data, use execution error for new data",
             "properties": {
               "WasmTrap": {
                 "$ref": "#/components/schemas/WasmTrap"
@@ -4789,15 +4936,15 @@
         ]
       },
       "FunctionCallPermission": {
-        "description": "Grants limited permission to make transactions with FunctionCallActions\n The permission can limit the allowed balance to be spent on the prepaid gas.\n It also restrict the account ID of the receiver for this function call.\n It also can restrict the method name for the allowed function calls.",
+        "description": "Grants limited permission to make transactions with FunctionCallActions\nThe permission can limit the allowed balance to be spent on the prepaid gas.\nIt also restrict the account ID of the receiver for this function call.\nIt also can restrict the method name for the allowed function calls.",
         "properties": {
           "allowance": {
-            "description": "Allowance is a balance limit to use by this access key to pay for function call gas and\n transaction fees. When this access key is used, both account balance and the allowance is\n decreased by the same value.\n `None` means unlimited allowance.\n NOTE: To change or increase the allowance, the old access key needs to be deleted and a new\n access key should be created.",
+            "description": "Allowance is a balance limit to use by this access key to pay for function call gas and\ntransaction fees. When this access key is used, both account balance and the allowance is\ndecreased by the same value.\n`None` means unlimited allowance.\nNOTE: To change or increase the allowance, the old access key needs to be deleted and a new\naccess key should be created.",
             "nullable": true,
             "type": "string"
           },
           "method_names": {
-            "description": "A list of method names that can be used. The access key only allows transactions with the\n function call of one of the given method names.\n Empty list means any method name can be used.",
+            "description": "A list of method names that can be used. The access key only allows transactions with the\nfunction call of one of the given method names.\nEmpty list means any method name can be used.",
             "items": {
               "type": "string"
             },
@@ -4819,14 +4966,14 @@
         "properties": {
           "gc_blocks_limit": {
             "default": 2,
-            "description": "Maximum number of blocks to garbage collect at every garbage collection\n call.",
+            "description": "Maximum number of blocks to garbage collect at every garbage collection\ncall.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "gc_fork_clean_step": {
             "default": 100,
-            "description": "Maximum number of height to go through at each garbage collection step\n when cleaning forks during garbage collection.",
+            "description": "Maximum number of height to go through at each garbage collection step\nwhen cleaning forks during garbage collection.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -4890,16 +5037,17 @@
           "block_producer_kickout_threshold": {
             "description": "Threshold for kicking out block producers, between 0 and 100.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
           "chain_id": {
-            "description": "ID of the blockchain. This must be unique for every blockchain.\n If your testnet blockchains do not have unique chain IDs, you will have a bad time.",
+            "description": "ID of the blockchain. This must be unique for every blockchain.\nIf your testnet blockchains do not have unique chain IDs, you will have a bad time.",
             "type": "string"
           },
           "chunk_producer_assignment_changes_limit": {
             "default": 5,
-            "description": "Limits the number of shard changes in chunk producer assignments,\n if algorithm is able to choose assignment with better balance of\n number of chunk producers for shards.",
+            "description": "Limits the number of shard changes in chunk producer assignments,\nif algorithm is able to choose assignment with better balance of\nnumber of chunk producers for shards.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -4907,6 +5055,7 @@
           "chunk_producer_kickout_threshold": {
             "description": "Threshold for kicking out chunk producers, between 0 and 100.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
@@ -4914,6 +5063,7 @@
             "default": 80,
             "description": "Threshold for kicking out nodes which are only chunk validators, between 0 and 100.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
@@ -4975,6 +5125,7 @@
             "default": 100,
             "description": "Max stake percentage of the validators we will kick out.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
@@ -4994,7 +5145,7 @@
               1,
               6250
             ],
-            "description": "The lowest ratio s/s_total any block producer can have.\n See <https://github.com/near/NEPs/pull/167> for details",
+            "description": "The lowest ratio s/s_total any block producer can have.\nSee <https://github.com/near/NEPs/pull/167> for details",
             "items": {
               "format": "int32",
               "type": "integer"
@@ -5017,7 +5168,7 @@
             "type": "integer"
           },
           "num_block_producer_seats_per_shard": {
-            "description": "Defines number of shards and number of block producer seats per each shard at genesis.\n Note: not used with protocol_feature_chunk_only_producers -- replaced by minimum_validators_per_shard\n Note: not used before as all block producers produce chunks for all shards",
+            "description": "Defines number of shards and number of block producer seats per each shard at genesis.\nNote: not used with protocol_feature_chunk_only_producers -- replaced by minimum_validators_per_shard\nNote: not used before as all block producers produce chunks for all shards",
             "items": {
               "format": "uint64",
               "minimum": 0,
@@ -5040,7 +5191,7 @@
           },
           "num_chunk_producer_seats": {
             "default": 100,
-            "description": "Number of chunk producers.\n Don't mess it up with chunk-only producers feature which is deprecated.",
+            "description": "Number of chunk producers.\nDon't mess it up with chunk-only producers feature which is deprecated.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -5144,7 +5295,7 @@
           },
           "shuffle_shard_assignment_for_chunk_producers": {
             "default": false,
-            "description": "If true, shuffle the chunk producers across shards. In other words, if\n the shard assignments were `[S_0, S_1, S_2, S_3]` where `S_i` represents\n the set of chunk producers for shard `i`, if this flag were true, the\n shard assignments might become, for example, `[S_2, S_0, S_3, S_1]`.",
+            "description": "If true, shuffle the chunk producers across shards. In other words, if\nthe shard assignments were `[S_0, S_1, S_2, S_3]` where `S_i` represents\nthe set of chunk producers for shard `i`, if this flag were true, the\nshard assignments might become, for example, `[S_2, S_0, S_3, S_1]`.",
             "type": "boolean"
           },
           "target_validator_mandates_per_shard": {
@@ -5166,7 +5317,7 @@
           },
           "use_production_config": {
             "default": false,
-            "description": "This is only for test purposes. We hard code some configs for mainnet and testnet\n in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.\n If set to true, the node will use the same config override path as mainnet and testnet.",
+            "description": "This is only for test purposes. We hard code some configs for mainnet and testnet\nin AllEpochConfig, and we want to have a way to test that code path. This flag is for that.\nIf set to true, the node will use the same config override path as mainnet and testnet.",
             "type": "boolean"
           },
           "validators": {
@@ -5205,20 +5356,23 @@
         "type": "object"
       },
       "GenesisConfigRequest": {
-        "title": "GenesisConfigRequest",
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true,
+        "title": "GenesisConfigRequest"
       },
       "GlobalContractDeployMode": {
         "oneOf": [
           {
-            "description": "Contract is deployed under its code hash.\n Users will be able reference it by that hash.\n This effectively makes the contract immutable.",
+            "description": "Contract is deployed under its code hash.\nUsers will be able reference it by that hash.\nThis effectively makes the contract immutable.",
             "enum": [
               "CodeHash"
             ],
             "type": "string"
           },
           {
-            "description": "Contract is deployed under the owner account id.\n Users will be able reference it by that account id.\n This allows the owner to update the contract for all its users.",
+            "description": "Contract is deployed under the owner account id.\nUsers will be able reference it by that account id.\nThis allows the owner to update the contract for all its users.",
             "enum": [
               "AccountId"
             ],
@@ -5797,7 +5951,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Invalid input to alt_bn128 family of functions (e.g., point which isn't\n on the curve).",
+            "description": "Invalid input to alt_bn128 family of functions (e.g., point which isn't\non the curve).",
             "properties": {
               "AltBn128InvalidInput": {
                 "properties": {
@@ -5818,7 +5972,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Invalid input to ed25519 signature verification function (e.g. signature cannot be\n derived from bytes).",
+            "description": "Invalid input to ed25519 signature verification function (e.g. signature cannot be\nderived from bytes).",
             "properties": {
               "Ed25519VerifyInvalidInput": {
                 "properties": {
@@ -6249,7 +6403,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "The receiver shard of the transaction is too congested to accept new\n transactions at the moment.",
+            "description": "The receiver shard of the transaction is too congested to accept new\ntransactions at the moment.",
             "properties": {
               "ShardCongested": {
                 "properties": {
@@ -6279,7 +6433,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "The receiver shard of the transaction missed several chunks and rejects\n new transaction until it can make progress again.",
+            "description": "The receiver shard of the transaction missed several chunks and rejects\nnew transaction until it can make progress again.",
             "properties": {
               "ShardStuck": {
                 "properties": {
@@ -7237,12 +7391,17 @@
           {
             "properties": {
               "result": {
-                "allOf": [
+                "anyOf": [
                   {
                     "$ref": "#/components/schemas/RpcHealthResponse"
+                  },
+                  {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true
                   }
-                ],
-                "nullable": true
+                ]
               }
             },
             "required": [
@@ -7998,7 +8157,7 @@
         "type": "object"
       },
       "KnownProducerView": {
-        "description": "Information about a Producer: its account name, peer_id and a list of connected peers that\n the node can use to send message for this producer.",
+        "description": "Information about a Producer: its account name, peer_id and a list of connected peers that\nthe node can use to send message for this producer.",
         "properties": {
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
@@ -8040,7 +8199,7 @@
         "type": "object"
       },
       "LimitConfig": {
-        "description": "Describes limits for VM and Runtime.\n TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities",
+        "description": "Describes limits for VM and Runtime.\nTODO #4139: consider switching to strongly-typed wrappers instead of raw quantities",
         "properties": {
           "account_id_validity_rules_version": {
             "allOf": [
@@ -8049,10 +8208,10 @@
               }
             ],
             "default": 0,
-            "description": "Whether to enforce account_id well-formed-ness where it wasn't enforced\n historically."
+            "description": "Whether to enforce account_id well-formed-ness where it wasn't enforced\nhistorically."
           },
           "initial_memory_pages": {
-            "description": "The initial number of memory pages.\n NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.",
+            "description": "The initial number of memory pages.\nNOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.",
             "format": "uint32",
             "minimum": 0,
             "type": "integer"
@@ -8126,7 +8285,7 @@
             "type": "integer"
           },
           "max_number_bytes_method_names": {
-            "description": "Max total length of all method names (including terminating character) for a function call\n permission access key.",
+            "description": "Max total length of all method names (including terminating character) for a function call\npermission access key.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -8144,7 +8303,7 @@
             "type": "integer"
           },
           "max_number_registers": {
-            "description": "Maximum number of registers that can be used simultaneously.\n\n Note that due to an implementation quirk [read: a bug] in VMLogic, if we\n have this number of registers, no subsequent writes to the registers\n will succeed even if they replace an existing register.",
+            "description": "Maximum number of registers that can be used simultaneously.\n\nNote that due to an implementation quirk [read: a bug] in VMLogic, if we\nhave this number of registers, no subsequent writes to the registers\nwill succeed even if they replace an existing register.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -8168,7 +8327,7 @@
             "type": "integer"
           },
           "max_stack_height": {
-            "description": "How tall the stack is allowed to grow?\n\n See <https://wiki.parity.io/WebAssembly-StackHeight> to find out how the stack frame cost\n is calculated.",
+            "description": "How tall the stack is allowed to grow?\n\nSee <https://wiki.parity.io/WebAssembly-StackHeight> to find out how the stack frame cost\nis calculated.",
             "format": "uint32",
             "minimum": 0,
             "type": "integer"
@@ -8412,7 +8571,7 @@
             "$ref": "#/components/schemas/Action"
           }
         ],
-        "description": "This is Action which mustn't contain DelegateAction.\n\n This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.\n\n Important: Don't make the inner Action public, this must only be constructed\n through the correct interface that ensures the inner Action is actually not\n a delegate action. That would break an assumption of this type, which we use\n in several places. For example, borsh de-/serialization relies on it. If the\n invariant is broken, we may end up with a `Transaction` or `Receipt` that we\n can serialize but deserializing it back causes a parsing error."
+        "description": "This is Action which mustn't contain DelegateAction.\n\nThis struct is needed to avoid the recursion when Action/DelegateAction is deserialized.\n\nImportant: Don't make the inner Action public, this must only be constructed\nthrough the correct interface that ensures the inner Action is actually not\na delegate action. That would break an assumption of this type, which we use\nin several places. For example, borsh de-/serialization relies on it. If the\ninvariant is broken, we may end up with a `Transaction` or `Receipt` that we\ncan serialize but deserializing it back causes a parsing error."
       },
       "PeerId": {
         "allOf": [
@@ -8425,12 +8584,17 @@
       "PeerInfoView": {
         "properties": {
           "account_id": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/AccountId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "addr": {
             "type": "string"
@@ -8439,12 +8603,17 @@
             "type": "boolean"
           },
           "block_hash": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "connection_established_time_millis": {
             "format": "uint64",
@@ -8540,21 +8709,21 @@
             "type": "string"
           },
           {
-            "description": "Gas instrumentation failed.\n\n This most likely indicates the module isn't valid.",
+            "description": "Gas instrumentation failed.\n\nThis most likely indicates the module isn't valid.",
             "enum": [
               "GasInstrumentation"
             ],
             "type": "string"
           },
           {
-            "description": "Stack instrumentation failed.\n\n This  most likely indicates the module isn't valid.",
+            "description": "Stack instrumentation failed.\n\nThis  most likely indicates the module isn't valid.",
             "enum": [
               "StackHeightInstrumentation"
             ],
             "type": "string"
           },
           {
-            "description": "Error happened during instantiation.\n\n This might indicate that `start` function trapped, or module isn't\n instantiable and/or un-linkable.",
+            "description": "Error happened during instantiation.\n\nThis might indicate that `start` function trapped, or module isn't\ninstantiable and/or un-linkable.",
             "enum": [
               "Instantiate"
             ],
@@ -8986,7 +9155,12 @@
       "RpcBlockResponse": {
         "properties": {
           "author": {
-            "$ref": "#/components/schemas/AccountId"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "description": "The AccountId of the author of the Block"
           },
           "chunks": {
             "items": {
@@ -9020,6 +9194,7 @@
               "block_id",
               "shard_id"
             ],
+            "title": "block_shard_id",
             "type": "object"
           },
           {
@@ -9031,6 +9206,7 @@
             "required": [
               "chunk_id"
             ],
+            "title": "chunk_hash",
             "type": "object"
           }
         ],
@@ -9067,8 +9243,11 @@
         "type": "object"
       },
       "RpcClientConfigRequest": {
-        "title": "RpcClientConfigRequest",
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true,
+        "title": "RpcClientConfigRequest"
       },
       "RpcClientConfigResponse": {
         "description": "ClientConfig where some fields can be updated at runtime.",
@@ -9116,13 +9295,18 @@
             "type": "string"
           },
           "chunk_distribution_network": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/ChunkDistributionNetworkConfig"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
             ],
-            "description": "Optional config for the Chunk Distribution Network feature.\n If set to `None` then this node does not participate in the Chunk Distribution Network.\n Nodes not participating will still function fine, but possibly with higher\n latency due to the need of requesting chunks over the peer-to-peer network.",
-            "nullable": true
+            "description": "Optional config for the Chunk Distribution Network feature.\nIf set to `None` then this node does not participate in the Chunk Distribution Network.\nNodes not participating will still function fine, but possibly with higher\nlatency due to the need of requesting chunks over the peer-to-peer network."
           },
           "chunk_request_retry_period": {
             "description": "Time between checking to re-request chunks.",
@@ -9280,7 +9464,7 @@
             "type": "array"
           },
           "max_gas_burnt_view": {
-            "description": "Max burnt gas per view method.  If present, overrides value stored in\n genesis file.  The value only affects the RPCs without influencing the\n protocol thus changing it per-node doesn’t affect the blockchain.",
+            "description": "Max burnt gas per view method.  If present, overrides value stored in\ngenesis file.  The value only affects the RPCs without influencing the\nprotocol thus changing it per-node doesn’t affect the blockchain.",
             "format": "uint64",
             "minimum": 0,
             "nullable": true,
@@ -9310,19 +9494,19 @@
             "type": "integer"
           },
           "orphan_state_witness_max_size": {
-            "description": "Maximum size of state witnesses in the OrphanStateWitnessPool.\n\n We keep only orphan witnesses which are smaller than this size.\n This limits the maximum memory usage of OrphanStateWitnessPool.",
+            "description": "Maximum size of state witnesses in the OrphanStateWitnessPool.\n\nWe keep only orphan witnesses which are smaller than this size.\nThis limits the maximum memory usage of OrphanStateWitnessPool.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "orphan_state_witness_pool_size": {
-            "description": "OrphanStateWitnessPool keeps instances of ChunkStateWitness which can't be processed\n because the previous block isn't available. The witnesses wait in the pool until the\n required block appears. This variable controls how many witnesses can be stored in the pool.",
+            "description": "OrphanStateWitnessPool keeps instances of ChunkStateWitness which can't be processed\nbecause the previous block isn't available. The witnesses wait in the pool until the\nrequired block appears. This variable controls how many witnesses can be stored in the pool.",
             "format": "uint",
             "minimum": 0,
             "type": "integer"
           },
           "produce_chunk_add_transactions_time_limit": {
-            "description": "Limit the time of adding transactions to a chunk.\n A node produces a chunk by adding transactions from the transaction pool until\n some limit is reached. This time limit ensures that adding transactions won't take\n longer than the specified duration, which helps to produce the chunk quickly.",
+            "description": "Limit the time of adding transactions to a chunk.\nA node produces a chunk by adding transactions from the transaction pool until\nsome limit is reached. This time limit ensures that adding transactions won't take\nlonger than the specified duration, which helps to produce the chunk quickly.",
             "type": "string"
           },
           "produce_empty_blocks": {
@@ -9338,15 +9522,15 @@
             "type": "string"
           },
           "save_invalid_witnesses": {
-            "description": "Save observed instances of invalid ChunkStateWitness to the database in DBCol::InvalidChunkStateWitnesses.\n Saving invalid witnesses is useful for analysis and debugging.\n This option can cause extra load on the database and is not recommended for production use.",
+            "description": "Save observed instances of invalid ChunkStateWitness to the database in DBCol::InvalidChunkStateWitnesses.\nSaving invalid witnesses is useful for analysis and debugging.\nThis option can cause extra load on the database and is not recommended for production use.",
             "type": "boolean"
           },
           "save_latest_witnesses": {
-            "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\n Saving the latest witnesses is useful for analysis and debugging.\n This option can cause extra load on the database and is not recommended for production use.",
+            "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\nSaving the latest witnesses is useful for analysis and debugging.\nThis option can cause extra load on the database and is not recommended for production use.",
             "type": "boolean"
           },
           "save_trie_changes": {
-            "description": "save_trie_changes should be set to true iff\n - archive if false - non-archival nodes need trie changes to perform garbage collection\n - archive is true, cold_store is configured and migration to split_storage is finished - node\n working in split storage mode needs trie changes in order to do garbage collection on hot.",
+            "description": "save_trie_changes should be set to true iff\n- archive if false - non-archival nodes need trie changes to perform garbage collection\n- archive is true, cold_store is configured and migration to split_storage is finished - node\nworking in split storage mode needs trie changes in order to do garbage collection on hot.",
             "type": "boolean"
           },
           "save_tx_outcomes": {
@@ -9366,7 +9550,7 @@
             "description": "Options for syncing state."
           },
           "state_sync_enabled": {
-            "description": "Whether to use the State Sync mechanism.\n If disabled, the node will do Block Sync instead of State Sync.",
+            "description": "Whether to use the State Sync mechanism.\nIf disabled, the node will do Block Sync instead of State Sync.",
             "type": "boolean"
           },
           "state_sync_external_backoff": {
@@ -9451,7 +9635,7 @@
             "$ref": "#/components/schemas/TrackedShardsConfig"
           },
           "transaction_pool_size_limit": {
-            "description": "Limit of the size of per-shard transaction pool measured in bytes. If not set, the size\n will be unbounded.",
+            "description": "Limit of the size of per-shard transaction pool measured in bytes. If not set, the size\nwill be unbounded.",
             "format": "uint64",
             "minimum": 0,
             "nullable": true,
@@ -9481,7 +9665,7 @@
             "type": "array"
           },
           "tx_routing_height_horizon": {
-            "description": "If the node is not a chunk producer within that many blocks, then route\n to upcoming chunk producers.",
+            "description": "If the node is not a chunk producer within that many blocks, then route\nto upcoming chunk producers.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -9494,6 +9678,12 @@
             ],
             "description": "Version of the binary."
           },
+          "view_client_num_state_requests_per_throttle_period": {
+            "description": "Maximum number of state requests served per `view_client_throttle_period`",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
           "view_client_threads": {
             "description": "Number of threads for ViewClientActor pool.",
             "format": "uint",
@@ -9501,7 +9691,7 @@
             "type": "integer"
           },
           "view_client_throttle_period": {
-            "description": "Number of seconds between state requests for view client.",
+            "description": "Throttling window for state requests (headers and parts).",
             "items": {
               "format": "uint64",
               "minimum": 0,
@@ -9553,6 +9743,7 @@
           "save_tx_outcomes",
           "view_client_threads",
           "view_client_throttle_period",
+          "view_client_num_state_requests_per_throttle_period",
           "enable_statistics_export",
           "client_background_migration_threads",
           "state_sync_enabled",
@@ -9585,6 +9776,7 @@
               "block_id",
               "shard_id"
             ],
+            "title": "block_shard_id",
             "type": "object"
           },
           {
@@ -9596,6 +9788,7 @@
             "required": [
               "chunk_id"
             ],
+            "title": "chunk_hash",
             "type": "object"
           }
         ],
@@ -9616,7 +9809,7 @@
       },
       "RpcError": {
         "additionalProperties": false,
-        "description": "This struct may be returned from JSON RPC server in case of error\n It is expected that this struct has impl From<_> all other RPC errors\n like [RpcBlockError](crate::types::blocks::RpcBlockError)",
+        "description": "This struct may be returned from JSON RPC server in case of error\nIt is expected that this struct has impl From<_> all other RPC errors\nlike [RpcBlockError](crate::types::blocks::RpcBlockError)",
         "oneOf": [
           {
             "properties": {
@@ -9677,8 +9870,7 @@
             "type": "integer"
           },
           "data": {
-            "description": "Deprecated please use the `error_struct` instead",
-            "nullable": true
+            "description": "Deprecated please use the `error_struct` instead"
           },
           "message": {
             "description": "Deprecated please use the `error_struct` instead",
@@ -9695,12 +9887,17 @@
       "RpcGasPriceRequest": {
         "properties": {
           "block_id": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/BlockId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           }
         },
         "title": "RpcGasPriceRequest",
@@ -9718,11 +9915,17 @@
         "type": "object"
       },
       "RpcHealthRequest": {
-        "title": "RpcHealthRequest",
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true,
+        "title": "RpcHealthRequest"
       },
       "RpcHealthResponse": {
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true
       },
       "RpcKnownProducer": {
         "properties": {
@@ -9877,20 +10080,31 @@
         "type": "object"
       },
       "RpcLightClientNextBlockResponse": {
+        "description": "A state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).",
         "properties": {
           "approvals_after_next": {
             "items": {
-              "allOf": [
+              "anyOf": [
                 {
                   "$ref": "#/components/schemas/Signature"
+                },
+                {
+                  "enum": [
+                    null
+                  ],
+                  "nullable": true
                 }
-              ],
-              "nullable": true
+              ]
             },
             "type": "array"
           },
           "inner_lite": {
-            "$ref": "#/components/schemas/BlockHeaderInnerLiteView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BlockHeaderInnerLiteView"
+              }
+            ],
+            "description": "Inner part of the block header that gets hashed, split into two parts, one that is sent\n   to light clients, and the rest"
           },
           "inner_rest_hash": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -9924,8 +10138,11 @@
         "type": "object"
       },
       "RpcNetworkInfoRequest": {
-        "title": "RpcNetworkInfoRequest",
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true,
+        "title": "RpcNetworkInfoRequest"
       },
       "RpcNetworkInfoResponse": {
         "properties": {
@@ -9976,12 +10193,17 @@
       "RpcPeerInfo": {
         "properties": {
           "account_id": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/AccountId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "addr": {
             "nullable": true,
@@ -10049,22 +10271,25 @@
           "block_producer_kickout_threshold": {
             "description": "Threshold for kicking out block producers, between 0 and 100.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
           "chain_id": {
-            "description": "ID of the blockchain. This must be unique for every blockchain.\n If your testnet blockchains do not have unique chain IDs, you will have a bad time.",
+            "description": "ID of the blockchain. This must be unique for every blockchain.\nIf your testnet blockchains do not have unique chain IDs, you will have a bad time.",
             "type": "string"
           },
           "chunk_producer_kickout_threshold": {
             "description": "Threshold for kicking out chunk producers, between 0 and 100.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
           "chunk_validator_only_kickout_threshold": {
             "description": "Threshold for kicking out nodes which are only chunk validators, between 0 and 100.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
@@ -10126,6 +10351,7 @@
           "max_kickout_stake_perc": {
             "description": "Max stake percentage of the validators we will kick out.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
@@ -10140,7 +10366,7 @@
             "type": "integer"
           },
           "minimum_stake_ratio": {
-            "description": "The lowest ratio s/s_total any block producer can have.\n See <https://github.com/near/NEPs/pull/167> for details",
+            "description": "The lowest ratio s/s_total any block producer can have.\nSee <https://github.com/near/NEPs/pull/167> for details",
             "items": {
               "format": "int32",
               "type": "integer"
@@ -10247,7 +10473,7 @@
             "description": "Layout information regarding how to split accounts to shards"
           },
           "shuffle_shard_assignment_for_chunk_producers": {
-            "description": "If true, shuffle the chunk producers across shards. In other words, if\n the shard assignments were `[S_0, S_1, S_2, S_3]` where `S_i` represents\n the set of chunk producers for shard `i`, if this flag were true, the\n shard assignments might become, for example, `[S_2, S_0, S_3, S_1]`.",
+            "description": "If true, shuffle the chunk producers across shards. In other words, if\nthe shard assignments were `[S_0, S_1, S_2, S_3]` where `S_i` represents\nthe set of chunk producers for shard `i`, if this flag were true, the\nshard assignments might become, for example, `[S_2, S_0, S_3, S_1]`.",
             "type": "boolean"
           },
           "target_validator_mandates_per_shard": {
@@ -10301,9 +10527,9 @@
         "type": "object"
       },
       "RpcQueryRequest": {
-        "allOf": [
+        "oneOf": [
           {
-            "oneOf": [
+            "allOf": [
               {
                 "properties": {
                   "block_id": {
@@ -10315,32 +10541,6 @@
                 ],
                 "type": "object"
               },
-              {
-                "properties": {
-                  "finality": {
-                    "$ref": "#/components/schemas/Finality"
-                  }
-                },
-                "required": [
-                  "finality"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "sync_checkpoint": {
-                    "$ref": "#/components/schemas/SyncCheckpoint"
-                  }
-                },
-                "required": [
-                  "sync_checkpoint"
-                ],
-                "type": "object"
-              }
-            ]
-          },
-          {
-            "oneOf": [
               {
                 "properties": {
                   "account_id": {
@@ -10356,6 +10556,22 @@
                 "required": [
                   "request_type",
                   "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_account_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
                 ],
                 "type": "object"
               },
@@ -10376,6 +10592,22 @@
                   "account_id"
                 ],
                 "type": "object"
+              }
+            ],
+            "title": "view_code_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
               },
               {
                 "properties": {
@@ -10386,8 +10618,7 @@
                     "type": "boolean"
                   },
                   "prefix_base64": {
-                    "format": "bytes",
-                    "type": "string"
+                    "$ref": "#/components/schemas/StoreKey"
                   },
                   "request_type": {
                     "enum": [
@@ -10400,6 +10631,22 @@
                   "request_type",
                   "account_id",
                   "prefix_base64"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_state_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
                 ],
                 "type": "object"
               },
@@ -10424,6 +10671,22 @@
                   "public_key"
                 ],
                 "type": "object"
+              }
+            ],
+            "title": "view_access_key_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
               },
               {
                 "properties": {
@@ -10442,6 +10705,22 @@
                   "account_id"
                 ],
                 "type": "object"
+              }
+            ],
+            "title": "view_access_key_list_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
               },
               {
                 "properties": {
@@ -10449,8 +10728,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "args_base64": {
-                    "format": "bytes",
-                    "type": "string"
+                    "$ref": "#/components/schemas/FunctionArgs"
                   },
                   "method_name": {
                     "type": "string"
@@ -10469,6 +10747,22 @@
                   "args_base64"
                 ],
                 "type": "object"
+              }
+            ],
+            "title": "call_function_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
               },
               {
                 "properties": {
@@ -10485,6 +10779,22 @@
                 "required": [
                   "request_type",
                   "code_hash"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_global_contract_code_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
                 ],
                 "type": "object"
               },
@@ -10506,7 +10816,590 @@
                 ],
                 "type": "object"
               }
-            ]
+            ],
+            "title": "view_global_contract_code_by_account_id_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_account"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_account_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_code"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_code_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "include_proof": {
+                    "type": "boolean"
+                  },
+                  "prefix_base64": {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_state"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "prefix_base64"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_state_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_access_key"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_access_key_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_access_key_list"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_access_key_list_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "args_base64": {
+                    "$ref": "#/components/schemas/FunctionArgs"
+                  },
+                  "method_name": {
+                    "type": "string"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "call_function"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "method_name",
+                  "args_base64"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "call_function_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "code_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_global_contract_code"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "code_hash"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_global_contract_code_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_global_contract_code_by_account_id"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_global_contract_code_by_account_id_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_account"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_account_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_code"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_code_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "include_proof": {
+                    "type": "boolean"
+                  },
+                  "prefix_base64": {
+                    "$ref": "#/components/schemas/StoreKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_state"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "prefix_base64"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_state_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_access_key"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_access_key_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_access_key_list"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_access_key_list_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "args_base64": {
+                    "$ref": "#/components/schemas/FunctionArgs"
+                  },
+                  "method_name": {
+                    "type": "string"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "call_function"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "method_name",
+                  "args_base64"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "call_function_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "code_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_global_contract_code"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "code_hash"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_global_contract_code_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_global_contract_code_by_account_id"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_global_contract_code_by_account_id_by_sync_checkpoint"
           }
         ],
         "title": "RpcQueryRequest",
@@ -10699,9 +11592,10 @@
         "type": "object"
       },
       "RpcStateChangesInBlockByTypeRequest": {
-        "allOf": [
+        "description": "It is a [serializable view] of [`StateChangesRequest`].\n\n[serializable view]: ./index.html\n[`StateChangesRequest`]: ../types/struct.StateChangesRequest.html",
+        "oneOf": [
           {
-            "oneOf": [
+            "allOf": [
               {
                 "properties": {
                   "block_id": {
@@ -10713,32 +11607,6 @@
                 ],
                 "type": "object"
               },
-              {
-                "properties": {
-                  "finality": {
-                    "$ref": "#/components/schemas/Finality"
-                  }
-                },
-                "required": [
-                  "finality"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "sync_checkpoint": {
-                    "$ref": "#/components/schemas/SyncCheckpoint"
-                  }
-                },
-                "required": [
-                  "sync_checkpoint"
-                ],
-                "type": "object"
-              }
-            ]
-          },
-          {
-            "oneOf": [
               {
                 "properties": {
                   "account_ids": {
@@ -10757,6 +11625,22 @@
                 "required": [
                   "changes_type",
                   "account_ids"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "account_changes_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
                 ],
                 "type": "object"
               },
@@ -10780,6 +11664,22 @@
                   "keys"
                 ],
                 "type": "object"
+              }
+            ],
+            "title": "single_access_key_changes_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
               },
               {
                 "properties": {
@@ -10799,6 +11699,22 @@
                 "required": [
                   "changes_type",
                   "keys"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "single_gas_key_changes_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
                 ],
                 "type": "object"
               },
@@ -10822,6 +11738,22 @@
                   "account_ids"
                 ],
                 "type": "object"
+              }
+            ],
+            "title": "all_access_key_changes_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
               },
               {
                 "properties": {
@@ -10841,6 +11773,22 @@
                 "required": [
                   "changes_type",
                   "account_ids"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "all_gas_key_changes_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
                 ],
                 "type": "object"
               },
@@ -10864,6 +11812,22 @@
                   "account_ids"
                 ],
                 "type": "object"
+              }
+            ],
+            "title": "contract_code_changes_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
               },
               {
                 "properties": {
@@ -10880,8 +11844,7 @@
                     "type": "string"
                   },
                   "key_prefix_base64": {
-                    "format": "bytes",
-                    "type": "string"
+                    "$ref": "#/components/schemas/StoreKey"
                   }
                 },
                 "required": [
@@ -10891,10 +11854,536 @@
                 ],
                 "type": "object"
               }
-            ]
+            ],
+            "title": "data_changes_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "account_changes"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "account_changes_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "changes_type": {
+                    "enum": [
+                      "single_access_key_changes"
+                    ],
+                    "type": "string"
+                  },
+                  "keys": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountWithPublicKey"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "keys"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "single_access_key_changes_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "changes_type": {
+                    "enum": [
+                      "single_gas_key_changes"
+                    ],
+                    "type": "string"
+                  },
+                  "keys": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountWithPublicKey"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "keys"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "single_gas_key_changes_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "all_access_key_changes"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "all_access_key_changes_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "all_gas_key_changes"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "all_gas_key_changes_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "contract_code_changes"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "contract_code_changes_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "data_changes"
+                    ],
+                    "type": "string"
+                  },
+                  "key_prefix_base64": {
+                    "$ref": "#/components/schemas/StoreKey"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids",
+                  "key_prefix_base64"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "data_changes_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "account_changes"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "account_changes_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "changes_type": {
+                    "enum": [
+                      "single_access_key_changes"
+                    ],
+                    "type": "string"
+                  },
+                  "keys": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountWithPublicKey"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "keys"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "single_access_key_changes_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "changes_type": {
+                    "enum": [
+                      "single_gas_key_changes"
+                    ],
+                    "type": "string"
+                  },
+                  "keys": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountWithPublicKey"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "keys"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "single_gas_key_changes_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "all_access_key_changes"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "all_access_key_changes_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "all_gas_key_changes"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "all_gas_key_changes_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "contract_code_changes"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "contract_code_changes_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_ids": {
+                    "items": {
+                      "$ref": "#/components/schemas/AccountId"
+                    },
+                    "type": "array"
+                  },
+                  "changes_type": {
+                    "enum": [
+                      "data_changes"
+                    ],
+                    "type": "string"
+                  },
+                  "key_prefix_base64": {
+                    "$ref": "#/components/schemas/StoreKey"
+                  }
+                },
+                "required": [
+                  "changes_type",
+                  "account_ids",
+                  "key_prefix_base64"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "data_changes_by_sync_checkpoint"
           }
         ],
-        "description": "It is a [serializable view] of [`StateChangesRequest`].\n\n [serializable view]: ./index.html\n [`StateChangesRequest`]: ../types/struct.StateChangesRequest.html",
         "title": "RpcStateChangesInBlockByTypeRequest",
         "type": "object"
       },
@@ -10974,8 +12463,11 @@
         "type": "object"
       },
       "RpcStatusRequest": {
-        "title": "RpcStatusRequest",
-        "type": "object"
+        "enum": [
+          null
+        ],
+        "nullable": true,
+        "title": "RpcStatusRequest"
       },
       "RpcStatusResponse": {
         "properties": {
@@ -10984,13 +12476,18 @@
             "type": "string"
           },
           "detailed_debug_status": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/DetailedDebugStatus"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
             ],
-            "description": "Information about last blocks, network, epoch and chain & chunk info.",
-            "nullable": true
+            "description": "Information about last blocks, network, epoch and chain & chunk info."
           },
           "genesis_hash": {
             "allOf": [
@@ -11007,13 +12504,18 @@
             "type": "integer"
           },
           "node_key": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/PublicKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
             ],
-            "description": "Deprecated; same as `validator_public_key` which you should use instead.",
-            "nullable": true
+            "description": "Deprecated; same as `validator_public_key` which you should use instead."
           },
           "node_public_key": {
             "allOf": [
@@ -11048,22 +12550,32 @@
             "type": "integer"
           },
           "validator_account_id": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/AccountId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
             ],
-            "description": "Validator id of the node",
-            "nullable": true
+            "description": "Validator id of the node"
           },
           "validator_public_key": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/PublicKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
             ],
-            "description": "Public key of the validator.",
-            "nullable": true
+            "description": "Public key of the validator."
           },
           "validators": {
             "description": "Current epoch validators.",
@@ -11262,12 +12774,17 @@
       "RpcValidatorsOrderedRequest": {
         "properties": {
           "block_id": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/BlockId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           }
         },
         "title": "RpcValidatorsOrderedRequest",
@@ -11293,7 +12810,7 @@
             "description": "The configuration for congestion control."
           },
           "storage_amount_per_byte": {
-            "description": "Amount of yN per byte required to have on the account.  See\n <https://nomicon.io/Economics/Economic#state-stake> for details.",
+            "description": "Amount of yN per byte required to have on the account.  See\n<https://nomicon.io/Economics/Economic#state-stake> for details.",
             "type": "string"
           },
           "transaction_costs": {
@@ -11302,7 +12819,7 @@
                 "$ref": "#/components/schemas/RuntimeFeesConfigView"
               }
             ],
-            "description": "Costs of different actions that need to be performed when sending and\n processing transaction and receipts."
+            "description": "Costs of different actions that need to be performed when sending and\nprocessing transaction and receipts."
           },
           "wasm_config": {
             "allOf": [
@@ -11332,6 +12849,7 @@
         "type": "object"
       },
       "RuntimeFeesConfigView": {
+        "description": "Describes different fees for the runtime",
         "properties": {
           "action_creation_config": {
             "allOf": [
@@ -11347,7 +12865,7 @@
                 "$ref": "#/components/schemas/Fee"
               }
             ],
-            "description": "Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost\n of actions.\n - `send` cost is burned when a receipt is created using `promise_create` or\n     `promise_batch_create`\n - `exec` cost is burned when the receipt is being executed."
+            "description": "Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost\nof actions.\n- `send` cost is burned when a receipt is created using `promise_create` or\n    `promise_batch_create`\n- `exec` cost is burned when the receipt is being executed."
           },
           "burnt_gas_reward": {
             "description": "Fraction of the burnt gas to reward to the contract account for execution.",
@@ -11397,13 +12915,13 @@
         "type": "object"
       },
       "ShardId": {
-        "description": "The shard identifier. It may be an arbitrary number - it does not need to be\n a number in the range 0..NUM_SHARDS. The shard ids do not need to be\n sequential or contiguous.\n\n The shard id is wrapped in a new type to prevent the old pattern of using\n indices in range 0..NUM_SHARDS and casting to ShardId. Once the transition\n if fully complete it potentially may be simplified to a regular type alias.",
+        "description": "The shard identifier. It may be an arbitrary number - it does not need to be\na number in the range 0..NUM_SHARDS. The shard ids do not need to be\nsequential or contiguous.\n\nThe shard id is wrapped in a new type to prevent the old pattern of using\nindices in range 0..NUM_SHARDS and casting to ShardId. Once the transition\nif fully complete it potentially may be simplified to a regular type alias.",
         "format": "uint64",
         "minimum": 0,
         "type": "integer"
       },
       "ShardLayout": {
-        "description": "A versioned struct that contains all information needed to assign accounts to shards.\n\n Because of re-sharding, the chain may use different shard layout to split shards at different\n times. Currently, `ShardLayout` is stored as part of `EpochConfig`, which is generated each\n epoch given the epoch protocol version. In mainnet/testnet, we use two shard layouts since\n re-sharding has only happened once. It is stored as part of genesis config, see\n default_simple_nightshade_shard_layout() Below is an overview for some important\n functionalities of ShardLayout interface.",
+        "description": "A versioned struct that contains all information needed to assign accounts to shards.\n\nBecause of re-sharding, the chain may use different shard layout to split shards at different\ntimes. Currently, `ShardLayout` is stored as part of `EpochConfig`, which is generated each\nepoch given the epoch protocol version. In mainnet/testnet, we use two shard layouts since\nre-sharding has only happened once. It is stored as part of genesis config, see\ndefault_simple_nightshade_shard_layout() Below is an overview for some important\nfunctionalities of ShardLayout interface.",
         "oneOf": [
           {
             "additionalProperties": false,
@@ -11444,7 +12962,7 @@
         ]
       },
       "ShardLayoutV0": {
-        "description": "A shard layout that maps accounts evenly across all shards -- by calculate the hash of account\n id and mod number of shards. This is added to capture the old `account_id_to_shard_id` algorithm,\n to keep backward compatibility for some existing tests.\n `parent_shards` for `ShardLayoutV1` is always `None`, meaning it can only be the first shard layout\n a chain uses.",
+        "description": "A shard layout that maps accounts evenly across all shards -- by calculate the hash of account\nid and mod number of shards. This is added to capture the old `account_id_to_shard_id` algorithm,\nto keep backward compatibility for some existing tests.\n`parent_shards` for `ShardLayoutV1` is always `None`, meaning it can only be the first shard layout\na chain uses.",
         "properties": {
           "num_shards": {
             "description": "Map accounts evenly across all shards",
@@ -11468,14 +12986,14 @@
       "ShardLayoutV1": {
         "properties": {
           "boundary_accounts": {
-            "description": "The boundary accounts are the accounts on boundaries between shards.\n Each shard contains a range of accounts from one boundary account to\n another - or the smallest or largest account possible. The total\n number of shards is equal to the number of boundary accounts plus 1.",
+            "description": "The boundary accounts are the accounts on boundaries between shards.\nEach shard contains a range of accounts from one boundary account to\nanother - or the smallest or largest account possible. The total\nnumber of shards is equal to the number of boundary accounts plus 1.",
             "items": {
               "$ref": "#/components/schemas/AccountId"
             },
             "type": "array"
           },
           "shards_split_map": {
-            "description": "Maps shards from the last shard layout to shards that it splits to in this shard layout,\n Useful for constructing states for the shards.\n None for the genesis shard layout",
+            "description": "Maps shards from the last shard layout to shards that it splits to in this shard layout,\nUseful for constructing states for the shards.\nNone for the genesis shard layout",
             "items": {
               "items": {
                 "$ref": "#/components/schemas/ShardId"
@@ -11486,7 +13004,7 @@
             "type": "array"
           },
           "to_parent_shard_map": {
-            "description": "Maps shard in this shard layout to their parent shard\n Since shard_ids always range from 0 to num_shards - 1, we use vec instead of a hashmap",
+            "description": "Maps shard in this shard layout to their parent shard\nSince shard_ids always range from 0 to num_shards - 1, we use vec instead of a hashmap",
             "items": {
               "$ref": "#/components/schemas/ShardId"
             },
@@ -11507,7 +13025,7 @@
         "type": "object"
       },
       "ShardLayoutV2": {
-        "description": "Counterpart to `ShardLayoutV2` composed of maps with string keys to aid\n serde serialization.",
+        "description": "Counterpart to `ShardLayoutV2` composed of maps with string keys to aid\nserde serialization.",
         "properties": {
           "boundary_accounts": {
             "items": {
@@ -11568,7 +13086,7 @@
         "type": "object"
       },
       "ShardUId": {
-        "description": "`ShardUId` is a unique representation for shards from different shard layouts.\n\n Comparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,\n `ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.\n This is important because we store states indexed by shards in our database, so we need a\n way to unique identify shard even when shards change across epochs.\n Another difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in\n a node's internal state while `ShardId` can be exposed to outside APIs and used in protocol\n level information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)",
+        "description": "`ShardUId` is a unique representation for shards from different shard layouts.\n\nComparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,\n`ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.\nThis is important because we store states indexed by shards in our database, so we need a\nway to unique identify shard even when shards change across epochs.\nAnother difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in\na node's internal state while `ShardId` can be exposed to outside APIs and used in protocol\nlevel information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)",
         "properties": {
           "shard_id": {
             "format": "uint32",
@@ -11872,7 +13390,7 @@
         ]
       },
       "StateChangeKindView": {
-        "description": "It is a [serializable view] of [`StateChangeKind`].\n\n [serializable view]: ./index.html\n [`StateChangeKind`]: ../types/struct.StateChangeKind.html",
+        "description": "It is a [serializable view] of [`StateChangeKind`].\n\n[serializable view]: ./index.html\n[`StateChangeKind`]: ../types/struct.StateChangeKind.html",
         "oneOf": [
           {
             "properties": {
@@ -11965,20 +13483,30 @@
                     "$ref": "#/components/schemas/CryptoHash"
                   },
                   "global_contract_account_id": {
-                    "allOf": [
+                    "anyOf": [
                       {
                         "$ref": "#/components/schemas/AccountId"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
                       }
-                    ],
-                    "nullable": true
+                    ]
                   },
                   "global_contract_hash": {
-                    "allOf": [
+                    "anyOf": [
                       {
                         "$ref": "#/components/schemas/CryptoHash"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
                       }
-                    ],
-                    "nullable": true
+                    ]
                   },
                   "locked": {
                     "type": "string"
@@ -12222,12 +13750,10 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "key_base64": {
-                    "format": "bytes",
-                    "type": "string"
+                    "$ref": "#/components/schemas/StoreKey"
                   },
                   "value_base64": {
-                    "format": "bytes",
-                    "type": "string"
+                    "$ref": "#/components/schemas/StoreValue"
                   }
                 },
                 "required": [
@@ -12258,8 +13784,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "key_base64": {
-                    "format": "bytes",
-                    "type": "string"
+                    "$ref": "#/components/schemas/StoreKey"
                   }
                 },
                 "required": [
@@ -12352,12 +13877,10 @@
         "description": "Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.",
         "properties": {
           "key": {
-            "format": "bytes",
-            "type": "string"
+            "$ref": "#/components/schemas/StoreKey"
           },
           "value": {
-            "format": "bytes",
-            "type": "string"
+            "$ref": "#/components/schemas/StoreValue"
           }
         },
         "required": [
@@ -12372,13 +13895,18 @@
             "$ref": "#/components/schemas/SyncConcurrency"
           },
           "dump": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/DumpConfig"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
             ],
-            "description": "`none` value disables state dump to external storage.",
-            "nullable": true
+            "description": "`none` value disables state dump to external storage."
           },
           "sync": {
             "$ref": "#/components/schemas/SyncConfig"
@@ -12389,12 +13917,17 @@
       "StatusSyncInfo": {
         "properties": {
           "earliest_block_hash": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "earliest_block_height": {
             "format": "uint64",
@@ -12407,12 +13940,17 @@
             "type": "string"
           },
           "epoch_id": {
-            "allOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/EpochId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
               }
-            ],
-            "nullable": true
+            ]
           },
           "epoch_start_height": {
             "format": "uint64",
@@ -12448,7 +13986,7 @@
         "type": "object"
       },
       "StorageError": {
-        "description": "Errors which may occur during working with trie storages, storing\n trie values (trie nodes and state values) by their hashes.",
+        "description": "Errors which may occur during working with trie storages, storing\ntrie values (trie nodes and state values) by their hashes.",
         "oneOf": [
           {
             "description": "Key-value db internal failure",
@@ -12471,7 +14009,7 @@
             "type": "object"
           },
           {
-            "description": "Found trie node which shouldn't be part of state. Raised during\n validation of state sync parts where incorrect node was passed.\n TODO (#8997): consider including hash of trie node.",
+            "description": "Found trie node which shouldn't be part of state. Raised during\nvalidation of state sync parts where incorrect node was passed.\nTODO (#8997): consider including hash of trie node.",
             "enum": [
               "UnexpectedTrieValue"
             ],
@@ -12479,7 +14017,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Either invalid state or key-value db is corrupted.\n For PartialStorage it cannot be corrupted.\n Error message is unreliable and for debugging purposes only. It's also probably ok to\n panic in every place that produces this error.\n We can check if db is corrupted by verifying everything in the state trie.",
+            "description": "Either invalid state or key-value db is corrupted.\nFor PartialStorage it cannot be corrupted.\nError message is unreliable and for debugging purposes only. It's also probably ok to\npanic in every place that produces this error.\nWe can check if db is corrupted by verifying everything in the state trie.",
             "properties": {
               "StorageInconsistentState": {
                 "type": "string"
@@ -12492,7 +14030,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Flat storage error, meaning that it doesn't support some block anymore.\n We guarantee that such block cannot become final, thus block processing\n must resume normally.",
+            "description": "Flat storage error, meaning that it doesn't support some block anymore.\nWe guarantee that such block cannot become final, thus block processing\nmust resume normally.",
             "properties": {
               "FlatStorageBlockNotSupported": {
                 "type": "string"
@@ -12548,6 +14086,16 @@
         ],
         "type": "object"
       },
+      "StoreKey": {
+        "description": "This type is used to mark keys (arrays of bytes) that are queried from store.\n\nNOTE: Currently, this type is only used in the view_client and RPC to be able to transparently\npretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).",
+        "format": "bytes",
+        "type": "string"
+      },
+      "StoreValue": {
+        "description": "This type is used to mark values returned from store (arrays of bytes).\n\nNOTE: Currently, this type is only used in the view_client and RPC to be able to transparently\npretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).",
+        "format": "bytes",
+        "type": "string"
+      },
       "SyncCheckpoint": {
         "enum": [
           "genesis",
@@ -12558,26 +14106,30 @@
       "SyncConcurrency": {
         "properties": {
           "apply": {
-            "description": "Maximum number of \"apply parts\" tasks that can be performed in parallel.\n This is a very disk-heavy task and therefore we set this to a low limit,\n or else the rocksdb contention makes the whole server freeze up.",
+            "description": "Maximum number of \"apply parts\" tasks that can be performed in parallel.\nThis is a very disk-heavy task and therefore we set this to a low limit,\nor else the rocksdb contention makes the whole server freeze up.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
           "apply_during_catchup": {
-            "description": "Maximum number of \"apply parts\" tasks that can be performed in parallel\n during catchup. We set this to a very low value to avoid overloading the\n node while it is still performing normal tasks.",
+            "description": "Maximum number of \"apply parts\" tasks that can be performed in parallel\nduring catchup. We set this to a very low value to avoid overloading the\nnode while it is still performing normal tasks.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
           "peer_downloads": {
             "description": "Maximum number of outstanding requests for decentralized state sync.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           },
           "per_shard": {
-            "description": "The maximum parallelism to use per shard. This is mostly for fairness, because\n the actual rate limiting is done by the TaskTrackers, but this is useful for\n balancing the shards a little.",
+            "description": "The maximum parallelism to use per shard. This is mostly for fairness, because\nthe actual rate limiting is done by the TaskTrackers, but this is useful for\nbalancing the shards a little.",
             "format": "uint8",
+            "maximum": 255,
             "minimum": 0,
             "type": "integer"
           }
@@ -12602,7 +14154,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Expects parts to be available in external storage.\n\n Usually as a fallback after some number of attempts to use peers.",
+            "description": "Expects parts to be available in external storage.\n\nUsually as a fallback after some number of attempts to use peers.",
             "properties": {
               "ExternalStorage": {
                 "$ref": "#/components/schemas/ExternalStorageConfig"
@@ -12631,7 +14183,7 @@
         "type": "object"
       },
       "TrackedShardsConfig": {
-        "description": "Describes the expected behavior of the node regarding shard tracking.\n If the node is an active validator, it will also track the shards it is responsible for as a validator.",
+        "description": "Describes the expected behavior of the node regarding shard tracking.\nIf the node is an active validator, it will also track the shards it is responsible for as a validator.",
         "oneOf": [
           {
             "description": "Tracks no shards (light client).",
@@ -12678,7 +14230,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Rotate between these sets of tracked shards.\n Used to simulate the behavior of chunk only producers without staking tokens.",
+            "description": "Rotate between these sets of tracked shards.\nUsed to simulate the behavior of chunk only producers without staking tokens.",
             "properties": {
               "Schedule": {
                 "items": {
@@ -12772,7 +14324,7 @@
             "type": "string"
           },
           {
-            "description": "Transaction is included into the block +\n All non-refund transaction receipts finished their execution.\n The corresponding blocks for tx and each receipt may be not finalized yet",
+            "description": "Transaction is included into the block +\nAll non-refund transaction receipts finished their execution.\nThe corresponding blocks for tx and each receipt may be not finalized yet",
             "enum": [
               "EXECUTED_OPTIMISTIC"
             ],
@@ -12786,14 +14338,14 @@
             "type": "string"
           },
           {
-            "description": "Transaction is included into finalized block +\n All non-refund transaction receipts finished their execution.\n The corresponding blocks for each receipt may be not finalized yet",
+            "description": "Transaction is included into finalized block +\nAll non-refund transaction receipts finished their execution.\nThe corresponding blocks for each receipt may be not finalized yet",
             "enum": [
               "EXECUTED"
             ],
             "type": "string"
           },
           {
-            "description": "Transaction is included into finalized block +\n Execution of all transaction receipts is finalized, including refund receipts",
+            "description": "Transaction is included into finalized block +\nExecution of all transaction receipts is finalized, including refund receipts",
             "enum": [
               "FINAL"
             ],
@@ -12855,7 +14407,7 @@
                 "$ref": "#/components/schemas/LimitConfig"
               }
             ],
-            "description": "Describes limits for VM and Runtime.\n\n TODO: Consider changing this to `VMLimitConfigView` to avoid dependency\n on runtime."
+            "description": "Describes limits for VM and Runtime.\n\nTODO: Consider changing this to `VMLimitConfigView` to avoid dependency\non runtime."
           },
           "reftypes_bulk_memory": {
             "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
@@ -13093,7 +14645,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Validator's last block proposal was for a protocol version older than\n the network's voted protocol version.",
+            "description": "Validator's last block proposal was for a protocol version older than\nthe network's voted protocol version.",
             "properties": {
               "ProtocolVersionTooOld": {
                 "properties": {
@@ -13204,6 +14756,7 @@
         "type": "object"
       },
       "ViewStateResult": {
+        "description": "Resulting state values for a view state query request",
         "properties": {
           "proof": {
             "items": {
@@ -13295,13 +14848,13 @@
         "description": "Configuration specific to ChunkStateWitness.",
         "properties": {
           "combined_transactions_size_limit": {
-            "description": "Maximum size of transactions contained inside ChunkStateWitness.\n\n A witness contains transactions from both the previous chunk and the current one.\n This parameter limits the sum of sizes of transactions from both of those chunks.",
+            "description": "Maximum size of transactions contained inside ChunkStateWitness.\n\nA witness contains transactions from both the previous chunk and the current one.\nThis parameter limits the sum of sizes of transactions from both of those chunks.",
             "format": "uint",
             "minimum": 0,
             "type": "integer"
           },
           "main_storage_proof_size_soft_limit": {
-            "description": "Size limit for storage proof generated while executing receipts in a chunk.\n After this limit is reached we defer execution of any new receipts.",
+            "description": "Size limit for storage proof generated while executing receipts in a chunk.\nAfter this limit is reached we defer execution of any new receipts.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
