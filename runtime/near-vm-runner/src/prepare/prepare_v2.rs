@@ -446,7 +446,7 @@ mod test {
 
     #[test]
     fn v2_preparation_wasmtime_generates_valid_contract_fuzzer() {
-        let mut config = test_vm_config();
+        let mut config = test_vm_config(Some(VMKind::Wasmtime));
         config.reftypes_bulk_memory = false;
         let features = crate::features::WasmFeatures::new(&config);
         bolero::check!().for_each(|input: &[u8]| {
@@ -472,7 +472,7 @@ mod test {
 
     #[test]
     fn v2_preparation_near_vm_generates_valid_contract_fuzzer() {
-        let mut config = test_vm_config();
+        let mut config = test_vm_config(Some(VMKind::NearVm));
         config.reftypes_bulk_memory = false;
         let features = crate::features::WasmFeatures::new(&config);
         bolero::check!().for_each(|input: &[u8]| {

@@ -273,7 +273,7 @@ mod tests {
             let costs = ExtCostsConfig::test();
             Self {
                 gas: GasCounter::new(costs, u64::MAX, 0, u64::MAX, false),
-                cfg: test_vm_config().limit_config,
+                cfg: test_vm_config(None).limit_config,
                 regs: Default::default(),
             }
         }

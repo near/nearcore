@@ -16,7 +16,7 @@ pub(super) struct VMLogicBuilder {
 impl Default for VMLogicBuilder {
     fn default() -> Self {
         VMLogicBuilder {
-            config: test_vm_config(),
+            config: test_vm_config(None),
             fees_config: RuntimeFeesConfig::test(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
@@ -52,7 +52,7 @@ impl VMLogicBuilder {
     pub fn free() -> Self {
         VMLogicBuilder {
             config: {
-                let mut config = test_vm_config();
+                let mut config = test_vm_config(None);
                 config.make_free();
                 config
             },

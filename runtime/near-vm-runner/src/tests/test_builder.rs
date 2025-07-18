@@ -170,7 +170,7 @@ impl TestBuilder {
         I::IntoIter: ExactSizeIterator,
     {
         self.protocol_versions.sort();
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let mut runtime_config_store = RuntimeConfigStore::new(None);
         let wants = wants.into_iter();
         assert_eq!(
             wants.len(),
@@ -187,7 +187,10 @@ impl TestBuilder {
                     continue;
                 }
 
-                let runtime_config = runtime_config_store.get_config(protocol_version);
+                let runtime_config = runtime_config_store.get_config_mut(protocol_version);
+                Arc::get_mut(&mut Arc::get_mut(runtime_config).unwrap().wasm_config)
+                    .unwrap()
+                    .vm_kind = vm_kind;
                 let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
                 let config = runtime_config.wasm_config.clone();
                 let fees = Arc::new(RuntimeFeesConfig::test());
