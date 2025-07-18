@@ -36,8 +36,19 @@ ln -s ../../target/release/neard
 ```
 
 Set TPS to 4000
+
+There are two files with the load schedule: `tx-generator-settings.json` and `tx-generator-settings.json.in`.
+Transaction generator reads data from the `tx-generator-settings.json` file, not the one with `.in` suffix. The `.in` file is used only to store the default values for transaction generator. If `tx-generator-settings.json` doesn't exist, it's created based on `tx-generator-settings.json.in` during the first run.
+This way you can modify `tx-generator-settings.json` locally without merge conflicts.
+
+Create `tx-generator-settings.json`:
 ```shell
-jq '.tx_generator.schedule[0].tps = 4000' tx-generator-settings.json.in | sponge tx-generator-settings.json.in
+cp tx-generator-settings.json.in tx-generator-settings.json
+```
+
+Set `tps = 4000` in `tx-generator-settings.json`. Example jq command (might not work in the future if the file structure changes):
+```shell
+jq '.tx_generator.schedule[0].tps = 4000' tx-generator-settings.json | sponge tx-generator-settings.json
 ```
 
 Run the native transfers workload (Ignore "Error: tx generator idle: no schedule provided", this is normal during `just create-accounts`)
