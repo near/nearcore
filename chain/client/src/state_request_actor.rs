@@ -10,7 +10,9 @@ use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2};
+use near_primitives::state_sync::{
+    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
+};
 use near_primitives::types::ShardId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
@@ -138,17 +140,14 @@ fn new_header_response(
     shard_id: ShardId,
     sync_hash: CryptoHash,
     header: ShardStateSyncResponseHeaderV2,
-) -> StateResponse {    
+) -> StateResponse {
     let state_response = ShardStateSyncResponse::new_from_header(Some(header));
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StateResponse(Box::new(info))
 }
 
-fn new_header_response_empty(
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-) -> StateResponse {
+fn new_header_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StateResponse {
     let state_response = ShardStateSyncResponse::new_from_header(None);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
@@ -168,16 +167,12 @@ fn new_part_response(
     StateResponse(Box::new(info))
 }
 
-fn new_part_response_empty(
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-) -> StateResponse {
+fn new_part_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StateResponse {
     let state_response = ShardStateSyncResponse::new_from_part(None);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StateResponse(Box::new(info))
 }
-
 
 impl Handler<StateRequestHeader> for StateRequestActor {
     #[perf]
@@ -233,7 +228,7 @@ impl Handler<StateRequestPart> for StateRequestActor {
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;
         let _timer =
             metrics::STATE_SYNC_REQUEST_TIME.with_label_values(&["StateRequestPart"]).start_timer();
-        let _span = 
+        let _span =
             tracing::debug_span!(target: "sync", "StateRequestPart", ?shard_id, ?sync_hash, part_id)
                 .entered();
 
