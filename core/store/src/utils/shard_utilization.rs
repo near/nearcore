@@ -4,31 +4,47 @@ use crate::trie::mem::iter::MemTrieIteratorInner;
 use crate::trie::ops::interface::{GenericTrieInternalStorage, GenericTrieNode};
 use crate::{NibbleSlice, Trie, TrieUpdate, get, set};
 use near_primitives::errors::StorageError;
-use near_primitives::shard_size_contribution::ShardSizeContribution;
+use near_primitives::shard_utilization::ShardUtilization;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use std::str::FromStr;
 
-/// Add the given shard size contribution to the total amount stored for
-/// the given account ID and all its prefixes.
-pub fn update_contribution(
+/// Add the given shard utilization to the total amount stored for
+/// the given account ID and all its prefixes belonging to the same shard.
+/// `shard_left_boundary` is inclusive (it belongs to the shard).
+pub fn update_shard_utilization(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
-    contribution: ShardSizeContribution,
+    utilization: ShardUtilization,
+    shard_left_boundary: Option<&AccountId>,
 ) -> Result<(), StorageError> {
-    for i in 0..=account_id.len() {
-        let prefix = &account_id.as_bytes()[..i];
-        let trie_key = TrieKey::ShardSizeContribution { account_id_prefix: prefix.to_vec() };
-        let mut account_contribution: ShardSizeContribution =
+    // FIXME: Trie nodes with uneven nibble count might have to be updated as well
+    // FIXME: This implementation unnecessarily creates new nodes (extension are broken into branches)
+    for prefix in account_prefixes_within_shard(account_id, shard_left_boundary) {
+        let trie_key = TrieKey::ShardUtilization { account_id_prefix: prefix.to_vec() };
+        let mut account_utilization: ShardUtilization =
             get(state_update, &trie_key)?.unwrap_or_default();
-        account_contribution += contribution;
-        set(state_update, trie_key, &account_contribution);
+        account_utilization += utilization;
+        set(state_update, trie_key, &account_utilization);
     }
     Ok(())
 }
 
+fn account_prefixes_within_shard<'a>(
+    account_id: &'a AccountId,
+    left_shard_boundary: Option<&'a AccountId>,
+) -> impl Iterator<Item = &'a [u8]> {
+    (0..account_id.len()).filter_map(move |i| {
+        let prefix = &account_id.as_str()[..i];
+        match left_shard_boundary {
+            Some(boundary) if prefix < boundary => None,
+            _ => Some(prefix.as_bytes()),
+        }
+    })
+}
+
 /// Find an account ID that splits the shard into two possibly equal parts, according
-/// to the shard size contribution.
+/// to the shard size utilization.
 /// Returns `None` if the trie is empty or an empty node is found.
 pub fn find_split_account(trie: &Trie) -> Result<Option<AccountId>, StorageError> {
     // Find the split key
@@ -66,6 +82,7 @@ where
             GenericTrieNode::Empty => return Ok(None),
             GenericTrieNode::Leaf { extension, .. } => {
                 key_nibbles.extend(extension);
+                // FIXME: key_nibbles might have an odd number of nibbles
                 return Ok(Some(NibbleSlice::nibbles_to_bytes(&key_nibbles)));
             }
             GenericTrieNode::Extension { extension, child } => {
@@ -74,10 +91,11 @@ where
             }
             GenericTrieNode::Branch { children, value } => {
                 let Some(parent_value_ref) = value else { return Ok(None) };
-                let parent_contribution = get_value_contribution(&trie_storage, parent_value_ref)?;
+                let parent_utilization = get_value_utilization(&trie_storage, parent_value_ref)?;
                 let Some((idx, child)) =
-                    find_middle_child(&trie_storage, parent_contribution, *children)?
+                    find_middle_child(&trie_storage, parent_utilization, *children)?
                 else {
+                    // FIXME: key_nibbles might have an odd number of nibbles
                     return Ok(Some(NibbleSlice::nibbles_to_bytes(&key_nibbles)));
                 };
                 key_nibbles.push(idx);
@@ -89,57 +107,59 @@ where
 
 fn find_middle_child<NodePtr, ValueRef, TrieStorage>(
     trie_storage: &TrieStorage,
-    parent_contribution: ShardSizeContribution,
+    parent_utilization: ShardUtilization,
     children: [Option<NodePtr>; 16],
 ) -> Result<Option<(u8, NodePtr)>, StorageError>
 where
     NodePtr: Copy,
     TrieStorage: GenericTrieInternalStorage<NodePtr, ValueRef>,
 {
-    let mut cumulative_contribution = ShardSizeContribution::default();
+    // FIXME: How much shard utilization lies to the right and to the left of the parent
+    //        needs to be taken into account as well.
+    let mut cumulative_utilization = ShardUtilization::default();
     for i in 0..children.len() {
         let Some(child_ptr) = children[i] else { continue };
-        let Some(child_contribution) = get_node_contribution(trie_storage, child_ptr)? else {
+        let Some(child_utilization) = get_node_utilization(trie_storage, child_ptr)? else {
             continue;
         };
-        cumulative_contribution += child_contribution;
-        if cumulative_contribution >= parent_contribution / 2 {
+        cumulative_utilization += child_utilization;
+        if cumulative_utilization >= parent_utilization / 2 {
             return Ok(Some((i as u8, child_ptr)));
         }
     }
     Ok(None)
 }
 
-fn get_value_contribution<NodePtr, ValueRef, TrieStorage>(
+fn get_value_utilization<NodePtr, ValueRef, TrieStorage>(
     trie_storage: &TrieStorage,
     value_ref: ValueRef,
-) -> Result<ShardSizeContribution, StorageError>
+) -> Result<ShardUtilization, StorageError>
 where
     TrieStorage: GenericTrieInternalStorage<NodePtr, ValueRef>,
 {
     let raw_value = trie_storage.get_value(value_ref, AccessOptions::DEFAULT)?;
     borsh::from_slice(&raw_value).map_err(|_| {
         StorageError::StorageInconsistentState(
-            "ShardSizeContribution deserialization failed".to_string(),
+            "ShardUtilization deserialization failed".to_string(),
         )
     })
 }
 
-fn get_node_contribution<NodePtr, ValueRef, TrieStorage>(
+fn get_node_utilization<NodePtr, ValueRef, TrieStorage>(
     trie_storage: &TrieStorage,
     node_ptr: NodePtr,
-) -> Result<Option<ShardSizeContribution>, StorageError>
+) -> Result<Option<ShardUtilization>, StorageError>
 where
     TrieStorage: GenericTrieInternalStorage<NodePtr, ValueRef>,
 {
     match trie_storage.get_node(node_ptr, AccessOptions::DEFAULT)? {
         GenericTrieNode::Empty => Ok(None),
         GenericTrieNode::Leaf { value, .. } => {
-            Ok(Some(get_value_contribution(trie_storage, value)?))
+            Ok(Some(get_value_utilization(trie_storage, value)?))
         }
-        GenericTrieNode::Extension { child, .. } => get_node_contribution(trie_storage, child),
+        GenericTrieNode::Extension { child, .. } => get_node_utilization(trie_storage, child),
         GenericTrieNode::Branch { value, .. } => match value {
-            Some(value) => Ok(Some(get_value_contribution(trie_storage, value)?)),
+            Some(value) => Ok(Some(get_value_utilization(trie_storage, value)?)),
             None => Ok(None),
         },
     }

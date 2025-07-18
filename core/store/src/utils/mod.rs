@@ -1,4 +1,4 @@
-pub mod shard_size;
+pub mod shard_utilization;
 pub(crate) mod sync_utils;
 pub mod test_utils;
 

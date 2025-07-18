@@ -33,7 +33,7 @@ pub mod receipt;
 pub mod reed_solomon;
 pub mod sandbox;
 pub mod shard_layout;
-pub mod shard_size_contribution;
+pub mod shard_utilization;
 pub mod sharding;
 pub mod signable_message;
 pub mod state;
