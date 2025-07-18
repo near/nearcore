@@ -412,8 +412,8 @@ impl ProtocolFeature {
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
-            | ProtocolFeature::ReducedGasRefunds => 78,
-            ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
+            | ProtocolFeature::ReducedGasRefunds
+            | ProtocolFeature::IncreaseMaxCongestionMissedChunks => 78,
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
