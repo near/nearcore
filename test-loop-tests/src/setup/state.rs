@@ -12,10 +12,11 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::chunk_executor_actor::{ChunkExecutorActor, ExecutorIncomingReceipts};
 use near_client::client_actor::ClientActorInner;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
-use near_client::{PartialWitnessActor, RpcHandler, ViewClientActorInner};
+use near_client::{PartialWitnessActor, RpcHandler, StateRequestActor, ViewClientActorInner};
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
+use near_network::types::StateRequestSenderForNetwork;
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -77,6 +78,7 @@ pub struct NodeExecutionData {
     pub peer_id: PeerId,
     pub client_sender: TestLoopSender<ClientActorInner>,
     pub view_client_sender: TestLoopSender<ViewClientActorInner>,
+    pub state_request_sender: TestLoopSender<StateRequestActor>,
     pub rpc_handler_sender: TestLoopSender<RpcHandler>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
@@ -114,6 +116,12 @@ impl From<&NodeExecutionData> for ViewClientSenderForRpc {
 impl From<&NodeExecutionData> for ViewClientSenderForTestLoopNetwork {
     fn from(data: &NodeExecutionData) -> ViewClientSenderForTestLoopNetwork {
         data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
+    }
+}
+
+impl From<&NodeExecutionData> for StateRequestSenderForNetwork {
+    fn from(data: &NodeExecutionData) -> StateRequestSenderForNetwork {
+        data.state_request_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
     }
 }
 

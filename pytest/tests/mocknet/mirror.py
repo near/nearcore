@@ -674,7 +674,9 @@ def _run_remote(hosts, cmd):
 
 def run_remote_cmd(ctx: CommandContext):
     targeted = ctx.get_targeted_with_schedule_ctx()
-    logger.info(f'Running cmd on {",".join([h.name() for h in targeted])}')
+    logger.info(
+        f'Running cmd `{ctx.args.cmd}` on {",".join([h.name() for h in targeted])}'
+    )
     _run_remote(targeted, ctx.args.cmd)
 
 

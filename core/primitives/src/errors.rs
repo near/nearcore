@@ -22,12 +22,14 @@ use std::fmt::{Debug, Display};
     serde::Serialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum TxExecutionError {
     /// An error happened during Action execution
-    ActionError(ActionError),
+    ActionError(ActionError) = 0,
     /// An error happened during Transaction execution
-    InvalidTxError(InvalidTxError),
+    InvalidTxError(InvalidTxError) = 1,
 }
 
 impl std::error::Error for TxExecutionError {}
@@ -89,16 +91,18 @@ impl std::error::Error for RuntimeError {}
     BorshDeserialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum MissingTrieValueContext {
     /// Missing trie value when reading from TrieIterator.
-    TrieIterator,
+    TrieIterator = 0,
     /// Missing trie value when reading from TriePrefetchingStorage.
-    TriePrefetchingStorage,
+    TriePrefetchingStorage = 1,
     /// Missing trie value when reading from TrieMemoryPartialStorage.
-    TrieMemoryPartialStorage,
+    TrieMemoryPartialStorage = 2,
     /// Missing trie value when reading from TrieStorage.
-    TrieStorage,
+    TrieStorage = 3,
 }
 
 impl MissingTrieValueContext {
@@ -142,28 +146,30 @@ pub struct MissingTrieValue {
     BorshDeserialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum StorageError {
     /// Key-value db internal failure
-    StorageInternalError,
+    StorageInternalError = 0,
     /// Requested trie value by its hash which is missing in storage.
-    MissingTrieValue(MissingTrieValue),
+    MissingTrieValue(MissingTrieValue) = 1,
     /// Found trie node which shouldn't be part of state. Raised during
     /// validation of state sync parts where incorrect node was passed.
     /// TODO (#8997): consider including hash of trie node.
-    UnexpectedTrieValue,
+    UnexpectedTrieValue = 2,
     /// Either invalid state or key-value db is corrupted.
     /// For PartialStorage it cannot be corrupted.
     /// Error message is unreliable and for debugging purposes only. It's also probably ok to
     /// panic in every place that produces this error.
     /// We can check if db is corrupted by verifying everything in the state trie.
-    StorageInconsistentState(String),
+    StorageInconsistentState(String) = 3,
     /// Flat storage error, meaning that it doesn't support some block anymore.
     /// We guarantee that such block cannot become final, thus block processing
     /// must resume normally.
-    FlatStorageBlockNotSupported(String),
+    FlatStorageBlockNotSupported(String) = 4,
     /// In-memory trie could not be loaded for some reason.
-    MemTrieLoadingError(String),
+    MemTrieLoadingError(String) = 5,
 }
 
 impl std::fmt::Display for StorageError {
@@ -186,34 +192,36 @@ impl std::error::Error for StorageError {}
     serde::Serialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
-    InvalidAccessKeyError(InvalidAccessKeyError),
+    InvalidAccessKeyError(InvalidAccessKeyError) = 0,
     /// TX signer_id is not a valid [`AccountId`]
     InvalidSignerId {
         signer_id: String,
-    },
+    } = 1,
     /// TX signer_id is not found in a storage
     SignerDoesNotExist {
         signer_id: AccountId,
-    },
+    } = 2,
     /// Transaction nonce must be strictly greater than `account[access_key].nonce`.
     InvalidNonce {
         tx_nonce: Nonce,
         ak_nonce: Nonce,
-    },
+    } = 3,
     /// Transaction nonce is larger than the upper bound given by the block height
     NonceTooLarge {
         tx_nonce: Nonce,
         upper_bound: Nonce,
-    },
+    } = 4,
     /// TX receiver_id is not a valid AccountId
     InvalidReceiverId {
         receiver_id: String,
-    },
+    } = 5,
     /// TX signature is not valid
-    InvalidSignature,
+    InvalidSignature = 6,
     /// Account does not have enough balance to cover TX cost
     NotEnoughBalance {
         signer_id: AccountId,
@@ -223,7 +231,7 @@ pub enum InvalidTxError {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         cost: Balance,
-    },
+    } = 7,
     /// Signer account doesn't have enough balance after transaction.
     LackBalanceForState {
         /// An account which doesn't have enough balance to cover storage.
@@ -232,24 +240,24 @@ pub enum InvalidTxError {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         amount: Balance,
-    },
+    } = 8,
     /// An integer overflow occurred during transaction cost estimation.
-    CostOverflow,
+    CostOverflow = 9,
     /// Transaction parent block hash doesn't belong to the current chain
-    InvalidChain,
+    InvalidChain = 10,
     /// Transaction has expired
-    Expired,
+    Expired = 11,
     /// An error occurred while validating actions of a Transaction.
-    ActionsValidation(ActionsValidationError),
+    ActionsValidation(ActionsValidationError) = 12,
     /// The size of serialized transaction exceeded the limit.
     TransactionSizeExceeded {
         size: u64,
         limit: u64,
-    },
+    } = 13,
     /// Transaction version is invalid.
-    InvalidTransactionVersion,
+    InvalidTransactionVersion = 14,
     // Error occurred during storage access
-    StorageError(StorageError),
+    StorageError(StorageError) = 15,
     /// The receiver shard of the transaction is too congested to accept new
     /// transactions at the moment.
     ShardCongested {
@@ -258,7 +266,7 @@ pub enum InvalidTxError {
         /// A value between 0 (no congestion) and 1 (max congestion).
         #[cfg_attr(feature = "schemars", schemars(with = "f64"))]
         congestion_level: ordered_float::NotNan<f64>,
-    },
+    } = 16,
     /// The receiver shard of the transaction missed several chunks and rejects
     /// new transaction until it can make progress again.
     ShardStuck {
@@ -266,7 +274,7 @@ pub enum InvalidTxError {
         shard_id: u32,
         /// The number of blocks since the last included chunk of the shard.
         missed_chunks: u64,
-    },
+    } = 17,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -288,16 +296,18 @@ impl std::error::Error for InvalidTxError {}
     serde::Serialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum InvalidAccessKeyError {
     /// The access key identified by the `public_key` doesn't exist for the account
-    AccessKeyNotFound { account_id: AccountId, public_key: Box<PublicKey> },
+    AccessKeyNotFound { account_id: AccountId, public_key: Box<PublicKey> } = 0,
     /// Transaction `receiver_id` doesn't match the access key receiver_id
-    ReceiverMismatch { tx_receiver: AccountId, ak_receiver: String },
+    ReceiverMismatch { tx_receiver: AccountId, ak_receiver: String } = 1,
     /// Transaction method name isn't allowed by the access key
-    MethodNameMismatch { method_name: String },
+    MethodNameMismatch { method_name: String } = 2,
     /// Transaction requires a full permission access key.
-    RequiresFullAccess,
+    RequiresFullAccess = 3,
     /// Access Key does not have enough allowance to cover transaction cost
     NotEnoughAllowance {
         account_id: AccountId,
@@ -308,9 +318,9 @@ pub enum InvalidAccessKeyError {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         cost: Balance,
-    },
+    } = 4,
     /// Having a deposit with a function call action is not allowed with a function call access key.
-    DepositWithFunctionCall,
+    DepositWithFunctionCall = 5,
 }
 
 /// Describes the error for validating a list of actions.
@@ -325,41 +335,43 @@ pub enum InvalidAccessKeyError {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ActionsValidationError {
     /// The delete action must be a final action in transaction
-    DeleteActionMustBeFinal,
+    DeleteActionMustBeFinal = 0,
     /// The total prepaid gas (for all given actions) exceeded the limit.
-    TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
+    TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas } = 1,
     /// The number of actions exceeded the given limit.
-    TotalNumberOfActionsExceeded { total_number_of_actions: u64, limit: u64 },
+    TotalNumberOfActionsExceeded { total_number_of_actions: u64, limit: u64 } = 2,
     /// The total number of bytes of the method names exceeded the limit in a Add Key action.
-    AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 },
+    AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 } = 3,
     /// The length of some method name exceeded the limit in a Add Key action.
-    AddKeyMethodNameLengthExceeded { length: u64, limit: u64 },
+    AddKeyMethodNameLengthExceeded { length: u64, limit: u64 } = 4,
     /// Integer overflow during a compute.
-    IntegerOverflow,
+    IntegerOverflow = 5,
     /// Invalid account ID.
-    InvalidAccountId { account_id: String },
+    InvalidAccountId { account_id: String } = 6,
     /// The size of the contract code exceeded the limit in a DeployContract action.
-    ContractSizeExceeded { size: u64, limit: u64 },
+    ContractSizeExceeded { size: u64, limit: u64 } = 7,
     /// The length of the method name exceeded the limit in a Function Call action.
-    FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
+    FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 } = 8,
     /// The length of the arguments exceeded the limit in a Function Call action.
-    FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
+    FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 } = 9,
     /// An attempt to stake with a public key that is not convertible to ristretto.
-    UnsuitableStakingKey { public_key: Box<PublicKey> },
+    UnsuitableStakingKey { public_key: Box<PublicKey> } = 10,
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
-    FunctionCallZeroAttachedGas,
+    FunctionCallZeroAttachedGas = 11,
     /// There should be the only one DelegateAction
-    DelegateActionMustBeOnlyOne,
+    DelegateActionMustBeOnlyOne = 12,
     /// The transaction includes a feature that the current protocol version
     /// does not support.
     ///
     /// Note: we stringify the protocol feature name instead of using
     /// `ProtocolFeature` here because we don't want to leak the internals of
     /// that type into observable borsh serialization.
-    UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion },
+    UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion } = 13,
 }
 
 /// Describes the error for validating a receipt.
@@ -374,24 +386,26 @@ pub enum ActionsValidationError {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
-    InvalidPredecessorId { account_id: String },
+    InvalidPredecessorId { account_id: String } = 0,
     /// The `receiver_id` of a Receipt is not valid.
-    InvalidReceiverId { account_id: String },
+    InvalidReceiverId { account_id: String } = 1,
     /// The `signer_id` of an ActionReceipt is not valid.
-    InvalidSignerId { account_id: String },
+    InvalidSignerId { account_id: String } = 2,
     /// The `receiver_id` of a DataReceiver within an ActionReceipt is not valid.
-    InvalidDataReceiverId { account_id: String },
+    InvalidDataReceiverId { account_id: String } = 3,
     /// The length of the returned data exceeded the limit in a DataReceipt.
-    ReturnedValueLengthExceeded { length: u64, limit: u64 },
+    ReturnedValueLengthExceeded { length: u64, limit: u64 } = 4,
     /// The number of input data dependencies exceeds the limit in an ActionReceipt.
-    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
+    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 } = 5,
     /// An error occurred while validating actions of an ActionReceipt.
-    ActionsValidation(ActionsValidationError),
+    ActionsValidation(ActionsValidationError) = 6,
     /// Receipt is bigger than the limit.
-    ReceiptSizeExceeded { size: u64, limit: u64 },
+    ReceiptSizeExceeded { size: u64, limit: u64 } = 7,
 }
 
 impl Display for ReceiptValidationError {
@@ -550,48 +564,50 @@ impl std::error::Error for ActionError {}
     serde::Serialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
     AccountAlreadyExists {
         account_id: AccountId,
-    },
+    } = 0,
     /// Happens when TX receiver_id doesn't exist (but action is not Action::CreateAccount)
     AccountDoesNotExist {
         account_id: AccountId,
-    },
+    } = 1,
     /// A top-level account ID can only be created by registrar.
     CreateAccountOnlyByRegistrar {
         account_id: AccountId,
         registrar_account_id: AccountId,
         predecessor_id: AccountId,
-    },
+    } = 2,
 
     /// A newly created account must be under a namespace of the creator account
     CreateAccountNotAllowed {
         account_id: AccountId,
         predecessor_id: AccountId,
-    },
+    } = 3,
     /// Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver
     /// or the first TX action is a `CreateAccount` action
     ActorNoPermission {
         account_id: AccountId,
         actor_id: AccountId,
-    },
+    } = 4,
     /// Account tries to remove an access key that doesn't exist
     DeleteKeyDoesNotExist {
         account_id: AccountId,
         public_key: Box<PublicKey>,
-    },
+    } = 5,
     /// The public key is already used for an existing access key
     AddKeyAlreadyExists {
         account_id: AccountId,
         public_key: Box<PublicKey>,
-    },
+    } = 6,
     /// Account is staking and can not be deleted
     DeleteAccountStaking {
         account_id: AccountId,
-    },
+    } = 7,
     /// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
     LackBalanceForState {
         /// An account which needs balance
@@ -600,11 +616,11 @@ pub enum ActionErrorKind {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         amount: Balance,
-    },
+    } = 8,
     /// Account is not yet staked, but tries to unstake
     TriesToUnstake {
         account_id: AccountId,
-    },
+    } = 9,
     /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
@@ -617,7 +633,7 @@ pub enum ActionErrorKind {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         balance: Balance,
-    },
+    } = 10,
     InsufficientStake {
         account_id: AccountId,
         #[serde(with = "dec_format")]
@@ -626,12 +642,12 @@ pub enum ActionErrorKind {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         minimum_stake: Balance,
-    },
+    } = 11,
     /// An error occurred during a `FunctionCall` Action, parameter is debug message.
-    FunctionCallError(FunctionCallError),
+    FunctionCallError(FunctionCallError) = 12,
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
-    NewReceiptValidationError(ReceiptValidationError),
+    NewReceiptValidationError(ReceiptValidationError) = 13,
     /// Error occurs when a `CreateAccount` action is called on a NEAR-implicit or ETH-implicit account.
     /// See NEAR-implicit account creation NEP: <https://github.com/nearprotocol/NEPs/pull/71>.
     /// Also, see ETH-implicit account creation NEP: <https://github.com/near/NEPs/issues/518>.
@@ -640,35 +656,35 @@ pub enum ActionErrorKind {
     /// `OnlyNamedAccountCreationAllowed`.
     OnlyImplicitAccountCreationAllowed {
         account_id: AccountId,
-    },
+    } = 14,
     /// Delete account whose state is large is temporarily banned.
     DeleteAccountWithLargeState {
         account_id: AccountId,
-    },
+    } = 15,
     /// Signature does not match the provided actions and given signer public key.
-    DelegateActionInvalidSignature,
+    DelegateActionInvalidSignature = 16,
     /// Receiver of the transaction doesn't match Sender of the delegate action
     DelegateActionSenderDoesNotMatchTxReceiver {
         sender_id: AccountId,
         receiver_id: AccountId,
-    },
+    } = 17,
     /// Delegate action has expired. `max_block_height` is less than actual block height.
-    DelegateActionExpired,
+    DelegateActionExpired = 18,
     /// The given public key doesn't exist for Sender account
-    DelegateActionAccessKeyError(InvalidAccessKeyError),
+    DelegateActionAccessKeyError(InvalidAccessKeyError) = 19,
     /// DelegateAction nonce must be greater sender[public_key].nonce
     DelegateActionInvalidNonce {
         delegate_nonce: Nonce,
         ak_nonce: Nonce,
-    },
+    } = 20,
     /// DelegateAction nonce is larger than the upper bound given by the block height
     DelegateActionNonceTooLarge {
         delegate_nonce: Nonce,
         upper_bound: Nonce,
-    },
+    } = 21,
     GlobalContractDoesNotExist {
         identifier: GlobalContractIdentifier,
-    },
+    } = 22,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1075,34 +1091,36 @@ impl From<ShardLayoutError> for EpochError {
     serde::Serialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
-    Serialization,
+    Serialization = 0,
     /// Error happened while deserializing the module.
-    Deserialization,
+    Deserialization = 1,
     /// Internal memory declaration has been found in the module.
-    InternalMemoryDeclared,
+    InternalMemoryDeclared = 2,
     /// Gas instrumentation failed.
     ///
     /// This most likely indicates the module isn't valid.
-    GasInstrumentation,
+    GasInstrumentation = 3,
     /// Stack instrumentation failed.
     ///
     /// This  most likely indicates the module isn't valid.
-    StackHeightInstrumentation,
+    StackHeightInstrumentation = 4,
     /// Error happened during instantiation.
     ///
     /// This might indicate that `start` function trapped, or module isn't
     /// instantiable and/or un-linkable.
-    Instantiate,
+    Instantiate = 5,
     /// Error creating memory.
-    Memory,
+    Memory = 6,
     /// Contract contains too many functions.
-    TooManyFunctions,
+    TooManyFunctions = 7,
     /// Contract contains too many locals.
-    TooManyLocals,
+    TooManyLocals = 8,
 }
 
 /// A kind of a trap happened during execution of a binary
@@ -1118,26 +1136,28 @@ pub enum PrepareError {
     strum::IntoStaticStr,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum WasmTrap {
     /// An `unreachable` opcode was executed.
-    Unreachable,
+    Unreachable = 0,
     /// Call indirect incorrect signature trap.
-    IncorrectCallIndirectSignature,
+    IncorrectCallIndirectSignature = 1,
     /// Memory out of bounds trap.
-    MemoryOutOfBounds,
+    MemoryOutOfBounds = 2,
     /// Call indirect out of bounds trap.
-    CallIndirectOOB,
+    CallIndirectOOB = 3,
     /// An arithmetic exception, e.g. divided by zero.
-    IllegalArithmetic,
+    IllegalArithmetic = 4,
     /// Misaligned atomic access trap.
-    MisalignedAtomicAccess,
+    MisalignedAtomicAccess = 5,
     /// Indirect call to null.
-    IndirectCallToNull,
+    IndirectCallToNull = 6,
     /// Stack overflow.
-    StackOverflow,
+    StackOverflow = 7,
     /// Generic trap.
-    GenericTrap,
+    GenericTrap = 8,
 }
 
 #[derive(
@@ -1152,76 +1172,78 @@ pub enum WasmTrap {
     strum::IntoStaticStr,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum HostError {
     /// String encoding is bad UTF-16 sequence
-    BadUTF16,
+    BadUTF16 = 0,
     /// String encoding is bad UTF-8 sequence
-    BadUTF8,
+    BadUTF8 = 1,
     /// Exceeded the prepaid gas
-    GasExceeded,
+    GasExceeded = 2,
     /// Exceeded the maximum amount of gas allowed to burn per contract
-    GasLimitExceeded,
+    GasLimitExceeded = 3,
     /// Exceeded the account balance
-    BalanceExceeded,
+    BalanceExceeded = 4,
     /// Tried to call an empty method name
-    EmptyMethodName,
+    EmptyMethodName = 5,
     /// Smart contract panicked
-    GuestPanic { panic_msg: String },
+    GuestPanic { panic_msg: String } = 6,
     /// IntegerOverflow happened during a contract execution
-    IntegerOverflow,
+    IntegerOverflow = 7,
     /// `promise_idx` does not correspond to existing promises
-    InvalidPromiseIndex { promise_idx: u64 },
+    InvalidPromiseIndex { promise_idx: u64 } = 8,
     /// Actions can only be appended to non-joint promise.
-    CannotAppendActionToJointPromise,
+    CannotAppendActionToJointPromise = 9,
     /// Returning joint promise is currently prohibited
-    CannotReturnJointPromise,
+    CannotReturnJointPromise = 10,
     /// Accessed invalid promise result index
-    InvalidPromiseResultIndex { result_idx: u64 },
+    InvalidPromiseResultIndex { result_idx: u64 } = 11,
     /// Accessed invalid register id
-    InvalidRegisterId { register_id: u64 },
+    InvalidRegisterId { register_id: u64 } = 12,
     /// Iterator `iterator_index` was invalidated after its creation by performing a mutable operation on trie
-    IteratorWasInvalidated { iterator_index: u64 },
+    IteratorWasInvalidated { iterator_index: u64 } = 13,
     /// Accessed memory outside the bounds
-    MemoryAccessViolation,
+    MemoryAccessViolation = 14,
     /// VM Logic returned an invalid receipt index
-    InvalidReceiptIndex { receipt_index: u64 },
+    InvalidReceiptIndex { receipt_index: u64 } = 15,
     /// Iterator index `iterator_index` does not exist
-    InvalidIteratorIndex { iterator_index: u64 },
+    InvalidIteratorIndex { iterator_index: u64 } = 16,
     /// VM Logic returned an invalid account id
-    InvalidAccountId,
+    InvalidAccountId = 17,
     /// VM Logic returned an invalid method name
-    InvalidMethodName,
+    InvalidMethodName = 18,
     /// VM Logic provided an invalid public key
-    InvalidPublicKey,
+    InvalidPublicKey = 19,
     /// `method_name` is not allowed in view calls
-    ProhibitedInView { method_name: String },
+    ProhibitedInView { method_name: String } = 20,
     /// The total number of logs will exceed the limit.
-    NumberOfLogsExceeded { limit: u64 },
+    NumberOfLogsExceeded { limit: u64 } = 21,
     /// The storage key length exceeded the limit.
-    KeyLengthExceeded { length: u64, limit: u64 },
+    KeyLengthExceeded { length: u64, limit: u64 } = 22,
     /// The storage value length exceeded the limit.
-    ValueLengthExceeded { length: u64, limit: u64 },
+    ValueLengthExceeded { length: u64, limit: u64 } = 23,
     /// The total log length exceeded the limit.
-    TotalLogLengthExceeded { length: u64, limit: u64 },
+    TotalLogLengthExceeded { length: u64, limit: u64 } = 24,
     /// The maximum number of promises within a FunctionCall exceeded the limit.
-    NumberPromisesExceeded { number_of_promises: u64, limit: u64 },
+    NumberPromisesExceeded { number_of_promises: u64, limit: u64 } = 25,
     /// The maximum number of input data dependencies exceeded the limit.
-    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
+    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 } = 26,
     /// The returned value length exceeded the limit.
-    ReturnedValueLengthExceeded { length: u64, limit: u64 },
+    ReturnedValueLengthExceeded { length: u64, limit: u64 } = 27,
     /// The contract size for DeployContract action exceeded the limit.
-    ContractSizeExceeded { size: u64, limit: u64 },
+    ContractSizeExceeded { size: u64, limit: u64 } = 28,
     /// The host function was deprecated.
-    Deprecated { method_name: String },
+    Deprecated { method_name: String } = 29,
     /// General errors for ECDSA recover.
-    ECRecoverError { msg: String },
+    ECRecoverError { msg: String } = 30,
     /// Invalid input to alt_bn128 family of functions (e.g., point which isn't
     /// on the curve).
-    AltBn128InvalidInput { msg: String },
+    AltBn128InvalidInput { msg: String } = 31,
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
-    Ed25519VerifyInvalidInput { msg: String },
+    Ed25519VerifyInvalidInput { msg: String } = 32,
 }
 
 #[derive(
@@ -1236,11 +1258,13 @@ pub enum HostError {
     strum::IntoStaticStr,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum MethodResolveError {
-    MethodEmptyName,
-    MethodNotFound,
-    MethodInvalidSignature,
+    MethodEmptyName = 0,
+    MethodNotFound = 1,
+    MethodInvalidSignature = 2,
 }
 
 #[derive(
@@ -1255,18 +1279,20 @@ pub enum MethodResolveError {
     strum::IntoStaticStr,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum CompilationError {
     CodeDoesNotExist {
         account_id: AccountId,
-    },
-    PrepareError(PrepareError),
+    } = 0,
+    PrepareError(PrepareError) = 1,
     /// This is for defense in depth.
     /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
     /// but, if it ever misses something we’ll emit this error
     WasmerCompileError {
         msg: String,
-    },
+    } = 2,
 }
 
 /// Serializable version of `near-vm-runner::FunctionCallError`.
@@ -1284,29 +1310,31 @@ pub enum CompilationError {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum FunctionCallError {
     /// Wasm compilation error
-    CompilationError(CompilationError),
+    CompilationError(CompilationError) = 0,
     /// Wasm binary env link error
     ///
     /// Note: this is only to deserialize old data, use execution error for new data
     LinkError {
         msg: String,
-    },
+    } = 1,
     /// Import/export resolve error
-    MethodResolveError(MethodResolveError),
+    MethodResolveError(MethodResolveError) = 2,
     /// A trap happened during execution of a binary
     ///
     /// Note: this is only to deserialize old data, use execution error for new data
-    WasmTrap(WasmTrap),
-    WasmUnknownError,
+    WasmTrap(WasmTrap) = 3,
+    WasmUnknownError = 4,
     /// Note: this is only to deserialize old data, use execution error for new data
-    HostError(HostError),
+    HostError(HostError) = 5,
     // Unused, can be reused by a future error but must be exactly one error to keep ExecutionError
     // error borsh serialized at correct index
-    _EVMError,
-    ExecutionError(String),
+    _EVMError = 6,
+    ExecutionError(String) = 7,
 }
 
 #[derive(Debug)]

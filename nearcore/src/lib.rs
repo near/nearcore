@@ -11,7 +11,9 @@ use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
+use near_async::actix_wrapper::{
+    ActixWrapper, SyncActixWrapper, spawn_actix_actor, spawn_sync_actix_actor,
+};
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
@@ -29,8 +31,8 @@ use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
     ClientActor, ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig,
-    StartClientResult, ViewClientActor, ViewClientActorInner, spawn_rpc_handler_actor,
-    start_client,
+    StartClientResult, StateRequestActor, ViewClientActor, ViewClientActorInner,
+    spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -215,6 +217,9 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
+    // TODO(darioush): Remove once we migrate `slow_test_state_sync_headers` and
+    // `slow_test_state_sync_headers_no_tracked_shards` to testloop.
+    pub state_request_client: Addr<SyncActixWrapper<StateRequestActor>>,
     pub rpc_handler: Addr<RpcHandlerActor>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
@@ -356,6 +361,22 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer.clone(),
     );
 
+    // TODO(darioush): For now this is using the same number of threads as the view client.
+    let state_request_addr = {
+        let runtime = runtime.clone();
+        let epoch_manager = epoch_manager.clone();
+        spawn_sync_actix_actor(config.client_config.view_client_threads, move || {
+            StateRequestActor::new(
+                Clock::real(),
+                runtime.clone(),
+                epoch_manager.clone(),
+                genesis_id.hash,
+                config.client_config.view_client_throttle_period,
+                config.client_config.view_client_num_state_requests_per_throttle_period,
+            )
+        })
+    };
+
     let state_snapshot_sender = LateBoundSender::new();
     let state_snapshot_actor = StateSnapshotActor::new(
         runtime.get_flat_storage_manager(),
@@ -492,6 +513,7 @@ pub fn start_with_config_and_synchronization(
             view_client_addr.clone(),
             rpc_handler.clone(),
         ),
+        state_request_addr.clone().with_auto_span_context().into_multi_sender(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
@@ -561,6 +583,7 @@ pub fn start_with_config_and_synchronization(
     Ok(NearNode {
         client: client_actor,
         view_client: view_client_addr,
+        state_request_client: state_request_addr,
         rpc_handler,
         #[cfg(feature = "tx_generator")]
         tx_generator,
