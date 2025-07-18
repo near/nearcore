@@ -156,21 +156,23 @@ fn get_initial_chunk_producer_assignment(
         return vec![vec![]; num_shards as usize];
     }
 
+    let mut assignment = vec![vec![]; num_shards as usize];
+
     let chunk_producer_indices = chunk_producers
         .iter()
         .enumerate()
         .map(|(i, vs)| (vs.account_id().clone(), i))
         .collect::<HashMap<_, _>>();
 
-    let mut assignment = vec![vec![]; num_shards as usize];
-
     // Copy over assignments from previous epoch, but only up to the minimum of
     // current and previous shard counts to handle shard count changes
-    let max_shard_to_copy = prev_assignment.len().min(num_shards as usize);
+    let max_shards_to_copy = prev_assignment.len().min(num_shards as usize);
 
-    for shard_index in 0..max_shard_to_copy {
+    for (shard_index, validator_stakes) in
+        prev_assignment.iter().take(max_shards_to_copy).enumerate()
+    {
         let mut chunk_producers = vec![];
-        for validator_stake in &prev_assignment[shard_index] {
+        for validator_stake in validator_stakes {
             let chunk_producer_index = chunk_producer_indices.get(validator_stake.account_id());
             if let Some(&index) = chunk_producer_index {
                 chunk_producers.push(index);
