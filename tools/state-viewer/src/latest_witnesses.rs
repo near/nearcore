@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use crate::commands::apply_range;
 use near_chain::runtime::NightshadeRuntime;
@@ -17,6 +18,7 @@ use near_store::Store;
 use near_time::Clock;
 use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 pub enum DumpWitnessesSource {
     /// Dumps latest saved witnesses.
@@ -172,11 +174,15 @@ impl GenerateWitnessesCmd {
                 .unwrap();
             let processing_done_tracker = ProcessingDoneTracker::new();
             let waiter = processing_done_tracker.make_waiter();
+            let data_parts = epoch_manager.num_data_parts();
+            let parity_parts = epoch_manager.num_total_parts() - data_parts;
+            let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
             chain
                 .shadow_validate_state_witness(
                     state_witness,
                     chain.epoch_manager.as_ref(),
                     Some(processing_done_tracker),
+                    rs,
                 )
                 .unwrap();
             waiter.wait();
@@ -273,11 +279,15 @@ impl ValidateWitnessCmd {
         let chain = setup_chain(home_dir, near_config, store);
         let processing_done_tracker = ProcessingDoneTracker::new();
         let waiter = processing_done_tracker.make_waiter();
+        let data_parts = chain.epoch_manager.num_data_parts();
+        let parity_parts = chain.epoch_manager.num_total_parts() - data_parts;
+        let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
         chain
             .shadow_validate_state_witness(
                 witness,
                 chain.epoch_manager.as_ref(),
                 Some(processing_done_tracker),
+                rs,
             )
             .unwrap();
         waiter.wait();

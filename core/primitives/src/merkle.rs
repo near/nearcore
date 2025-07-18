@@ -118,6 +118,16 @@ pub fn verify_hash(root: MerkleHash, path: &MerklePath, item_hash: MerkleHash) -
     compute_root_from_path(path, item_hash) == root
 }
 
+pub fn verify_path_with_index<T: BorshSerialize>(
+    root: MerkleHash,
+    path: &MerklePath,
+    item: T,
+    part_idx: u64,
+    num_merklized_parts: u64,
+) -> bool {
+    verify_path_matches_index(path, part_idx, num_merklized_parts) && verify_path(root, path, item)
+}
+
 pub fn compute_root_from_path(path: &MerklePath, item_hash: MerkleHash) -> MerkleHash {
     let mut res = item_hash;
     for item in path {
@@ -222,6 +232,33 @@ impl PartialMerkleTree {
             f(*node, level as u64);
         }
     }
+}
+
+fn verify_path_matches_index(path: &MerklePath, part_idx: u64, num_merklized_parts: u64) -> bool {
+    if part_idx >= num_merklized_parts {
+        return false;
+    }
+
+    let mut used = 0;
+
+    let height = num_merklized_parts.next_power_of_two().ilog2() as usize;
+    for k in 0..height {
+        let block = part_idx >> k;
+        let sibling_block = block ^ 1;
+        let sibling_leaf_start_index = sibling_block << k;
+        if sibling_leaf_start_index < num_merklized_parts {
+            let Some(item) = path.get(used) else {
+                return false;
+            };
+            let expected =
+                if (part_idx >> k) & 1 == 0 { Direction::Right } else { Direction::Left };
+            if item.direction != expected {
+                return false;
+            }
+            used += 1;
+        }
+    }
+    used == path.len()
 }
 
 #[cfg(test)]
