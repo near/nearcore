@@ -1,16 +1,18 @@
 use crate::config::Mode;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
+use crate::metrics::{ColumnStats, DATABASE_BATCH_BYTES, DATABASE_OPS_COUNT};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
 use anyhow::Context;
 use itertools::Itertools;
-use parking_lot::Mutex;
-use std::collections::BTreeMap;
+use parking_lot::{Condvar, Mutex};
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
+use std::thread;
 use strum::IntoEnumIterator;
 use tracing::warn;
 
@@ -46,9 +48,110 @@ static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
     ret
 });
 
+/// Columns that support background writes
+/// These are typically columns that can handle delayed writes without affecting correctness
+const ASYNC_WRITE_COLUMNS: &[DBCol] = &[
+    DBCol::State,            // State data can be written asynchronously
+    DBCol::TrieChanges,      // Trie change data
+    DBCol::FlatState,        // Flat state data
+    DBCol::FlatStateChanges, // Flat state changes
+    DBCol::Transactions,     // Transaction data
+    // New columns
+    DBCol::IncomingReceipts,    // Incoming receipts data
+    DBCol::OutgoingReceipts,    // Outgoing receipts data
+    DBCol::StateChanges,        // State changes data
+    DBCol::StateTransitionData, // State transition data
+    DBCol::ChunkApplyStats,     // Chunk apply statistics
+];
+
+/// Tracks write operations that are in progress for specific columns
+/// Only columns configured for background writes are tracked
+struct ColumnWriteTracker {
+    /// Maps column to a flag indicating if a write is in progress
+    /// Only contains entries for columns that support background writes
+    write_in_progress: HashMap<DBCol, WaitGroup>,
+}
+
+impl ColumnWriteTracker {
+    fn new(async_columns: &[DBCol]) -> Self {
+        let mut write_in_progress = HashMap::new();
+        for &col in async_columns {
+            write_in_progress.insert(col, WaitGroup::new());
+        }
+        Self { write_in_progress }
+    }
+
+    /// Returns true if this column supports background writes
+    fn supports_async_writes(&self, col: DBCol) -> bool {
+        self.write_in_progress.contains_key(&col)
+    }
+
+    fn wait_for_all_column_writes(&self) {
+        for wg in self.write_in_progress.values() {
+            wg.wait();
+        }
+    }
+
+    fn wait_for_column_writes(&self, col: DBCol) {
+        if let Some(wg) = self.write_in_progress.get(&col) {
+            wg.wait();
+        }
+    }
+
+    fn start_async_write(&self, col: DBCol) {
+        if let Some(wg) = self.write_in_progress.get(&col) {
+            wg.add(1);
+        }
+    }
+
+    fn done_async_write(&self, col: DBCol) {
+        if let Some(wg) = self.write_in_progress.get(&col) {
+            wg.done();
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct WaitGroup {
+    state: Arc<WaitGroupState>,
+}
+
+struct WaitGroupState {
+    count: Mutex<usize>,
+    cvar: Condvar,
+}
+
+impl WaitGroup {
+    pub fn new() -> Self {
+        Self { state: Arc::new(WaitGroupState { count: Mutex::new(0), cvar: Condvar::new() }) }
+    }
+
+    pub fn add(&self, delta: usize) {
+        let mut count = self.state.count.lock();
+        *count += delta;
+    }
+
+    pub fn done(&self) {
+        let mut count = self.state.count.lock();
+        *count -= 1;
+        if *count == 0 {
+            self.state.cvar.notify_all();
+        }
+    }
+
+    pub fn wait(&self) {
+        let mut count = self.state.count.lock();
+        while *count > 0 {
+            self.state.cvar.wait(&mut count);
+        }
+    }
+}
+
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
+    read_only: bool,
+    cleared_columns: HashMap<DBCol, bool>,
     cache: Arc<deserialized_column::Cache>,
 
     /// Map from [`DBCol`] to a column family handler in the RocksDB.
@@ -57,6 +160,9 @@ pub struct RocksDB {
     /// method instead.  It returns `&ColumnFamily` which is what you usually
     /// want.
     cf_handles: enum_map::EnumMap<DBCol, Option<std::ptr::NonNull<ColumnFamily>>>,
+
+    /// Column-based write synchronization tracker
+    write_tracker: Arc<ColumnWriteTracker>,
 
     // RAII-style of keeping track of the number of instances of RocksDB and
     // counting total sum of max_open_files.
@@ -129,7 +235,17 @@ impl RocksDB {
             .map_err(io::Error::other)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
-        Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter, cache: Arc::clone(cache) })
+        let write_tracker = Arc::new(ColumnWriteTracker::new(ASYNC_WRITE_COLUMNS));
+        Ok(Self {
+            db,
+            db_opt,
+            read_only: mode.read_only(),
+            cf_handles,
+            write_tracker,
+            _instance_tracker: counter,
+            cache: Arc::clone(cache),
+            cleared_columns: HashMap::new(),
+        })
     }
 
     /// Opens the database with given column families configured.
@@ -241,7 +357,8 @@ impl RocksDB {
         prefix: Option<&[u8]>,
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
-    ) -> RocksDBIterator<'a> {
+    ) -> ColumnLockedIterator<'a> {
+        self.write_tracker.wait_for_column_writes(col);
         let cf_handle = self.cf_handle(col).unwrap();
         let mut read_options = rocksdb_read_options();
         if prefix.is_some() && (lower_bound.is_some() || upper_bound.is_some()) {
@@ -262,11 +379,24 @@ impl RocksDB {
             read_options.set_iterate_upper_bound(upper_bound);
         }
         let iter = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-        RocksDBIterator(iter)
+        ColumnLockedIterator { inner: RocksDBIterator(iter) }
     }
 }
 
 struct RocksDBIterator<'a>(rocksdb::DBIteratorWithThreadMode<'a, DB>);
+
+/// Iterator wrapper that holds a read lock for a column during iteration
+struct ColumnLockedIterator<'a> {
+    inner: RocksDBIterator<'a>,
+}
+
+impl<'a> Iterator for ColumnLockedIterator<'a> {
+    type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
 
 impl<'a> Iterator for RocksDBIterator<'a> {
     type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
@@ -276,7 +406,7 @@ impl<'a> Iterator for RocksDBIterator<'a> {
     }
 }
 
-impl<'a> std::iter::FusedIterator for RocksDBIterator<'a> {}
+impl<'a> std::iter::FusedIterator for ColumnLockedIterator<'a> {}
 
 impl RocksDB {
     /// Returns ranges of keys in a given column family.
@@ -317,12 +447,18 @@ impl RocksDB {
     )]
     fn build_write_batch(&self, transaction: DBTransaction) -> io::Result<WriteBatch> {
         let mut batch = WriteBatch::default();
+        let mut col_stats: HashMap<DBCol, ColumnStats> = HashMap::new();
         for op in transaction.ops {
+            let stats = col_stats.entry(op.col()).or_insert_with(ColumnStats::new);
+            stats.bytes += op.bytes() as u64;
+
             match op {
                 DBOp::Set { col, key, value } => {
+                    stats.sets += 1;
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Insert { col, key, value } => {
+                    stats.inserts += 1;
                     if cfg!(debug_assertions) {
                         if let Ok(Some(old_value)) = self.get_raw_bytes(col, &key) {
                             super::assert_no_overwrite(col, &key, &value, &*old_value)
@@ -331,12 +467,15 @@ impl RocksDB {
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
+                    stats.rc_ops += 1;
                     batch.merge_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Delete { col, key } => {
+                    stats.deletes += 1;
                     batch.delete_cf(self.cf_handle(col)?, key);
                 }
                 DBOp::DeleteAll { col } => {
+                    stats.delete_all_ops += 1;
                     let cf_handle = self.cf_handle(col)?;
                     let range = self.get_cf_key_range(cf_handle).map_err(io::Error::other)?;
                     if let Some(range) = range {
@@ -346,11 +485,54 @@ impl RocksDB {
                     }
                 }
                 DBOp::DeleteRange { col, from, to } => {
+                    stats.delete_range_ops += 1;
                     batch.delete_range_cf(self.cf_handle(col)?, from, to);
                 }
             }
         }
+
+        // Update column stats
+        for (col, stats) in col_stats {
+            DATABASE_BATCH_BYTES.with_label_values(&[col.into()]).inc_by(stats.bytes);
+            DATABASE_OPS_COUNT.with_label_values(&[col.into(), "set"]).inc_by(stats.sets);
+            DATABASE_OPS_COUNT.with_label_values(&[col.into(), "insert"]).inc_by(stats.inserts);
+            DATABASE_OPS_COUNT
+                .with_label_values(&[col.into(), "update_refcount"])
+                .inc_by(stats.rc_ops);
+            DATABASE_OPS_COUNT.with_label_values(&[col.into(), "delete"]).inc_by(stats.deletes);
+            DATABASE_OPS_COUNT
+                .with_label_values(&[col.into(), "delete_all"])
+                .inc_by(stats.delete_all_ops);
+            DATABASE_OPS_COUNT
+                .with_label_values(&[col.into(), "delete_range"])
+                .inc_by(stats.delete_range_ops);
+        }
+
         Ok(batch)
+    }
+
+    /// Splits a transaction into sync and async write batches
+    /// Returns (sync_batch, async_batches_by_column)
+    fn split_transaction(
+        &self,
+        transaction: DBTransaction,
+    ) -> io::Result<(DBTransaction, HashMap<DBCol, DBTransaction>)> {
+        let mut sync_batch = DBTransaction::default();
+        let mut async_batches: HashMap<DBCol, DBTransaction> = HashMap::new();
+
+        for op in transaction.ops {
+            let col = op.col();
+            let batch = if self.write_tracker.supports_async_writes(col) {
+                async_batches.entry(col).or_insert_with(DBTransaction::default)
+            } else {
+                &mut sync_batch
+            };
+
+            // Add operation to the appropriate batch
+            batch.ops.push(op);
+        }
+
+        Ok((sync_batch, async_batches))
     }
 }
 
@@ -358,6 +540,10 @@ impl Database for RocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
+
+        // Acquire read lock if this column supports async writes
+        self.write_tracker.wait_for_column_writes(col);
+
         let read_options = rocksdb_read_options();
         let result = self
             .db
@@ -399,6 +585,7 @@ impl Database for RocksDB {
     )]
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
         let write_batch_start = std::time::Instant::now();
+        let is_async = transaction.is_async;
         let batch = self.build_write_batch(transaction)?;
         let elapsed = write_batch_start.elapsed();
         if elapsed.as_secs_f32() > 0.15 {
@@ -409,7 +596,76 @@ impl Database for RocksDB {
                 backtrace = %std::backtrace::Backtrace::force_capture()
             );
         }
+        if is_async {
+            return self.db.write_without_wal(batch).map_err(io::Error::other);
+        }
         self.db.write(batch).map_err(io::Error::other)
+    }
+
+    fn write_async(
+        &self,
+        transaction: DBTransaction,
+        db_clone: Arc<dyn Database>,
+    ) -> io::Result<()> {
+        let write_batch_start = std::time::Instant::now();
+        // Split transaction into sync and async write batches
+        let (sync_batch, async_batches) = self.split_transaction(transaction)?;
+
+        let elapsed = write_batch_start.elapsed();
+        if elapsed.as_secs_f32() > 0.15 {
+            tracing::warn!(
+                target = "store::db::rocksdb",
+                message = "making a write batch took a very long time, make smaller transactions!",
+                ?elapsed,
+                backtrace = %std::backtrace::Backtrace::force_capture()
+            );
+        }
+
+        // Write sync operations immediately
+        if !sync_batch.ops.is_empty() {
+            let timer = metrics::DATABASE_OP_LATENCY_HIST
+                .with_label_values(&["write", "sync"])
+                .start_timer();
+            self.write(sync_batch).map_err(io::Error::other)?;
+            timer.observe_duration();
+        }
+
+        // Spawn background thread for async operations
+        if !async_batches.is_empty() {
+            // First, acquire write locks for all async columns
+            let write_tracker = Arc::clone(&self.write_tracker);
+            for col in async_batches.keys() {
+                write_tracker.start_async_write(*col);
+            }
+
+            thread::spawn(move || {
+                tracing::debug!(
+                    target: "store::db::rocksdb",
+                    "Writing async batches for columns: {:?}",
+                    async_batches.keys().collect::<Vec<_>>()
+                );
+
+                // Now write each batch
+                for (col, mut batch) in async_batches {
+                    batch.is_async = true;
+                    let timer = metrics::DATABASE_OP_LATENCY_HIST
+                        .with_label_values(&["write", col.into()])
+                        .start_timer();
+                    if let Err(e) = db_clone.write(batch) {
+                        tracing::error!(
+                            target: "store::db::rocksdb",
+                            "Failed to write async batch for column {:?}: {:?}",
+                            col, e
+                        );
+                    }
+                    timer.observe_duration();
+                    // Mark the async write as done
+                    write_tracker.done_async_write(col);
+                }
+            });
+        }
+
+        Ok(())
     }
 
     #[tracing::instrument(
@@ -434,6 +690,7 @@ impl Database for RocksDB {
     fn flush(&self) -> io::Result<()> {
         // Need to iterator over all CFs because the normal `flush()` only
         // flushes the default column family.
+        self.write_tracker.wait_for_all_column_writes();
         for col in DBCol::iter() {
             self.db.flush_cf(self.cf_handle(col)?).map_err(io::Error::other)?;
         }
@@ -701,6 +958,8 @@ impl RocksDB {
             self.db
                 .drop_cf(col_name(*col))
                 .with_context(|| format!("failed to drop column family {:?}", col,))?;
+            self.cleared_columns.insert(*col, true);
+            warn!(target: "store::db::rocksdb", "Cleared column family {col} from RocksDB at {}", self.db.path().display());
         }
         Ok(())
     }
@@ -708,11 +967,30 @@ impl RocksDB {
 
 impl Drop for RocksDB {
     fn drop(&mut self) {
+        warn!(target: "store::db::rocksdb", "Dropping RocksDB instance at {}", self.db.path().display());
         if cfg!(feature = "single_thread_rocksdb") {
             // RocksDB with only one thread stuck on wait some condition var
             // Turn on additional threads to proceed
             let mut env = Env::new().unwrap();
             env.set_background_threads(4);
+        }
+        if !self.read_only {
+            self.write_tracker.wait_for_all_column_writes();
+            for col in DBCol::iter() {
+                if self.cleared_columns.len() > 0 {
+                    warn!("Some column families were cleared, skipping flush.");
+                    continue;
+                }
+                if let Ok(handle) = self.cf_handle(col) {
+                    warn!(target: "store::db::rocksdb", "Flushing column family {col} before dropping RocksDB instance.");
+                    if let Err(e) = self.db.flush_cf(handle).map_err(io::Error::other) {
+                        warn!(target: "store::db::rocksdb", "Failed to flush column family {col}: {e}");
+                    }
+                } else {
+                    warn!(target: "store::db::rocksdb", "Column family {col} was not cleared, but it is not present in the database.");
+                    continue;
+                }
+            }
         }
         self.db.cancel_all_background_work(true);
     }

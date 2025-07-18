@@ -65,6 +65,7 @@ rand.workspace = true
 thiserror.workspace = true
 rand_chacha.workspace = true
 testlib.workspace = true
+tikv-jemallocator.workspace = true
 
 [[bench]]
 name = "trie_bench"

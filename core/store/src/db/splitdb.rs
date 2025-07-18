@@ -235,13 +235,13 @@ mod test {
 
     fn set(db: &Arc<dyn Database>, col: DBCol, key: &[u8], value: &[u8]) -> () {
         let op = DBOp::Set { col, key: key.to_vec(), value: value.to_vec() };
-        db.write(DBTransaction { ops: vec![op] }).unwrap();
+        db.write(DBTransaction { ops: vec![op], is_async: false }).unwrap();
     }
 
     fn set_rc(db: &Arc<dyn Database>, col: DBCol, key: &[u8], value: &[u8]) -> () {
         const ONE: &[u8] = &1i64.to_le_bytes();
         let op = DBOp::UpdateRefcount { col, key: key.to_vec(), value: [&value, ONE].concat() };
-        db.write(DBTransaction { ops: vec![op] }).unwrap();
+        db.write(DBTransaction { ops: vec![op], is_async: false }).unwrap();
     }
 
     fn bx<const SIZE: usize>(literal: &[u8; SIZE]) -> Box<[u8]> {

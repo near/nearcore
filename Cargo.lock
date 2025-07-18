@@ -5192,6 +5192,7 @@ dependencies = [
  "tempfile",
  "testlib",
  "thiserror 2.0.12",
+ "tikv-jemallocator",
  "tokio",
  "tracing",
 ]

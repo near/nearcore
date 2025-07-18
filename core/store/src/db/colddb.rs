@@ -246,7 +246,7 @@ mod test {
         // Block -> no rc
 
         let ops = vec![set_with_rc(DBCol::State, &[SHARD, HASH].concat()), set(DBCol::Block, HASH)];
-        db.write(DBTransaction { ops }).unwrap();
+        db.write(DBTransaction { ops, is_async: false }).unwrap();
 
         // Fetch data
         let mut result = Vec::<String>::new();
@@ -306,7 +306,7 @@ mod test {
 
         // Populate data
         let ops = vec![set_with_rc(DBCol::State, &[SHARD, HASH].concat()), set(DBCol::Block, HASH)];
-        db.write(DBTransaction { ops }).unwrap();
+        db.write(DBTransaction { ops, is_async: false }).unwrap();
 
         let mut result = Vec::<String>::new();
         for col in [DBCol::State, DBCol::Block] {
@@ -344,7 +344,7 @@ mod test {
 
         let op =
             DBOp::UpdateRefcount { col, key: key.to_vec(), value: [VALUE, HEIGHT_LE].concat() };
-        db.write(DBTransaction { ops: vec![op] }).unwrap();
+        db.write(DBTransaction { ops: vec![op], is_async: false }).unwrap();
 
         // Refcount is set to 1 in the underlying database.
         let got = db.cold.get_raw_bytes(col, key).unwrap();

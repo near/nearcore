@@ -22,6 +22,58 @@ pub(crate) static DATABASE_OP_LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+pub static DATABASE_BATCH_BYTES: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_database_batch_bytes",
+        "Database batch size in bytes by operation and column.",
+        &["column"],
+    )
+    .unwrap()
+});
+
+pub static DATABASE_OPS_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_database_ops_count",
+        "Database operations count by operation and column.",
+        &["op", "column"],
+    )
+    .unwrap()
+});
+
+pub static DATABASE_BATCH_FILE_TIME: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_database_batch_file_time",
+        "Time spent writing database batch files in milliseconds.",
+        vec![0.00002, 0.0001, 0.0002, 0.0005, 0.0008, 0.001, 0.002, 0.004, 0.008, 0.1],
+    )
+    .unwrap()
+});
+
+/// Statistics for tracking database operations by column
+pub(crate) struct ColumnStats {
+    pub inserts: u64,
+    pub sets: u64,
+    pub rc_ops: u64,
+    pub deletes: u64,
+    pub delete_all_ops: u64,
+    pub delete_range_ops: u64,
+    pub bytes: u64,
+}
+
+impl ColumnStats {
+    pub fn new() -> Self {
+        Self {
+            inserts: 0,
+            sets: 0,
+            rc_ops: 0,
+            deletes: 0,
+            delete_all_ops: 0,
+            delete_range_ops: 0,
+            bytes: 0,
+        }
+    }
+}
+
 // TODO(#9054): Rename the metric to be consistent with "accounting cache".
 pub static CHUNK_CACHE_HITS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
