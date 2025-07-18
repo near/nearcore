@@ -9,7 +9,7 @@ Running the workload creates ~realistic chunks and state and then we can benchma
 ### Running the initial workload
 
 Clone nearcore and build neard with the tx_generator feature
-> Notes: Building `neard` with `--profile dev-release` instead of `--release` takes less time and the binary is almost as fast as the release one.
+> Note: Building `neard` with `--profile dev-release` instead of `--release` takes less time and the binary is almost as fast as the release one.
 
 > Note: If you plan to gather `perf` profiles, build with `--config .cargo/config.profiling.toml` (see [profiling docs](profiling.md))
 
