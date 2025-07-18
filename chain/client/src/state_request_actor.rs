@@ -190,12 +190,13 @@ impl Handler<StateRequestHeader> for StateRequestActor {
             tracing::debug_span!(target: "sync", "StateRequestHeader", ?shard_id, ?sync_hash)
                 .entered();
 
-        tracing::debug!(target: "sync", "Handle state request header");
-
         if self.throttle_state_sync_request() {
+            tracing::debug!(target: "sync", "Throttling state sync request for shard");
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
         }
+
+        tracing::debug!(target: "sync", "Handle state request header");
 
         match self.validate_sync_hash(&sync_hash) {
             SyncHashValidationResult::Valid => {
@@ -214,7 +215,7 @@ impl Handler<StateRequestHeader> for StateRequestActor {
         let header = self.state_sync_adapter.get_state_response_header(shard_id, sync_hash);
         let Ok(header) = header else {
             tracing::error!(target: "sync", "Cannot build state sync header");
-            return None;
+            return Some(new_header_response_empty(shard_id, sync_hash));
         };
         let ShardStateSyncResponseHeader::V2(header) = header else {
             tracing::error!(target: "sync", "Invalid state sync header format");
@@ -237,7 +238,7 @@ impl Handler<StateRequestPart> for StateRequestActor {
                 .entered();
 
         tracing::debug!(target: "sync", "Handle state request part");
-        
+
         if self.throttle_state_sync_request() {
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
