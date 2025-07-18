@@ -16,8 +16,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 #[test]
 fn test_caches_compilation_error() {
-    let config = Arc::new(test_vm_config());
-    with_vm_variants(&config, |vm_kind: VMKind| {
+    with_vm_variants(|vm_kind: VMKind| {
+        let config = Arc::new(test_vm_config(Some(vm_kind)));
         // The cache is currently properly implemented only for NearVM
         match vm_kind {
             VMKind::NearVm | VMKind::NearVm2 | VMKind::Wasmtime => {}
@@ -57,8 +57,8 @@ fn test_caches_compilation_error() {
 
 #[test]
 fn test_does_not_cache_io_error() {
-    let config = Arc::new(test_vm_config());
-    with_vm_variants(&config, |vm_kind: VMKind| {
+    with_vm_variants(|vm_kind: VMKind| {
+        let config = Arc::new(test_vm_config(Some(vm_kind)));
         match vm_kind {
             VMKind::NearVm | VMKind::NearVm2 | VMKind::Wasmtime => {}
             VMKind::Wasmer0 | VMKind::Wasmer2 => return,
