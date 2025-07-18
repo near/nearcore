@@ -388,6 +388,10 @@ where
 /// we figure that out, we can keep the implementation below
 /// *************************************************************************************************
 
+/// Trie key in nibbles corresponding to the right boundary for the last state part.
+/// Guaranteed to be bigger than any existing trie key.
+const LAST_STATE_PART_BOUNDARY_NIBBLES: &[u8; 1] = &[16];
+
 // Item extracted from Trie during depth first traversal, corresponding to some Trie node.
 #[derive(Debug)]
 pub struct TrieTraversalItem {
@@ -407,14 +411,17 @@ where
     /// Used to generate and apply state parts for state sync.
     pub fn visit_nodes_interval(
         &mut self,
-        path_begin: &[u8],
-        path_end: &[u8],
+        path_begin: Option<&[u8]>,
+        path_end: Option<&[u8]>,
     ) -> Result<Vec<TrieTraversalItem>, StorageError> {
         let _span = tracing::debug_span!(target: "runtime", "visit_nodes_interval").entered();
-        let last_hash = self
-            .seek_nibble_slice(NibbleSlice::new(&path_begin), false, AccessOptions::DEFAULT)?
-            .unwrap_or_default();
-        let path_end = NibbleSlice::new(&path_end).iter().collect_vec();
+        let path_begin = NibbleSlice::new(path_begin.unwrap_or(LAST_STATE_PART_BOUNDARY_NIBBLES));
+        let path_end = match path_end {
+            Some(p) => NibbleSlice::new(p).iter().collect_vec(),
+            None => LAST_STATE_PART_BOUNDARY_NIBBLES.to_vec(),
+        };
+        let last_hash =
+            self.seek_nibble_slice(path_begin, false, AccessOptions::DEFAULT)?.unwrap_or_default();
         let mut prefix = Self::common_prefix(&path_end, &self.key_nibbles);
         if self.key_nibbles[prefix..] >= path_end[prefix..] {
             return Ok(vec![]);
@@ -422,7 +429,7 @@ where
         let mut nodes_list = Vec::new();
 
         // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
-        let path_begin = NibbleSlice::new(&path_begin).iter().collect_vec();
+        let path_begin = path_begin.iter().collect_vec();
         if self.key_nibbles.as_slice() >= path_begin.as_slice() {
             nodes_list.push(TrieTraversalItem {
                 hash: last_hash,

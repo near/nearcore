@@ -193,6 +193,7 @@ impl ContractAccount {
 
 impl ContractAccountIterator {
     pub(crate) fn new(trie: Trie, filter: ContractAccountFilter) -> anyhow::Result<Self> {
+        // TODO(shreyan): Change this function to use standard iterator API with seek/seek_prefix.
         let mut trie_iter = trie.disk_iter()?;
         // TODO(#8376): Consider changing the interface to TrieKey to make this easier.
         // `TrieKey::ContractCode` requires a valid `AccountId`, we use "xx"
@@ -200,7 +201,6 @@ impl ContractAccountIterator {
         let (prefix, suffix) = key.split_at(key.len() - 2);
         assert_eq!(suffix, "xx".as_bytes());
 
-        // `visit_nodes_interval` wants nibbles stored in `Vec<u8>` as input
         let key_after = {
             let mut tmp = prefix.to_vec();
             *tmp.last_mut().unwrap() += 1;
@@ -208,7 +208,7 @@ impl ContractAccountIterator {
         };
 
         // finally, use trie iterator to find all contract nodes
-        let vec_of_nodes = trie_iter.visit_nodes_interval(prefix, &key_after)?;
+        let vec_of_nodes = trie_iter.visit_nodes_interval(Some(prefix), Some(&key_after))?;
         drop(trie_iter);
         let contract_nodes = VecDeque::from(vec_of_nodes);
         Ok(Self { contract_nodes, filter, trie })

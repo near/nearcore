@@ -35,21 +35,16 @@ use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-/// Trie key in nibbles corresponding to the right boundary for the last state part.
-/// Guaranteed to be bigger than any existing trie key.
-const LAST_STATE_PART_BOUNDARY: &[u8; 1] = &[0xFFu8];
-const LAST_STATE_PART_BOUNDARY_NIBBLES: &[u8; 2] = &[0xFu8, 0xFu8];
-
 impl Trie {
     /// Descends into node corresponding to `part_id`-th boundary node if state
     /// is divided into `num_parts` parts.
     /// Visits all the left siblings of nodes on the way to the boundary node.
     /// Guarantees that the node corresponds to some KV pair or returns `StorageError`,
     /// except corner cases:
-    /// - for part 0, boundary is empty key;
-    /// - for part `num_parts`, boundary is `LAST_STATE_PART_BOUNDARY`.
+    /// - for part 0, boundary is Some(empty_key);
+    /// - for part `num_parts`, boundary is None.
     /// This guarantees that parts cover all nodes in trie.
-    /// Returns trie key in nibbles corresponding to this node.
+    /// Returning `None` corresponds to the right boundary of the trie.
     ///
     /// Note that it is used for both boundary generation and verifying. To verify
     /// a boundary, it is enough to check that method doesn't return `StorageError`
@@ -58,21 +53,24 @@ impl Trie {
         &self,
         part_id: u64,
         num_parts: u64,
-    ) -> Result<Vec<u8>, StorageError> {
+    ) -> Result<Option<Vec<u8>>, StorageError> {
         if part_id > num_parts {
             return Err(StorageError::StorageInternalError);
         }
         if part_id == 0 {
-            return Ok(vec![]);
+            return Ok(Some(vec![]));
         }
         if part_id == num_parts {
-            return Ok(LAST_STATE_PART_BOUNDARY.to_vec());
+            return Ok(None);
         }
         let root_node = self.retrieve_storage_node(&self.root)?;
         let total_size = root_node.memory_usage;
         let size_start = total_size / num_parts * part_id + part_id.min(total_size % num_parts);
+        if root_node.memory_usage <= size_start {
+            return Ok(None);
+        }
         let nibbles = self.find_node_in_dfs_order(&root_node, size_start)?;
-        Ok(NibbleSlice::nibbles_to_bytes(&nibbles))
+        Ok(Some(NibbleSlice::nibbles_to_bytes(&nibbles)))
     }
 
     /// Generates state parts using the trie storage (i.e. State) and not using
@@ -89,12 +87,11 @@ impl Trie {
     }
 
     /// Helper to create iterator over flat storage entries corresponding to
-    /// its head, shard for which trie was created and the range of keys given
-    /// in nibbles.
+    /// its head, shard for which trie was created and the range of keys
     fn iter_flat_state_entries<'a>(
         &'a self,
-        path_begin: Vec<u8>,
-        path_end: Vec<u8>,
+        path_begin: Option<Vec<u8>>,
+        path_end: Option<Vec<u8>>,
     ) -> Result<FlatStateIterator<'a>, StorageError> {
         let flat_storage_chunk_view = match &self.flat_storage_chunk_view {
             None => {
@@ -105,18 +102,12 @@ impl Trie {
             Some(chunk_view) => chunk_view,
         };
 
-        // If left key in nibbles is already the largest, return empty
-        // iterator. Otherwise convert it to key in bytes.
-        let key_begin = if path_begin == LAST_STATE_PART_BOUNDARY {
+        // If left key in nibbles is already the right trie boundary, return empty iterator.
+        if path_begin.is_none() {
             return Ok(Box::new(std::iter::empty()));
-        } else {
-            Some(path_begin)
-        };
+        }
 
-        // Convert right key in nibbles to key in bytes.
-        let key_end = if path_end == LAST_STATE_PART_BOUNDARY { None } else { Some(path_end) };
-
-        Ok(flat_storage_chunk_view.iter_range(key_begin.as_deref(), key_end.as_deref()))
+        Ok(flat_storage_chunk_view.iter_range(path_begin.as_deref(), path_end.as_deref()))
     }
 
     /// Determines the boundaries of a state part by accessing the Trie (i.e. State column).
@@ -124,7 +115,7 @@ impl Trie {
     fn get_state_part_boundaries(
         &self,
         part_id: PartId,
-    ) -> Result<(PartialState, Vec<u8>, Vec<u8>), StorageError> {
+    ) -> Result<(PartialState, Option<Vec<u8>>, Option<Vec<u8>>), StorageError> {
         // If chunk view is missing us ShardId::max() as fake value for metrics.
         let shard_id = self
             .flat_storage_chunk_view
@@ -322,10 +313,9 @@ impl Trie {
         let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
 
         let mut iterator = self.disk_iter()?;
-        let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
-        tracing::debug!(
-            target: "state-parts",
-            num_nodes = nodes_list.len());
+        let nodes_list =
+            iterator.visit_nodes_interval(path_begin.as_deref(), path_end.as_deref())?;
+        tracing::debug!(target: "state-parts", num_nodes = nodes_list.len());
 
         Ok(())
     }
@@ -396,9 +386,6 @@ impl Trie {
         root_node: &TrieStorageNodeWithSize,
         memory_threshold: u64,
     ) -> Result<Vec<u8>, StorageError> {
-        if root_node.memory_usage <= memory_threshold {
-            return Ok(LAST_STATE_PART_BOUNDARY_NIBBLES.to_vec());
-        }
         let mut key_nibbles: Vec<u8> = Vec::new();
         let mut node = root_node.clone();
         let mut memory_skipped = 0u64;
@@ -452,7 +439,8 @@ impl Trie {
         let path_begin = trie.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
         let mut iterator = trie.disk_iter()?;
-        let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        let trie_traversal_items =
+            iterator.visit_nodes_interval(path_begin.as_deref(), path_end.as_deref())?;
         let mut refcount_changes = TrieRefcountDeltaMap::new();
         let mut flat_state_delta = FlatStateChanges::default();
         let mut contract_codes = Vec::new();
@@ -559,17 +547,17 @@ mod tests {
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 
         let key_boundary = trie.find_state_part_boundary(0, num_parts).unwrap();
-        assert!(key_boundary.is_empty());
+        assert!(key_boundary.unwrap().is_empty());
 
         // Check that all boundaries correspond to some state key by calling `Trie::get`.
         // Note that some state parts can be trivial, which is not a concern.
         for part_id in 1..num_parts {
-            let key_boundary = trie.find_state_part_boundary(part_id, num_parts).unwrap();
+            let key_boundary = trie.find_state_part_boundary(part_id, num_parts).unwrap().unwrap();
             assert_matches!(trie.get(&key_boundary, AccessOptions::DEFAULT), Ok(Some(_)));
         }
 
         let key_boundary = trie.find_state_part_boundary(num_parts, num_parts).unwrap();
-        assert_eq!(key_boundary, LAST_STATE_PART_BOUNDARY);
+        assert_eq!(key_boundary, None);
     }
 
     /// Checks that on degenerate case when trie is a single path, state
@@ -602,7 +590,7 @@ mod tests {
 
         for part_id in 1..num_parts {
             let key_boundary =
-                trie.find_state_part_boundary(part_id as u64, num_parts as u64).unwrap();
+                trie.find_state_part_boundary(part_id as u64, num_parts as u64).unwrap().unwrap();
             assert_eq!(key_boundary, trie_changes[part_id - 1].0);
         }
     }
@@ -632,7 +620,7 @@ mod tests {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
                     *rc += 1;
                 } else {
-                    let bytes = trie.retrieve_value(hash, AccessOptions::DEFAULT)?;
+                    let bytes = trie.retrieve_value(hash, AccessOptions::DEFAULT).unwrap();
                     insertions.insert(*hash, (bytes.to_vec(), 1));
                 }
                 Ok(())
@@ -836,7 +824,7 @@ mod tests {
                 // the path with full set of left siblings of maximal possible size.
                 let trie_recording = trie.recording_reads_new_recorder();
                 let left_key_boundary =
-                    trie_recording.find_state_part_boundary(part_id, num_parts).unwrap();
+                    trie_recording.find_state_part_boundary(part_id, num_parts).unwrap().unwrap();
                 if part_id != 0 {
                     assert_matches!(
                         trie.get(&left_key_boundary, AccessOptions::DEFAULT),
