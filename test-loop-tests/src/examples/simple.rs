@@ -114,6 +114,7 @@ fn test_client_with_simple_test_loop() {
         Arc::new(test_loop.future_spawner("node0")),
         noop().into_multi_sender(),
         client_adapter.as_multi_sender(),
+        noop().into_multi_sender(),
         protocol_upgrade_schedule,
         CoreStatementsProcessor::new(
             store.chain_store(),
