@@ -11,7 +11,9 @@ use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
 use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
-use crate::stateless_validation::chunk_validator::ChunkValidator;
+use crate::stateless_validation::chunk_validation_actor::{
+    BlockNotificationMessage, ChunkValidationSender,
+};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -157,9 +159,8 @@ pub struct Client {
     pub resharding_sender: ReshardingSender,
     /// Helper module for handling chunk production.
     pub chunk_producer: ChunkProducer,
-    /// Helper module for stateless validation functionality like chunk witness production, validation
-    /// chunk endorsements tracking etc.
-    pub chunk_validator: ChunkValidator,
+    /// Sender to the chunk validation actor for relaying block notifications to the ChunkValidatorActor
+    pub chunk_validation_sender: ChunkValidationSender,
     /// Tracks current chunks that are ready to be included in block
     /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
@@ -209,8 +210,6 @@ pub struct AsyncComputationMultiSpawner {
     apply_chunks: ApplyChunksSpawner,
     /// Spawner to run 'epoch sync' tasks (defaults to `RayonAsyncComputationSpawner`)
     epoch_sync: Arc<dyn AsyncComputationSpawner>,
-    /// Spawner to run 'stateless validation' tasks (see `ApplyChunksSpawner` for default)
-    stateless_validation: ApplyChunksSpawner,
 }
 
 impl Default for AsyncComputationMultiSpawner {
@@ -218,7 +217,6 @@ impl Default for AsyncComputationMultiSpawner {
         Self {
             apply_chunks: Default::default(),
             epoch_sync: Arc::new(RayonAsyncComputationSpawner),
-            stateless_validation: Default::default(),
         }
     }
 }
@@ -226,25 +224,12 @@ impl Default for AsyncComputationMultiSpawner {
 impl AsyncComputationMultiSpawner {
     /// Use a custom spawner for all kinds of tasks.
     pub fn all_custom(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
-        Self {
-            apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
-            epoch_sync: spawner.clone(),
-            stateless_validation: ApplyChunksSpawner::Custom(spawner),
-        }
+        Self { apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()), epoch_sync: spawner }
     }
 
     /// Use a custom spawner for 'apply chunks' tasks
     pub fn custom_apply_chunks(mut self, spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
         self.apply_chunks = ApplyChunksSpawner::Custom(spawner);
-        self
-    }
-
-    /// Use a custom spawner for 'stateless validation' tasks
-    pub fn custom_stateless_validation(
-        mut self,
-        spawner: Arc<dyn AsyncComputationSpawner>,
-    ) -> Self {
-        self.stateless_validation = ApplyChunksSpawner::Custom(spawner);
         self
     }
 }
@@ -269,6 +254,7 @@ impl Client {
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
         chain_sender_for_state_sync: ChainSenderForStateSync,
         myself_sender: ClientSenderForClient,
+        chunk_validation_sender: ChunkValidationSender,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
         spice_core_processor: CoreStatementsProcessor,
     ) -> Result<Self, Error> {
@@ -364,13 +350,7 @@ impl Client {
             rng_seed,
             config.transaction_pool_size_limit,
         );
-        let chunk_validator = ChunkValidator::new(
-            epoch_manager.clone(),
-            network_adapter.clone().into_sender(),
-            runtime_adapter.clone(),
-            config.orphan_state_witness_pool_size,
-            multi_spawner.stateless_validation,
-        );
+
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
             #[cfg(feature = "test_features")]
@@ -410,7 +390,7 @@ impl Client {
             tier1_accounts_cache: None,
             resharding_sender,
             chunk_producer,
-            chunk_validator,
+            chunk_validation_sender,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
             partial_witness_adapter,
@@ -1589,7 +1569,9 @@ impl Client {
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
 
-        self.process_ready_orphan_witnesses_and_clean_old(&block);
+        // Notify chunk validation actor about the new block for orphan witness processing
+        let block_notification = BlockNotificationMessage { block: block.clone() };
+        self.chunk_validation_sender.block_notification.send(block_notification);
     }
 
     /// Reconcile the transaction pool after processing a block.

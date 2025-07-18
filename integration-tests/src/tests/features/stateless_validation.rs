@@ -1,6 +1,8 @@
 use crate::tests::features::wallet_contract::{NearSigner, create_rlp_execute_tx, view_balance};
-use assert_matches::assert_matches;
+
+use near_chain::Error;
 use near_chain::Provenance;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
@@ -350,15 +352,28 @@ fn test_chunk_state_witness_bad_shard_id() {
     let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
     let witness_size = borsh::object_length(&witness).unwrap();
 
-    // Client should reject this ChunkStateWitness and the error message should mention "shard"
+    // Test chunk validation actor rejects witness with invalid shard ID
     tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
-    let signer = env.clients[0].validator_signer.get();
-    let res = env.clients[0].process_chunk_state_witness(witness, witness_size, None, signer);
-    let error = res.unwrap_err();
-    let error_message = format!("{}", error).to_lowercase();
-    tracing::info!(target: "test", "error message: {}", error_message);
-    assert!(error_message.contains("invalid shard 1000000000"));
-    assert_matches!(error, near_chain::Error::ValidatorError(_));
+    let witness_message = ChunkStateWitnessMessage {
+        witness,
+        raw_witness_size: witness_size,
+        processing_done_tracker: None,
+    };
+    let result =
+        env.chunk_validation_actors[0].process_chunk_state_witness_message(witness_message);
+    match result {
+        Err(Error::ValidatorError(err_msg)) => {
+            assert!(
+                err_msg.contains("Invalid shard 1000000000"),
+                "Should reject with invalid shard ID in error message: {}",
+                err_msg
+            );
+        }
+        Ok(()) => panic!("Chunk validation actor should reject witness with invalid shard ID"),
+        Err(other_err) => {
+            panic!("Expected ValidatorError with invalid shard ID, but got: {}", other_err)
+        }
+    }
 }
 
 /// Tests that eth-implicit accounts still work with stateless validation.
