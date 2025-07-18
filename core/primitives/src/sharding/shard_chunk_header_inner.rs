@@ -317,6 +317,8 @@ pub struct ShardChunkHeaderInnerV4 {
     pub prev_state_root: StateRoot,
     /// Root of the outcomes from execution transactions and results of the previous chunk.
     pub prev_outcome_root: CryptoHash,
+    /// root of the tree holding hashes of all the partial chunks into which the chunk to be
+    /// distributed is split
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockHeight,

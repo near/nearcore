@@ -189,6 +189,56 @@ pub struct ChunkStateWitnessV2 {
     pub implicit_transitions: Vec<ChunkStateTransition>,
 }
 
+/// "Optimistic" state witness.
+/// Only contains the data required to start applying the previous chunk
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct OptimisticStateWitnessV1 {
+    /// EpochId corresponds to the next block after chunk's previous block.
+    /// This is effectively the output of EpochManager::get_epoch_id_from_prev_block
+    /// with chunk_header.prev_block_hash().
+    pub epoch_id: EpochId,
+    /// The base state and post-state-root of the main transition where we
+    /// apply transactions and receipts. Corresponds to the state transition
+    /// that takes us from the pre-state-root of the last new chunk of this
+    /// shard to the post-state-root of that same chunk.
+    pub main_state_transition: ChunkStateTransition,
+    /// For the main state transition, we apply transactions and receipts.
+    /// Exactly which of them must be applied is a deterministic property
+    /// based on the blockchain history this chunk is based on.
+    ///
+    /// The set of receipts is exactly
+    ///   Filter(R, |receipt| receipt.target_shard = S), where
+    ///     - R is the set of outgoing receipts included in the set of chunks C
+    ///       (defined below),
+    ///     - S is the shard of this chunk.
+    ///
+    /// The set of chunks C, from which the receipts are sourced, is defined as
+    /// all new chunks included in the set of blocks B.
+    ///
+    /// The set of blocks B is defined as the contiguous subsequence of blocks
+    /// B1 (EXCLUSIVE) to B2 (inclusive) in this chunk's chain (i.e. the linear
+    /// chain that this chunk's parent block is on), where B2 is the block that
+    /// contains the last new chunk of shard S before this chunk, and B1 is the
+    /// block that contains the last new chunk of shard S before B2.
+    ///
+    /// Furthermore, the set of transactions to apply is exactly the
+    /// transactions included in the chunk of shard S at B2.
+    ///
+    /// For the purpose of this text, a "new chunk" is defined as a chunk that
+    /// is proposed by a chunk producer, not one that was copied from the
+    /// previous block (commonly called a "missing chunk").
+    ///
+    /// This field, `source_receipt_proofs`, is a (non-strict) superset of the
+    /// receipts that must be applied, along with information that allows these
+    /// receipts to be verifiable against the blockchain history.
+    pub source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+    /// An overall hash of the list of receipts that should be applied. This is
+    /// redundant information but is useful for diagnosing why a witness might
+    /// fail. This is the hash of the borsh encoding of the Vec<Receipt> in the
+    /// order that they should be applied.
+    pub applied_receipts_hash: CryptoHash,
+}
+
 impl ChunkStateWitness {
     pub fn new(
         chunk_producer: AccountId,
