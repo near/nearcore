@@ -189,7 +189,8 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         let store = near_store::NodeStorage::opener(
             &state_dump_path,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
+            near_config.config.cloud_storage.as_ref(),
         )
         .open()
         .unwrap()
