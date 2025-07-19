@@ -53,7 +53,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::{
-    ArchivalNodeConfig, ArchivalStorageConfig, SplitStorageConfig, StateSnapshotType,
+    ArchivalNodeConfig, CloudStorageConfig, SplitStorageConfig, StateSnapshotType,
 };
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
@@ -317,7 +317,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub archival_storage: Option<ArchivalStorageConfig>,
+    pub cloud_storage: Option<CloudStorageConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -419,7 +419,7 @@ impl Default for Config {
             store: near_store::StoreConfig::default(),
             cold_store: None,
             split_storage: None,
-            archival_storage: None,
+            cloud_storage: None,
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
@@ -516,7 +516,7 @@ impl Config {
     pub fn archival_config(&self) -> Option<ArchivalNodeConfig> {
         ArchivalNodeConfig::new(
             self.archive,
-            self.archival_storage.as_ref(),
+            self.cloud_storage.as_ref(),
             self.cold_store.as_ref(),
             self.split_storage.as_ref(),
         )

@@ -1,5 +1,5 @@
-use crate::archive::archival_storage::ArchivalStorageOpener;
-use crate::config::ArchivalStorageConfig;
+use crate::archive::cloud_storage::CloudStorageOpener;
+use crate::config::CloudStorageConfig;
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
@@ -176,8 +176,8 @@ pub struct StoreOpener<'a> {
     /// version.
     migrator: Option<&'a dyn StoreMigrator>,
 
-    /// Opener for an instance of archival storage if one was configured.
-    archival_storage_opener: Option<ArchivalStorageOpener>,
+    /// Opener for an instance of cloud storage if one was configured.
+    cloud_storage_opener: Option<CloudStorageOpener>,
 }
 
 /// Opener for a single RocksDB instance.
@@ -205,19 +205,19 @@ impl<'a> StoreOpener<'a> {
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
         cold_store_config: Option<&'a StoreConfig>,
-        archival_storage_config: Option<&'a ArchivalStorageConfig>,
+        cloud_storage_config: Option<&'a CloudStorageConfig>,
     ) -> Self {
         let hot = DBOpener::new(home_dir, store_config, Temperature::Hot);
         let cold =
             cold_store_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
-        let archival_storage_opener = archival_storage_config
-            .map(|config| ArchivalStorageOpener::new(home_dir.to_path_buf(), config.clone()));
-        Self { hot, cold, migrator: None, archival_storage_opener }
+        let cloud_storage_opener = cloud_storage_config
+            .map(|config| CloudStorageOpener::new(home_dir.to_path_buf(), config.clone()));
+        Self { hot, cold, migrator: None, cloud_storage_opener }
     }
 
     /// Returns true if this opener is for an archival node.
     fn is_archive(&self) -> bool {
-        self.cold.is_some() || self.archival_storage_opener.is_some()
+        self.cold.is_some() || self.cloud_storage_opener.is_some()
     }
 
     /// Configures the opener with specified [`StoreMigrator`].
