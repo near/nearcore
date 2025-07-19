@@ -52,9 +52,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{
-    ArchivalNodeConfig, CloudStorageConfig, SplitStorageConfig, StateSnapshotType,
-};
+use near_store::config::{CloudStorageConfig, SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -509,17 +507,6 @@ impl Config {
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
         }
-    }
-
-    /// Returns `ArchivalNodeConfig` which contains references to the archival-related configs if the config
-    /// is for an archival node; otherwise returns `None`.
-    pub fn archival_config(&self) -> Option<ArchivalNodeConfig> {
-        ArchivalNodeConfig::new(
-            self.archive,
-            self.cloud_storage.as_ref(),
-            self.cold_store.as_ref(),
-            self.split_storage.as_ref(),
-        )
     }
 
     pub fn tracked_shards_config(&self) -> TrackedShardsConfig {

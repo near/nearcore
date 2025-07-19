@@ -1,7 +1,7 @@
 pub(super) mod opener;
 
 use crate::archive::cloud_storage::CloudStorage;
-use crate::config::ArchivalNodeConfig;
+use crate::config::CloudStorageConfig;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
 use opener::StoreOpener;
@@ -50,12 +50,9 @@ impl NodeStorage {
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
-        archival_node_config: Option<ArchivalNodeConfig<'a>>,
+        cold_store_config: Option<&'a StoreConfig>,
+        cloud_storage_config: Option<&'a CloudStorageConfig>,
     ) -> StoreOpener<'a> {
-        let cold_store_config =
-            archival_node_config.as_ref().and_then(|config| config.cold_store_config);
-        let cloud_storage_config =
-            archival_node_config.and_then(|config| config.cloud_storage_config);
         StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_config)
     }
 
@@ -70,7 +67,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = NodeStorage::opener(dir.path(), &CONFIG, None);
+        let opener = NodeStorage::opener(dir.path(), &CONFIG, None, None);
         (dir, opener)
     }
 
