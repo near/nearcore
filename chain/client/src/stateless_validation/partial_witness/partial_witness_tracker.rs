@@ -16,16 +16,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonEncoderCache, ReedSolomonPartsTracker,
 };
-use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
+use near_primitives::stateless_validation::lazy_state_witness::LazyChunkStateWitness;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
+    ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
 use near_primitives::types::ShardId;
-use near_primitives::utils::compression::CompressedData;
-use near_primitives::version::ProtocolFeature;
 use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 use time::ext::InstantExt as _;
@@ -477,7 +475,7 @@ impl PartialEncodedStateWitnessTracker {
             };
 
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
-            let (mut witness, raw_witness_size) = {
+            let (mut lazy_witness, raw_witness_size) = {
                 let _span = tracing::debug_span!(
                     target: "client",
                     "decode_state_witness",
@@ -487,24 +485,22 @@ impl PartialEncodedStateWitnessTracker {
                 .entered();
                 self.decode_state_witness(&encoded_witness, protocol_version)?
             };
-            if witness.chunk_production_key() != key {
+            if lazy_witness.chunk_production_key() != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
-                    witness.chunk_production_key(),
+                    lazy_witness.chunk_production_key(),
                     key,
                 )));
             }
 
-            // Merge accessed contracts into the main transition's partial state.
-            let PartialState::TrieValues(values) =
-                &mut witness.mut_main_state_transition().base_state;
-            values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
+            // Add accessed contracts to the lazy witness - they'll be merged when converting to full witness
+            lazy_witness.add_accessed_contracts(accessed_contracts);
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
             let _span = tracing::debug_span!(
                 target: "client",
                 "send_witness_to_client",
-                chunk_hash = ?witness.chunk_header().chunk_hash(),
+                chunk_hash = ?lazy_witness.chunk_header().chunk_hash(),
                 height = key.height_created,
                 shard_id = %key.shard_id,
                 raw_witness_size = raw_witness_size,
@@ -512,8 +508,9 @@ impl PartialEncodedStateWitnessTracker {
                 tag_witness_distribution = true,
             )
             .entered();
-            self.client_sender
-                .send(ChunkStateWitnessMessage { witness, raw_witness_size }.span_wrap());
+            self.client_sender.send(
+                ChunkStateWitnessMessage { witness: lazy_witness, raw_witness_size }.span_wrap(),
+            );
 
             total_size
         } else {
@@ -561,28 +558,23 @@ impl PartialEncodedStateWitnessTracker {
         &self,
         encoded_witness: &EncodedChunkStateWitness,
         protocol_version: ProtocolVersion,
-    ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
+    ) -> Result<(LazyChunkStateWitness, ChunkStateWitnessSize), Error> {
         let decode_start = std::time::Instant::now();
 
-        let (witness, raw_witness_size) =
-            if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
-                // If VersionedStateWitness is enabled, we expect the type of encoded_witness to be ChunkStateWitness
-                encoded_witness.decode()?
-            } else {
-                // If VersionedStateWitness is not enabled,
-                // we expect the type of encoded_witness to be ChunkStateWitnessV1 to maintain backward compatibility
-                // We then decode and wrap it in ChunkStateWitness::V1
-                let (witness, raw_witness_size) = encoded_witness.decode()?;
-                (ChunkStateWitness::V1(witness), raw_witness_size)
-            };
+        let (lazy_witness, raw_witness_size) =
+            LazyChunkStateWitness::from_encoded_witness(encoded_witness, protocol_version)
+                .map_err(|e| {
+                    Error::InvalidChunkStateWitness(format!("Failed to create lazy witness: {}", e))
+                })?;
+
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
-        let witness_shard = witness.chunk_header().shard_id();
+        let witness_shard = lazy_witness.chunk_header().shard_id();
 
         // Record metrics after validating the witness
         near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
             .with_label_values(&[&witness_shard.to_string()])
             .observe(decode_elapsed_seconds);
 
-        Ok((witness, raw_witness_size))
+        Ok((lazy_witness, raw_witness_size))
     }
 }

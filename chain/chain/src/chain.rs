@@ -77,9 +77,8 @@ use near_primitives::sharding::{
     StateSyncInfo,
 };
 use near_primitives::state_sync::ReceiptProofResponse;
-use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessSize,
-};
+use near_primitives::stateless_validation::lazy_state_witness::LazyChunkStateWitness;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
@@ -3732,10 +3731,10 @@ pub struct BlockCatchUpResponse {
     pub results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
 }
 
-#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ChunkStateWitnessMessage {
-    pub witness: ChunkStateWitness,
+    pub witness: LazyChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,
 }
 

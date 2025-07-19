@@ -7,6 +7,7 @@ use crate::types::EpochId;
 pub mod chunk_endorsement;
 pub mod chunk_endorsements_bitmap;
 pub mod contract_distribution;
+pub mod lazy_state_witness;
 pub mod partial_witness;
 pub mod state_witness;
 pub mod stored_chunk_state_transition_data;

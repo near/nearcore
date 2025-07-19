@@ -49,6 +49,7 @@ use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 
 use super::setup::{TEST_SEED, setup_client_with_runtime};
 use super::test_env_builder::TestEnvBuilder;
+use near_primitives::stateless_validation::lazy_state_witness::LazyChunkStateWitness;
 
 /// Timeout used in tests that wait for a specific chunk endorsement to appear
 const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::seconds(10);
@@ -419,8 +420,10 @@ impl TestEnv {
                         continue;
                     }
                     let client = self.client(&account_id);
+                    let lazy_witness =
+                        LazyChunkStateWitness::from_full_witness(state_witness.clone());
                     let processing_result = client.process_chunk_state_witness(
-                        state_witness.clone(),
+                        lazy_witness,
                         raw_witness_size,
                         Some(processing_done_tracker),
                         client.validator_signer.get(),
