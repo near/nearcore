@@ -650,7 +650,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
 /// with the fork-network tool, we only need the state and
 /// flat state, and a few other small columns. So getting rid of
 /// everything else saves quite a bit on the disk space needed for each node.
-pub fn clear_columns<'a>(
+pub fn clear_columns(
     home_dir: &std::path::Path,
     config: &StoreConfig,
     cold_store_config: Option<&StoreConfig>,
