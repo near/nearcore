@@ -104,8 +104,8 @@ static EXPECTED_UNSUPPORTED: &[(&str, &str)] = &[
 #[test]
 #[cfg(feature = "prepare")]
 fn ensure_fails_verification() {
-    let config = test_vm_config();
-    with_vm_variants(&config, |kind| {
+    with_vm_variants(|kind| {
+        let config = test_vm_config(Some(kind));
         for (feature_name, wat) in EXPECTED_UNSUPPORTED {
             let wasm = wat::parse_str(wat).expect("parsing test wat should succeed");
             if let Ok(_) = crate::prepare::prepare_contract(&wasm, &config, kind) {

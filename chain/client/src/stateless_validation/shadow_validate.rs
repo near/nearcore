@@ -55,10 +55,12 @@ impl Client {
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
+        let rs = self.reed_solomon_encoder().clone();
         self.chain.shadow_validate_state_witness(
             state_witness,
             self.epoch_manager.as_ref(),
             None,
+            rs,
         )?;
         Ok(())
     }

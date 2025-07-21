@@ -33,6 +33,7 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 use parking_lot::Mutex;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -96,6 +97,7 @@ pub struct ChunkValidationActorInner {
     main_state_transition_result_cache: MainStateTransitionCache,
     orphan_witness_pool: Arc<Mutex<OrphanStateWitnessPool>>,
     max_orphan_witness_size: u64,
+    rs: Arc<ReedSolomon>,
 }
 
 impl Actor for ChunkValidationActorInner {}
@@ -113,6 +115,9 @@ impl ChunkValidationActorInner {
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
         max_orphan_witness_size: u64,
     ) -> Self {
+        let data_parts = epoch_manager.num_data_parts();
+        let parity_parts = epoch_manager.num_total_parts() - data_parts;
+        let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
         Self {
             chain_store,
             genesis_block,
@@ -128,6 +133,7 @@ impl ChunkValidationActorInner {
                 default_orphan_state_witness_pool_size(),
             ))),
             max_orphan_witness_size,
+            rs,
         }
     }
 
@@ -145,6 +151,9 @@ impl ChunkValidationActorInner {
         shared_orphan_pool: Arc<Mutex<OrphanStateWitnessPool>>,
         max_orphan_witness_size: u64,
     ) -> Self {
+        let data_parts = epoch_manager.num_data_parts();
+        let parity_parts = epoch_manager.num_total_parts() - data_parts;
+        let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
         Self {
             chain_store,
             genesis_block,
@@ -158,6 +167,7 @@ impl ChunkValidationActorInner {
             main_state_transition_result_cache: MainStateTransitionCache::default(),
             orphan_witness_pool: shared_orphan_pool,
             max_orphan_witness_size,
+            rs,
         }
     }
 
@@ -501,6 +511,7 @@ impl ChunkValidationActorInner {
         let store = self.chain_store.store();
         let network_adapter = self.network_adapter.clone();
         let signer = signer.clone();
+        let rs = self.rs.clone();
 
         self.validation_spawner.spawn("stateless_validation", move || {
             // Capture the processing_done_tracker here - it will be dropped when this closure completes
@@ -514,6 +525,7 @@ impl ChunkValidationActorInner {
                 &cache,
                 store,
                 save_witness_if_invalid,
+                rs,
             ) {
                 Ok(_) => {
                     send_chunk_endorsement_to_block_producers(

@@ -33,6 +33,7 @@ thread-priority.workspace = true
 time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+reed-solomon-erasure.workspace = true
 
 near-async.workspace = true
 near-chain-configs = { workspace = true, features = [

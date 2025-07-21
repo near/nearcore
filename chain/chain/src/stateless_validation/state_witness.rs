@@ -15,6 +15,7 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
 use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::version::ProtocolFeature;
 use std::collections::HashMap;
 
 /// Result of collecting state transition data from the database to generate a state witness.
@@ -91,6 +92,11 @@ impl ChainStore {
             applied_receipts_hash,
             prev_chunk.to_transactions().to_vec(),
             implicit_transitions,
+            if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
+                chunk.to_transactions().to_vec()
+            } else {
+                vec![]
+            },
             protocol_version,
         );
         Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })

@@ -49,9 +49,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
-use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
-};
+use near_network::types::{NetworkRequests, PeerManagerAdapter, ReasonForBan};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
@@ -74,10 +72,11 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tracing::{debug, debug_span, error, info, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
@@ -178,6 +177,8 @@ pub struct Client {
     last_optimistic_block_produced: Option<OptimisticBlock>,
     /// Cached precomputed set of the chunk producers for current and next epochs.
     chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
+    /// Reed-Solomon encoder for shadow chunk validation.
+    reed_solomon: OnceLock<Arc<ReedSolomon>>,
 }
 
 impl AsRef<Client> for Client {
@@ -202,6 +203,15 @@ impl Client {
     /// It will update all validator signers that synchronize with it.
     pub(crate) fn update_validator_signer(&self, signer: Option<Arc<ValidatorSigner>>) -> bool {
         self.validator_signer.update(signer)
+    }
+
+    /// Returns the Reed-Solomon encoder, initializing it lazily if needed.
+    pub(crate) fn reed_solomon_encoder(&self) -> &Arc<ReedSolomon> {
+        self.reed_solomon.get_or_init(|| {
+            let data_parts = self.epoch_manager.num_data_parts();
+            let parity_parts = self.epoch_manager.num_total_parts() - data_parts;
+            Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap())
+        })
     }
 }
 
@@ -400,6 +410,7 @@ impl Client {
             upgrade_schedule,
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
+            reed_solomon: OnceLock::new(),
         })
     }
 
@@ -2098,7 +2109,6 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        highest_height_peers: &[HighestHeightPeerInfo],
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
@@ -2152,12 +2162,7 @@ impl Client {
             // Initialize the new shard sync to contain the shards to split at
             // first. It will get updated with the shard sync download status
             // for other shards later.
-            match state_sync.run(
-                sync_hash,
-                status,
-                highest_height_peers,
-                state_sync_info.shards(),
-            )? {
+            match state_sync.run(sync_hash, status, state_sync_info.shards())? {
                 StateSyncResult::InProgress => {}
                 StateSyncResult::Completed => {
                     debug!(target: "catchup", "state sync completed now catch up blocks");
