@@ -138,6 +138,12 @@ impl TestTriesBuilder {
         if self.enable_flat_storage {
             let mut store_update = tries.store_update();
             for &shard_uid in &shard_uids {
+                let flat_storage_status =
+                    tries.store().flat_store().get_flat_storage_status(shard_uid).unwrap();
+                if let FlatStorageStatus::Ready(_) = flat_storage_status {
+                    continue; // Flat storage is already ready for this shard.
+                }
+
                 let flat_head = BlockInfo::genesis(CryptoHash::default(), 0);
                 store_update.flat_store_update().set_flat_storage_status(
                     shard_uid,
