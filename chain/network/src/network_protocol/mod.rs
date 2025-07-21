@@ -40,7 +40,6 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use crate::stats::metrics::{ROUTED_MESSAGE_SIGN_TIME, ROUTED_MESSAGE_VERIFY_TIME};
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -1256,14 +1255,11 @@ impl RoutedMessage {
     }
 
     pub fn verify(&self) -> bool {
-        let timer = ROUTED_MESSAGE_VERIFY_TIME.start_timer();
-        let res = match self {
+        match self {
             RoutedMessage::V1(msg) => msg.verify(),
             RoutedMessage::V2(msg) => msg.msg.verify(),
             RoutedMessage::V3(msg) => msg.verify(),
-        };
-        timer.observe_duration();
-        res
+        }
     }
 
     pub fn expect_response(&self) -> bool {
@@ -1524,7 +1520,6 @@ impl RawRoutedMessage {
         routed_message_ttl: u8,
         now: Option<time::Utc>,
     ) -> RoutedMessage {
-        let timer = ROUTED_MESSAGE_SIGN_TIME.start_timer();
         let author = PeerId::new(node_key.public_key());
         let signature =
             if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && self.body.is_t1() {
@@ -1534,7 +1529,7 @@ impl RawRoutedMessage {
                 let hash = RoutedMessage::build_hash(&self.target, &author, &body);
                 Some(node_key.sign(hash.as_ref()))
             };
-        let result = RoutedMessage::V3(RoutedMessageV3 {
+        RoutedMessage::V3(RoutedMessageV3 {
             target: self.target,
             author,
             signature,
@@ -1542,8 +1537,6 @@ impl RawRoutedMessage {
             body: self.body,
             created_at: now.map(|t| t.unix_timestamp()),
             num_hops: 0,
-        });
-        timer.observe_duration();
-        result
+        })
     }
 }
