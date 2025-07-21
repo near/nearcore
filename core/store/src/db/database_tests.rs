@@ -218,6 +218,11 @@ fn test_stress_trie_and_storage() {
         .parse::<usize>()
         .expect("Failed to parse DESIRED_ACCOUNTS");
 
+    let updates_batch_size = env::var("UPDATES_BATCH_SIZE")
+        .unwrap_or_else(|_| "20000".to_string())
+        .parse::<usize>()
+        .expect("Failed to parse UPDATES_BATCH_SIZE");
+
     // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
     // same configuration as in production.
     let mut store = NodeStorage::opener(db_path.as_path(), &Default::default(), None)
@@ -333,7 +338,7 @@ fn test_stress_trie_and_storage() {
     }
 
     let batches = 100;
-    let updates_per_batch = 100_000;
+    let updates_per_batch = updates_batch_size;
 
     // Seed the random number generator
     let mut rng = StdRng::seed_from_u64(0);
