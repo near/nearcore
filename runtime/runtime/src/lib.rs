@@ -171,13 +171,8 @@ impl<'a> TransactionBatch<'a> {
         self.indices.iter().map(|i| (*i, &self.signed_txs[*i]))
     }
 
-    fn get_account(&self, state_update: &TrieUpdate) -> Result<Account, InvalidTxError> {
-        debug_assert!(!self.indices.is_empty());
-        let signer_id = self.signed_txs[self.indices[0]].transaction.signer_id();
-        match get_account(state_update, signer_id)? {
-            Some(acc) => Ok(acc),
-            None => Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }),
-        }
+    fn signer_id(&self) -> &AccountId {
+        self.signed_txs[self.indices[0]].transaction.signer_id()
     }
 }
 
@@ -210,44 +205,34 @@ impl<'a> TransactionBatches<'a> {
     }
 }
 
-/// Holds either a successful or a failed outcome for a single transaction.
-#[derive(Debug)]
-enum PerTransactionResult {
-    Success {
-        validated_tx: Box<ValidatedTransaction>,
-        verification_result: VerificationResult,
-        receipt: Box<Receipt>,
-        outcome: Box<ExecutionOutcomeWithId>,
-    },
-
-    Failure {
-        tx_hash: CryptoHash,
-        error: InvalidTxError,
-    },
+struct ProcessTransactionSuccess {
+    validated_tx: ValidatedTransaction,
+    verification_result: VerificationResult,
+    receipt: Receipt,
+    outcome: ExecutionOutcomeWithId,
 }
 
-#[derive(Debug)]
+struct ProcessTransactionFailure {
+    tx_hash: CryptoHash,
+    error: InvalidTxError,
+}
+
 struct ProcessedTransaction {
     /// Index of the transaction in the incoming transactions slice.
     index: usize,
-    result: PerTransactionResult,
+    result: Result<Box<ProcessTransactionSuccess>, Box<ProcessTransactionFailure>>,
 }
 
-#[derive(Debug)]
+impl ProcessedTransaction {
+    fn failure(index: usize, tx_hash: CryptoHash, error: InvalidTxError) -> Self {
+        Self { index, result: Err(Box::new(ProcessTransactionFailure { tx_hash, error })) }
+    }
+}
+
 struct BatchOutput {
     processed_transactions: Vec<ProcessedTransaction>,
-    updated_account: Option<Account>,
-    updated_keys: BTreeMap<PublicKey, AccessKey>,
-}
-
-impl BatchOutput {
-    /// Returns the `signer_id` of the first non-failed transaction in the batch if such exists or None.
-    fn signer_id(&self) -> Option<&AccountId> {
-        self.processed_transactions.iter().find_map(|pt| match &pt.result {
-            PerTransactionResult::Success { validated_tx, .. } => Some(validated_tx.signer_id()),
-            PerTransactionResult::Failure { .. } => None,
-        })
-    }
+    state_updates: Option<(Account, BTreeMap<PublicKey, AccessKey>)>,
+    signer_id: AccountId,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -398,101 +383,92 @@ impl Runtime {
         block_height: BlockHeight,
         current_protocol_version: ProtocolVersion,
     ) -> BatchOutput {
-        debug_assert!(!batch.indices.is_empty());
-
+        assert!(!batch.indices.is_empty());
         let mut processed_transactions = Vec::with_capacity(batch.indices.len());
-
-        let mut ephemeral_signer = match batch.get_account(state_update) {
+        let signer_id = batch.signer_id().clone();
+        let ephemeral_signer = match get_account(state_update, &signer_id) {
+            Ok(Some(acc)) => Ok(acc),
+            Ok(None) => Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }),
+            Err(e) => Err(e.into()),
+        };
+        let mut ephemeral_signer = match ephemeral_signer {
             Ok(signer) => signer,
             Err(err) => {
-                debug!(target: "runtime", ?err, "failed to retrieve the account for the transactions batch");
-
+                debug!(
+                    target: "runtime",
+                    err = &err as &dyn std::error::Error,
+                    "failed to retrieve the account for the transactions batch"
+                );
                 return BatchOutput {
+                    signer_id,
                     processed_transactions: batch
                         .iter()
-                        .map(|(i, tx)| ProcessedTransaction {
-                            index: i,
-                            result: PerTransactionResult::Failure {
-                                tx_hash: tx.get_hash(),
-                                error: err.clone(),
-                            },
-                        })
+                        .map(|(i, tx)| ProcessedTransaction::failure(i, tx.get_hash(), err.clone()))
                         .collect(),
-                    updated_account: None,
-                    updated_keys: Default::default(),
+                    state_updates: None,
                 };
             }
         };
 
         let mut ephemeral_keys = BTreeMap::<PublicKey, AccessKey>::new();
+        let mut should_update_state = false;
 
         for (idx, signed_tx) in batch.iter() {
             let tx_hash = signed_tx.get_hash();
-
-            let validated_tx = match validate_transaction(
+            let validated_tx = validate_transaction(
                 &apply_state.config,
                 signed_tx.clone(),
                 current_protocol_version,
-            ) {
+            );
+            let validated_tx = match validated_tx {
                 Ok(ok) => ok,
                 Err((err, _orig)) => {
-                    processed_transactions.push(ProcessedTransaction {
-                        index: idx,
-                        result: PerTransactionResult::Failure { tx_hash, error: err },
-                    });
+                    processed_transactions.push(ProcessedTransaction::failure(idx, tx_hash, err));
                     continue;
                 }
             };
 
-            let cost = match tx_cost(
+            let cost = tx_cost(
                 &apply_state.config,
                 validated_tx.to_tx(),
                 gas_price,
                 current_protocol_version,
-            ) {
+            );
+            let cost = match cost {
                 Ok(c) => c,
                 Err(e) => {
-                    processed_transactions.push(ProcessedTransaction {
-                        index: idx,
-                        result: PerTransactionResult::Failure { tx_hash, error: e.into() },
-                    });
+                    let tx_failure = ProcessedTransaction::failure(idx, tx_hash, e.into());
+                    processed_transactions.push(tx_failure);
                     continue;
                 }
             };
 
             let ephemeral_access_key = {
                 let pk = validated_tx.public_key();
-
                 match ephemeral_keys.entry(pk.clone()) {
                     Entry::Occupied(ak) => ak.into_mut(),
                     Entry::Vacant(entry) => {
                         match get_access_key(state_update, validated_tx.signer_id(), pk) {
                             Ok(Some(loaded_ak)) => entry.insert(loaded_ak),
                             Ok(None) => {
-                                // TODO: consider retaining in the map the fact that the key did not exist
-                                processed_transactions.push(ProcessedTransaction {
-                                    index: idx,
-                                    result: PerTransactionResult::Failure {
-                                        tx_hash,
-                                        error: InvalidTxError::InvalidAccessKeyError(
-                                            InvalidAccessKeyError::AccessKeyNotFound {
-                                                account_id: validated_tx.signer_id().clone(),
-                                                public_key: pk.clone().into(),
-                                            },
-                                        ),
+                                let err = InvalidTxError::InvalidAccessKeyError(
+                                    InvalidAccessKeyError::AccessKeyNotFound {
+                                        account_id: validated_tx.signer_id().clone(),
+                                        public_key: pk.clone().into(),
                                     },
-                                });
+                                );
+                                let tx_failure = ProcessedTransaction::failure(idx, tx_hash, err);
+                                // TODO: consider retaining in the map the fact that the key did
+                                // not exist
+                                processed_transactions.push(tx_failure);
                                 continue;
                             }
                             Err(storage_err) => {
-                                processed_transactions.push(ProcessedTransaction {
-                                    index: idx,
-                                    result: PerTransactionResult::Failure {
-                                        tx_hash,
-                                        error: storage_err.into(),
-                                    },
-                                });
-                                // TODO: we may not need to do the work processing the remainder of this batch or the other batches if we hit a storage error
+                                let tx_failure =
+                                    ProcessedTransaction::failure(idx, tx_hash, storage_err.into());
+                                processed_transactions.push(tx_failure);
+                                // TODO: we may not need to do the work processing the remainder of
+                                // this batch or the other batches if we hit a storage error
                                 continue;
                             }
                         }
@@ -510,68 +486,65 @@ impl Runtime {
             ) {
                 Ok(v) => v,
                 Err(e) => {
-                    processed_transactions.push(ProcessedTransaction {
-                        index: idx,
-                        result: PerTransactionResult::Failure { tx_hash, error: e },
-                    });
+                    processed_transactions.push(ProcessedTransaction::failure(idx, tx_hash, e));
                     continue;
                 }
             };
+            // Data only changes when `verify_and_charge_tx_ephemeral` succeeds.
+            should_update_state = true;
 
-            let (receipt, outcome) = {
-                let receipt_id = create_receipt_id_from_transaction(
-                    validated_tx.to_hash(),
-                    apply_state.block_height,
-                );
-                let receipt = Receipt::V0(ReceiptV0 {
-                    predecessor_id: validated_tx.signer_id().clone(),
-                    receiver_id: validated_tx.receiver_id().clone(),
-                    receipt_id,
-                    receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: validated_tx.signer_id().clone(),
-                        signer_public_key: validated_tx.public_key().clone(),
-                        gas_price: verification_result.receipt_gas_price,
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: validated_tx.actions().to_vec(),
-                    }),
-                });
-                let gas_burnt = verification_result.gas_burnt;
-                let compute_usage = gas_burnt;
-                let outcome = ExecutionOutcomeWithId {
-                    id: validated_tx.get_hash(),
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
-                        logs: vec![],
-                        receipt_ids: vec![*receipt.receipt_id()],
-                        gas_burnt,
-                        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                        compute_usage: Some(compute_usage),
-                        tokens_burnt: verification_result.burnt_amount,
-                        executor_id: validated_tx.signer_id().clone(),
-                        // TODO: profile data is only counted in apply_action, which only happened at process_receipt
-                        // VerificationResult needs updates to incorporate profile data to support profile data of txns
-                        metadata: ExecutionMetadata::V1,
-                    },
-                };
-                (receipt, outcome)
+            let receipt_id = create_receipt_id_from_transaction(
+                validated_tx.to_hash(),
+                apply_state.block_height,
+            );
+            let receipt = Receipt::V0(ReceiptV0 {
+                predecessor_id: validated_tx.signer_id().clone(),
+                receiver_id: validated_tx.receiver_id().clone(),
+                receipt_id,
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: validated_tx.signer_id().clone(),
+                    signer_public_key: validated_tx.public_key().clone(),
+                    gas_price: verification_result.receipt_gas_price,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: validated_tx.actions().to_vec(),
+                }),
+            });
+            let gas_burnt = verification_result.gas_burnt;
+            let compute_usage = gas_burnt;
+            let outcome = ExecutionOutcomeWithId {
+                id: validated_tx.get_hash(),
+                outcome: ExecutionOutcome {
+                    status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
+                    logs: vec![],
+                    receipt_ids: vec![*receipt.receipt_id()],
+                    gas_burnt,
+                    // TODO(#8806): Support compute costs for actions. For now they match burnt
+                    // gas.
+                    compute_usage: Some(compute_usage),
+                    tokens_burnt: verification_result.burnt_amount,
+                    executor_id: validated_tx.signer_id().clone(),
+                    // TODO: profile data is only counted in apply_action, which only happened
+                    // at process_receipt VerificationResult needs updates to incorporate
+                    // profile data to support profile data of txns
+                    metadata: ExecutionMetadata::V1,
+                },
             };
-
             processed_transactions.push(ProcessedTransaction {
                 index: idx,
-                result: PerTransactionResult::Success {
-                    validated_tx: Box::new(validated_tx),
+                result: Ok(Box::new(ProcessTransactionSuccess {
+                    validated_tx,
                     verification_result,
-                    receipt: Box::new(receipt),
-                    outcome: Box::new(outcome),
-                },
+                    receipt,
+                    outcome,
+                })),
             });
         }
 
         BatchOutput {
+            signer_id,
             processed_transactions,
-            updated_account: Some(ephemeral_signer),
-            updated_keys: ephemeral_keys,
+            state_updates: should_update_state.then_some((ephemeral_signer, ephemeral_keys)),
         }
     }
 
@@ -1746,7 +1719,9 @@ impl Runtime {
                     );
                 }
                 StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
+                    let acc = get_account(state_update, &account_id)
+                        .expect("Failed to read state")
+                        .expect("Code state record should be preceded by the corresponding account record");
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     state_update.set_code(account_id, &code);
@@ -1797,97 +1772,79 @@ impl Runtime {
             })
             .collect_vec_list();
 
-        let mut all_processed = Vec::new();
-        for batch_vec in batch_outputs {
-            for batch_out in batch_vec {
-                let signer_id = match batch_out.signer_id() {
-                    Some(id) => id,
-                    None => continue,
-                };
-
-                for (public_key, access_key) in &batch_out.updated_keys {
-                    set_access_key(state_update, signer_id.clone(), public_key.clone(), access_key);
+        // NOTE: vec![None; tx_vec.len()] does not work due to item type not being Clone.
+        let mut all_processed =
+            std::iter::repeat_with(|| None).take(tx_vec.len()).collect::<Vec<_>>();
+        for outputs in batch_outputs {
+            for output in outputs {
+                let BatchOutput { signer_id, processed_transactions, state_updates } = output;
+                if let Some((updated_account, updated_keys)) = state_updates {
+                    for (pk, ak) in updated_keys {
+                        set_access_key(state_update, signer_id.clone(), pk.clone(), &ak);
+                    }
+                    set_account(state_update, signer_id, &updated_account);
                 }
-                set_account(
-                    state_update,
-                    signer_id.clone(),
-                    &batch_out.updated_account.expect("any successfully validated transaction means account should have been updated"),
-                );
-
-                let last_tx_hash = batch_out
-                    .processed_transactions
+                let last_tx_hash = processed_transactions
                     .iter()
                     .rev()
-                    .find_map(|pt| match &pt.result {
-                        PerTransactionResult::Success { validated_tx, .. } => {
-                            Some(validated_tx.get_hash())
-                        }
-                        PerTransactionResult::Failure { .. } => None,
-                    })
+                    .find_map(|pt| Some(pt.result.as_ref().ok()?.validated_tx.get_hash()))
                     .unwrap_or_default();
                 state_update
                     .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
-                all_processed.extend(batch_out.processed_transactions);
+                for result in processed_transactions {
+                    if all_processed[result.index].replace(result.result).is_some() {
+                        panic!("multiple results for same index shouldn't occur!");
+                    }
+                }
             }
         }
 
-        all_processed.sort_by_key(|pt| pt.index);
-
         for processed in all_processed {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
-            match processed.result {
-                PerTransactionResult::Success {
-                    validated_tx,
-                    verification_result,
-                    outcome,
-                    receipt,
-                } => {
-                    match safe_add_balance(
-                        processing_state.stats.balance.tx_burnt_amount,
-                        verification_result.burnt_amount,
-                    ) {
-                        Ok(new_balance) => {
-                            processing_state.stats.balance.tx_burnt_amount = new_balance;
-                        }
-                        Err(err) => {
-                            metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                            tracing::debug!(
-                                target: "runtime",
-                                tx_hash=?validated_tx.get_hash(),
-                                ?err,
-                                "invalid transaction ignored (burnt gas overflow)",
-                            );
-                            continue;
-                        }
+            let ProcessTransactionSuccess { validated_tx, verification_result, receipt, outcome } =
+                match processed {
+                    None => panic!("every transaction should produce a result"),
+                    Some(Err(err)) => {
+                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                        tracing::debug!(
+                            target: "runtime",
+                            tx_hash = %err.tx_hash,
+                            error = &err.error as &dyn std::error::Error,
+                            "invalid transaction ignored",
+                        );
+                        continue;
                     }
-
-                    metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-                    if receipt.receiver_id() == validated_tx.to_tx().signer_id() {
-                        processing_state.local_receipts.push_back(*receipt);
-                    } else {
-                        receipt_sink.forward_or_buffer_receipt(
-                            *receipt,
-                            apply_state,
-                            state_update,
-                        )?;
-                    }
-                    let compute = outcome.outcome.compute_usage;
-                    let compute =
-                        compute.expect("`process_transaction` must populate compute usage");
-                    total.add(outcome.outcome.gas_burnt, compute)?;
-                    processing_state.outcomes.push(*outcome);
+                    Some(Ok(success)) => *success,
+                };
+            match safe_add_balance(
+                processing_state.stats.balance.tx_burnt_amount,
+                verification_result.burnt_amount,
+            ) {
+                Ok(new_balance) => {
+                    processing_state.stats.balance.tx_burnt_amount = new_balance;
                 }
-
-                PerTransactionResult::Failure { error, tx_hash } => {
+                Err(err) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         target: "runtime",
-                        ?tx_hash,
-                        ?error,
-                        "invalid transaction ignored",
+                        tx_hash=?validated_tx.get_hash(),
+                        ?err,
+                        "invalid transaction ignored (burnt gas overflow)",
                     );
+                    continue;
                 }
             }
+
+            metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+            if receipt.receiver_id() == validated_tx.signer_id() {
+                processing_state.local_receipts.push_back(receipt);
+            } else {
+                receipt_sink.forward_or_buffer_receipt(receipt, apply_state, state_update)?;
+            }
+            let compute = outcome.outcome.compute_usage;
+            let compute = compute.expect("`process_transaction` must populate compute usage");
+            total.add(outcome.outcome.gas_burnt, compute)?;
+            processing_state.outcomes.push(outcome);
         }
         processing_state.metrics.tx_processing_done(total.gas, total.compute);
         Ok(())
