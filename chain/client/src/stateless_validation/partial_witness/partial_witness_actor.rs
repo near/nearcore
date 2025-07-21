@@ -89,7 +89,7 @@ impl WitnessCreationSpawner {
 
 #[derive(Default)]
 pub enum PartialWitnessSpawner {
-    /// Use a pool of OS-based high-priority threads, limited to 2 threads.
+    /// Use a pool of OS-based high-priority threads, default to 2 threads.
     #[default]
     Default,
     /// Use a custom spawner, e.g. rayon.
@@ -131,7 +131,7 @@ pub struct PartialWitnessActor {
     contract_deploys_encoders: ReedSolomonEncoderCache,
     compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
     partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
-    /// Spawner for witness creation and distribution.
+    /// Spawner for witness creation tasks.
     witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,
     /// AccountId in the key corresponds to the requester (chunk validator).
     processed_contract_code_requests: LruCache<(ChunkProductionKey, AccountId), ()>,
@@ -298,7 +298,7 @@ impl PartialWitnessActor {
             );
         }
 
-        // Move witness compression and encoding work to the witness_creation_spawner
+        // Move witness compression, encoding and distribution to the witness_creation_spawner
         // to avoid blocking the actor thread
         let encoder = self.witness_encoders.entry(chunk_validators.len());
         let network_adapter = self.network_adapter.clone();
