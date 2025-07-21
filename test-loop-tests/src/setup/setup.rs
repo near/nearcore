@@ -284,11 +284,11 @@ pub fn setup_client(
         runtime_adapter.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))), // Heavy contract compilation
         PartialWitnessSpawner::Custom(Arc::new(
-            test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
+            test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10)),
         ))
         .into_spawner(),
         WitnessCreationSpawner::Custom(Arc::new(
-            test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
+            test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10)),
         )),
     );
 
