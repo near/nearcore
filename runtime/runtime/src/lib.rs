@@ -1780,7 +1780,7 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let tx_vec = signed_txs.into_iter_nonexpired_transactions().collect::<Vec<_>>();
+        let tx_vec = signed_txs.into_nonexpired_transactions();
         let tx_batches = TransactionBatches::new(&tx_vec);
 
         let batch_outputs = tx_batches
