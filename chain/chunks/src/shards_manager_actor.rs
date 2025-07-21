@@ -115,7 +115,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, verify_path};
+use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::receipt::Receipt;
 use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_encode};
 use near_primitives::sharding::{
@@ -1166,7 +1166,13 @@ impl ShardsManagerActor {
         num_total_parts: usize,
     ) -> Result<(), Error> {
         if (part.part_ord as usize) < num_total_parts {
-            if !verify_path(merkle_root, &part.merkle_proof, &part.part) {
+            if !verify_path_with_index(
+                merkle_root,
+                &part.merkle_proof,
+                &part.part,
+                part.part_ord,
+                num_total_parts as u64,
+            ) {
                 return Err(Error::InvalidMerkleProof);
             }
 
@@ -2006,6 +2012,7 @@ impl ShardsManagerActor {
             .start_timer();
         // TODO: if the number of validators exceeds the number of parts, this logic must be changed
         let chunk_header = encoded_chunk.cloned_header();
+        #[cfg(not(feature = "test_features"))]
         debug_assert_eq!(chunk_header, partial_chunk.cloned_header());
         let prev_block_hash = chunk_header.prev_block_hash();
         let _span = tracing::debug_span!(

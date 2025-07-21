@@ -1084,14 +1084,14 @@ impl PeerActor {
                 }
                 PeerMessage::Challenge(_) => None,
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
-                    .client
+                    .state_request_adapter
                     .send_async(StateRequestHeader { shard_id, sync_hash })
                     .await
                     .ok()
                     .flatten()
                     .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
                 PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => network_state
-                    .client
+                    .state_request_adapter
                     .send_async(StateRequestPart { shard_id, sync_hash, part_id })
                     .await
                     .ok()

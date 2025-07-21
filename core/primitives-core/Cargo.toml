@@ -40,4 +40,4 @@ nightly = []
 
 protocol_schema = ["near-schema-checker-lib/protocol_schema"]
 
-schemars = ["dep:schemars", "near-account-id/schemars-alpha"]
+schemars = ["dep:schemars", "near-account-id/schemars-v1"]
