@@ -10,11 +10,11 @@ use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
     NoContractRuntimeCache, get_contract_cache_key, imports, lazy_drop, prepare,
 };
+use core::mem::transmute;
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
 use std::borrow::Cow;
-use std::cell::{RefCell, UnsafeCell};
-use std::ffi::c_void;
+use std::cell::RefCell;
 use std::sync::Arc;
 use wasmtime::{Engine, ExternType, Instance, Linker, Memory, MemoryType, Module, Store, Strategy};
 
@@ -27,7 +27,7 @@ pub struct WasmtimeMemory(Memory);
 
 impl WasmtimeMemory {
     pub fn new(
-        store: &mut Store<()>,
+        store: &mut Store<Option<VMLogic<'static>>>,
         initial_memory_bytes: u32,
         max_memory_bytes: u32,
     ) -> Result<Self, FunctionCallError> {
@@ -338,19 +338,8 @@ impl crate::runner::VM for WasmtimeVM {
                     return Ok(PreparedContract { config, gas_counter, result });
                 }
 
-                let mut store = Store::new(module.engine(), ());
-                let memory = WasmtimeMemory::new(
-                    &mut store,
-                    self.config.limit_config.initial_memory_pages,
-                    self.config.limit_config.max_memory_pages,
-                )
-                .unwrap();
-                let result = PreparationResult::Ready(ReadyContract {
-                    store,
-                    memory,
-                    module,
-                    method: method.into(),
-                });
+                let result =
+                    PreparationResult::Ready(ReadyContract { module, method: method.into() });
                 Ok(PreparedContract { config, gas_counter, result })
             },
         );
@@ -359,8 +348,6 @@ impl crate::runner::VM for WasmtimeVM {
 }
 
 struct ReadyContract {
-    store: Store<()>,
-    memory: WasmtimeMemory,
     module: Module,
     method: Box<str>,
 }
@@ -433,7 +420,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { mut store, mut memory, module, method } = match result {
+        let ReadyContract { module, method } = match result {
             PreparationResult::Ready(r) => r,
             PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
@@ -443,16 +430,24 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             }
         };
 
-        let memory_copy = memory.0;
+        let engine = module.engine();
+
         let config = Arc::clone(&result_state.config);
+
+        let mut store = Store::new(engine, None);
+        let mut memory = WasmtimeMemory::new(
+            &mut store,
+            config.limit_config.initial_memory_pages,
+            config.limit_config.max_memory_pages,
+        )
+        .unwrap();
         let logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
-        let engine = store.engine();
-        let logic: VMLogic<'static> = unsafe { core::mem::transmute(logic) };
-        let mut store: Store<Option<VMLogic<'static>>> = Store::new(module.engine(), Some(logic));
+        store.data_mut().replace(unsafe { transmute(logic) });
+
         let mut linker = Linker::new(engine);
         // TODO: config could be accessed through `logic.result_state`, without this code having to
         // figure it out...
-        link(&mut linker, memory_copy, &store, &config);
+        link(&mut linker, memory.0, &store, &config);
         let res = instantiate_and_call(&mut store, &linker, &module, &method);
         let logic = store.data_mut().take().expect("logic missing");
         lazy_drop(Box::new((linker, module)));
@@ -495,13 +490,6 @@ fn link<'a, 'b>(
     store: &wasmtime::Store<Option<VMLogic<'static>>>,
     config: &Config,
 ) {
-    // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
-    // lifetimes of the logic instance and pass raw pointers here.
-    // FIXME(nagisa): I believe this is no longer required, we just need to look at this code
-    // again.
-    //let raw_logic = logic as *mut _ as *mut c_void;
-    //CALLER_CONTEXT.with(|caller_context| unsafe { *caller_context.get() = raw_logic });
-
     linker.define(store, "env", "memory", memory).expect("cannot define memory");
 
     macro_rules! add_import {
@@ -514,29 +502,16 @@ fn link<'a, 'b>(
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
                 });
-                // the below is bad. don't do this at home. it probably works thanks to the exact way the system is setup.
-                // Thankfully, this doesn't run in production, and hopefully should be possible to remove before we even
-                // consider doing so.
-                //let data = CALLER_CONTEXT.with(|caller_context| {
-                //    unsafe {
-                //        *caller_context.get()
-                //    }
-                //});
-                //let logic = store.data_mut().take().expect("logic missing");
                 let mut logic = caller.data_mut().take().expect("logic missing");
-                unsafe {
-                    // Transmute the lifetime of caller so it's possible to put it in a thread-local.
-                    //#[allow(clippy::missing_transmute_annotations)]
-                    crate::wasmtime_runner::CALLER.with(|runner_caller| *runner_caller.borrow_mut() = std::mem::transmute(caller));
-
-                }
+                // Transmute the lifetime of caller so it's possible to put it in a thread-local.
+                CALLER.with(|runner_caller| *runner_caller.borrow_mut() = unsafe { transmute(caller) });
                 let res = match logic.$func( $( $arg_name as $arg_type, )* ) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
                         Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
                     }
                 };
-                let mut caller = CALLER.with(|caller| caller.borrow_mut().take().unwrap());
+                let mut caller = CALLER.with(RefCell::take).expect("caller missing");
                 caller.data_mut().replace(logic);
                 res
             }
