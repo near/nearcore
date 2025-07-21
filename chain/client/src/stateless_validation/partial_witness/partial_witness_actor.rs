@@ -80,9 +80,32 @@ impl WitnessCreationSpawner {
     pub fn into_spawner(self) -> Arc<dyn AsyncComputationSpawner> {
         match self {
             WitnessCreationSpawner::Default => {
-                Arc::new(ThreadPool::new("witness_creation", Duration::from_secs(30), 1, 50))
+                Arc::new(ThreadPool::new("witness_creation", Duration::from_secs(30), 1, 70))
             }
             WitnessCreationSpawner::Custom(spawner) => spawner,
+        }
+    }
+}
+
+#[derive(Default)]
+pub enum PartialWitnessSpawner {
+    /// Use a pool of OS-based high-priority threads, limited to 2 threads.
+    #[default]
+    Default,
+    /// Use a custom spawner, e.g. rayon.
+    Custom(Arc<dyn AsyncComputationSpawner>),
+}
+
+impl PartialWitnessSpawner {
+    pub fn into_spawner(self) -> Arc<dyn AsyncComputationSpawner> {
+        match self {
+            PartialWitnessSpawner::Default => Arc::new(ThreadPool::new(
+                "partial_witness_validation",
+                Duration::from_secs(30),
+                2,
+                70,
+            )),
+            PartialWitnessSpawner::Custom(spawner) => spawner,
         }
     }
 }

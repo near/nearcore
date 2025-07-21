@@ -6,4 +6,4 @@ mod state_witness_producer;
 pub mod state_witness_tracker;
 mod validate;
 
-pub use partial_witness::partial_witness_actor::WitnessCreationSpawner;
+pub use partial_witness::partial_witness_actor::{PartialWitnessSpawner, WitnessCreationSpawner};

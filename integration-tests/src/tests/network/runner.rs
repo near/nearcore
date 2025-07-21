@@ -11,7 +11,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::stateless_validation::WitnessCreationSpawner;
+use near_client::stateless_validation::{PartialWitnessSpawner, WitnessCreationSpawner};
 use near_client::{
     PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor,
     ViewClientActorInner, spawn_rpc_handler_actor, start_client,
@@ -175,7 +175,7 @@ fn setup_network_node(
         epoch_manager,
         runtime,
         Arc::new(RayonAsyncComputationSpawner),
-        Arc::new(RayonAsyncComputationSpawner),
+        PartialWitnessSpawner::default().into_spawner(),
         WitnessCreationSpawner::default(),
     ));
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());

@@ -27,7 +27,7 @@ use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
 use near_client::spice_core::CoreStatementsProcessor;
-use near_client::stateless_validation::WitnessCreationSpawner;
+use near_client::stateless_validation::{PartialWitnessSpawner, WitnessCreationSpawner};
 use near_client::{
     AsyncComputationMultiSpawner, Client, ClientActor, PartialWitnessActor,
     PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
@@ -177,7 +177,7 @@ fn setup(
         epoch_manager.clone(),
         runtime.clone(),
         Arc::new(RayonAsyncComputationSpawner),
-        Arc::new(RayonAsyncComputationSpawner),
+        PartialWitnessSpawner::default().into_spawner(),
         WitnessCreationSpawner::default(),
     ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
