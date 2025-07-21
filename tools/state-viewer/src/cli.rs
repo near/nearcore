@@ -216,6 +216,9 @@ pub enum StorageSource {
     FlatStorage,
     /// Implies flat storage and loads the memtries as well.
     Memtrie,
+    /// Recorded storage, as used during chunk validation.
+    /// Only available in "benchmark" mode.
+    Recorded,
 }
 
 impl StorageSource {
@@ -227,6 +230,11 @@ impl StorageSource {
             // This is the same as FlatStorage handling. That's because memtrie initialization
             // happens as part of `ShardTries::load_memtrie` function call.
             StorageSource::Memtrie => RuntimeStorageConfig::new(state_root, true),
+            StorageSource::Recorded => {
+                panic!(
+                    "For recorded storage the RuntimeStorageConfig has to be created from storage proof"
+                );
+            }
         }
     }
 }

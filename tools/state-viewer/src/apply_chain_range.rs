@@ -1,10 +1,11 @@
 use crate::cli::{ApplyRangeMode, StorageSource};
 use crate::commands::{maybe_print_db_stats, maybe_save_trie_changes};
 use crate::progress_reporter::ProgressReporter;
+use core::panic;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig,
+    RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::{
     Block, ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter,
@@ -126,6 +127,7 @@ enum SkipReason {
     GenesisBlock,
     PrevBlockNotAvailable(Arc<Block>, Box<ShardChunkHeader>),
     NoContractTransactions,
+    MissingChunkCantUseRecorded,
 }
 
 impl SkipReason {
@@ -136,6 +138,9 @@ impl SkipReason {
             SkipReason::PrevBlockNotAvailable(_, _) => "Previous block not available",
             SkipReason::NoContractTransactions => {
                 "only_contracts is true and there are no contract transactions in the chunk"
+            }
+            SkipReason::MissingChunkCantUseRecorded => {
+                "Can't apply a missing chunk using recorded storage. Witnesses are produced only for non-missing chunks"
             }
         }
     }
@@ -150,6 +155,7 @@ fn get_chunk_application_input(
     epoch_manager: &EpochManagerHandle,
     storage: StorageSource,
     only_contracts: bool,
+    runtime_adapter: &dyn RuntimeAdapter,
 ) -> ApplicationInputOrSkip {
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
@@ -227,13 +233,49 @@ fn get_chunk_application_input(
             }
         }
 
-        let runtime_storage = storage.create_runtime_storage(*chunk_inner.prev_state_root());
+        let runtime_storage = match storage {
+            StorageSource::Recorded => {
+                // Apply the chunk using flat storage to generate the storage proof
+                // and then use the storage proof to prepare recorded storage config.
+                let i = get_chunk_application_input(
+                    height,
+                    shard_id,
+                    read_store,
+                    genesis,
+                    epoch_manager,
+                    StorageSource::FlatStorage,
+                    only_contracts,
+                    runtime_adapter,
+                );
+                match i {
+                    ApplicationInputOrSkip::Skip(skip_reason) => {
+                        panic!("Can't apply the chunk: {}", skip_reason.explanation());
+                    }
+                    ApplicationInputOrSkip::Input(input) => {
+                        let o = apply_chunk_from_input(input, runtime_adapter);
+                        let storage_proof = o.proof.unwrap();
+                        RuntimeStorageConfig {
+                            state_root: *chunk_inner.prev_state_root(),
+                            use_flat_storage: false,
+                            source: StorageDataSource::Recorded(storage_proof),
+                            state_patch: Default::default(),
+                        }
+                    }
+                }
+            }
+            _ => storage.create_runtime_storage(*chunk_inner.prev_state_root()),
+        };
+
+        let apply_reason = match storage {
+            StorageSource::Recorded => ApplyChunkReason::ValidateChunkStateWitness,
+            _ => ApplyChunkReason::UpdateTrackedShard,
+        };
 
         ApplicationInputOrSkip::Input(ChunkApplicationInput {
             chunk_header,
             block: (*block).clone(),
             storage_config: runtime_storage,
-            apply_reason: ApplyChunkReason::UpdateTrackedShard,
+            apply_reason,
             block_context: ApplyChunkBlockContext::from_header(
                 block.header(),
                 block.header().next_gas_price(),
@@ -246,6 +288,10 @@ fn get_chunk_application_input(
     } else {
         let chunk_extra =
             read_chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
+
+        if matches!(storage, StorageSource::Recorded) {
+            return ApplicationInputOrSkip::Skip(SkipReason::MissingChunkCantUseRecorded);
+        }
 
         ApplicationInputOrSkip::Input(ChunkApplicationInput {
             chunk_header,
@@ -288,6 +334,7 @@ fn apply_block_from_range(
         epoch_manager,
         storage,
         only_contracts,
+        &*runtime_adapter,
     );
 
     // See if the chunk can be applied, or if it should be skipped.
@@ -332,6 +379,16 @@ fn apply_block_from_range(
                 }
                 SkipReason::NoContractTransactions => {
                     progress_reporter.skipped.fetch_add(1, Ordering::Relaxed);
+                }
+                SkipReason::MissingChunkCantUseRecorded => {
+                    if verbose_output {
+                        println!(
+                            "Skipping applying block #{} because {}",
+                            height,
+                            skip_reason.explanation()
+                        );
+                    }
+                    progress_reporter.inc_and_report_progress(height, 0)
                 }
             }
             return;
@@ -472,6 +529,9 @@ fn apply_block_from_range(
             store_update.commit().unwrap();
             flat_storage.update_flat_head(&block_hash).unwrap();
         }
+        (_, StorageSource::Recorded) => {
+            panic!("Recorded storage is supported only in the benchmark mode")
+        }
     }
     match (mode, storage) {
         (ApplyRangeMode::Benchmark, _) => {}
@@ -522,6 +582,9 @@ fn apply_block_from_range(
                 );
             }
         }
+        (_, StorageSource::Recorded) => {
+            panic!("Recorded storage is supported only in the benchmark mode")
+        }
     }
 }
 
@@ -562,7 +625,7 @@ pub fn apply_chain_range(
     // behaviour.
     match storage {
         StorageSource::Trie | StorageSource::TrieFree => {}
-        StorageSource::FlatStorage => {
+        StorageSource::FlatStorage | StorageSource::Recorded => {
             let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         }
@@ -581,7 +644,10 @@ pub fn apply_chain_range(
         (ApplyRangeMode::Benchmark, StorageSource::Trie | StorageSource::TrieFree) => {
             panic!("benchmark with --storage trie|trie-free is not supported")
         }
-        (ApplyRangeMode::Benchmark, StorageSource::FlatStorage | StorageSource::Memtrie) => {
+        (
+            ApplyRangeMode::Benchmark,
+            StorageSource::FlatStorage | StorageSource::Memtrie | StorageSource::Recorded,
+        ) => {
             // Benchmarking mode requires flat storage and retrieves the block height from flat
             // storage.
             assert!(start_height.is_none());
@@ -608,6 +674,9 @@ pub fn apply_chain_range(
                 ready.flat_head.height + 1
             });
             (start_height, end_height.unwrap_or_else(|| chain_store.head().unwrap().height))
+        }
+        (_, StorageSource::Recorded) => {
+            panic!("Recorded storage is supported only in the benchmark mode")
         }
     };
 
@@ -716,6 +785,7 @@ fn benchmark_chunk_application(
         epoch_manager,
         storage,
         only_contracts,
+        &*runtime_adapter,
     );
 
     let input = match input_or_skip {
