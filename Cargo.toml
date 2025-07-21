@@ -242,7 +242,7 @@ log = "0.4"
 lru = "0.12.3"
 memoffset = "0.8"
 more-asserts = "0.2"
-near-account-id = { version = "1.1.1", features = [
+near-account-id = { version = "1.1.3", features = [
     "internal_unstable",
     "serde",
     "borsh",
@@ -345,6 +345,7 @@ paperclip = { version = "0.9.0", features = ["actix4"] }
 parking_lot = "0.12.1"
 percent-encoding = "2.2.0"
 pin-project = "1.0"
+pid-lite = "1.2.0"
 prefix-sum-vec = "0.1.2"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
@@ -388,7 +389,7 @@ serde_json = "1.0.68"
 serde_repr = "0.1.8"
 serde_with = { version = "3.0", features = ["base64"] }
 serde_yaml = "0.9"
-schemars = { version = "1.0.0-alpha.17", features = ["chrono04"]}
+schemars = { version = "1.0.3", features = ["chrono04"]}
 sha2 = "0.10"
 sha3 = "0.10"
 smallvec = "1.6"
@@ -445,7 +446,7 @@ winapi = { version = "0.3", features = [
 xshell = "0.2.1"
 xz2 = "0.1.6"
 yansi = "0.5.1"
-zstd = "0.13.1"
+zstd = { version = "0.13.1", features = ["zstdmt"] }
 
 stdx = { package = "near-stdx", path = "utils/stdx" }
 

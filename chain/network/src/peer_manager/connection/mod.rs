@@ -2,8 +2,8 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    PeerInfo, PeerMessage, RoutedMessageBody, SignedAccountData, SignedOwnedAccount,
-    SnapshotHostInfo, SyncAccountsData, SyncSnapshotHosts,
+    PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo,
+    SyncAccountsData, SyncSnapshotHosts, TieredMessageBody,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -66,44 +66,10 @@ impl tcp::Tier {
         }
     }
 
-    pub(crate) fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
+    pub(crate) fn is_allowed_routed(self, body: &TieredMessageBody) -> bool {
         match body {
-            // T1
-            RoutedMessageBody::BlockApproval(..)
-            | RoutedMessageBody::VersionedChunkEndorsement(..)
-            | RoutedMessageBody::PartialEncodedStateWitness(..)
-            | RoutedMessageBody::PartialEncodedStateWitnessForward(..)
-            | RoutedMessageBody::VersionedPartialEncodedChunk(..)
-            | RoutedMessageBody::ChunkContractAccesses(_)
-            | RoutedMessageBody::ContractCodeRequest(_)
-            | RoutedMessageBody::ContractCodeResponse(_) => true,
-            // Rest
-            RoutedMessageBody::ForwardTx(..)
-            | RoutedMessageBody::TxStatusRequest(..)
-            | RoutedMessageBody::TxStatusResponse(..)
-            | RoutedMessageBody::PartialEncodedChunkRequest(..)
-            | RoutedMessageBody::PartialEncodedChunkResponse(..)
-            | RoutedMessageBody::Ping(..)
-            | RoutedMessageBody::Pong(..)
-            | RoutedMessageBody::PartialEncodedChunkForward(..)
-            | RoutedMessageBody::ChunkStateWitnessAck(..)
-            | RoutedMessageBody::StatePartRequest(..)
-            | RoutedMessageBody::StateHeaderRequest(..)
-            | RoutedMessageBody::PartialEncodedContractDeploys(..) => self == tcp::Tier::T2,
-            // Deprecated
-            RoutedMessageBody::_UnusedQueryRequest
-            | RoutedMessageBody::_UnusedQueryResponse
-            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(..)
-            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
-            | RoutedMessageBody::_UnusedStateRequestHeader
-            | RoutedMessageBody::_UnusedStateRequestPart
-            | RoutedMessageBody::_UnusedStateResponse
-            | RoutedMessageBody::_UnusedPartialEncodedChunk
-            | RoutedMessageBody::_UnusedVersionedStateResponse
-            | RoutedMessageBody::_UnusedChunkStateWitness
-            | RoutedMessageBody::_UnusedChunkEndorsement
-            | RoutedMessageBody::_UnusedEpochSyncRequest
-            | RoutedMessageBody::_UnusedEpochSyncResponse(..) => unreachable!(),
+            TieredMessageBody::T1(_) => true,
+            TieredMessageBody::T2(_) => self == tcp::Tier::T2,
         }
     }
 }

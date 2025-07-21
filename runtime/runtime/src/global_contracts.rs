@@ -223,12 +223,7 @@ fn forward_distribution_next_shard(
         );
         let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);
         next_receipt.set_receipt_id(receipt_id);
-        receipt_sink.forward_or_buffer_receipt(
-            next_receipt,
-            apply_state,
-            state_update,
-            epoch_info_provider,
-        )?;
+        receipt_sink.forward_or_buffer_receipt(next_receipt, apply_state, state_update)?;
     }
     Ok(())
 }

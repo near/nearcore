@@ -42,6 +42,9 @@ use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::{ContractCode, ContractRuntimeCache, get_contract_cache_key};
 use rand::Rng;
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+};
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
@@ -51,7 +54,8 @@ use crate::stateless_validation::validate::{
     validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
 };
 
-use super::encoding::{CONTRACT_DEPLOYS_RATIO_DATA_PARTS, WITNESS_RATIO_DATA_PARTS};
+use super::encoding::CONTRACT_DEPLOYS_RATIO_DATA_PARTS;
+pub use super::encoding::WITNESS_RATIO_DATA_PARTS;
 use super::partial_deploys_tracker::PartialEncodedContractDeploysTracker;
 use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 use near_primitives::utils::compression::CompressedData;
@@ -257,50 +261,6 @@ impl PartialWitnessActor {
         Ok(())
     }
 
-    // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
-    fn generate_state_witness_parts(
-        &mut self,
-        epoch_id: EpochId,
-        chunk_header: &ShardChunkHeader,
-        witness_bytes: EncodedChunkStateWitness,
-        chunk_validators: &[AccountId],
-        signer: &ValidatorSigner,
-    ) -> Vec<(AccountId, PartialEncodedStateWitness)> {
-        let _span = tracing::debug_span!(
-            target: "client",
-            "generate_state_witness_parts",
-            chunk_hash = ?chunk_header.chunk_hash(),
-            height = %chunk_header.height_created(),
-            shard_id = %chunk_header.shard_id(),
-            chunk_validators_len = chunk_validators.len(),
-            tag_witness_distribution = true,
-        )
-        .entered();
-
-        // Break the state witness into parts using Reed Solomon encoding.
-        let encoder = self.witness_encoders.entry(chunk_validators.len());
-        let (parts, encoded_length) = encoder.encode(&witness_bytes);
-
-        chunk_validators
-            .iter()
-            .zip_eq(parts)
-            .enumerate()
-            .map(|(part_ord, (chunk_validator, part))| {
-                // It's fine to unwrap part here as we just constructed the parts above and we expect
-                // all of them to be present.
-                let partial_witness = PartialEncodedStateWitness::new(
-                    epoch_id,
-                    chunk_header.clone(),
-                    part_ord,
-                    part.unwrap().to_vec(),
-                    encoded_length,
-                    signer,
-                );
-                (chunk_validator.clone(), partial_witness)
-            })
-            .collect_vec()
-    }
-
     fn generate_contract_deploys_parts(
         &mut self,
         key: &ChunkProductionKey,
@@ -318,7 +278,7 @@ impl PartialWitnessActor {
         let signer = self.my_validator_signer()?;
 
         Ok(part_owners
-            .into_iter()
+            .into_par_iter()
             .zip_eq(parts)
             .enumerate()
             .map(|(part_ord, (validator, part))| {
@@ -326,14 +286,14 @@ impl PartialWitnessActor {
                     key.clone(),
                     PartialEncodedContractDeploysPart {
                         part_ord,
-                        data: part.unwrap().to_vec().into_boxed_slice(),
+                        data: part.unwrap(),
                         encoded_length,
                     },
                     &signer,
                 );
                 (validator, partial_deploys)
             })
-            .collect_vec())
+            .collect())
     }
 
     // Break the state witness into parts and send each part to the corresponding chunk validator owner.
@@ -366,7 +326,8 @@ impl PartialWitnessActor {
         let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
-        let validator_witness_tuple = self.generate_state_witness_parts(
+        let validator_witness_tuple = generate_state_witness_parts(
+            self.witness_encoders.entry(chunk_validators.len()),
             epoch_id,
             chunk_header,
             witness_bytes,
@@ -424,9 +385,10 @@ impl PartialWitnessActor {
             .ordered_chunk_validators()
             .into_iter()
             .filter(|validator| validator != &chunk_producer)
-            .collect();
+            .collect_vec();
 
         let network_adapter = self.network_adapter.clone();
+        let partial_witness_tracker = self.partial_witness_tracker.clone();
 
         self.partial_witness_spawner.spawn("handle_partial_encoded_state_witness", move || {
             // Validate the partial encoded state witness and forward the part to all the chunk validators.
@@ -437,12 +399,24 @@ impl PartialWitnessActor {
                 runtime_adapter.store(),
             ) {
                 Ok(ChunkRelevance::Relevant) => {
-                    network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::PartialEncodedStateWitnessForward(
-                            target_chunk_validators,
-                            partial_witness,
-                        ),
-                    ));
+                    // Forward to other validators (excluding ourselves to avoid duplicate processing).
+                    let other_validators: Vec<_> = target_chunk_validators
+                        .into_iter()
+                        .filter(|validator| validator != &validator_account_id)
+                        .collect();
+
+                    if !other_validators.is_empty() {
+                        network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedStateWitnessForward(
+                                other_validators,
+                                partial_witness.clone(),
+                            ),
+                        ));
+                    }
+                    // Store the part locally (as part owner) to avoid need for self-forwarding.
+                    if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
+                        tracing::error!(target: "client", "Failed to store partial encoded state witness: {}", err);
+                    }
                 }
                 Ok(_) => {
                     tracing::debug!(
@@ -872,7 +846,50 @@ impl PartialWitnessActor {
     }
 }
 
-fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkStateWitness, Error> {
+// Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
+pub fn generate_state_witness_parts(
+    encoder: Arc<ReedSolomonEncoder>,
+    epoch_id: EpochId,
+    chunk_header: &ShardChunkHeader,
+    witness_bytes: EncodedChunkStateWitness,
+    chunk_validators: &[AccountId],
+    signer: &ValidatorSigner,
+) -> Vec<(AccountId, PartialEncodedStateWitness)> {
+    let _span = tracing::debug_span!(
+        target: "client",
+        "generate_state_witness_parts",
+        chunk_hash = ?chunk_header.chunk_hash(),
+        height = %chunk_header.height_created(),
+        shard_id = %chunk_header.shard_id(),
+        chunk_validators_len = chunk_validators.len(),
+        tag_witness_distribution = true,
+    )
+    .entered();
+
+    // Break the state witness into parts using Reed Solomon encoding.
+    let (parts, encoded_length) = encoder.encode(&witness_bytes);
+
+    chunk_validators
+        .par_iter()
+        .zip_eq(parts)
+        .enumerate()
+        .map(|(part_ord, (chunk_validator, part))| {
+            // It's fine to unwrap part here as we just constructed the parts above and we expect
+            // all of them to be present.
+            let partial_witness = PartialEncodedStateWitness::new(
+                epoch_id,
+                chunk_header.clone(),
+                part_ord,
+                part.unwrap().into_vec(),
+                encoded_length,
+                signer,
+            );
+            (chunk_validator.clone(), partial_witness)
+        })
+        .collect()
+}
+
+pub fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkStateWitness, Error> {
     let _span = tracing::debug_span!(
         target: "client",
         "compress_witness",

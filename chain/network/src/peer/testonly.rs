@@ -2,7 +2,7 @@ use crate::broadcast;
 use crate::client::{ClientSenderForNetworkInput, ClientSenderForNetworkMessage};
 use crate::config::NetworkConfig;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, RoutedMessageBody,
+    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, TieredMessageBody,
 };
 use crate::network_protocol::{RoutedMessage, testonly as data};
 use crate::peer::peer_actor::PeerActor;
@@ -17,7 +17,10 @@ use crate::state_witness::{
 use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
-use crate::types::{PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage};
+use crate::types::{
+    PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage,
+    StateRequestSenderForNetworkInput, StateRequestSenderForNetworkMessage,
+};
 use near_async::messaging::{IntoMultiSender, Sender};
 use near_async::time;
 use near_o11y::WithSpanContextExt;
@@ -46,6 +49,7 @@ impl PeerConfig {
 pub(crate) enum Event {
     ShardsManager(ShardsManagerRequestFromNetwork),
     Client(ClientSenderForNetworkInput),
+    StateRequest(StateRequestSenderForNetworkInput),
     Network(peer_manager_actor::Event),
     PartialWitness(PartialWitnessSenderForNetworkInput),
     PeerManager(PeerManagerSenderForNetworkInput),
@@ -85,7 +89,7 @@ impl PeerHandle {
 
     pub fn routed_message(
         &self,
-        body: RoutedMessageBody,
+        body: TieredMessageBody,
         peer_id: PeerId,
         ttl: u8,
         utc: Option<time::Utc>,
@@ -119,6 +123,12 @@ impl PeerHandle {
                 send.send(Event::Client(event.into_input()));
             }
         });
+        let state_part_sender = Sender::from_fn({
+            let send = send.clone();
+            move |event: StateRequestSenderForNetworkMessage| {
+                send.send(Event::StateRequest(event.into_input()));
+            }
+        });
         let peer_manager_sender = Sender::from_fn({
             let send = send.clone();
             move |event: PeerManagerSenderForNetworkMessage| {
@@ -144,6 +154,7 @@ impl PeerHandle {
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),
             client_sender.break_apart().into_multi_sender(),
+            state_part_sender.break_apart().into_multi_sender(),
             peer_manager_sender.break_apart().into_multi_sender(),
             shards_manager_sender,
             state_witness_sender.break_apart().into_multi_sender(),

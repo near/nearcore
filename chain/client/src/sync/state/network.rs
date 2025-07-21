@@ -34,7 +34,6 @@ pub(super) struct StateSyncDownloadSourcePeer {
 
 #[derive(Default)]
 pub(super) struct StateSyncDownloadSourcePeerSharedState {
-    highest_height_peers: Vec<PeerId>,
     /// Tracks pending requests we have sent to peers. The requests are indexed by
     /// (shard ID, sync hash, part ID or header), and the value is the peer ID we
     /// expect the response from, as well as a channel sender to complete the future
@@ -50,7 +49,7 @@ struct PendingPeerRequestKey {
 }
 
 struct PendingPeerRequestValue {
-    peer_id: Option<PeerId>, // present for headers, not for parts
+    peer_id: PeerId,
     sender: oneshot::Sender<ShardStateSyncResponse>,
 }
 
@@ -72,11 +71,11 @@ impl StateSyncDownloadSourcePeerSharedState {
         };
 
         let Some(request) = self.pending_requests.get(&key) else {
-            tracing::debug!(target: "sync", "Received {:?} expecting {:?}", key, self.pending_requests.keys());
+            tracing::debug!(target: "sync", "Received {:?} from {}", key, peer_id);
             return Err(near_chain::Error::Other("Unexpected state response".to_owned()));
         };
 
-        if request.peer_id.as_ref().is_some_and(|expecting_peer_id| expecting_peer_id != &peer_id) {
+        if request.peer_id != peer_id {
             return Err(near_chain::Error::Other(
                 "Unexpected state response (wrong sender)".to_owned(),
             ));
@@ -85,11 +84,6 @@ impl StateSyncDownloadSourcePeerSharedState {
         let value = self.pending_requests.remove(&key).unwrap();
         let _ = value.sender.send(data);
         Ok(())
-    }
-
-    /// Sets the peers that are eligible for querying state sync headers/parts.
-    pub fn set_highest_peers(&mut self, peers: Vec<PeerId>) {
-        self.highest_height_peers = peers;
     }
 }
 
@@ -188,7 +182,9 @@ impl StateSyncDownloadSourcePeer {
             }
         };
 
-        let state_value = PendingPeerRequestValue { peer_id: Some(request_sent_to_peer), sender };
+        tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request sent");
+
+        let state_value = PendingPeerRequestValue { peer_id: request_sent_to_peer.clone(), sender };
 
         // Ensures that the key is removed from the map of pending requests when this scope exits,
         // whether on success or timeout.
@@ -202,6 +198,7 @@ impl StateSyncDownloadSourcePeer {
         select! {
             _ = clock.sleep_until(deadline) => {
                 increment_download_count(key.shard_id, typ, "network", "timeout");
+                tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request timed out");
                 Err(near_chain::Error::Other("Timeout".to_owned()))
             }
             _ = cancel.cancelled() => {
@@ -211,6 +208,7 @@ impl StateSyncDownloadSourcePeer {
             result = receiver => {
                 match result {
                     Ok(result) => {
+                        tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request succeeded");
                         increment_download_count(key.shard_id, typ, "network", "success");
                         Ok(result)
                     }

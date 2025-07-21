@@ -322,7 +322,7 @@ def start_nodes(args, enable_tx_generator=False):
         logger.info("Setting tx generator parameters")
 
         accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
-        schedule_file = f"{BENCHNET_DIR}/{args.case}/load-schedule.json"
+        tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
 
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
@@ -337,9 +337,13 @@ def start_nodes(args, enable_tx_generator=False):
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
         run_cmd_args.cmd = f"\
-            jq --slurpfile patch {schedule_file} \
-            '. as $orig | $patch[0].schedule as $sched | .[\"tx_generator\"] += {{\"schedule\": $sched }}' \
-            {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
+            jq --slurpfile patch {tx_generator_settings} \
+            '. as $orig \
+            | $patch[0].tx_generator.schedule as $sched   \
+            | .[\"tx_generator\"] += {{\"schedule\": $sched }} \
+            | $patch[0].tx_generator.controller as $ctrl   \
+            | .[\"tx_generator\"] += {{\"controller\": $ctrl }} \
+            ' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
         "
 
         run_remote_cmd(CommandContext(run_cmd_args))
@@ -428,7 +432,7 @@ def handle_get_traces(args):
             f"Failed to fetch traces: {response.status_code} {response.text}")
 
 
-def handle_get_profiles(args):
+def handle_get_profiles(args, extra):
     args = copy.deepcopy(args)
 
     # If no host filter is provided, target the first alphabetical cp instance.
@@ -438,15 +442,14 @@ def handle_get_profiles(args):
         logger.info(f"Targeting {machine}")
         args.host_filter = machine
 
-    run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = f"bash {BENCHNET_DIR}/helpers/get-profile.sh {args.record_secs}"
-    run_remote_cmd(CommandContext(run_cmd_args))
+    extra_parameters = ' '.join(extra)
+    args.cmd = f"bash {BENCHNET_DIR}/helpers/get-profile.sh {extra_parameters}"
+    run_remote_cmd(CommandContext(args))
 
     os.makedirs(args.output_dir, exist_ok=True)
-    download_args = copy.deepcopy(args)
-    download_args.src = f"{REMOTE_HOME}/perf*.script.gz"
-    download_args.dst = args.output_dir
-    run_remote_download_file(CommandContext(download_args))
+    args.src = f"{REMOTE_HOME}/perf*.gz"
+    args.dst = args.output_dir
+    run_remote_download_file(CommandContext(args))
 
 
 def handle_start(args):
@@ -553,13 +556,16 @@ def main():
         help=
         'Filter to select specific hosts (default: first alphabetical cp instance)'
     )
-    get_profiles_parser.add_argument(
-        '--record-secs',
-        type=int,
-        default=10,
-        help='Number of seconds to record the profile (default: 10)')
 
-    args = parser.parse_args()
+    if '--' in sys.argv:
+        idx = sys.argv.index('--')
+        my_args = sys.argv[1:idx]
+        extra_args = sys.argv[idx + 1:]
+    else:
+        my_args = sys.argv[1:]
+        extra_args = []
+
+    args = parser.parse_args(my_args)
 
     # Route to appropriate handler based on command
     if args.command == 'init':
@@ -575,7 +581,7 @@ def main():
     elif args.command == 'get-traces':
         handle_get_traces(args)
     elif args.command == 'get-profiles':
-        handle_get_profiles(args)
+        handle_get_profiles(args, extra_args)
     else:
         parser.print_help()
 

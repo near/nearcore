@@ -1,13 +1,13 @@
+use super::drop_condition::DropCondition;
+use super::setup::setup_client;
+use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_primitives::types::AccountId;
+use near_primitives_core::types::NumBlocks;
 use near_store::adapter::StoreAdapter;
 use std::sync::atomic::Ordering;
-
-use super::drop_condition::DropCondition;
-use super::setup::setup_client;
-use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
 pub struct TestLoopEnv {
     pub test_loop: TestLoopV2,
@@ -33,6 +33,22 @@ impl TestLoopEnv {
         }
         self.shared_state.drop_conditions.push(drop_condition);
         self
+    }
+
+    /// Run test loop until `num_blocks` new blocks are finalized.
+    pub fn run_blocks(&mut self, num_blocks: NumBlocks) {
+        let client_handle = self.node_datas[0].client_sender.actor_handle();
+        let client_actor = self.test_loop.data.get(&client_handle);
+        let max_block_production_delay = client_actor.client.config.max_block_production_delay;
+        let start_height = client_actor.client.chain.genesis().height();
+
+        self.test_loop.run_until(
+            |test_loop_data| {
+                let client_actor = test_loop_data.get(&client_handle);
+                client_actor.client.chain.head().unwrap().height == start_height + num_blocks
+            },
+            max_block_production_delay * (num_blocks as u32 + 1),
+        );
     }
 
     /// Reach block with height `genesis_height + 3`. Check that it can be done

@@ -19,7 +19,8 @@ use near_schema_checker_lib::ProtocolSchema;
 /// corresponds to the size of borsh-serialized ChunkStateWitness.
 pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: u64 =
     ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 }).0;
-pub const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 3;
+pub const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 1;
+pub const STATE_WITNESS_COMPRESSION_NUM_WORKERS: u32 = 4;
 
 /// Represents bytes of encoded ChunkStateWitness.
 /// This is the compressed version of borsh-serialized state witness.
@@ -41,6 +42,7 @@ impl
         ChunkStateWitness,
         MAX_UNCOMPRESSED_STATE_WITNESS_SIZE,
         STATE_WITNESS_COMPRESSION_LEVEL,
+        STATE_WITNESS_COMPRESSION_NUM_WORKERS,
     > for EncodedChunkStateWitness
 {
 }
@@ -50,6 +52,7 @@ impl
         ChunkStateWitnessV1,
         MAX_UNCOMPRESSED_STATE_WITNESS_SIZE,
         STATE_WITNESS_COMPRESSION_LEVEL,
+        STATE_WITNESS_COMPRESSION_NUM_WORKERS,
     > for EncodedChunkStateWitness
 {
 }
@@ -99,9 +102,11 @@ impl ChunkStateWitnessAck {
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ChunkStateWitness {
-    V1(ChunkStateWitnessV1),
-    V2(ChunkStateWitnessV2),
+    V1(ChunkStateWitnessV1) = 0,
+    V2(ChunkStateWitnessV2) = 1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
