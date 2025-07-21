@@ -252,6 +252,17 @@ impl RuntimeConfigStore {
             })
             .1
     }
+
+    /// Returns a mutable borrow of `RuntimeConfig` for the corresponding protocol version.
+    pub fn get_config_mut(&mut self, protocol_version: ProtocolVersion) -> &mut Arc<RuntimeConfig> {
+        self.store
+            .range_mut((Bound::Unbounded, Bound::Included(protocol_version)))
+            .next_back()
+            .unwrap_or_else(|| {
+                panic!("Not found RuntimeConfig for protocol version {}", protocol_version)
+            })
+            .1
+    }
 }
 
 #[cfg(test)]
