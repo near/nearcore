@@ -393,7 +393,7 @@ enum RunOutcome {
 }
 
 fn call(
-    mut store: &mut Store<()>,
+    mut store: &mut Store<Option<VMLogic<'static>>>,
     instance: Instance,
     method: &str,
 ) -> Result<RunOutcome, VMRunnerError> {
@@ -412,8 +412,8 @@ fn call(
 }
 
 fn instantiate_and_call(
-    mut store: &mut Store<()>,
-    linker: &Linker<()>,
+    mut store: &mut Store<Option<VMLogic<'static>>>,
+    linker: &Linker<Option<VMLogic<'static>>>,
     module: &Module,
     method: &str,
 ) -> Result<RunOutcome, VMRunnerError> {
@@ -444,14 +444,17 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
 
         let memory_copy = memory.0;
         let config = Arc::clone(&result_state.config);
-        let mut logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
+        let logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
         let engine = store.engine();
+        let logic: VMLogic<'static> = unsafe { core::mem::transmute(logic) };
+        let mut store: Store<Option<VMLogic<'static>>> = Store::new(module.engine(), Some(logic));
         let mut linker = Linker::new(engine);
         // TODO: config could be accessed through `logic.result_state`, without this code having to
         // figure it out...
-        link(&mut linker, memory_copy, &store, &config, &mut logic);
+        link(&mut linker, memory_copy, &store, &config);
         let res = instantiate_and_call(&mut store, &linker, &module, &method);
-        lazy_drop(Box::new((linker, module, store)));
+        let logic = store.data_mut().take().expect("logic missing");
+        lazy_drop(Box::new((linker, module)));
         match res? {
             RunOutcome::Ok => Ok(VMOutcome::ok(logic.result_state)),
             RunOutcome::AbortNop(error) => {
@@ -479,23 +482,19 @@ impl std::fmt::Display for ErrorContainer {
     }
 }
 
-thread_local! {
-    static CALLER_CONTEXT: UnsafeCell<*mut c_void> = const { UnsafeCell::new(core::ptr::null_mut()) };
-}
-
 fn link<'a, 'b>(
-    linker: &mut wasmtime::Linker<()>,
+    linker: &mut wasmtime::Linker<Option<VMLogic<'static>>>,
     memory: wasmtime::Memory,
-    store: &wasmtime::Store<()>,
+    store: &wasmtime::Store<Option<VMLogic<'static>>>,
     config: &Config,
-    logic: &'a mut VMLogic<'b>,
 ) {
     // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
     // lifetimes of the logic instance and pass raw pointers here.
     // FIXME(nagisa): I believe this is no longer required, we just need to look at this code
     // again.
-    let raw_logic = logic as *mut _ as *mut c_void;
-    CALLER_CONTEXT.with(|caller_context| unsafe { *caller_context.get() = raw_logic });
+    //let raw_logic = logic as *mut _ as *mut c_void;
+    //CALLER_CONTEXT.with(|caller_context| unsafe { *caller_context.get() = raw_logic });
+
     linker.define(store, "env", "memory", memory).expect("cannot define memory");
 
     macro_rules! add_import {
