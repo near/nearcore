@@ -108,6 +108,22 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn test_compute_mandate_price() {
+        let mut stakes = vec![1_000_000_u128; 100];
+        let num_shards = 8;
+        let target_mandates_per_shard = 68;
+        let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
+
+        let mandate_price = compute_mandate_price(config, &stakes);
+        eprintln!("Computed mandate price: {}", mandate_price);
+
+        let lower_stakes = vec![mandate_price - 1; 4000];
+        stakes.extend(lower_stakes);
+        let mandate_price = compute_mandate_price(config, &stakes);
+        eprintln!("Computed mandate price (with lower stakes): {}", mandate_price);
+    }
+
     // Test case where the target number of mandates is larger than the total stake.
     // This should never happen in production, but nearcore tests sometimes have
     // low stake.
