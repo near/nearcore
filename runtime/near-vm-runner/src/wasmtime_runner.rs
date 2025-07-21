@@ -18,10 +18,11 @@ use std::ffi::c_void;
 use std::sync::Arc;
 use wasmtime::{Engine, ExternType, Instance, Linker, Memory, MemoryType, Module, Store, Strategy};
 
-type Caller = wasmtime::Caller<'static, ()>;
+type Caller = wasmtime::Caller<'static, Option<VMLogic<'static>>>;
 thread_local! {
     pub(crate) static CALLER: RefCell<Option<Caller>> = const { RefCell::new(None) };
 }
+
 pub struct WasmtimeMemory(Memory);
 
 impl WasmtimeMemory {
@@ -482,6 +483,12 @@ impl std::fmt::Display for ErrorContainer {
     }
 }
 
+/*
+thread_local! {
+    static CALLER_CONTEXT: UnsafeCell<*mut c_void> = const { UnsafeCell::new(core::ptr::null_mut()) };
+}
+*/
+
 fn link<'a, 'b>(
     linker: &mut wasmtime::Linker<Option<VMLogic<'static>>>,
     memory: wasmtime::Memory,
@@ -502,7 +509,7 @@ fn link<'a, 'b>(
           $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
         ) => {
             #[allow(unused_parens)]
-            fn $name(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
+            fn $name(mut caller: wasmtime::Caller<'_, Option<VMLogic<'static>>>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
                 const TRACE: bool = imports::should_trace_host_function(stringify!($name));
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
@@ -510,23 +517,28 @@ fn link<'a, 'b>(
                 // the below is bad. don't do this at home. it probably works thanks to the exact way the system is setup.
                 // Thankfully, this doesn't run in production, and hopefully should be possible to remove before we even
                 // consider doing so.
-                let data = CALLER_CONTEXT.with(|caller_context| {
-                    unsafe {
-                        *caller_context.get()
-                    }
-                });
+                //let data = CALLER_CONTEXT.with(|caller_context| {
+                //    unsafe {
+                //        *caller_context.get()
+                //    }
+                //});
+                //let logic = store.data_mut().take().expect("logic missing");
+                let mut logic = caller.data_mut().take().expect("logic missing");
                 unsafe {
                     // Transmute the lifetime of caller so it's possible to put it in a thread-local.
-                    #[allow(clippy::missing_transmute_annotations)]
+                    //#[allow(clippy::missing_transmute_annotations)]
                     crate::wasmtime_runner::CALLER.with(|runner_caller| *runner_caller.borrow_mut() = std::mem::transmute(caller));
+
                 }
-                let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };
-                match logic.$func( $( $arg_name as $arg_type, )* ) {
+                let res = match logic.$func( $( $arg_name as $arg_type, )* ) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
                         Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
                     }
-                }
+                };
+                let mut caller = CALLER.with(|caller| caller.borrow_mut().take().unwrap());
+                caller.data_mut().replace(logic);
+                res
             }
 
             linker.func_wrap(stringify!($mod), stringify!($name), $name).expect("cannot link external");
