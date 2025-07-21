@@ -19,11 +19,17 @@ use std::sync::Arc;
 use wasmtime::{Engine, ExternType, Instance, Linker, Memory, MemoryType, Module, Store, Strategy};
 
 type Caller = wasmtime::Caller<'static, Option<VMLogic<'static>>>;
-thread_local! {
-    pub(crate) static CALLER: RefCell<Option<Caller>> = const { RefCell::new(None) };
+
+pub struct Ctx {
+    logic: Option<VMLogic<'static>>,
+    caller: Arc<RefCell<Option<Caller>>>,
 }
 
-pub struct WasmtimeMemory(Memory);
+#[derive(Clone)]
+pub struct WasmtimeMemory {
+    memory: Memory,
+    caller: Arc<RefCell<Option<Caller>>>,
+}
 
 impl WasmtimeMemory {
     pub fn new(
@@ -31,35 +37,46 @@ impl WasmtimeMemory {
         initial_memory_bytes: u32,
         max_memory_bytes: u32,
     ) -> Result<Self, FunctionCallError> {
-        Ok(WasmtimeMemory(
-            Memory::new(store, MemoryType::new(initial_memory_bytes, Some(max_memory_bytes)))
-                .map_err(|_| PrepareError::Memory)?,
-        ))
+        Ok(WasmtimeMemory {
+            memory: Memory::new(
+                store,
+                MemoryType::new(initial_memory_bytes, Some(max_memory_bytes)),
+            )
+            .map_err(|_| PrepareError::Memory)?,
+            caller: Arc::default(),
+        })
     }
 }
 
-fn with_caller<T>(func: impl FnOnce(&mut Caller) -> T) -> T {
-    CALLER.with(|caller| func(caller.borrow_mut().as_mut().unwrap()))
+impl WasmtimeMemory {
+    fn with_caller<T>(&self, func: impl FnOnce(&mut Caller) -> T) -> T {
+        let mut caller = self.caller.borrow_mut();
+        func(caller.as_mut().unwrap())
+    }
 }
 
 impl MemoryLike for WasmtimeMemory {
     fn fits_memory(&self, slice: MemSlice) -> Result<(), ()> {
         let end = slice.end::<usize>()?;
-        if end <= with_caller(|caller| self.0.data_size(caller)) { Ok(()) } else { Err(()) }
+        if end <= self.with_caller(|caller| self.memory.data_size(caller)) {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
     fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
         let range = slice.range::<usize>()?;
-        with_caller(|caller| {
-            self.0.data(caller).get(range).map(|slice| Cow::Owned(slice.to_vec())).ok_or(())
+        self.with_caller(|caller| {
+            self.memory.data(caller).get(range).map(|slice| Cow::Owned(slice.to_vec())).ok_or(())
         })
     }
 
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
         let start = usize::try_from(offset).map_err(|_| ())?;
         let end = start.checked_add(buffer.len()).ok_or(())?;
-        with_caller(|caller| {
-            let memory = self.0.data(caller).get(start..end).ok_or(())?;
+        self.with_caller(|caller| {
+            let memory = self.memory.data(caller).get(start..end).ok_or(())?;
             buffer.copy_from_slice(memory);
             Ok(())
         })
@@ -68,8 +85,8 @@ impl MemoryLike for WasmtimeMemory {
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()> {
         let start = usize::try_from(offset).map_err(|_| ())?;
         let end = start.checked_add(buffer.len()).ok_or(())?;
-        with_caller(|caller| {
-            let memory = self.0.data_mut(caller).get_mut(start..end).ok_or(())?;
+        self.with_caller(|caller| {
+            let memory = self.memory.data_mut(caller).get_mut(start..end).ok_or(())?;
             memory.copy_from_slice(buffer);
             Ok(())
         })
@@ -447,7 +464,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         let mut linker = Linker::new(engine);
         // TODO: config could be accessed through `logic.result_state`, without this code having to
         // figure it out...
-        link(&mut linker, memory.0, &store, &config);
+        link(&mut linker, memory.clone(), &store, &config);
         let res = instantiate_and_call(&mut store, &linker, &module, &method);
         let logic = store.data_mut().take().expect("logic missing");
         lazy_drop(Box::new((linker, module)));
@@ -478,16 +495,10 @@ impl std::fmt::Display for ErrorContainer {
     }
 }
 
-/*
-thread_local! {
-    static CALLER_CONTEXT: UnsafeCell<*mut c_void> = const { UnsafeCell::new(core::ptr::null_mut()) };
-}
-*/
-
 fn link<'a, 'b>(
-    linker: &mut wasmtime::Linker<Option<VMLogic<'static>>>,
+    linker: &mut wasmtime::Linker<Ctx>,
     memory: wasmtime::Memory,
-    store: &wasmtime::Store<Option<VMLogic<'static>>>,
+    store: &wasmtime::Store<Ctx>,
     config: &Config,
 ) {
     linker.define(store, "env", "memory", memory).expect("cannot define memory");
@@ -497,21 +508,22 @@ fn link<'a, 'b>(
           $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
         ) => {
             #[allow(unused_parens)]
-            fn $name(mut caller: wasmtime::Caller<'_, Option<VMLogic<'static>>>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
+            fn $name(mut caller: wasmtime::Caller<'_, Ctx>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
                 const TRACE: bool = imports::should_trace_host_function(stringify!($name));
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
                 });
-                let mut logic = caller.data_mut().take().expect("logic missing");
+                let ctx = caller.data_mut();
+                let mut logic = ctx.logic.take().expect("logic missing");
                 // Transmute the lifetime of caller so it's possible to put it in a thread-local.
-                CALLER.with(|runner_caller| *runner_caller.borrow_mut() = unsafe { transmute(caller) });
+                *ctx.caller.borrow_mut() = unsafe { transmute(caller) };
                 let res = match logic.$func( $( $arg_name as $arg_type, )* ) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
                         Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
                     }
                 };
-                let mut caller = CALLER.with(RefCell::take).expect("caller missing");
+                let mut caller = memory_caller.take().expect("caller missing");
                 caller.data_mut().replace(logic);
                 res
             }
