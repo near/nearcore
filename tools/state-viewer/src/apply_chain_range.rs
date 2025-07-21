@@ -36,6 +36,7 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use tracing::span::EnteredSpan;
 
 fn old_outcomes(
     store: Store,
@@ -68,6 +69,7 @@ fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
 
 // Input for chunk application - contains all of the data needed to apply a chunk.
 // Also includes the block and chunk header to provide extra context.
+#[derive(Clone)]
 struct ChunkApplicationInput {
     chunk_header: ShardChunkHeader,
     block: Block,
@@ -124,6 +126,19 @@ enum SkipReason {
     GenesisBlock,
     PrevBlockNotAvailable(Arc<Block>, Box<ShardChunkHeader>),
     NoContractTransactions,
+}
+
+impl SkipReason {
+    pub fn explanation(&self) -> &'static str {
+        match self {
+            SkipReason::BlockNotAvailable => "Block not available",
+            SkipReason::GenesisBlock => "Genesis block",
+            SkipReason::PrevBlockNotAvailable(_, _) => "Previous block not available",
+            SkipReason::NoContractTransactions => {
+                "only_contracts is true and there are no contract transactions in the chunk"
+            }
+        }
+    }
 }
 
 /// Gather data needed to apply a chunk on a given height and shard ID.
@@ -658,22 +673,93 @@ pub fn apply_chain_range(
                 process_height(height)
             });
         }
-        ApplyRangeMode::Benchmark => loop {
+        ApplyRangeMode::Benchmark => {
             let height = range.start();
-            let _span = tracing::debug_span!(
-                    target: "state_viewer",
-                    parent: &parent_span,
-                    "process_block",
-                    height)
-            .entered();
-            process_height(*height)
-        },
+            benchmark_chunk_application(
+                *height,
+                shard_id,
+                read_store,
+                genesis,
+                epoch_manager,
+                storage,
+                runtime_adapter,
+                only_contracts,
+                parent_span,
+            );
+        }
     }
 
     println!(
         "Applied range {range:?} for shard {shard_uid} in {elapsed:?}",
         elapsed = start_time.elapsed()
     );
+}
+
+fn benchmark_chunk_application(
+    height: BlockHeight,
+    shard_id: ShardId,
+    read_store: Store,
+    genesis: &Genesis,
+    epoch_manager: &EpochManagerHandle,
+    storage: StorageSource,
+    runtime_adapter: Arc<NightshadeRuntime>,
+    only_contracts: bool,
+    parent_span: EnteredSpan,
+) {
+    println!("\nBenchmarking chunk application at height: {}, shard_id: {}", height, shard_id);
+
+    let input_or_skip = get_chunk_application_input(
+        height,
+        shard_id,
+        &read_store,
+        genesis,
+        epoch_manager,
+        storage,
+        only_contracts,
+    );
+
+    let input = match input_or_skip {
+        ApplicationInputOrSkip::Input(input) => input,
+        ApplicationInputOrSkip::Skip(skip_reason) => {
+            panic!("Can't apply chunk - reason: {:?}", skip_reason.explanation());
+        }
+    };
+
+    println!("Chunk hash: {}", input.chunk_header.chunk_hash().0);
+    println!(
+        "This chunk has {} transactions and {} incoming receipts",
+        input.transactions.len(),
+        input.receipts.len()
+    );
+    println!("");
+
+    let start_time = std::time::Instant::now();
+    let mut gas_burned: u128 = 0;
+    let report_interval = std::time::Duration::from_secs(1);
+    let mut last_report_time = start_time;
+
+    for i in 1.. {
+        let _span = tracing::debug_span!(
+            target: "state_viewer",
+            parent: &parent_span,
+            "process_block",
+            height)
+        .entered();
+
+        let apply_result = apply_chunk_from_input(input.clone(), &*runtime_adapter);
+        gas_burned += apply_result.total_gas_burnt as u128;
+
+        if i == 1 || last_report_time.elapsed() >= report_interval {
+            println!(
+                "Applied the chunk {} times. - average stats: (application time: {:.1}ms, applications per second: {:.2}, gas_burned: {:.1} TGas)",
+                i,
+                start_time.elapsed().as_secs_f64() * 1000.0 / i as f64,
+                i as f64 / start_time.elapsed().as_secs_f64(),
+                gas_burned as f64 / 1_000_000_000_000.0 / i as f64
+            );
+            last_report_time = std::time::Instant::now();
+        }
+    }
 }
 
 /**

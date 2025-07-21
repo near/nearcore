@@ -240,6 +240,7 @@ impl ChainGenesis {
     }
 }
 
+#[derive(Clone)]
 pub enum StorageDataSource {
     /// Full state data is present in DB.
     Db,
@@ -253,6 +254,7 @@ pub enum StorageDataSource {
     Recorded(PartialStorage),
 }
 
+#[derive(Clone)]
 pub struct RuntimeStorageConfig {
     pub state_root: StateRoot,
     pub use_flat_storage: bool,
