@@ -360,8 +360,6 @@ async fn find_local_receipt_by_id_in_block(
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
 /// compares to already fetched block height and in case it differs fetches new block of given height.
-///
-/// We have to pass `client: ExecutorHandle<ClientActorInner>` and `view_client: Addr<near_client::ViewClientActor>`.
 pub(crate) async fn start(
     view_client: SyncExecutorHandle<near_client::ViewClientActorInner>,
     client: ExecutorHandle<ClientActorInner>,

@@ -23,7 +23,6 @@ use crate::sync::state::chain_requests::{
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
-use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::executor::{ExecutorHandle, ExecutorRuntime, start_actor_with_new_runtime};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
@@ -194,7 +193,7 @@ pub fn start_client(
         sender,
         adv,
         config_updater,
-        sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+        sync_jobs_actor_addr.into_multi_sender(),
         // TODO(spice): Pass in chunk_executor_sender.
         noop().into_sender(),
     )

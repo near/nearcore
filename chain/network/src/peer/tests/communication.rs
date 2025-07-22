@@ -39,9 +39,8 @@ async fn test_peer_communication(
     };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
-    let mut outbound =
-        PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
+    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream);
+    let mut outbound = PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream);
 
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;
@@ -197,7 +196,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-    let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+    let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream);
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
 

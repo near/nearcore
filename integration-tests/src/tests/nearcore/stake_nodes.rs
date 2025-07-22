@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use actix::{Actor, Addr, System};
+use actix::{Actor, System};
 use futures::{FutureExt, future};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::num_rational::Ratio;
@@ -12,7 +12,7 @@ use crate::utils::genesis_helpers::genesis_hash;
 use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
-use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActorInner};
+use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandler, ViewClientActorInner};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
@@ -28,7 +28,6 @@ use near_async::executor::sync::SyncExecutorHandle;
 use near_async::messaging::SendAsync;
 use near_client::client_actor::ClientActorInner;
 use near_client_primitives::types::Status;
-use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use {near_primitives::types::BlockId, primitive_types::U256};
 
@@ -39,7 +38,7 @@ struct TestNode {
     config: NearConfig,
     client: ExecutorHandle<ClientActorInner>,
     view_client: SyncExecutorHandle<ViewClientActorInner>,
-    tx_processor: Addr<RpcHandlerActor>,
+    tx_processor: SyncExecutorHandle<RpcHandler>,
     genesis_hash: CryptoHash,
 }
 
@@ -133,14 +132,11 @@ fn slow_test_stake_nodes() {
             actix::spawn(
                 test_nodes[0]
                     .tx_processor
-                    .send(
-                        ProcessTxRequest {
-                            transaction: tx,
-                            is_forwarded: false,
-                            check_only: false,
-                        }
-                        .with_span_context(),
-                    )
+                    .send_async(ProcessTxRequest {
+                        transaction: tx,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
                     .map(drop),
             );
 
@@ -218,14 +214,11 @@ fn slow_test_validator_kickout() {
                 actix::spawn(
                     test_node
                         .tx_processor
-                        .send(
-                            ProcessTxRequest {
-                                transaction: stake_transaction,
-                                is_forwarded: false,
-                                check_only: false,
-                            }
-                            .with_span_context(),
-                        )
+                        .send_async(ProcessTxRequest {
+                            transaction: stake_transaction,
+                            is_forwarded: false,
+                            check_only: false,
+                        })
                         .map(drop),
                 );
             }
@@ -363,27 +356,21 @@ fn ultra_slow_test_validator_join() {
             actix::spawn(
                 test_nodes[1]
                     .tx_processor
-                    .send(
-                        ProcessTxRequest {
-                            transaction: unstake_transaction,
-                            is_forwarded: false,
-                            check_only: false,
-                        }
-                        .with_span_context(),
-                    )
+                    .send_async(ProcessTxRequest {
+                        transaction: unstake_transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
                     .map(drop),
             );
             actix::spawn(
                 test_nodes[0]
                     .tx_processor
-                    .send(
-                        ProcessTxRequest {
-                            transaction: stake_transaction,
-                            is_forwarded: false,
-                            check_only: false,
-                        }
-                        .with_span_context(),
-                    )
+                    .send_async(ProcessTxRequest {
+                        transaction: stake_transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
                     .map(drop),
             );
 

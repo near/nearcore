@@ -32,6 +32,7 @@ use std::sync::Arc;
 
 use crate::metrics;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
+use near_async::executor::sync::{SyncExecutorHandle, start_sync_actors};
 
 pub type RpcHandlerActor = SyncActixWrapper<RpcHandler>;
 
@@ -62,7 +63,7 @@ pub fn spawn_rpc_handler_actor(
     validator_signer: MutableValidatorSigner,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
-) -> actix::Addr<RpcHandlerActor> {
+) -> SyncExecutorHandle<RpcHandler> {
     let actor = RpcHandler::new(
         config.clone(),
         tx_pool,
@@ -73,7 +74,7 @@ pub fn spawn_rpc_handler_actor(
         runtime,
         network_adapter,
     );
-    actix::SyncArbiter::start(config.handler_threads, move || SyncActixWrapper::new(actor.clone()))
+    start_sync_actors(config.handler_threads, move || actor.clone()).1
 }
 
 #[derive(Clone)]

@@ -3,11 +3,9 @@
 #![allow(clippy::arc_with_non_send_sync)]
 
 use crate::utils::peer_manager_mock::PeerManagerMock;
-use actix::{Actor, Addr, Context};
-use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
-use near_async::executor::ExecutorHandle;
+use actix::{Actor, Context};
 use near_async::executor::sync::SyncExecutorHandle;
+use near_async::executor::{ExecutorHandle, start_actor_with_new_runtime};
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{
     IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
@@ -29,13 +27,13 @@ use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
 use near_client::client_actor::ClientActorInner;
+use near_client::spawn_rpc_handler_actor;
 use near_client::spice_core::CoreStatementsProcessor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, PartialWitnessSenderForClient,
     RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus, ViewClientActorInner,
     start_client,
 };
-use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
@@ -44,7 +42,6 @@ use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
-use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
@@ -86,7 +83,7 @@ fn setup(
 ) -> (
     ExecutorHandle<ClientActorInner>,
     SyncExecutorHandle<ViewClientActorInner>,
-    Addr<RpcHandlerActor>,
+    SyncExecutorHandle<RpcHandler>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
     tempfile::TempDir,
@@ -141,7 +138,7 @@ fn setup(
     );
     let shard_tracker =
         ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
-    let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
+    let telemetry = start_actor_with_new_runtime(TelemetryActor::default()).1;
     let config = {
         let mut base = ClientConfig::test(
             skip_sync_wait,
@@ -171,7 +168,7 @@ fn setup(
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
-    let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
+    let (_, partial_witness_adapter) = start_actor_with_new_runtime(PartialWitnessActor::new(
         clock.clone(),
         network_adapter.clone(),
         client_adapter_for_partial_witness_actor.as_multi_sender(),
@@ -181,15 +178,13 @@ fn setup(
         Arc::new(RayonAsyncComputationSpawner),
         Arc::new(RayonAsyncComputationSpawner),
     ));
-    let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 
-    let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
+    let (_, resharding_sender) = start_actor_with_new_runtime(ReshardingActor::new(
         epoch_manager.clone(),
         runtime.clone(),
         ReshardingHandle::new(),
         config.resharding_config.clone(),
     ));
-    let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
     let state_sync_runtime =
@@ -207,7 +202,7 @@ fn setup(
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
         signer.clone(),
-        telemetry.with_auto_span_context().into_sender(),
+        telemetry.into_sender(),
         None,
         None,
         adv,
@@ -273,7 +268,7 @@ pub fn setup_mock(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
             ExecutorHandle<ClientActorInner>,
-            Addr<RpcHandlerActor>,
+            SyncExecutorHandle<RpcHandler>,
         ) -> PeerManagerMessageResponse,
     >,
 ) -> ActorHandlesForTesting {
@@ -299,7 +294,7 @@ pub fn setup_mock_with_validity_period(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
             ExecutorHandle<ClientActorInner>,
-            Addr<RpcHandlerActor>,
+            SyncExecutorHandle<RpcHandler>,
         ) -> PeerManagerMessageResponse,
     >,
     transaction_validity_period: NumBlocks,
@@ -352,7 +347,7 @@ pub fn setup_mock_with_validity_period(
 pub struct ActorHandlesForTesting {
     pub client_actor: ExecutorHandle<ClientActorInner>,
     pub view_client_actor: SyncExecutorHandle<ViewClientActorInner>,
-    pub rpc_handler_actor: Addr<RpcHandlerActor>,
+    pub rpc_handler_actor: SyncExecutorHandle<RpcHandler>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,
     // If testing something with runtime that needs runtime home dir users should make sure that
@@ -402,11 +397,10 @@ pub fn setup_no_network_with_validity_period(
                     endorsement,
                 )) => {
                     if account_id == &my_account_id {
-                        let future = rpc_handler.send_async(
-                            ChunkEndorsementMessage(endorsement.clone()).with_span_context(),
-                        );
+                        let future =
+                            rpc_handler.send_async(ChunkEndorsementMessage(endorsement.clone()));
                         // Don't ignore the future or else the message may not actually be handled.
-                        actix::spawn(future);
+                        tokio::spawn(future);
                     }
                 }
                 _ => {}

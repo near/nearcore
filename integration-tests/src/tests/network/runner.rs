@@ -1,9 +1,7 @@
-use actix::{Actor, Addr};
 use anyhow::{Context, anyhow, bail};
-use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
+use near_async::executor::{ExecutorHandle, start_actor_with_new_runtime};
 use near_async::futures::TokioRuntimeFutureSpawner;
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, SendAsync, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
@@ -18,7 +16,6 @@ use near_client::{
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::PeerManagerActor;
-use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
@@ -26,7 +23,6 @@ use near_network::test_utils::{GetInfo, expected_routing_tables, peer_id_from_se
 use near_network::types::{
     PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
-use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
@@ -54,7 +50,7 @@ fn setup_network_node(
     validators: Vec<AccountId>,
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
-) -> Addr<PeerManagerActor> {
+) -> ExecutorHandle<PeerManagerActor> {
     let node_storage = near_store::test_utils::create_test_node_storage_default();
     let num_validators = validators.len() as ValidatorId;
 
@@ -76,7 +72,7 @@ fn setup_network_node(
         "validator_signer",
     );
     let telemetry_actor =
-        ActixWrapper::new(TelemetryActor::new(TelemetryConfig::default())).start();
+        start_actor_with_new_runtime(TelemetryActor::new(TelemetryConfig::default())).1;
 
     let db = node_storage.into_inner(near_store::Temperature::Hot);
     let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
@@ -114,7 +110,7 @@ fn setup_network_node(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         validator_signer.clone(),
-        telemetry_actor.with_auto_span_context().into_sender(),
+        telemetry_actor.into_sender(),
         None,
         None,
         adv.clone(),
@@ -161,7 +157,7 @@ fn setup_network_node(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
+    let (_, partial_witness_actor) = start_actor_with_new_runtime(PartialWitnessActor::new(
         Clock::real(),
         network_adapter.as_multi_sender(),
         client_actor.clone().into_multi_sender(),
@@ -179,11 +175,11 @@ fn setup_network_node(
         client_sender_for_network(client_actor, view_client_addr, rpc_handler),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
-        partial_witness_actor.with_auto_span_context().into_multi_sender(),
+        partial_witness_actor.into_multi_sender(),
         genesis_id,
     )
     .unwrap();
-    network_adapter.bind(peer_manager.clone().with_auto_span_context());
+    network_adapter.bind(peer_manager.clone());
     peer_manager
 }
 
@@ -220,8 +216,8 @@ async fn check_routing_table(
             (info.runner.test_config[target].peer_id(), peers)
         })
         .collect();
-    let pm = info.get_node(u)?.actix.addr.clone();
-    let resp = pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await?;
+    let pm = info.get_node(u)?.actix.clone();
+    let resp = pm.send_async(PeerManagerMessageRequest::FetchRoutingTable).await?;
     let rt = match resp {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
@@ -248,17 +244,17 @@ impl StateMachine {
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    let pm = info.get_node(from)?.actix.addr.clone();
+                    let pm = info.get_node(from)?.actix.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
                     match tcp::Stream::connect(&peer_info, tcp::Tier::T2, &config::SocketOptions::default()).await {
-                        Ok(stream) => { pm.send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context()).await?; },
+                        Ok(stream) => { pm.send_async(PeerManagerMessageRequest::OutboundTcpConnect(stream)).await?; },
                         Err(err) => tracing::debug!("tcp::Stream::connect({peer_info}): {err}"),
                     }
                     if !force {
                         return Ok(ControlFlow::Break(()))
                     }
                     let peer_id = peer_info.id.clone();
-                    let res = pm.send(GetInfo{}.with_span_context()).await?;
+                    let res = pm.send_async(GetInfo {}).await?;
                     for peer in &res.connected_peers {
                         if peer.full_peer_info.peer_info.id==peer_id {
                             return Ok(ControlFlow::Break(()))
@@ -348,7 +344,7 @@ pub(crate) struct Runner {
 }
 
 struct NodeHandle {
-    actix: ActixSystem<PeerManagerActor>,
+    actix: ExecutorHandle<PeerManagerActor>,
 }
 
 impl Runner {
@@ -437,7 +433,7 @@ impl Runner {
         }
     }
 
-    async fn setup_node(&self, node_id: usize) -> anyhow::Result<NodeHandle> {
+    fn setup_node(&self, node_id: usize) -> anyhow::Result<NodeHandle> {
         tracing::debug!("starting {node_id}");
         let config = &self.test_config[node_id];
 
@@ -482,17 +478,14 @@ impl Runner {
         let chain_genesis = self.chain_genesis.clone();
 
         Ok(NodeHandle {
-            actix: ActixSystem::spawn(|| {
-                setup_network_node(account_id, validators, chain_genesis, network_config)
-            })
-            .await,
+            actix: setup_network_node(account_id, validators, chain_genesis, network_config),
         })
     }
 
-    async fn build(self) -> anyhow::Result<RunningInfo> {
+    fn build(self) -> anyhow::Result<RunningInfo> {
         let mut nodes = vec![];
         for node_id in 0..self.test_config.len() {
-            nodes.push(Some(self.setup_node(node_id).await?));
+            nodes.push(Some(self.setup_node(node_id)?));
         }
         Ok(RunningInfo { runner: self, nodes })
     }
@@ -505,7 +498,7 @@ pub(crate) fn start_test(runner: Runner) -> anyhow::Result<()> {
     init_test_logger();
     let r = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     r.block_on(async {
-        let mut info = runner.build().await?;
+        let mut info = runner.build()?;
         let actions = std::mem::take(&mut info.runner.state_machine.actions);
         let actions_count = actions.len();
 
@@ -543,9 +536,9 @@ impl RunningInfo {
         self.nodes[node_id].take();
     }
 
-    async fn start_node(&mut self, node_id: usize) -> anyhow::Result<()> {
+    fn start_node(&mut self, node_id: usize) -> anyhow::Result<()> {
         self.stop_node(node_id);
-        self.nodes[node_id] = Some(self.runner.setup_node(node_id).await?);
+        self.nodes[node_id] = Some(self.runner.setup_node(node_id)?);
         Ok(())
     }
     fn change_account_id(&mut self, node_id: usize, account_id: AccountId) {
@@ -557,8 +550,8 @@ pub(crate) fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> Action
     Box::new(move |info: &mut RunningInfo| {
         let peers = peers.clone();
         Box::pin(async move {
-            let pm = &info.get_node(node_id)?.actix.addr;
-            let network_info = pm.send(GetInfo {}.with_span_context()).await?;
+            let pm = &info.get_node(node_id)?.actix;
+            let network_info = pm.send_async(GetInfo {}).await?;
             let got: HashSet<_> = network_info
                 .connected_peers
                 .into_iter()
@@ -585,8 +578,8 @@ pub(crate) fn check_expected_connections(
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
             debug!(target: "test", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
-            let pm = &info.get_node(node_id)?.actix.addr;
-            let res = pm.send(GetInfo {}.with_span_context()).await?;
+            let pm = &info.get_node(node_id)?.actix;
+            let res = pm.send_async(GetInfo {}).await?;
             if expected_connections_lo.is_some_and(|l| l > res.num_connected_peers) {
                 return Ok(ControlFlow::Continue(()));
             }
@@ -603,7 +596,7 @@ pub(crate) fn restart(node_id: usize) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
             debug!(target: "test", ?node_id, "runner.rs: restart");
-            info.start_node(node_id).await?;
+            info.start_node(node_id)?;
             Ok(ControlFlow::Break(()))
         })
     })

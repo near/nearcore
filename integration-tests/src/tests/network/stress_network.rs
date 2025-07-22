@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use actix::{Actor, AsyncContext, System};
 use futures::FutureExt;
-use near_async::messaging::{IntoMultiSender, IntoSender, noop};
+use near_async::messaging::{CanSend, IntoMultiSender, IntoSender, SendAsync, noop};
 use tracing::info;
 
 use near_actix_test_utils::run_actix;
@@ -13,16 +13,16 @@ use near_network::tcp;
 use near_o11y::testonly::init_test_logger_allow_panic;
 use near_primitives::genesis::GenesisId;
 
+use near_async::executor::ExecutorHandle;
 use near_network::PeerManagerActor;
 use near_network::config;
 use near_network::test_utils::{GetInfo, StopSignal, WaitOrTimeoutActor, convert_boot_nodes};
-use near_o11y::WithSpanContextExt;
 
 fn make_peer_manager(
     seed: &str,
     addr: tcp::ListenerAddr,
     boot_nodes: Vec<(&str, std::net::SocketAddr)>,
-) -> actix::Addr<PeerManagerActor> {
+) -> ExecutorHandle<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, addr);
     config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
     PeerManagerActor::spawn(
@@ -78,7 +78,7 @@ fn stress_test() {
             })
             .collect();
 
-        pms[0].do_send(StopSignal::should_panic().with_span_context());
+        pms[0].send(StopSignal::should_panic());
 
         // States:
         // 0 -> Check other nodes health.
@@ -98,7 +98,7 @@ fn stress_test() {
                         if !flag.load(Ordering::Relaxed) {
                             let flag1 = flag.clone();
 
-                            let actor = pms[ix].send(GetInfo {}.with_span_context());
+                            let actor = pms[ix].send_async(GetInfo {});
                             let actor = actor.then(move |info| {
                                 if let Ok(info) = info {
                                     if info.num_connected_peers == num_nodes - 2 {
@@ -134,7 +134,7 @@ fn stress_test() {
                     let pm0 = pms[0].clone();
 
                     ctx.run_later(Duration::from_millis(10), move |_, _| {
-                        pm0.do_send(StopSignal::should_panic().with_span_context());
+                        pm0.send(StopSignal::should_panic());
                     });
 
                     let state1 = state.clone();

@@ -1,6 +1,5 @@
 use crate::client_actor::ClientActorInner;
-use crate::{RpcHandlerActor, ViewClientActorInner};
-use near_async::actix::AddrWithAutoSpanContextExt;
+use crate::{RpcHandler, ViewClientActorInner};
 use near_async::executor::ExecutorHandle;
 use near_async::executor::sync::SyncExecutorHandle;
 use near_async::messaging::IntoSender;
@@ -9,10 +8,8 @@ use near_network::client::ClientSenderForNetwork;
 pub fn client_sender_for_network(
     client_addr: ExecutorHandle<ClientActorInner>,
     view_client_addr: SyncExecutorHandle<ViewClientActorInner>,
-    rpc_handler: actix::Addr<RpcHandlerActor>,
+    rpc_handler: SyncExecutorHandle<RpcHandler>,
 ) -> ClientSenderForNetwork {
-    let view_client_addr = view_client_addr;
-    let rpc_handler = rpc_handler.with_auto_span_context();
     ClientSenderForNetwork {
         block: client_addr.clone().into_sender(),
         block_headers: client_addr.clone().into_sender(),

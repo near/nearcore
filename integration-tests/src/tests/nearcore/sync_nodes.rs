@@ -11,7 +11,6 @@ use near_client::{GetBlock, ProcessTxRequest};
 use near_crypto::InMemorySigner;
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
-use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use nearcore::{load_test_config, start_with_config};
@@ -62,14 +61,11 @@ fn ultra_slow_test_sync_state_stake_change() {
             );
             actix::spawn(
                 tx_processor1
-                    .send(
-                        ProcessTxRequest {
-                            transaction: unstake_transaction,
-                            is_forwarded: false,
-                            check_only: false,
-                        }
-                        .with_span_context(),
-                    )
+                    .send_async(ProcessTxRequest {
+                        transaction: unstake_transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
                     .map(drop),
             );
 

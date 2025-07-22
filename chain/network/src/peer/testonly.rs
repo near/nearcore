@@ -16,11 +16,10 @@ use crate::state_witness::{
 };
 use crate::store;
 use crate::tcp;
-use crate::testonly::actix::ActixSystem;
 use crate::types::{PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage};
-use near_async::messaging::{IntoMultiSender, Sender};
+use near_async::executor::ExecutorHandle;
+use near_async::messaging::{IntoMultiSender, SendAsync, Sender};
 use near_async::time;
-use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
@@ -53,7 +52,7 @@ pub(crate) enum Event {
 
 pub(crate) struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
-    actix: ActixSystem<PeerActor>,
+    actix: ExecutorHandle<PeerActor>,
     pub events: broadcast::Receiver<Event>,
     pub edge: Option<Edge>,
 }
@@ -61,8 +60,7 @@ pub(crate) struct PeerHandle {
 impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
         self.actix
-            .addr
-            .send(SendMessage { message: Arc::new(message) }.span_wrap().with_span_context())
+            .send_async(SendMessage { message: Arc::new(message) }.span_wrap())
             .await
             .unwrap();
     }
@@ -97,11 +95,7 @@ impl PeerHandle {
         )
     }
 
-    pub async fn start_endpoint(
-        clock: time::Clock,
-        cfg: PeerConfig,
-        stream: tcp::Stream,
-    ) -> PeerHandle {
+    pub fn start_endpoint(clock: time::Clock, cfg: PeerConfig, stream: tcp::Stream) -> PeerHandle {
         let cfg = Arc::new(cfg);
         let (send, recv) = broadcast::unbounded_channel::<Event>();
 
@@ -132,14 +126,13 @@ impl PeerHandle {
             }
         });
         let state_witness_sender = Sender::from_fn({
-            let send = send.clone();
             move |event: PartialWitnessSenderForNetworkMessage| {
                 send.send(Event::PartialWitness(event.into_input()));
             }
         });
         let network_state = Arc::new(NetworkState::new(
             &clock,
-            store.clone(),
+            store,
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),
@@ -149,12 +142,7 @@ impl PeerHandle {
             state_witness_sender.break_apart().into_multi_sender(),
             vec![],
         ));
-        let actix = ActixSystem::spawn({
-            let clock = clock.clone();
-            let cfg = cfg.clone();
-            move || PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap().0
-        })
-        .await;
+        let actix = PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap().0;
         Self { actix, cfg, events: recv, edge: None }
     }
 }

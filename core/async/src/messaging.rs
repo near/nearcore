@@ -11,7 +11,7 @@ use tokio::sync::oneshot;
 /// HandlerWithContext trait. We can optionally implement the start_actor trait which is executed in
 /// the beginning of the actor's lifecycle.
 /// This corresponds to the actix::Actor trait `started` function.
-pub trait Actor {
+pub trait Actor: 'static {
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {}
 
     fn wrap_handler<M: actix::Message>(
@@ -22,6 +22,8 @@ pub trait Actor {
     ) -> M::Result {
         f(self, msg, ctx)
     }
+
+    fn stop_actor(&mut self) {}
 }
 
 /// Trait for handling a message.

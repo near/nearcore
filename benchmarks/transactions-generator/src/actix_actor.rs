@@ -1,10 +1,7 @@
 use crate::{ClientSender, Config, TxGenerator, ViewClientSender};
-use actix::Actor;
-use near_async::actix_wrapper::ActixWrapper;
+use near_async::executor::{ExecutorHandle, start_actor_with_new_runtime};
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{self};
-
-pub type TxGeneratorActor = ActixWrapper<GeneratorActorImpl>;
 
 pub struct GeneratorActorImpl {
     tx_generator: TxGenerator,
@@ -34,11 +31,7 @@ pub fn start_tx_generator(
     config: Config,
     client_sender: ClientSender,
     view_client_sender: ViewClientSender,
-) -> actix::Addr<TxGeneratorActor> {
-    let arbiter = actix::Arbiter::new();
+) -> ExecutorHandle<GeneratorActorImpl> {
     let tx_generator = TxGenerator::new(config, client_sender, view_client_sender).unwrap();
-    TxGeneratorActor::start_in_arbiter(&arbiter.handle(), move |_| {
-        let actor_impl = GeneratorActorImpl { tx_generator };
-        ActixWrapper::new(actor_impl)
-    })
+    start_actor_with_new_runtime(GeneratorActorImpl { tx_generator }).1
 }

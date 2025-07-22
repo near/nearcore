@@ -146,9 +146,8 @@ async fn setup_test_peers(clock: &FakeClock, mut rng: &mut Rng) -> (PeerHandle, 
     };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
-    let mut outbound =
-        PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
+    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream);
+    let mut outbound = PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream);
 
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;

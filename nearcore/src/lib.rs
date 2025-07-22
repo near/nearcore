@@ -6,11 +6,8 @@ use crate::metrics::spawn_trie_metrics_loop;
 
 use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::StateSyncDumper;
-use actix::{Actor, Addr};
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
-use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
@@ -27,7 +24,7 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
-    ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig, StartClientResult,
+    ConfigUpdater, PartialWitnessActor, RpcHandler, RpcHandlerConfig, StartClientResult,
     ViewClientActorInner, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
@@ -63,7 +60,7 @@ use near_async::executor::sync::SyncExecutorHandle;
 use near_async::executor::{ExecutorHandle, ExecutorRuntime, start_actor_with_new_runtime};
 use near_client::client_actor::ClientActorInner;
 #[cfg(feature = "tx_generator")]
-use near_transactions_generator::actix_actor::TxGeneratorActor;
+use near_transactions_generator::actix_actor::GeneratorActorImpl;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -216,9 +213,9 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 pub struct NearNode {
     pub client: ExecutorHandle<ClientActorInner>,
     pub view_client: SyncExecutorHandle<ViewClientActorInner>,
-    pub rpc_handler: Addr<RpcHandlerActor>,
+    pub rpc_handler: SyncExecutorHandle<RpcHandler>,
     #[cfg(feature = "tx_generator")]
-    pub tx_generator: Addr<TxGeneratorActor>,
+    pub tx_generator: ExecutorHandle<GeneratorActorImpl>,
     pub executor_runtimes: Vec<ExecutorRuntime>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
@@ -323,7 +320,8 @@ pub fn start_with_config_and_synchronization(
     let cold_store_loop_handle =
         spawn_cold_store_loop(&config, &storage, epoch_manager.clone(), shard_tracker.clone())?;
 
-    let telemetry = ActixWrapper::new(TelemetryActor::new(config.telemetry_config.clone())).start();
+    let telemetry =
+        start_actor_with_new_runtime(TelemetryActor::new(config.telemetry_config.clone())).1;
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
     let state_roots = near_store::get_genesis_state_roots(runtime.store())?
         .expect("genesis should be initialized.");
@@ -426,7 +424,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
-        telemetry.with_auto_span_context().into_sender(),
+        telemetry.into_sender(),
         Some(snapshot_callbacks),
         shutdown_signal,
         adv,
@@ -499,7 +497,7 @@ pub fn start_with_config_and_synchronization(
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
-    network_adapter.bind(network_actor.clone().with_auto_span_context());
+    network_adapter.bind(network_actor.clone());
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
         let entity_debug_handler = EntityDebugHandlerImpl {
@@ -513,7 +511,7 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone().into_multi_sender(),
             view_client_addr.clone().into_multi_sender(),
-            rpc_handler.clone().with_auto_span_context().into_multi_sender(),
+            rpc_handler.clone().into_multi_sender(),
             network_actor.into_multi_sender(),
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
@@ -556,7 +554,7 @@ pub fn start_with_config_and_synchronization(
     #[cfg(feature = "tx_generator")]
     let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
         config.tx_generator.unwrap_or_default(),
-        rpc_handler.clone().with_auto_span_context().into_multi_sender(),
+        rpc_handler.clone().into_multi_sender(),
         view_client_addr.clone().into_multi_sender(),
     );
 

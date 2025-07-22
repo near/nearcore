@@ -907,7 +907,7 @@ async fn ttl_and_num_hops() {
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
         .await
         .unwrap();
-    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream);
     peer.complete_handshake().await;
     pm.wait_for_routing_table(&[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
@@ -965,7 +965,7 @@ async fn repeated_data_in_sync_routing_table() {
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
         .await
         .unwrap();
-    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream);
     peer.complete_handshake().await;
 
     let mut edges_got = HashSet::new();

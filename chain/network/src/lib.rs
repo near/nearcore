@@ -15,7 +15,6 @@ mod stats;
 mod store;
 mod stun;
 
-pub mod actix;
 pub mod blacklist;
 pub mod client;
 pub mod concurrency;

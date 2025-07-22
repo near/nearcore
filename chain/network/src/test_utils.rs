@@ -4,11 +4,10 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     SetChainInfo, StateSyncEvent, Tier3Request,
 };
-use actix::{Actor, ActorContext, Context, Handler};
+use actix::{Actor, Context};
 use futures::{Future, FutureExt, future};
-use near_async::messaging::{CanSend, MessageWithCallback};
+use near_async::messaging::{self, CanSend, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
-use near_o11y::{WithSpanContext, handler_debug_span};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -186,11 +185,8 @@ pub fn expected_routing_tables(
 #[rtype(result = "NetworkInfo")]
 pub struct GetInfo {}
 
-impl Handler<WithSpanContext<GetInfo>> for PeerManagerActor {
-    type Result = crate::types::NetworkInfo;
-
-    fn handle(&mut self, msg: WithSpanContext<GetInfo>, _ctx: &mut Context<Self>) -> Self::Result {
-        let (_span, _msg) = handler_debug_span!(target: "network", msg);
+impl messaging::Handler<GetInfo> for PeerManagerActor {
+    fn handle(&mut self, _msg: GetInfo) -> NetworkInfo {
         self.get_network_info()
     }
 }
@@ -208,21 +204,14 @@ impl StopSignal {
     }
 }
 
-impl Handler<WithSpanContext<StopSignal>> for PeerManagerActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<StopSignal>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
+impl messaging::Handler<StopSignal> for PeerManagerActor {
+    fn handle(&mut self, msg: StopSignal) {
         debug!(target: "network", "Receive Stop Signal.");
 
         if msg.should_panic {
             panic!("Node crashed");
         } else {
-            ctx.stop();
+            self.handle.cancel();
         }
     }
 }

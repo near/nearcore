@@ -3,7 +3,6 @@
 use std::convert::AsRef;
 use std::sync::Arc;
 
-use actix::Addr;
 use actix_cors::Cors;
 use actix_web::{App, HttpServer, ResponseError};
 use paperclip::actix::{
@@ -18,8 +17,7 @@ use near_async::executor::sync::SyncExecutorHandle;
 use near_async::messaging::SendAsync;
 use near_chain_configs::Genesis;
 use near_client::client_actor::ClientActorInner;
-use near_client::{RpcHandlerActor, ViewClientActorInner};
-use near_o11y::WithSpanContextExt;
+use near_client::{RpcHandler, ViewClientActorInner};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
 
@@ -784,7 +782,7 @@ async fn construction_hash(
 /// mempool. Otherwise, it should return an error.
 async fn construction_submit(
     client_addr: web::Data<ExecutorHandle<ClientActorInner>>,
-    tx_handler_addr: web::Data<Addr<RpcHandlerActor>>,
+    tx_handler_addr: web::Data<SyncExecutorHandle<RpcHandler>>,
     body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     let Json(models::ConstructionSubmitRequest { network_identifier, signed_transaction }) = body;
@@ -793,14 +791,11 @@ async fn construction_submit(
 
     let transaction_hash = signed_transaction.as_ref().get_hash();
     let transaction_submission = tx_handler_addr
-        .send(
-            near_client::ProcessTxRequest {
-                transaction: signed_transaction.into_inner(),
-                is_forwarded: false,
-                check_only: false,
-            }
-            .with_span_context(),
-        )
+        .send_async(near_client::ProcessTxRequest {
+            transaction: signed_transaction.into_inner(),
+            is_forwarded: false,
+            check_only: false,
+        })
         .await?;
     match transaction_submission {
         near_client::ProcessTxResponse::ValidTx | near_client::ProcessTxResponse::RequestRouted => {
@@ -843,7 +838,7 @@ pub fn start_rosetta_rpc(
     genesis_block_hash: &near_primitives::hash::CryptoHash,
     client_addr: ExecutorHandle<ClientActorInner>,
     view_client_addr: SyncExecutorHandle<ViewClientActorInner>,
-    tx_handler_addr: Addr<RpcHandlerActor>,
+    tx_handler_addr: SyncExecutorHandle<RpcHandler>,
 ) -> actix_web::dev::ServerHandle {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits, currencies } = config;
     let block_id = models::BlockIdentifier::new(genesis.config.genesis_height, genesis_block_hash);

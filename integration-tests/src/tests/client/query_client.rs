@@ -11,7 +11,6 @@ use near_client_primitives::types::Status;
 use near_crypto::InMemorySigner;
 use near_network::client::{BlockResponse, ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
-use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Block, BlockHeader};
@@ -166,10 +165,11 @@ fn test_execution_outcome_for_chunk() {
             let tx_hash = transaction.get_hash();
             let res = actor_handles
                 .rpc_handler_actor
-                .send(
-                    ProcessTxRequest { transaction, is_forwarded: false, check_only: false }
-                        .with_span_context(),
-                )
+                .send_async(ProcessTxRequest {
+                    transaction,
+                    is_forwarded: false,
+                    check_only: false,
+                })
                 .await
                 .unwrap();
             assert!(matches!(res, ProcessTxResponse::ValidTx));
