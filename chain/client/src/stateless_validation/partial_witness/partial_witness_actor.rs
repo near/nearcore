@@ -9,7 +9,6 @@ use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Error;
-use near_chain::ThreadPool;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
@@ -47,7 +46,6 @@ use rand::Rng;
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
-use std::time::Duration;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
@@ -64,51 +62,6 @@ use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 use near_primitives::utils::compression::CompressedData;
 
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
-
-/// Async computation spawner to be used for witness creation tasks.
-#[derive(Default)]
-pub enum WitnessCreationSpawner {
-    /// Use a pool of OS-based threads with a single thread.
-    #[default]
-    Default,
-    /// Use a custom spawner, e.g. rayon.
-    Custom(Arc<dyn AsyncComputationSpawner>),
-}
-
-impl WitnessCreationSpawner {
-    /// Get the custom spawner, or create the default spawner with 1 thread.
-    pub fn into_spawner(self) -> Arc<dyn AsyncComputationSpawner> {
-        match self {
-            WitnessCreationSpawner::Default => {
-                Arc::new(ThreadPool::new("witness_creation", Duration::from_secs(30), 1, 70))
-            }
-            WitnessCreationSpawner::Custom(spawner) => spawner,
-        }
-    }
-}
-
-#[derive(Default)]
-pub enum PartialWitnessSpawner {
-    /// Use a pool of OS-based high-priority threads, default to 2 threads.
-    #[default]
-    Default,
-    /// Use a custom spawner, e.g. rayon.
-    Custom(Arc<dyn AsyncComputationSpawner>),
-}
-
-impl PartialWitnessSpawner {
-    pub fn into_spawner(self) -> Arc<dyn AsyncComputationSpawner> {
-        match self {
-            PartialWitnessSpawner::Default => Arc::new(ThreadPool::new(
-                "partial_witness_validation",
-                Duration::from_secs(30),
-                2,
-                70,
-            )),
-            PartialWitnessSpawner::Custom(spawner) => spawner,
-        }
-    }
-}
 
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
@@ -225,7 +178,7 @@ impl PartialWitnessActor {
         runtime: Arc<dyn RuntimeAdapter>,
         compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
         partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
-        witness_creation_spawner: WitnessCreationSpawner,
+        witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let partial_witness_tracker =
             Arc::new(PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone()));
@@ -243,7 +196,7 @@ impl PartialWitnessActor {
             ),
             compile_contracts_spawner,
             partial_witness_spawner,
-            witness_creation_spawner: witness_creation_spawner.into_spawner(),
+            witness_creation_spawner,
             processed_contract_code_requests: LruCache::new(
                 NonZeroUsize::new(PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE).unwrap(),
             ),

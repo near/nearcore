@@ -18,7 +18,6 @@ use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_core::CoreStatementsProcessor;
-use near_client::stateless_validation::{PartialWitnessSpawner, WitnessCreationSpawner};
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
@@ -283,13 +282,8 @@ pub fn setup_client(
         epoch_manager.clone(),
         runtime_adapter.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))), // Heavy contract compilation
-        PartialWitnessSpawner::Custom(Arc::new(
-            test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10)),
-        ))
-        .into_spawner(),
-        WitnessCreationSpawner::Custom(Arc::new(
-            test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10)),
-        )),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
     );
 
     let peer_manager_actor = TestLoopPeerManagerActor::new(

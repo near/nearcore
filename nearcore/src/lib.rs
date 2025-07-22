@@ -24,12 +24,11 @@ use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Chain, ChainGenesis};
+use near_chain::{Chain, ChainGenesis, ThreadPool};
 use near_chain_configs::ReshardingHandle;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
-use near_client::stateless_validation::{PartialWitnessSpawner, WitnessCreationSpawner};
 use near_client::{
     ClientActor, ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig,
     StartClientResult, StateRequestActor, ViewClientActor, ViewClientActorInner,
@@ -66,6 +65,7 @@ pub mod migrations;
 pub mod state_sync;
 #[cfg(feature = "tx_generator")]
 use near_transactions_generator::actix_actor::TxGeneratorActor;
+use std::time::Duration;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -405,8 +405,8 @@ pub fn start_with_config_and_synchronization(
             epoch_manager.clone(),
             runtime.clone(),
             Arc::new(RayonAsyncComputationSpawner),
-            PartialWitnessSpawner::default().into_spawner(),
-            WitnessCreationSpawner::default(),
+            Arc::new(ThreadPool::new("partial_witness_validation", Duration::from_secs(30), 2, 70)),
+            Arc::new(ThreadPool::new("witness_creation", Duration::from_secs(30), 1, 70)),
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
