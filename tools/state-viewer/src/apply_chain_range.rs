@@ -244,7 +244,7 @@ fn get_chunk_application_input(
                     read_store,
                     genesis,
                     epoch_manager,
-                    StorageSource::FlatStorage,
+                    StorageSource::Trie,
                     only_contracts,
                     runtime_adapter,
                 );
