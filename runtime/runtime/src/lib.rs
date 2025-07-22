@@ -189,14 +189,14 @@ struct TransactionBatches<'a> {
 impl<'a> TransactionBatches<'a> {
     pub fn new(signed_txs: &'a [SignedTransaction]) -> Self {
         let mut indices: Vec<usize> = (0..signed_txs.len()).collect();
-        indices.sort_by_key(|&i| {
+        indices.sort_unstable_by_key(|&i| {
             let tx = &signed_txs[i].transaction;
-            (tx.signer_id().clone(), i)
+            (tx.signer_id(), i)
         });
         Self { signed_txs, indices }
     }
 
-    /// Returns a parallel iterator that yields `TransactionBatch` for each signer.
+    /// Returns a parallel iterator that yields a [`TransactionBatch`] for each signer.
     pub fn par_batches(
         &'a self,
     ) -> impl rayon::iter::ParallelIterator<Item = TransactionBatch<'a>> + 'a {
