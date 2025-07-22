@@ -20,8 +20,8 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use tempfile::Builder;
 
-use crate::adapter::StoreUpdateAdapter;
-use crate::db::{DBTransaction, TestDB};
+use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
+use crate::db::{DBTransaction, StatsValue, TestDB};
 use crate::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,
 };
@@ -223,6 +223,16 @@ fn test_stress_trie_and_storage() {
         .parse::<usize>()
         .expect("Failed to parse UPDATES_BATCH_SIZE");
 
+    let update_batches = env::var("UPDATE_BATCHES")
+        .unwrap_or_else(|_| "100".to_string())
+        .parse::<usize>()
+        .expect("Failed to parse UPDATE_BATCHES");
+
+    let skip_deletions = env::var("SKIP_DELETIONS")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .expect("Failed to parse SKIP_DELETIONS");
+
     // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
     // same configuration as in production.
     let mut store = NodeStorage::opener(db_path.as_path(), &Default::default(), None)
@@ -290,7 +300,13 @@ fn test_stress_trie_and_storage() {
             (update_result.trie_changes, update_result.state_changes);
 
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+
+        let new_root = trie_changes.new_root;
+        tries.apply_insertions(&trie_changes, shard_uid, &mut store_update);
+        if !skip_deletions {
+            tries.apply_deletions(&trie_changes, shard_uid, &mut store_update);
+        }
+
         let memtrie_root =
             tries.apply_memtrie_changes(&trie_changes, shard_uid, block_height).unwrap();
         assert_eq!(new_root, memtrie_root);
@@ -337,7 +353,7 @@ fn test_stress_trie_and_storage() {
         block_height += 1;
     }
 
-    let batches = 100;
+    let batches = update_batches;
     let updates_per_batch = updates_batch_size;
 
     // Seed the random number generator
@@ -376,7 +392,13 @@ fn test_stress_trie_and_storage() {
             (update_result.trie_changes, update_result.state_changes);
 
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+
+        let new_root = trie_changes.new_root;
+        tries.apply_insertions(&trie_changes, shard_uid, &mut store_update);
+        if !skip_deletions {
+            tries.apply_deletions(&trie_changes, shard_uid, &mut store_update);
+        }
+
         let memtrie_root =
             tries.apply_memtrie_changes(&trie_changes, shard_uid, block_height).unwrap();
         assert_eq!(new_root, memtrie_root);
@@ -406,6 +428,28 @@ fn test_stress_trie_and_storage() {
         measured_times.add_flat(now.elapsed());
 
         if (i + 1) % log_each == 0 {
+            tries
+                .store()
+                .store_ref()
+                .database()
+                .get_store_statistics()
+                .unwrap()
+                .data
+                .iter()
+                .find(|(key, _)| key == "rocksdb.estimate-live-data-size")
+                .map(|(_, stats)| {
+                    for i in stats {
+                        if let StatsValue::ColumnValue(col, val) = i {
+                            if col == &DBCol::State
+                                || col == &DBCol::FlatStateChanges
+                                || col == &DBCol::FlatState
+                            {
+                                eprint!("{}: {}\t", col, val / 1024 / 1024);
+                            }
+                        }
+                    }
+                    eprintln!("");
+                });
             eprintln!(
                 "Processed batch (updates) {:04}:  new root: {}, (memory: {:?}, disk: {:?}, flat: {:?})",
                 i + 1,
