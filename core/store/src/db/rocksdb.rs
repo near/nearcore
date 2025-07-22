@@ -703,6 +703,7 @@ impl Database for RocksDB {
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         let mut result = StoreStatistics { data: vec![] };
         if let Some(stats_str) = self.db_opt.get_statistics() {
+            //eprintln!("RocksDB statistics: {}", stats_str);
             if let Err(err) = parse_statistics(&stats_str, &mut result) {
                 warn!(target: "store", "Failed to parse store statistics: {:?}", err);
             }
@@ -790,6 +791,9 @@ fn common_rocksdb_options() -> Options {
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
+    opts.set_enable_blob_files(true);
+    opts.set_min_blob_size(1024);
+    opts.set_enable_blob_gc(true);
 
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
@@ -864,6 +868,9 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
+    opts.set_enable_blob_files(true);
+    opts.set_min_blob_size(1024);
+    opts.set_enable_blob_gc(true);
 
     // Note that this function changes a lot of RocksDB parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
