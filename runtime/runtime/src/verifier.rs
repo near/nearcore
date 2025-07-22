@@ -35,12 +35,20 @@ pub enum StorageStakingError {
     StorageError(String),
 }
 
-/// Checks if given account has enough balance for storage stake, and returns:
+/// Checks if given account has enough balance for storage stake.
+///
+/// Note that the current account balance has to be provided separately. This is to accomodate
+/// callers which want to check for specific balance and not necessarily the balance specified
+/// inside the account.
+///
+/// Returns:
+///
 ///  - Ok(()) if account has enough balance or is a zero-balance account
 ///  - Err(StorageStakingError::LackBalanceForStorageStaking(amount)) if account doesn't have enough and how much need to be added,
 ///  - Err(StorageStakingError::StorageError(err)) if account has invalid storage usage or amount/locked.
 pub fn check_storage_stake(
     account: &Account,
+    account_balance: Balance,
     runtime_config: &RuntimeConfig,
 ) -> Result<(), StorageStakingError> {
     let billable_storage_bytes = account.storage_usage();
@@ -53,8 +61,7 @@ pub fn check_storage_stake(
             )
         })
         .map_err(StorageStakingError::StorageError)?;
-    let available_amount = account
-        .amount()
+    let available_amount = account_balance
         .checked_add(account.locked())
         .ok_or_else(|| {
             format!(
@@ -191,7 +198,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     }
 
-    match check_storage_stake(&signer, config) {
+    match check_storage_stake(&signer, new_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             let err = InvalidTxError::LackBalanceForState { signer_id: signer_id.clone(), amount };
