@@ -262,41 +262,51 @@ impl<'a> StoreOpener<'a> {
         Ok(storage)
     }
 
-    fn migrate_state_snapshots(
-        &self,
-    ) -> Result<(), StoreOpenerError> {
+    /// Migrate state snapshots.
+    ///
+    /// This function iterates over all state snapshots in the state snapshots directory
+    /// and runs the migration on each of them.
+    ///
+    /// Migrations is not performed in the following cases:
+    /// - If snapshots are disabled
+    /// - If the migrator is not found
+    /// - If the state snapshots directory does not exist
+    /// - If the state snapshot is already migrated
+    fn migrate_state_snapshots(&self) -> Result<(), StoreOpenerError> {
         if self.migrator.is_none() {
-            tracing::info!("No migrator found, skipping state snapshots migration");
+            tracing::debug!("No migrator found, skipping state snapshots migration");
             return Ok(());
         }
 
         // Iterate over all state snapshots in the state snapshots directory state_snapshots_dir,
         // for each state snapshot, run the migration on it.
         let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
-            StateSnapshotType::Enabled => {
-                self.hot.path.join("state_snapshot")
-            }
+            StateSnapshotType::Enabled => self.hot.path.join("state_snapshot"),
             StateSnapshotType::Disabled => {
-                tracing::info!("State snapshots are disabled, skipping state snapshots migration");
+                tracing::debug!("State snapshots are disabled, skipping state snapshots migration");
                 return Ok(());
             }
         };
 
         // Check if folder exists
         if !state_snapshots_dir.exists() {
-            tracing::info!("State snapshots directory does not exist, skipping state snapshots migration: {:?}", state_snapshots_dir);
+            tracing::debug!(
+                "State snapshots directory does not exist, skipping state snapshots migration: {:?}",
+                state_snapshots_dir
+            );
             return Ok(());
         }
 
         for entry in std::fs::read_dir(state_snapshots_dir)? {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
-                tracing::info!("State snapshot is not a directory, skipping: {:?}", entry.path());
+                tracing::trace!("State snapshot is not a directory, skipping: {:?}", entry.path());
                 continue;
             }
             let snapshot_path = entry.path();
 
-            let opener = NodeStorage::opener(&snapshot_path, &self.hot.config, None).with_migrator(self.migrator.unwrap());
+            let opener = NodeStorage::opener(&snapshot_path, &self.hot.config, None)
+                .with_migrator(self.migrator.unwrap());
             let _ = opener.open_in_mode(Mode::ReadWrite)?;
         }
         Ok(())
@@ -329,8 +339,10 @@ impl<'a> StoreOpener<'a> {
             Snapshot::none()
         };
 
-        let a = self.migrate_state_snapshots();
-        tracing::info!("State snapshots migrated: {:?}", a);
+        if let Err(error) = self.migrate_state_snapshots() {
+            // If migration fails the node may not be able to share state parts.
+            tracing::error!(target: "db_opener", ?error, "Error migrating state snapshots");
+        }
 
         let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
         let cold_db = self
