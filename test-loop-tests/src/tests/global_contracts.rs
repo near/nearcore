@@ -109,7 +109,7 @@ fn test_global_contract_update() {
     for account in &use_accounts {
         // Function call should be successful after deploying rs contract
         // containing the function we call here
-        env.call_global_contract(account.clone(), account.clone());
+        env.assert_call_global_contract_success(account.clone(), account.clone());
     }
 
     env.shutdown();
@@ -146,7 +146,7 @@ fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
             baseline_storage_usage + identifier.len() as StorageUsage
         );
 
-        env.call_global_contract(account.clone(), account.clone());
+        env.assert_call_global_contract_success(account.clone(), account.clone());
 
         // Deploy regular contract to check if storage usage is updated correctly
         env.deploy_regular_contract(&account);
@@ -205,7 +205,7 @@ fn test_use_global_contract_delegate(deploy_mode: GlobalContractDeployMode) {
 
     // Using relayer's account to trigger function call since user account has
     // zero balance and cannot pay for the transaction.
-    env.call_global_contract(relayer_account, user_account);
+    env.assert_call_global_contract_success(relayer_account, user_account);
 
     env.shutdown();
 }
@@ -392,7 +392,11 @@ impl GlobalContractsTestEnv {
         )
     }
 
-    fn call_global_contract(&mut self, singer_id: AccountId, receiver_id: AccountId) {
+    fn assert_call_global_contract_success(
+        &mut self,
+        singer_id: AccountId,
+        receiver_id: AccountId,
+    ) {
         let tx = self.call_global_contract_tx(singer_id, receiver_id);
         self.run_tx(tx);
     }
