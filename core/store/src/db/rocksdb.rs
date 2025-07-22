@@ -51,17 +51,17 @@ static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
 /// Columns that support background writes
 /// These are typically columns that can handle delayed writes without affecting correctness
 const ASYNC_WRITE_COLUMNS: &[DBCol] = &[
-    // DBCol::State,            // State data can be written asynchronously
-    // DBCol::TrieChanges,      // Trie change data
-    // DBCol::FlatState,        // Flat state data
-    // DBCol::FlatStateChanges, // Flat state changes
-    // DBCol::Transactions,     // Transaction data
-    // // New columns
-    // DBCol::IncomingReceipts,    // Incoming receipts data
-    // DBCol::OutgoingReceipts,    // Outgoing receipts data
-    // DBCol::StateChanges,        // State changes data
-    // DBCol::StateTransitionData, // State transition data
-    // DBCol::ChunkApplyStats,     // Chunk apply statistics
+    DBCol::State,            // State data can be written asynchronously
+    DBCol::TrieChanges,      // Trie change data
+    DBCol::FlatState,        // Flat state data
+    DBCol::FlatStateChanges, // Flat state changes
+    DBCol::Transactions,     // Transaction data
+    // New columns
+    DBCol::IncomingReceipts,    // Incoming receipts data
+    DBCol::OutgoingReceipts,    // Outgoing receipts data
+    DBCol::StateChanges,        // State changes data
+    DBCol::StateTransitionData, // State transition data
+    DBCol::ChunkApplyStats,     // Chunk apply statistics
 ];
 
 /// Tracks write operations that are in progress for specific columns
@@ -792,7 +792,7 @@ fn common_rocksdb_options() -> Options {
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
     opts.set_enable_blob_files(true);
-    opts.set_min_blob_size(16 * 1024);
+    opts.set_min_blob_size(1024);
     opts.set_enable_blob_gc(true);
 
     if cfg!(feature = "single_thread_rocksdb") {
@@ -869,7 +869,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
     opts.set_enable_blob_files(true);
-    opts.set_min_blob_size(16 * 1024);
+    opts.set_min_blob_size(1024);
     opts.set_enable_blob_gc(true);
 
     // Note that this function changes a lot of RocksDB parameters including:
