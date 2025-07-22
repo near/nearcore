@@ -638,31 +638,31 @@ impl Database for RocksDB {
                 write_tracker.start_async_write(*col);
             }
 
-            //thread::spawn(move || {
-            tracing::debug!(
-                target: "store::db::rocksdb",
-                "Writing async batches for columns: {:?}",
-                async_batches.keys().collect::<Vec<_>>()
-            );
+            thread::spawn(move || {
+                tracing::debug!(
+                    target: "store::db::rocksdb",
+                    "Writing async batches for columns: {:?}",
+                    async_batches.keys().collect::<Vec<_>>()
+                );
 
-            // Now write each batch
-            for (col, mut batch) in async_batches {
-                batch.is_async = true;
-                let timer = metrics::DATABASE_OP_LATENCY_HIST
-                    .with_label_values(&["write", col.into()])
-                    .start_timer();
-                if let Err(e) = db_clone.write(batch) {
-                    tracing::error!(
-                        target: "store::db::rocksdb",
-                        "Failed to write async batch for column {:?}: {:?}",
-                        col, e
-                    );
+                // Now write each batch
+                for (col, mut batch) in async_batches {
+                    batch.is_async = true;
+                    let timer = metrics::DATABASE_OP_LATENCY_HIST
+                        .with_label_values(&["write", col.into()])
+                        .start_timer();
+                    if let Err(e) = db_clone.write(batch) {
+                        tracing::error!(
+                            target: "store::db::rocksdb",
+                            "Failed to write async batch for column {:?}: {:?}",
+                            col, e
+                        );
+                    }
+                    timer.observe_duration();
+                    // Mark the async write as done
+                    write_tracker.done_async_write(col);
                 }
-                timer.observe_duration();
-                // Mark the async write as done
-                write_tracker.done_async_write(col);
-            }
-            //});
+            });
         }
 
         Ok(())
