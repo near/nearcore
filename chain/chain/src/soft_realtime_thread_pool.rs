@@ -81,7 +81,7 @@ impl ThreadPool {
             .priority(self.priority)
             .spawn(move |res| {
                 if let Err(err) = res {
-                    debug!(target: "chain::apply_chunks_thread_pool", name = name, err = %err, "Setting scheduler policy failed");
+                    debug!(target: "chain::soft_realtime_thread_pool", name = name, err = %err, "Setting scheduler policy failed");
                 };
                 run_worker(job, idle_timeout, idle_queue, counter_guard)
             }).expect("Failed to spawn thread");
@@ -116,7 +116,7 @@ impl WorkerCounter {
         let num_threads = self.num_threads.fetch_add(1, Ordering::SeqCst);
         if num_threads > self.limit {
             debug!(
-                target: "chain::apply_chunks_thread_pool",
+                target: "chain::soft_realtime_thread_pool",
                 name = self.name,
                 limit = self.limit,
                 num_threads = num_threads,
