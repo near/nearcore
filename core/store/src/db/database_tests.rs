@@ -27,8 +27,8 @@ use crate::flat::{
 };
 use crate::test_utils::TestTriesBuilder;
 use crate::{
-    DBCol, NodeStorage, ShardTries, StoreUpdate, TrieUpdate, get_access_key, get_account,
-    set_access_key, set_account,
+    DBCol, NodeStorage, ShardTries, StoreConfig, StoreUpdate, TrieUpdate, get_access_key,
+    get_account, set_access_key, set_account,
 };
 
 /// Tests the behavior of the iterators. Iterators don't really work over cold storage, so we're not testing it here.
@@ -91,10 +91,10 @@ fn test_replay_batches() {
 
     // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
     // same configuration as in production.
-    let mut store = NodeStorage::opener(tmp_dir.path(), &Default::default(), None)
-        .open()
-        .unwrap()
-        .get_hot_store();
+    let mut store_config = StoreConfig::default();
+    store_config.enable_statistics = true;
+    let mut store =
+        NodeStorage::opener(tmp_dir.path(), &store_config, None).open().unwrap().get_hot_store();
     store.set_output_batches(false);
 
     // Iterate over all files in the directory, alphabetically
