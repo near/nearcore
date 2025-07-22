@@ -37,6 +37,7 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tracing::span::EnteredSpan;
 
 fn old_outcomes(
@@ -803,12 +804,14 @@ fn benchmark_chunk_application(
     );
     println!("");
 
-    let start_time = std::time::Instant::now();
-    let mut gas_burned: u128 = 0;
-    let report_interval = std::time::Duration::from_secs(1);
-    let mut last_report_time = start_time;
+    let mut total_chunk_application_time: Duration = Duration::ZERO;
+    let mut total_gas_burned: u128 = 0;
+    let report_interval = Duration::from_secs(1);
+    let mut last_report_time = Instant::now();
 
     for i in 1.. {
+        let cur_input = input.clone();
+
         let _span = tracing::debug_span!(
             target: "state_viewer",
             parent: &parent_span,
@@ -816,16 +819,18 @@ fn benchmark_chunk_application(
             height)
         .entered();
 
-        let apply_result = apply_chunk_from_input(input.clone(), &*runtime_adapter);
-        gas_burned += apply_result.total_gas_burnt as u128;
+        let chunk_application_start_time = Instant::now();
+        let apply_result = apply_chunk_from_input(cur_input, &*runtime_adapter);
+        total_chunk_application_time += chunk_application_start_time.elapsed();
+        total_gas_burned += apply_result.total_gas_burnt as u128;
 
         if i == 1 || last_report_time.elapsed() >= report_interval {
             println!(
                 "Applied the chunk {} times. - average stats: (application time: {:.1}ms, applications per second: {:.2}, gas_burned: {:.1} TGas)",
                 i,
-                start_time.elapsed().as_secs_f64() * 1000.0 / i as f64,
-                i as f64 / start_time.elapsed().as_secs_f64(),
-                gas_burned as f64 / 1_000_000_000_000.0 / i as f64
+                total_chunk_application_time.as_secs_f64() * 1000.0 / i as f64,
+                i as f64 / total_chunk_application_time.as_secs_f64(),
+                total_gas_burned as f64 / 1_000_000_000_000.0 / i as f64
             );
             last_report_time = std::time::Instant::now();
         }
