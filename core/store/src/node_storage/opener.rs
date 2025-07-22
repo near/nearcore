@@ -1,4 +1,4 @@
-use crate::config::ArchivalConfig;
+use crate::config::{ArchivalConfig, StateSnapshotType};
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
@@ -262,6 +262,38 @@ impl<'a> StoreOpener<'a> {
         Ok(storage)
     }
 
+    fn migrate_state_snapshots(
+        &self,
+        migrator: &dyn StoreMigrator,
+    ) -> Result<(), StoreOpenerError> {
+        // Iterate over all state snapshots in the state snapshots directory state_snapshots_dir,
+        // for each state snapshot, run the migration on it.
+        let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
+            StateSnapshotType::Enabled => {
+                self.hot.config.path.as_ref().unwrap_or(&"data".into()).join("state_snapshot")
+            }
+            StateSnapshotType::Disabled => return Ok(()),
+        };
+
+        // Check if folder exists
+        if !state_snapshots_dir.exists() {
+            return Ok(());
+        }
+
+        for entry in std::fs::read_dir(state_snapshots_dir)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let snapshot_path = entry.path();
+
+            let opener =
+                NodeStorage::opener(&snapshot_path, &self.hot.config, None).with_migrator(migrator);
+            let _ = opener.open_in_mode(Mode::ReadWrite)?;
+        }
+        Ok(())
+    }
+
     fn open_dbs(
         &self,
         mode: Mode,
@@ -288,6 +320,10 @@ impl<'a> StoreOpener<'a> {
         } else {
             Snapshot::none()
         };
+
+        if let Some(migrator) = &self.migrator {
+            self.migrate_state_snapshots(*migrator)?;
+        }
 
         let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
         let cold_db = self
