@@ -23,7 +23,7 @@ type IdleThreadQueue = Arc<Mutex<VecDeque<oneshot::Sender<Option<Job>>>>>;
 /// configured `priority`. Realtime threads **always** take precedence over
 /// threads using normal policy (`SCHED_OTHER`), so `priority` applies **only
 /// among other realtime threads**.
-pub struct ThreadPool {
+pub(crate) struct ThreadPool {
     /// Name of the pool. Used for logging/debugging purposes.
     name: &'static str,
     /// Priority of spawned threads (must be in [0; 100] range)
@@ -39,7 +39,12 @@ pub struct ThreadPool {
 
 impl ThreadPool {
     /// Create a new thread pool. Panics if priority is out of [0; 100] range.
-    pub fn new(name: &'static str, idle_timeout: Duration, limit: usize, priority: u8) -> Self {
+    pub(crate) fn new(
+        name: &'static str,
+        idle_timeout: Duration,
+        limit: usize,
+        priority: u8,
+    ) -> Self {
         Self {
             name,
             priority: priority.try_into().expect("priority out of range"),
@@ -51,7 +56,7 @@ impl ThreadPool {
 
     /// Spawn a new task to be run on the pool. It will re-use existing idle threads
     /// if possible, or spawn a new thread. Panic when spawning a new thread fails.
-    pub fn spawn_boxed(&self, job: Job) {
+    pub(crate) fn spawn_boxed(&self, job: Job) {
         // Try to use one of the existing idle threads
         let mut job = Some(job);
         let mut queue_guard = self.idle_thread_queue.lock();
@@ -182,6 +187,36 @@ impl ApplyChunksSpawner {
             }
             ApplyChunksSpawner::Custom(spawner) => spawner,
         }
+    }
+}
+
+/// High-priority thread pool for validating partial chunk witnesses.
+pub struct PartialWitnessValidationThreadPool(ThreadPool);
+
+impl PartialWitnessValidationThreadPool {
+    pub fn new() -> Self {
+        Self(ThreadPool::new("partial_witness_validation", Duration::from_secs(30), 2, 70))
+    }
+}
+
+impl AsyncComputationSpawner for PartialWitnessValidationThreadPool {
+    fn spawn_boxed(&self, _name: &str, job: Box<dyn FnOnce() + Send>) {
+        self.0.spawn_boxed(job)
+    }
+}
+
+/// High-priority thread pool for creating chunk witnesses.
+pub struct WitnessCreationThreadPool(ThreadPool);
+
+impl WitnessCreationThreadPool {
+    pub fn new() -> Self {
+        Self(ThreadPool::new("witness_creation", Duration::from_secs(30), 1, 70))
+    }
+}
+
+impl AsyncComputationSpawner for WitnessCreationThreadPool {
+    fn spawn_boxed(&self, _name: &str, job: Box<dyn FnOnce() + Send>) {
+        self.0.spawn_boxed(job)
     }
 }
 
