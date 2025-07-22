@@ -792,7 +792,7 @@ fn common_rocksdb_options() -> Options {
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
     opts.set_enable_blob_files(true);
-    opts.set_min_blob_size(1024);
+    opts.set_min_blob_size(16 * 1024);
     opts.set_enable_blob_gc(true);
 
     if cfg!(feature = "single_thread_rocksdb") {
@@ -823,8 +823,8 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
         opts.enable_statistics();
         // Disabling dumping stats to files because the stats are exported to
         // Prometheus.
-        opts.set_stats_persist_period_sec(0);
-        opts.set_stats_dump_period_sec(0);
+        opts.set_stats_persist_period_sec(60);
+        opts.set_stats_dump_period_sec(60);
     }
 
     opts
@@ -869,7 +869,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
     opts.set_enable_blob_files(true);
-    opts.set_min_blob_size(1024);
+    opts.set_min_blob_size(16 * 1024);
     opts.set_enable_blob_gc(true);
 
     // Note that this function changes a lot of RocksDB parameters including:
