@@ -264,31 +264,39 @@ impl<'a> StoreOpener<'a> {
 
     fn migrate_state_snapshots(
         &self,
-        migrator: &dyn StoreMigrator,
     ) -> Result<(), StoreOpenerError> {
+        if self.migrator.is_none() {
+            tracing::info!("No migrator found, skipping state snapshots migration");
+            return Ok(());
+        }
+
         // Iterate over all state snapshots in the state snapshots directory state_snapshots_dir,
         // for each state snapshot, run the migration on it.
         let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
             StateSnapshotType::Enabled => {
-                self.hot.config.path.as_ref().unwrap_or(&"data".into()).join("state_snapshot")
+                self.hot.path.join("state_snapshot")
             }
-            StateSnapshotType::Disabled => return Ok(()),
+            StateSnapshotType::Disabled => {
+                tracing::info!("State snapshots are disabled, skipping state snapshots migration");
+                return Ok(());
+            }
         };
 
         // Check if folder exists
         if !state_snapshots_dir.exists() {
+            tracing::info!("State snapshots directory does not exist, skipping state snapshots migration: {:?}", state_snapshots_dir);
             return Ok(());
         }
 
         for entry in std::fs::read_dir(state_snapshots_dir)? {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
+                tracing::info!("State snapshot is not a directory, skipping: {:?}", entry.path());
                 continue;
             }
             let snapshot_path = entry.path();
 
-            let opener =
-                NodeStorage::opener(&snapshot_path, &self.hot.config, None).with_migrator(migrator);
+            let opener = NodeStorage::opener(&snapshot_path, &self.hot.config, None).with_migrator(self.migrator.unwrap());
             let _ = opener.open_in_mode(Mode::ReadWrite)?;
         }
         Ok(())
@@ -321,9 +329,8 @@ impl<'a> StoreOpener<'a> {
             Snapshot::none()
         };
 
-        if let Some(migrator) = self.migrator {
-            self.migrate_state_snapshots(migrator)?;
-        }
+        let a = self.migrate_state_snapshots();
+        tracing::info!("State snapshots migrated: {:?}", a);
 
         let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
         let cold_db = self
