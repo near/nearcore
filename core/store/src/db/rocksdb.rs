@@ -794,6 +794,7 @@ fn common_rocksdb_options() -> Options {
     opts.set_enable_blob_files(true);
     opts.set_min_blob_size(1024);
     opts.set_enable_blob_gc(true);
+    opts.set_atomic_flush(true);
 
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
