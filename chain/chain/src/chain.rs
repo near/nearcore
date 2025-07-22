@@ -1,4 +1,3 @@
-use crate::apply_chunks_thread_pool::ApplyChunksSpawner;
 use crate::approval_verification::verify_approval_with_approvers_info;
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
@@ -18,6 +17,7 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_with_epoch_manager,
 };
+use crate::soft_realtime_thread_pool::ApplyChunksSpawner;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
