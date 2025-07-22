@@ -278,8 +278,6 @@ impl<'a> StoreOpener<'a> {
             return Ok(());
         }
 
-        // Iterate over all state snapshots in the state snapshots directory state_snapshots_dir,
-        // for each state snapshot, run the migration on it.
         let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
             StateSnapshotType::Enabled => self.hot.path.join("state_snapshot"),
             StateSnapshotType::Disabled => {
@@ -288,7 +286,6 @@ impl<'a> StoreOpener<'a> {
             }
         };
 
-        // Check if folder exists
         if !state_snapshots_dir.exists() {
             tracing::debug!(
                 "State snapshots directory does not exist, skipping state snapshots migration: {:?}",
