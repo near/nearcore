@@ -321,8 +321,8 @@ impl<'a> StoreOpener<'a> {
             Snapshot::none()
         };
 
-        if let Some(migrator) = &self.migrator {
-            self.migrate_state_snapshots(*migrator)?;
+        if let Some(migrator) = self.migrator {
+            self.migrate_state_snapshots(migrator)?;
         }
 
         let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
