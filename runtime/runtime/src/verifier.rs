@@ -37,7 +37,7 @@ pub enum StorageStakingError {
 
 /// Checks if given account has enough balance for storage stake.
 ///
-/// Note that the current account balance has to be provided separately. This is to accomodate
+/// Note that the current account balance has to be provided separately. This is to accommodate
 /// callers which want to check for specific balance and not necessarily the balance specified
 /// inside the account.
 ///
