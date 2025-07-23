@@ -1,4 +1,4 @@
-use crate::config::{ArchivalConfig, StateSnapshotType};
+use crate::config::{ArchivalConfig, STATE_SNAPSHOT_DIR, StateSnapshotType};
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
@@ -274,33 +274,38 @@ impl<'a> StoreOpener<'a> {
     /// - If the state snapshot is already migrated
     fn migrate_state_snapshots(&self) -> Result<(), StoreOpenerError> {
         if self.migrator.is_none() {
-            tracing::debug!("No migrator found, skipping state snapshots migration");
+            tracing::debug!(target: "db_opener", "No migrator found, skipping state snapshots migration");
             return Ok(());
         }
 
         let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
-            StateSnapshotType::Enabled => self.hot.path.join("state_snapshot"),
+            StateSnapshotType::Enabled => self.hot.path.join(STATE_SNAPSHOT_DIR),
             StateSnapshotType::Disabled => {
-                tracing::debug!("State snapshots are disabled, skipping state snapshots migration");
+                tracing::debug!(target: "db_opener", "State snapshots are disabled, skipping state snapshots migration");
                 return Ok(());
             }
         };
 
         if !state_snapshots_dir.exists() {
             tracing::debug!(
-                "State snapshots directory does not exist, skipping state snapshots migration: {:?}",
-                state_snapshots_dir
+                target: "db_opener",
+                ?state_snapshots_dir,
+                "State snapshots directory does not exist, skipping state snapshots migration"
             );
             return Ok(());
         }
 
         for entry in std::fs::read_dir(state_snapshots_dir)? {
             let entry = entry?;
+            let snapshot_path = entry.path();
             if !entry.file_type()?.is_dir() {
-                tracing::trace!("State snapshot is not a directory, skipping: {:?}", entry.path());
+                tracing::trace!(
+                    target: "db_opener",
+                    ?snapshot_path,
+                    "This entry is not a directory, skipping"
+                );
                 continue;
             }
-            let snapshot_path = entry.path();
 
             let opener = NodeStorage::opener(&snapshot_path, &self.hot.config, None)
                 .with_migrator(self.migrator.unwrap());
