@@ -173,6 +173,11 @@ fn test_replay_batches() {
         }
         let now = std::time::Instant::now();
         store.write(transaction).expect("Failed to write transaction to store");
+        if cols.starts_with("Block-") || cols.starts_with("FlatState-FlatStateChanges-") {
+            //print_batch_stats(cols, &transaction);
+        } else {
+            store.database().flush_wal().expect("Failed to flush WAL");
+        }
         let elapsed = now.elapsed();
 
         if cols.starts_with("Block-") || cols.starts_with("FlatState-FlatStateChanges-") {

@@ -1,5 +1,6 @@
 use crate::{DBCol, deserialized_column};
 use borsh::{BorshDeserialize, BorshSerialize};
+use core::panic;
 use near_fmt::{AbbrBytes, StorageKey};
 use std::collections::HashSet;
 use std::io;
@@ -246,6 +247,9 @@ pub trait Database: Sync + Send {
     ///
     /// This is a no-op for in-memory databases.
     fn flush(&self) -> io::Result<()>;
+    fn flush_wal(&self) -> io::Result<()> {
+        panic!("flush_wal is not implemented for this database type");
+    }
 
     /// Compact database representation.
     ///

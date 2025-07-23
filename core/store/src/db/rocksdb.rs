@@ -51,17 +51,17 @@ static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
 /// Columns that support background writes
 /// These are typically columns that can handle delayed writes without affecting correctness
 const ASYNC_WRITE_COLUMNS: &[DBCol] = &[
-    DBCol::State,            // State data can be written asynchronously
-    DBCol::TrieChanges,      // Trie change data
-    DBCol::FlatState,        // Flat state data
-    DBCol::FlatStateChanges, // Flat state changes
-    DBCol::Transactions,     // Transaction data
+    // DBCol::State,            // State data can be written asynchronously
+    // DBCol::TrieChanges,      // Trie change data
+    // DBCol::FlatState,        // Flat state data
+    // DBCol::FlatStateChanges, // Flat state changes
+    // DBCol::Transactions,     // Transaction data
     // New columns
-    DBCol::IncomingReceipts,    // Incoming receipts data
-    DBCol::OutgoingReceipts,    // Outgoing receipts data
-    DBCol::StateChanges,        // State changes data
-    DBCol::StateTransitionData, // State transition data
-    DBCol::ChunkApplyStats,     // Chunk apply statistics
+    // DBCol::IncomingReceipts,    // Incoming receipts data
+    // DBCol::OutgoingReceipts,    // Outgoing receipts data
+    // DBCol::StateChanges,        // State changes data
+    // DBCol::StateTransitionData, // State transition data
+    // DBCol::ChunkApplyStats,     // Chunk apply statistics
 ];
 
 /// Tracks write operations that are in progress for specific columns
@@ -602,6 +602,10 @@ impl Database for RocksDB {
         self.db.write(batch).map_err(io::Error::other)
     }
 
+    fn flush_wal(&self) -> io::Result<()> {
+        self.db.flush_wal(false).map_err(io::Error::other)
+    }
+
     fn write_async(
         &self,
         transaction: DBTransaction,
@@ -806,7 +810,8 @@ fn common_rocksdb_options() -> Options {
         opts.set_level_zero_stop_writes_trigger(100000000);
     } else {
         opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
-        opts.set_max_total_wal_size(bytesize::GIB);
+        opts.set_max_total_wal_size(u64::MAX);
+        opts.set_manual_wal_flush(true);
     }
     opts
 }
