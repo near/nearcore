@@ -54,7 +54,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::{
-    ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig, StateSnapshotType,
+    ArchivalConfig, ArchivalStoreConfig, STATE_SNAPSHOT_DIR, SplitStorageConfig, StateSnapshotType,
 };
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
@@ -723,7 +723,7 @@ impl NightshadeRuntime {
                 StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
                     home_dir,
                     config.config.store.path.as_ref().unwrap_or(&"data".into()),
-                    "state_snapshot",
+                    STATE_SNAPSHOT_DIR,
                 ),
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };
