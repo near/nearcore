@@ -91,7 +91,7 @@ fn test_missing_genesis_congestion_infos_bootstrap() {
     let store2 = create_test_store();
     let epoch_manager = EpochManager::new_arc_handle(store2.clone(), &genesis.config, None);
 
-    // Note: with broken genesis congestion info, this call below will fail when passing store2, 
+    // Note: with broken genesis congestion info, this call below will fail when passing store2,
     // but succeeds when passing store1
     let runtime =
         NightshadeRuntime::test(Path::new("."), store2, &genesis.config, epoch_manager.clone());
@@ -102,11 +102,23 @@ fn test_missing_genesis_congestion_infos_bootstrap() {
         &genesis_state_roots,
     );
 
-    // Should succeed when we node is epoch synched from an empty data dir
-    let congestion_infos = result.expect("Getting genesis congestion info should not fail");
+    // Should succeed when the node is epoch synched from an empty data dir
+    let computed_congestion_infos =
+        result.expect("Getting genesis congestion info should not fail");
 
     // Single shard, so len must be 1
-    assert_eq!(congestion_infos.len(), 1);
+    assert_eq!(computed_congestion_infos.len(), 1);
+
+    // Validate that the computed congestion info matches the original one
+    let runtime =
+        NightshadeRuntime::test(Path::new("."), store1, &genesis.config, epoch_manager.clone());
+    let real_congestion_infos = get_genesis_congestion_infos(
+        epoch_manager.as_ref(),
+        runtime.as_ref(),
+        &genesis_state_roots,
+    )
+    .unwrap();
+    assert_eq!(computed_congestion_infos, real_congestion_infos);
 }
 
 fn check_genesis_congestion_info_in_store(client: &mut Client) {
