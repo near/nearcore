@@ -5192,6 +5192,8 @@ neard view-state --read-write apply-range --shard-id 0 --storage flat sequential
 neard view-state apply-range --shard-id 0 --storage memtrie benchmark
 # Same but with flat storage
 neard view-state apply-range --shard-id 0 --storage flat benchmark
+# Same but with recorded storage
+neard view-state apply-range --shard-id 0 --storage recorded benchmark
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="benchmarking-neard"><a class="header" href="#benchmarking-neard">Benchmarking <code>neard</code></a></h1>
 <p>At the moment there are 3 major benchmarking tools in use: </p>
@@ -5458,6 +5460,9 @@ Sometimes running the workload fails because the database LOCK hasn't been freed
 </code></pre>
 <p>or</p>
 <pre><code class="language-shell">./neard --home .near view-state apply-range --shard-id 0 --storage memtrie benchmark
+</code></pre>
+<p>or</p>
+<pre><code class="language-shell">./neard --home .near view-state apply-range --shard-id 0 --storage recorded benchmark
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div><!-- cspell:ignore nearinc pkill rgba xdwp -->
 <h1 id="working-with-opentelemetry-traces"><a class="header" href="#working-with-opentelemetry-traces">Working with OpenTelemetry Traces</a></h1>
