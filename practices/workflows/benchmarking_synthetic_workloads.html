@@ -1,0 +1,281 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Synthetic Workloads - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../../favicon.svg">
+        <link rel="shortcut icon" href="../../favicon.png">
+        <link rel="stylesheet" href="../../css/variables.css">
+        <link rel="stylesheet" href="../../css/general.css">
+        <link rel="stylesheet" href="../../css/chrome.css">
+        <link rel="stylesheet" href="../../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../../highlight.css">
+        <link rel="stylesheet" href="../../tomorrow-night.css">
+        <link rel="stylesheet" href="../../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/how/sync.html"><strong aria-hidden="true">2.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/gc.html"><strong aria-hidden="true">2.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../../architecture/how/epoch.html"><strong aria-hidden="true">2.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/tx_routing.html"><strong aria-hidden="true">2.4.</strong> Transaction Routing</a></li><li class="chapter-item expanded "><a href="../../architecture/how/tx_receipts.html"><strong aria-hidden="true">2.5.</strong> Transactions And Receipts</a></li><li class="chapter-item expanded "><a href="../../architecture/how/cross-shard.html"><strong aria-hidden="true">2.6.</strong> Cross shard transactions - deep dive</a></li><li class="chapter-item expanded "><a href="../../architecture/how/gas.html"><strong aria-hidden="true">2.7.</strong> Gas</a></li><li class="chapter-item expanded "><a href="../../architecture/how/receipt-congestion.html"><strong aria-hidden="true">2.8.</strong> Receipt Congestion</a></li><li class="chapter-item expanded "><a href="../../architecture/how/meta-tx.html"><strong aria-hidden="true">2.9.</strong> Meta transactions</a></li><li class="chapter-item expanded "><a href="../../architecture/how/serialization.html"><strong aria-hidden="true">2.10.</strong> Serialization: Borsh, Json, ProtoBuf</a></li><li class="chapter-item expanded "><a href="../../architecture/how/proofs.html"><strong aria-hidden="true">2.11.</strong> Proofs</a></li><li class="chapter-item expanded "><a href="../../architecture/how/resharding_v2.html"><strong aria-hidden="true">2.12.</strong> Resharding V2</a></li><li class="chapter-item expanded "><a href="../../architecture/how/optimistic_block.html"><strong aria-hidden="true">2.13.</strong> Optimistic block</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/next/index.html"><strong aria-hidden="true">3.</strong> How neard will work</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/next/catchup_and_state_sync.html"><strong aria-hidden="true">3.1.</strong> Catchup and state sync improvements</a></li><li class="chapter-item expanded "><a href="../../architecture/next/malicious_chunk_producer_and_phase2.html"><strong aria-hidden="true">3.2.</strong> Malicious producers and phase 2</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/storage.html"><strong aria-hidden="true">4.</strong> Storage</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/storage/flow.html"><strong aria-hidden="true">4.1.</strong> Storage Request Flow</a></li><li class="chapter-item expanded "><a href="../../architecture/storage/trie_storage.html"><strong aria-hidden="true">4.2.</strong> Trie Storage</a></li><li class="chapter-item expanded "><a href="../../architecture/storage/database.html"><strong aria-hidden="true">4.3.</strong> Database Format</a></li><li class="chapter-item expanded "><a href="../../architecture/storage/flat_storage.html"><strong aria-hidden="true">4.4.</strong> Flat Storage</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/network.html"><strong aria-hidden="true">5.</strong> Network</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/index.html"><strong aria-hidden="true">6.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/gas/parameter_definition.html"><strong aria-hidden="true">6.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/gas_profile.html"><strong aria-hidden="true">6.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/estimator.html"><strong aria-hidden="true">6.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../../practices/index.html"><strong aria-hidden="true">7.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../practices/rust.html"><strong aria-hidden="true">8.</strong> Rust 🦀</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/index.html"><strong aria-hidden="true">9.</strong> Workflows</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/workflows/run_a_node.html"><strong aria-hidden="true">9.1.</strong> Run a Node</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/deploy_a_contract.html"><strong aria-hidden="true">9.2.</strong> Deploy a Contract</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/gas_estimations.html"><strong aria-hidden="true">9.3.</strong> Run Gas Estimations</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/localnet_on_many_machines.html"><strong aria-hidden="true">9.4.</strong> Localnet on many machines</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/io_trace.html"><strong aria-hidden="true">9.5.</strong> IO tracing</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/profiling.html"><strong aria-hidden="true">9.6.</strong> Profiling</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/benchmarks.html"><strong aria-hidden="true">9.7.</strong> Benchmarks</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/workflows/benchmarking_synthetic_workloads.html" class="active"><strong aria-hidden="true">9.7.1.</strong> Synthetic Workloads</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/benchmarking_chunk_application_on_native_transfers.html"><strong aria-hidden="true">9.7.2.</strong> Native Transfer Chunk Application</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/workflows/otel_traces.html"><strong aria-hidden="true">9.8.</strong> Working with OpenTelemetry Traces</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/futex_contention.html"><strong aria-hidden="true">9.9.</strong> Futex contention</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/style.html"><strong aria-hidden="true">10.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../../practices/docs.html"><strong aria-hidden="true">11.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../../practices/tracking_issues.html"><strong aria-hidden="true">12.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../../practices/security_vulnerabilities.html"><strong aria-hidden="true">13.</strong> Security Vulnerabilities</a></li><li class="chapter-item expanded "><a href="../../practices/fast_builds.html"><strong aria-hidden="true">14.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../../practices/testing/index.html"><strong aria-hidden="true">15.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/testing/python_tests.html"><strong aria-hidden="true">15.1.</strong> Python Tests</a></li><li class="chapter-item expanded "><a href="../../practices/testing/test_utils.html"><strong aria-hidden="true">15.2.</strong> Testing Utils</a></li><li class="chapter-item expanded "><a href="../../practices/testing/coverage.html"><strong aria-hidden="true">15.3.</strong> Test Coverage</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/protocol_upgrade.html"><strong aria-hidden="true">16.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Advanced configuration</li><li class="chapter-item expanded "><a href="../../advanced_configuration/networking.html"><strong aria-hidden="true">17.</strong> Networking</a></li><li class="chapter-item expanded affix "><li class="part-title">Custom test networks</li><li class="chapter-item expanded "><a href="../../test_networks/mainnet_spoon.html"><strong aria-hidden="true">18.</strong> Starting a network from mainnet state</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../../misc/index.html"><strong aria-hidden="true">19.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../misc/state_sync_dump.html"><strong aria-hidden="true">20.</strong> State Sync Dump</a></li><li class="chapter-item expanded "><a href="../../misc/archival_data_recovery.html"><strong aria-hidden="true">21.</strong> Archival node - recovery of missing data</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./practices/workflows/benchmarking_synthetic_workloads.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="benchmarking-synthetic-workloads"><a class="header" href="#benchmarking-synthetic-workloads">Benchmarking synthetic workloads</a></h1>
+<p>Benchmarking a synthetic workload starts a new network with empty state. Then state is created and afterwards transactions involving that state are generated. For example, the native token transfer workload creates <code>n</code> accounts with NEAR balance and then generates transactions to transfer the native token between accounts.</p>
+<p>This approach has the following benefits:</p>
+<ul>
+<li>Relatively simple and quick setup, as there is no state from real work networks involved.</li>
+<li>Fine grained control over traffic intensity.</li>
+<li>Enabling the comparison of <code>neard</code> performance at different points in time or with different features.</li>
+<li>Might expose performance bottlenecks.</li>
+</ul>
+<p>The main drawbacks of synthetic benchmarks are:</p>
+<ul>
+<li>Drawing conclusions is limited as real world traffic is not homogeneous.</li>
+<li>Calibrating traffic generation parameters can be cumbersome.</li>
+</ul>
+<p>The tooling for synthetic benchmarks is available in <a href="../../../benchmarks/synth-bm"><code>benchmarks/synth-bm</code></a>.</p>
+<h2 id="workflows"><a class="header" href="#workflows">Workflows</a></h2>
+<p>The tooling's <a href="../../../benchmarks/synth-bm/justfile"><code>justfile</code></a> contains recipes for the most relevant workflows.</p>
+<h3 id="benchmark-native-token-transfers"><a class="header" href="#benchmark-native-token-transfers">Benchmark native token transfers</a></h3>
+<p>A typical workflow benchmarking the native token transfers using the above <code>justfile</code> would be something along the:</p>
+<ul>
+<li>set up the network</li>
+</ul>
+<!-- cspell:words subaccounts -->
+<pre><code class="language-command">rm -rf .near &amp;&amp; just init_localnet
+# Modify the configuration (see the &quot;Un-limit configuration&quot; section)
+[t1]$ just run_localnet
+[t1]$ just create_sub_accounts
+</code></pre>
+<ul>
+<li>run the benchmark</li>
+</ul>
+<pre><code class="language-command"># set the desired tx rate (`--interval-duration-micros`) and the total volume (`--num-transfers`) in the justfile
+[t2]$ just benchmark_native_transfers
+</code></pre>
+<p>This benchmark generates a native token transfer workload involving the accounts provided in <code>--user-data-dir</code>. Transactions are generated by iterating through these accounts and sending native tokens to a randomly chosen receiver from the same set of accounts. To view all options, run:</p>
+<pre><code class="language-command">cargo run --release -- benchmark-native-transfers --help
+</code></pre>
+<p>For the native transfer benchmark transactions are sent with <code>wait_until: None</code>, meaning the responses the <code>near_synth_bm</code> tool receives are basically just an ACK by the RPC confirming it received the transaction.
+Thus the numbers reported by the tool as if in</p>
+<pre><code>[2025-01-27T14:05:12Z INFO  near_synth_bm::native_transfer] Sent 200000 txs in 6.50 seconds
+[2025-01-27T14:05:12Z INFO  near_synth_bm::rpc] Received 200000 tx responses in 6.49 seconds
+</code></pre>
+<p>are not directly indicative of the runtime performance and transaction outcomes.
+The number of transactions successfully processed may be obtained by querying the <code>near_transaction_processed_successfully_total</code> metric, e.g. with: <code>http://localhost:3030/metrics | grep transaction_processed</code>.
+Automatic calculation of transactions per second (TPS) when RPC requests are sent with <code>wait_until: NONE</code> is coming up shortly.</p>
+<h3 id="benchmark-calls-to-the-sign-method-of-an-mpc-contract"><a class="header" href="#benchmark-calls-to-the-sign-method-of-an-mpc-contract">Benchmark calls to the <code>sign</code> method of an MPC contract</a></h3>
+<p>Assumes the accounts that send the transactions invoking <code>sign</code> have been created as described above. Transactions can be sent to a RPC of a network on which an instance of the <a href="https://github.com/near/mpc/tree/79ec50759146221e7ad8bb04520f13333b75ca07/chain-signatures/contract"><code>mpc/chain-signatures</code></a> is deployed.</p>
+<p>Transactions are sent to the RPC with <code>wait_until: EXECUTED_OPTIMISTIC</code> as the throughput for <code>sign</code> is at a level at which neither the network nor the RPC are expected to be a bottleneck.</p>
+<p>All options of the command can be shown with:</p>
+<pre><code class="language-command">cargo run -- benchmark-mpc-sign --help
+</code></pre>
+<h2 id="auxiliary-steps"><a class="header" href="#auxiliary-steps">Auxiliary steps</a></h2>
+<h3 id="network-setup-and-neard-configuration"><a class="header" href="#network-setup-and-neard-configuration">Network setup and <code>neard</code> configuration</a></h3>
+<p>Details of bringing up and configuring a network are out of scope for this document. Instead we just give a brief overview of the setup regularly used to benchmark TPS of common workloads in a single-node with a single-shard setup.</p>
+<h3 id="build-neard"><a class="header" href="#build-neard">Build <code>neard</code></a></h3>
+<p>Choose the git commit and cargo features corresponding to what you want to benchmark. Most likely you will want a <code>--release</code> build to measure TPS. Place the corresponding <code>neard</code> binary in the justfile's directory or set the <code>NEARD_PATH</code> environment variable to point to it.</p>
+<h3 id="create-sub-accounts"><a class="header" href="#create-sub-accounts">Create sub accounts</a></h3>
+<p>Creating the state for synthetic benchmarks usually starts with creating accounts. We create sub accounts for the account specified by <code>--signer-key-path</code>. This avoids dealing with the registrar, which would be required for creating top level accounts. To view all options, run:</p>
+<pre><code class="language-command">cargo run --release -- create-sub-accounts --help
+</code></pre>
+<h3 id="initialize-the-network"><a class="header" href="#initialize-the-network">Initialize the network</a></h3>
+<pre><code class="language-command">./neard --home .near init --chain-id localnet
+</code></pre>
+<h3 id="enable-memtrie"><a class="header" href="#enable-memtrie">Enable memtrie</a></h3>
+<p>The configuration generated by the above command does not enable memtrie. However, most benchmarks should run against a node with memtrie enabled, which can be achieved by setting the following in <code>.near/config.json</code>:</p>
+<pre><code>&quot;load_mem_tries_for_tracked_shards&quot;: true
+</code></pre>
+<h3 id="un-limit-configuration"><a class="header" href="#un-limit-configuration">Un-limit configuration</a></h3>
+<p>Following these steps so far creates a config that will throttle throughput due to various factors related to state witness size, gas/compute limits, and congestion control. In case you want to benchmark a node that fully utilizes its hardware, you can do the following modifications to effectively run with unlimited configuration:</p>
+<pre><code># Modifications in .near/genesis.json
+
+&quot;chain_id&quot;: &quot;benchmarknet&quot;
+&quot;gas_limit&quot;: 20000000000000000               # increase default by x20
+
+# Modifications in .near/config.json
+&quot;view_client_threads&quot;: 8                     # increase default by x2
+&quot;load_mem_tries_for_tracked_shards&quot;: true    # enable memtrie 
+&quot;produce_chunk_add_transactions_time_limit&quot;: {
+  &quot;secs&quot;: 0,
+  &quot;nanos&quot;: 800000000                         # increase default by x4
+}
+</code></pre>
+<p>Note that as <code>nearcore</code> evolves, these steps and <code>BENCHMARKNET</code> adjustments might need to be updated to achieve the effect of un-limiting configuration.</p>
+<p>Modifications of <code>genesis.json</code> need to be applied before initializing the network with <code>just init_localnet</code>. Otherwise <code>just run_localnet</code> will fail. If you ran the node with default config and want to switch to unlimited config, the required steps are:</p>
+<pre><code class="language-console"># Remove .near as you will need to initialize localnet again.
+$ rm -rf .near
+$ just init_localnet
+# Modify the configuration
+$ just run_localnet
+</code></pre>
+<h2 id="common-parameters"><a class="header" href="#common-parameters">Common parameters</a></h2>
+<p>The following parameters are common to multiple tasks:</p>
+<h3 id="rpc-url"><a class="header" href="#rpc-url"><code>rpc-url</code></a></h3>
+<p>The RPC endpoint to which transactions are sent.</p>
+<p>Synthetic benchmarking may create thousands of transactions per second, which can hit network limitations if the RPC is located on a separate machine. In particular sending transactions to nodes running on GCP requires care as it can cause temporary IP address bans. For that scenario it is recommended to run a separate traffic generation vm located in the same GCP zone as the RPC node and send transactions to its <code>internal IP</code>.</p>
+<h3 id="interval-duration-micros"><a class="header" href="#interval-duration-micros"><code>interval-duration-micros</code></a></h3>
+<p>Controls the rate at which transactions are sent. Assuming your hardware is able to send a request at every interval tick, the number of transactions sent per second equals <code>1_000_000 / interval-duration-micros</code>. The rate might be slowed down if <code>channel-buffer-size</code> becomes a bottleneck.</p>
+<h3 id="channel-buffer-size"><a class="header" href="#channel-buffer-size"><code>channel-buffer-size</code></a></h3>
+<p>Before an RPC request is sent, the tooling awaits capacity on a buffered channel. Thereby the number of outstanding RPC requests is limited by <code>channel-buffer-size</code>. This can slow down the rate at which transactions are sent in case the node is congested. To disable that behavior, set <code>channel-buffer-size</code> to a large value, e.g. the total number of transactions to be sent.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../../practices/workflows/benchmarks.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../../practices/workflows/benchmarking_chunk_application_on_native_transfers.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../../practices/workflows/benchmarks.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../../practices/workflows/benchmarking_chunk_application_on_native_transfers.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>
