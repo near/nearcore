@@ -13,12 +13,12 @@ from configured_logger import logger
 import state_sync_lib
 import utils
 
-EPOCH_LENGTH = 50
-TARGET_HEIGHT = int(EPOCH_LENGTH * 2.5)
+EPOCH_LENGTH = 15
+TARGET_HEIGHT = int(EPOCH_LENGTH * 6)
 AFTER_SYNC_HEIGHT = EPOCH_LENGTH * 10
-TIMEOUT = 300
 
-node_config = state_sync_lib.get_state_sync_config_combined()
+
+node_config = state_sync_lib.get_state_sync_config_p2p_no_external()
 # We're generating many blocks here - lower the min production delay to speed
 # up the test running time a little.
 node_config["consensus.min_block_production_delay"] = {
@@ -32,10 +32,14 @@ node_config["consensus.max_block_production_delay"] = {
 node_config["consensus.max_block_wait_delay"] = {"secs": 0, "nanos": 600000000}
 node_config["consensus.block_fetch_horizon"] = 1
 node_config["gc_step_period"] = {"secs": 0, "nanos": 100000000}
+node_config["gc_blocks_limit"] = 3
 
 nodes = start_cluster(
-    4, 0, 1,
-    None, [["epoch_length", EPOCH_LENGTH],
+    num_nodes=4,
+    num_observers=1,
+    num_shards=4,
+    config=None,
+    genesis_config_changes=[["epoch_length", EPOCH_LENGTH],
            ["num_block_producer_seats_per_shard", [5]],
            ["validators", 0, "amount", "60000000000000000000000000000000"],
            ["block_producer_kickout_threshold", 50],
@@ -44,7 +48,7 @@ nodes = start_cluster(
                "records", 0, "Account", "account", "locked",
                "60000000000000000000000000000000"
            ], ["total_supply", "5010000000000000000000000000000000"]],
-    {x: node_config for x in range(4)})
+    client_config_changes={x: node_config for x in range(4)})
 
 node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT)
 

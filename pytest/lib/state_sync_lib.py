@@ -63,13 +63,46 @@ def get_state_sync_config_p2p(tracked_shards_config):
     return config
 
 
+def get_state_sync_config_p2p_no_external():
+    """
+    Same as above but with external storage disabled
+    """
+    state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
+
+    config = {
+        # Throttle view clients aggressively so that some p2p requests will fail.
+        "view_client_num_state_requests_per_throttle_period": 1,
+        "view_client_throttle_period": {
+            "secs": 2,
+            "nanos": 0
+        },
+        "consensus.state_sync_external_timeout": {
+            "secs": 0,
+            "nanos": 500000000
+        },
+        "consensus.state_sync_p2p_timeout": {
+            "secs": 0,
+            "nanos": 500000000
+        },
+        "consensus.state_sync_external_backoff": {
+            "secs": 0,
+            "nanos": 500000000
+        },
+        "store.state_snapshot_config.state_snapshot_type": "Enabled",
+        "state_sync": {
+            "sync": {}
+        },
+        "tracked_shards_config": 'AllShards',
+    }
+
+    return config
+
+
 """
 Generates a pair of configs with a local directory configured for dumping state sync data.
     - config_dump: a node which generates snapshots and dumps headers and parts to the local directory
     - config_sync: a node configured to use the local directory as a data source for state sync
 """
-
-
 def get_state_sync_configs_pair(tracked_shards_config='AllShards'):
     state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
 
