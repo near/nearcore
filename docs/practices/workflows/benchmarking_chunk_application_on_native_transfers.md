@@ -94,3 +94,9 @@ or
 ```shell
 ./neard --home .near view-state apply-range --shard-id 0 --storage memtrie benchmark
 ```
+
+or
+
+```shell
+./neard --home .near view-state apply-range --shard-id 0 --storage recorded benchmark
+```
