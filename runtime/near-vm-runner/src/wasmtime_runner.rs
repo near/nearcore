@@ -469,7 +469,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         let mut linker = Linker::new(engine);
         // TODO: config could be accessed through `logic.result_state`, without this code having to
         // figure it out...
-        link(&mut linker, memory.memory, &store, &config);
+        link(&mut linker, &config);
         let res = instantiate_and_call(&mut store, &linker, &module, &method);
         let logic = store.data_mut().logic.take().expect("logic missing");
         lazy_drop(Box::new((linker, module)));
@@ -502,11 +502,8 @@ impl std::fmt::Display for ErrorContainer {
 
 fn link(
     linker: &mut wasmtime::Linker<Ctx>,
-    memory: wasmtime::Memory,
-    store: &wasmtime::Store<Ctx>,
     config: &Config,
 ) {
-    linker.define(store, "env", "memory", memory).expect("cannot define memory");
 
     macro_rules! add_import {
         (

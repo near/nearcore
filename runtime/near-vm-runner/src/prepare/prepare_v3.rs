@@ -226,7 +226,6 @@ impl<'a> PrepareContext<'a> {
             };
             new_section.import(import.module, import.name, new_type);
         }
-        new_section.import("env", "memory", self.memory_import());
         // wasm_encoder a section with all imports and the imported standardized memory.
         new_section.append_to(&mut self.output_code);
         Ok(())
