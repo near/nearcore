@@ -1,6 +1,6 @@
 ---
 source: core/parameters/src/config_store.rs
-assertion_line: 378
+assertion_line: 412
 expression: config_view
 snapshot_kind: text
 ---
@@ -202,7 +202,7 @@ snapshot_kind: text
     "discard_custom_sections": true,
     "saturating_float_to_int": true,
     "global_contract_host_fns": true,
-    "reftypes_bulk_memory": true,
+    "reftypes_bulk_memory": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
