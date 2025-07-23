@@ -1,8 +1,6 @@
 ---
 source: integration-tests/src/tests/runtime/sanity_checks.rs
-assertion_line: 132
 expression: receipts_status
-snapshot_kind: text
 ---
 - SuccessReceiptId: "11111111111111111111111111111111"
 - Failure:
@@ -18,10 +16,6 @@ snapshot_kind: text
       kind:
         FunctionCallError:
           ExecutionError: "Smart contract panicked: xyz"
-- SuccessValue: ""
-- SuccessValue: ""
-- SuccessValue: ""
-- SuccessValue: ""
 - SuccessValue: ""
 - SuccessValue: ""
 - SuccessValue: ""

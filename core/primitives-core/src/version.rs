@@ -419,14 +419,14 @@ impl ProtocolFeature {
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt => 78,
-            ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
+            ProtocolFeature::ReducedGasRefunds
+            | ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::ReducedGasRefunds => 144,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::RefTypesBulkMemory => 149,
             // Place features that are not yet in Nightly below this line.
