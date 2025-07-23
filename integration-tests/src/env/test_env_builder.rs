@@ -201,7 +201,7 @@ impl TestEnvBuilder {
                 // this limit, we set the max_open_files config to 1000.
                 let mut store_config = StoreConfig::default();
                 store_config.max_open_files = 1000;
-                NodeStorage::opener(home_dir.as_path(), &store_config, None)
+                NodeStorage::opener(home_dir.as_path(), &store_config, None, None)
                     .open()
                     .unwrap()
                     .get_hot_store()

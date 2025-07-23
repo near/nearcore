@@ -53,9 +53,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{
-    ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig, StateSnapshotType,
-};
+use near_store::config::{CloudStorageConfig, SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -320,7 +318,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub archival_storage: Option<ArchivalStoreConfig>,
+    pub cloud_storage: Option<CloudStorageConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -434,7 +432,7 @@ impl Default for Config {
             store,
             cold_store: None,
             split_storage: None,
-            archival_storage: None,
+            cloud_storage: None,
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
@@ -525,16 +523,6 @@ impl Config {
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
         }
-    }
-
-    /// Returns `ArchivalConfig` which contains references to the archival-related configs if the config is for an archival node; otherwise returns `None`.
-    pub fn archival_config(&self) -> Option<ArchivalConfig> {
-        ArchivalConfig::new(
-            self.archive,
-            self.archival_storage.as_ref(),
-            self.cold_store.as_ref(),
-            self.split_storage.as_ref(),
-        )
     }
 
     pub fn tracked_shards_config(&self) -> TrackedShardsConfig {

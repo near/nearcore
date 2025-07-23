@@ -1,6 +1,6 @@
 use near_store::{
     Mode, NodeStorage, STATE_SNAPSHOT_COLUMNS, StoreConfig,
-    checkpoint_hot_storage_and_cleanup_columns, config::ArchivalConfig,
+    checkpoint_hot_storage_and_cleanup_columns,
 };
 use std::path::{Path, PathBuf};
 
@@ -19,9 +19,9 @@ impl MakeSnapshotCommand {
         &self,
         home_dir: &Path,
         store_config: &StoreConfig,
-        archival_config: Option<ArchivalConfig>,
+        cold_store_config: Option<&StoreConfig>,
     ) -> anyhow::Result<()> {
-        let opener = NodeStorage::opener(home_dir, store_config, archival_config);
+        let opener = NodeStorage::opener(home_dir, store_config, cold_store_config, None);
         let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
         let columns_to_keep =
             if self.flat_state_only { Some(STATE_SNAPSHOT_COLUMNS) } else { None };
@@ -45,7 +45,7 @@ mod tests {
     fn test() {
         let home_dir = tempfile::tempdir().unwrap();
         let store_config = StoreConfig::test_config();
-        let opener = NodeStorage::opener(home_dir.path(), &store_config, None);
+        let opener = NodeStorage::opener(home_dir.path(), &store_config, None, None);
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];
 
@@ -76,7 +76,7 @@ mod tests {
         }
 
         let node_storage = opener.open_in_mode(Mode::ReadOnly).unwrap();
-        let snapshot_node_storage = NodeStorage::opener(&destination, &store_config, None)
+        let snapshot_node_storage = NodeStorage::opener(&destination, &store_config, None, None)
             .open_in_mode(Mode::ReadOnly)
             .unwrap();
         for key in keys {

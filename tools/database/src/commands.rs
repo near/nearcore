@@ -84,7 +84,7 @@ impl DatabaseCommand {
             SubCommand::DropColumn(cmd) => cmd.run(home, genesis_validation),
             SubCommand::MakeSnapshot(cmd) => {
                 let near_config = load_config(home, genesis_validation);
-                cmd.run(home, &near_config.config.store, near_config.config.archival_config())
+                cmd.run(home, &near_config.config.store, near_config.config.cold_store.as_ref())
             }
             SubCommand::RunMigrations(cmd) => cmd.run(home, genesis_validation),
             SubCommand::StatePerf(cmd) => cmd.run(home),
