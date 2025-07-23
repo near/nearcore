@@ -5,7 +5,7 @@ use std::ops::{Add, AddAssign, Div};
 
 /// Measures the contribution of a sub-trie associated with a given key
 /// to the overall utilization of the shard to which it belongs.
-/// It is used to trigger resharing and find the right account for a new
+/// It is used to trigger resharding and find the right account for a new
 /// shard boundary.
 #[derive(
     BorshSerialize,
