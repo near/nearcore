@@ -308,6 +308,11 @@ pub enum ProtocolFeature {
     /// price rather than a pessimistic gas price. Also, introduce a new fee of
     /// 5% for gas refunds and charge the signer this fee for gas refund
     /// receipts.
+    ///
+    /// We originally introduced this feature in the protocol version 78,
+    /// but it was reverted in the protocol version 79.
+    ReducedGasRefundsOriginal,
+    ReducedGasRefundsRevert,
     ReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
@@ -418,8 +423,9 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV6
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::ChunkPartChecks
-            | ProtocolFeature::SaturatingFloatToInt => 78,
-            ProtocolFeature::ReducedGasRefunds
+            | ProtocolFeature::SaturatingFloatToInt
+            | ProtocolFeature::ReducedGasRefundsOriginal => 78,
+            ProtocolFeature::ReducedGasRefundsRevert
             | ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
 
             // Nightly features:
@@ -427,6 +433,7 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            ProtocolFeature::ReducedGasRefunds => 144,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::RefTypesBulkMemory => 149,
             // Place features that are not yet in Nightly below this line.

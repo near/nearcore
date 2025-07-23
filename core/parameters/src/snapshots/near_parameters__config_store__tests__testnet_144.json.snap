@@ -1,6 +1,8 @@
 ---
 source: core/parameters/src/config_store.rs
+assertion_line: 412
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -202,7 +204,7 @@ expression: config_view
     "global_contract_host_fns": true,
     "reftypes_bulk_memory": false,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": false,
+    "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
     "limit_config": {
@@ -244,7 +246,7 @@ expression: config_view
     "max_congestion_incoming_gas": 400000000000000000,
     "max_congestion_outgoing_gas": 10000000000000000,
     "max_congestion_memory_consumption": 1000000000,
-    "max_congestion_missed_chunks": 5,
+    "max_congestion_missed_chunks": 125,
     "max_outgoing_gas": 300000000000000000,
     "min_outgoing_gas": 1000000000000000,
     "allowed_shard_outgoing_gas": 1000000000000000,

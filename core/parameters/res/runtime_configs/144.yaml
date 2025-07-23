@@ -1,5 +1,4 @@
-saturating_float_to_int: { old: false, new: true }
-
+# Reintroducing the ReducedGasRefunds feature
 # [NEP-536](https://github.com/near/NEPs/pull/536)
 pessimistic_gas_price_inflation:
   {
@@ -7,4 +6,3 @@ pessimistic_gas_price_inflation:
     new: { numerator: 1, denominator: 1 },
   }
 refund_gas_price_changes: { old: true, new: false }
-global_contract_host_fns: { old: false, new: true }
