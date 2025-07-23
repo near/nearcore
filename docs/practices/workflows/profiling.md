@@ -299,4 +299,6 @@ neard view-state --read-write apply-range --shard-id 0 --storage flat sequential
 neard view-state apply-range --shard-id 0 --storage memtrie benchmark
 # Same but with flat storage
 neard view-state apply-range --shard-id 0 --storage flat benchmark
+# Same but with recorded storage
+neard view-state apply-range --shard-id 0 --storage recorded benchmark
 ```
