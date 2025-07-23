@@ -10,7 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
 use near_store::adapter::StoreAdapter;
-use near_store::config::StateSnapshotType;
+use near_store::config::{STATE_SNAPSHOT_DIR, StateSnapshotType};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::state_snapshots_dir;
 use near_store::{
