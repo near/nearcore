@@ -20,6 +20,7 @@ use wasmtime::{Engine, ExternType, Instance, Linker, Memory, MemoryType, Module,
 
 type Caller = wasmtime::Caller<'static, Option<VMLogic<'static>>>;
 
+#[derive(Default)]
 pub struct Ctx {
     logic: Option<VMLogic<'static>>,
     caller: Arc<RefCell<Option<Caller>>>,
@@ -33,7 +34,7 @@ pub struct WasmtimeMemory {
 
 impl WasmtimeMemory {
     pub fn new(
-        store: &mut Store<Option<VMLogic<'static>>>,
+        store: &mut Store<Ctx>,
         initial_memory_bytes: u32,
         max_memory_bytes: u32,
     ) -> Result<Self, FunctionCallError> {
@@ -398,7 +399,7 @@ enum RunOutcome {
 }
 
 fn call(
-    mut store: &mut Store<Option<VMLogic<'static>>>,
+    mut store: &mut Store<Ctx>,
     instance: Instance,
     method: &str,
 ) -> Result<RunOutcome, VMRunnerError> {
@@ -417,8 +418,8 @@ fn call(
 }
 
 fn instantiate_and_call(
-    mut store: &mut Store<Option<VMLogic<'static>>>,
-    linker: &Linker<Option<VMLogic<'static>>>,
+    mut store: &mut Store<Ctx>,
+    linker: &Linker<Ctx>,
     module: &Module,
     method: &str,
 ) -> Result<RunOutcome, VMRunnerError> {
@@ -451,7 +452,9 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
 
         let config = Arc::clone(&result_state.config);
 
-        let mut store = Store::new(engine, None);
+        let ctx = Ctx::default();
+
+        let mut store = Store::<Ctx>::new(engine, ctx);
         let mut memory = WasmtimeMemory::new(
             &mut store,
             config.limit_config.initial_memory_pages,
@@ -459,14 +462,14 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         )
         .unwrap();
         let logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
-        store.data_mut().replace(unsafe { transmute(logic) });
+        store.data_mut().logic.replace(unsafe { transmute(logic) });
 
         let mut linker = Linker::new(engine);
         // TODO: config could be accessed through `logic.result_state`, without this code having to
         // figure it out...
-        link(&mut linker, memory.clone(), &store, &config);
+        link(&mut linker, memory.memory.clone(), &store, &config);
         let res = instantiate_and_call(&mut store, &linker, &module, &method);
-        let logic = store.data_mut().take().expect("logic missing");
+        let logic = store.data_mut().logic.expect("logic missing");
         lazy_drop(Box::new((linker, module)));
         match res? {
             RunOutcome::Ok => Ok(VMOutcome::ok(logic.result_state)),
