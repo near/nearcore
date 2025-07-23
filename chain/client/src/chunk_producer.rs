@@ -402,4 +402,28 @@ impl ChunkProducer {
         }
         Ok(prepared_transactions)
     }
+
+    pub fn should_skip_chunk_production(
+        &self,
+        next_block_height: BlockHeight,
+        _shard_id: ShardId,
+    ) -> bool {
+        #[cfg(feature = "test_features")]
+        if let Some(adv_produce_chunks) = &self.adv_produce_chunks {
+            return match adv_produce_chunks {
+                AdvProduceChunksMode::StopProduce => {
+                    tracing::info!(
+                        target: "adversary",
+                        next_block_height,
+                        "skipping chunk production due to adversary configuration"
+                    );
+                    true
+                }
+                AdvProduceChunksMode::Valid
+                | AdvProduceChunksMode::ProduceWithoutTx
+                | AdvProduceChunksMode::ProduceWithoutTxValidityCheck => false,
+            };
+        }
+        false
+    }
 }
