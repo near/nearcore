@@ -42,9 +42,11 @@ impl StateSyncDownloadSourceExternal {
             StateFileType::StateHeader => "header",
             StateFileType::StatePart { .. } => "part",
         };
+        tracing::debug!(target: "sync", ?shard_id, ?file_type, ?location, "external download starting");
         tokio::select! {
             _ = clock.sleep_until(deadline) => {
                 increment_download_count(shard_id, typ, "external", "timeout");
+                tracing::debug!(target: "sync", ?shard_id, ?file_type, ?location, "external download timed out");
                 Err(near_chain::Error::Other("Timeout".to_owned()))
             }
             _ = cancellation.cancelled() => {
@@ -63,6 +65,7 @@ impl StateSyncDownloadSourceExternal {
                             _ = cancellation.cancelled() => {}
                         }
                         increment_download_count(shard_id, typ, "external", "download_error");
+                        tracing::debug!(target: "sync", ?shard_id, ?file_type, ?location, %err, "external download error");
                         Err(near_chain::Error::Other(format!("Failed to download: {}", err)))
                     }
                     Ok(res) => Ok(res)

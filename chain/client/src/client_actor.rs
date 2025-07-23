@@ -5,7 +5,7 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
-use crate::chunk_executor_actor::ExecutorBlock;
+use crate::chunk_executor_actor::ProcessedBlock;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -14,6 +14,7 @@ use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
+use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
@@ -77,6 +78,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_u
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
+use near_store::adapter::StoreAdapter;
 use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
@@ -157,6 +159,13 @@ pub fn start_client(
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
     let multi_spawner = AsyncComputationMultiSpawner::default();
+    // TODO(spice): Initialize CoreStatementsProcessor properly.
+    let spice_core_processor = CoreStatementsProcessor::new(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+        noop().into_sender(),
+        noop().into_sender(),
+    );
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -177,6 +186,7 @@ pub fn start_client(
         chain_sender_for_state_sync.as_multi_sender(),
         client_sender_for_client.as_multi_sender(),
         protocol_upgrade_schedule,
+        spice_core_processor,
     )
     .unwrap();
 
@@ -195,6 +205,8 @@ pub fn start_client(
         config_updater,
         sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
         // TODO(spice): Pass in chunk_executor_sender.
+        noop().into_sender(),
+        // TODO(spice): Pass in spice_chunk_validator_sender.
         noop().into_sender(),
     )
     .unwrap();
@@ -274,7 +286,12 @@ pub struct ClientActorInner {
 
     /// With spice chunk executor executes chunks asynchronously.
     /// Should be noop sender otherwise.
-    chunk_executor_sender: Sender<ExecutorBlock>,
+    chunk_executor_sender: Sender<ProcessedBlock>,
+
+    /// With spice spice chunk validator validates witnesses for which it
+    /// needs to be aware of new blocks.
+    /// Without spice should be a noop sender.
+    spice_chunk_validator_sender: Sender<ProcessedBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -348,7 +365,8 @@ impl ClientActorInner {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
-        chunk_executor_sender: Sender<ExecutorBlock>,
+        chunk_executor_sender: Sender<ProcessedBlock>,
+        spice_chunk_validator_sender: Sender<ProcessedBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -388,6 +406,7 @@ impl ClientActorInner {
             config_updater,
             sync_jobs_sender,
             chunk_executor_sender,
+            spice_chunk_validator_sender,
         })
     }
 }
@@ -1454,7 +1473,8 @@ impl ClientActorInner {
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block());
-            self.chunk_executor_sender.send(ExecutorBlock { block_hash: accepted_block });
+            self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
+            self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
         }
     }
 
@@ -1552,7 +1572,6 @@ impl ClientActorInner {
             // An extra scope to limit the lifetime of the span.
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
             if let Err(err) = self.client.run_catchup(
-                &self.network_info.highest_height_peers,
                 &self.sync_jobs_sender.block_catch_up,
                 Some(self.client.myself_sender.apply_chunks_done.clone()),
             ) {

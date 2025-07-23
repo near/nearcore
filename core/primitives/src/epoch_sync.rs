@@ -18,8 +18,10 @@ use std::sync::Arc;
 /// There's no guarantee that there's any compatibility (most likely not), but being able to
 /// deserialize it will allow us to modify the code in the future to properly perform any upgrades.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum EpochSyncProof {
-    V1(EpochSyncProofV1),
+    V1(EpochSyncProofV1) = 0,
 }
 
 impl EpochSyncProof {

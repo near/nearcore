@@ -26,6 +26,7 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
+use near_client::spice_core::CoreStatementsProcessor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, ClientActor, PartialWitnessActor,
     PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
@@ -174,6 +175,7 @@ fn setup(
         signer.clone(),
         epoch_manager.clone(),
         runtime.clone(),
+        Arc::new(RayonAsyncComputationSpawner),
         Arc::new(RayonAsyncComputationSpawner),
         Arc::new(RayonAsyncComputationSpawner),
     ));
@@ -437,6 +439,12 @@ pub fn setup_client_with_runtime(
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
         .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
+    let spice_core_processor = CoreStatementsProcessor::new(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+        noop().into_sender(),
+        noop().into_sender(),
+    );
     let mut client = Client::new(
         clock,
         config,
@@ -457,6 +465,7 @@ pub fn setup_client_with_runtime(
         noop().into_multi_sender(), // state sync ignored for these tests
         noop().into_multi_sender(), // apply chunks ping not necessary for these tests
         protocol_upgrade_schedule,
+        spice_core_processor,
     )
     .unwrap();
     client.sync_handler.sync_status = SyncStatus::NoSync;

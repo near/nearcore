@@ -151,6 +151,16 @@ pub fn validate_chunk_endorsement(
         store,
     )?);
     validate_chunk_endorsement_signature(epoch_manager, endorsement)?;
+    if cfg!(feature = "protocol_feature_spice") {
+        if endorsement.execution_result().is_none() {
+            tracing::error!(
+                target: "stateless_validation",
+                chunk_production_key=?endorsement.chunk_production_key(),
+                "Received endorsement without execution result",
+            );
+            return Err(Error::InvalidChunkEndorsement);
+        }
+    }
 
     Ok(ChunkRelevance::Relevant)
 }
@@ -249,49 +259,53 @@ fn validate_chunk_relevant(
     let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
     let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
 
-    // Avoid processing state witness for old chunks.
-    // In particular it is impossible for a chunk created at a height
-    // that doesn't exceed the height of the current final block to be
-    // included in the chain. This addresses both network-delayed messages
-    // as well as malicious behavior of a chunk producer.
-    if let Some(final_head) = final_head {
-        if height_created <= final_head.height {
-            tracing::debug!(
-                target: "stateless_validation",
-                ?chunk_production_key,
-                final_head_height = final_head.height,
-                "Skipping because height created is not greater than final head height",
-            );
-            return Ok(ChunkRelevance::TooLate);
+    // TODO(spice): Use certification head or similar for this relevance check or implement an
+    // alternative.
+    if !cfg!(feature = "protocol_feature_spice") {
+        // Avoid processing state witness for old chunks.
+        // In particular it is impossible for a chunk created at a height
+        // that doesn't exceed the height of the current final block to be
+        // included in the chain. This addresses both network-delayed messages
+        // as well as malicious behavior of a chunk producer.
+        if let Some(final_head) = final_head {
+            if height_created <= final_head.height {
+                tracing::debug!(
+                    target: "stateless_validation",
+                    ?chunk_production_key,
+                    final_head_height = final_head.height,
+                    "Skipping because height created is not greater than final head height",
+                );
+                return Ok(ChunkRelevance::TooLate);
+            }
         }
-    }
-    if let Some(head) = head {
-        if height_created > head.height + MAX_HEIGHTS_AHEAD {
-            tracing::debug!(
-                target: "stateless_validation",
-                ?chunk_production_key,
-                head_height = head.height,
-                "Skipping because height created is more than {} blocks ahead of head height",
-                MAX_HEIGHTS_AHEAD
-            );
-            return Ok(ChunkRelevance::TooEarly);
-        }
+        if let Some(head) = head {
+            if height_created > head.height + MAX_HEIGHTS_AHEAD {
+                tracing::debug!(
+                    target: "stateless_validation",
+                    ?chunk_production_key,
+                    head_height = head.height,
+                    "Skipping because height created is more than {} blocks ahead of head height",
+                    MAX_HEIGHTS_AHEAD
+                );
+                return Ok(ChunkRelevance::TooEarly);
+            }
 
-        // Try to find the EpochId to which this witness will belong based on its height.
-        // It's not always possible to determine the exact epoch_id because the exact
-        // starting height of the next epoch isn't known until it actually starts,
-        // so things can get unclear around epoch boundaries.
-        // Let's collect the epoch_ids in which the witness might possibly be.
-        let possible_epochs =
-            epoch_manager.possible_epochs_of_height_around_tip(&head, height_created)?;
-        if !possible_epochs.contains(&epoch_id) {
-            tracing::debug!(
-                target: "stateless_validation",
-                ?chunk_production_key,
-                ?possible_epochs,
-                "Skipping because EpochId is not in the possible list of epochs",
-            );
-            return Ok(ChunkRelevance::UnknownEpochId);
+            // Try to find the EpochId to which this witness will belong based on its height.
+            // It's not always possible to determine the exact epoch_id because the exact
+            // starting height of the next epoch isn't known until it actually starts,
+            // so things can get unclear around epoch boundaries.
+            // Let's collect the epoch_ids in which the witness might possibly be.
+            let possible_epochs =
+                epoch_manager.possible_epochs_of_height_around_tip(&head, height_created)?;
+            if !possible_epochs.contains(&epoch_id) {
+                tracing::debug!(
+                    target: "stateless_validation",
+                    ?chunk_production_key,
+                    ?possible_epochs,
+                    "Skipping because EpochId is not in the possible list of epochs",
+                );
+                return Ok(ChunkRelevance::UnknownEpochId);
+            }
         }
     }
 

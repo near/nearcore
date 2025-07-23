@@ -1,5 +1,4 @@
 use near_primitives::transaction::SignedTransaction;
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 pub struct SignedValidPeriodTransactions {
     /// Transactions.
@@ -38,13 +37,14 @@ impl SignedValidPeriodTransactions {
             .filter_map(|(t, v)| v.then_some(t))
     }
 
-    pub fn into_par_iter_nonexpired_transactions(
-        self,
-    ) -> impl ParallelIterator<Item = SignedTransaction> {
+    pub fn into_nonexpired_transactions(mut self) -> Vec<SignedTransaction> {
+        let mut index = 0;
+        self.transactions.retain(|_| {
+            let retain = self.transaction_validity_check_passed[index];
+            index += 1;
+            retain
+        });
         self.transactions
-            .into_par_iter()
-            .zip(self.transaction_validity_check_passed)
-            .filter_map(|(t, v)| v.then_some(t))
     }
 
     pub fn len(&self) -> usize {
