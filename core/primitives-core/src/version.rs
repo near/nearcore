@@ -443,6 +443,12 @@ impl ProtocolFeature {
     pub fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
         protocol_version >= self.protocol_version()
     }
+
+    // reduced_gas_refunds feature is enabled for protocol version 78 and protocol version >= ProtocolFeature::ReducedGasRefunds
+    pub fn reduced_gas_refunds_enabled(protocol_version: ProtocolVersion) -> bool {
+        protocol_version >= ProtocolFeature::ReducedGasRefunds.protocol_version()
+            || protocol_version == ProtocolFeature::ReducedGasRefundsOriginal.protocol_version()
+    }
 }
 
 /// The protocol version of the genesis block on mainnet and testnet.
