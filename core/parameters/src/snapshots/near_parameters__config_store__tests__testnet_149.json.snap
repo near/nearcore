@@ -1,6 +1,8 @@
 ---
 source: core/parameters/src/config_store.rs
+assertion_line: 412
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
