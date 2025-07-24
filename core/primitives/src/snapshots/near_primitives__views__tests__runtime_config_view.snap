@@ -1,6 +1,8 @@
 ---
 source: core/primitives/src/views.rs
+assertion_line: 2836
 expression: "&view"
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -100,8 +102,8 @@ expression: "&view"
       10
     ],
     "pessimistic_gas_price_inflation_ratio": [
-      1,
-      1
+      103,
+      100
     ]
   },
   "wasm_config": {

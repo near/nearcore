@@ -860,10 +860,17 @@ class RosettaTestCase(unittest.TestCase):
         }], block['transactions'])
 
         # Fetch the receipt through Rosetta RPC.
+        # TODO(#13397): After stabilizing ReducedGasRefunds, remove the check
+        # for gas refunds, there should no longer be any refunds in this case.
         result = RosettaExecResult(self.rosetta, block, receipt_id)
-        # Expect no gas refund
         related = result.related(0)
-        self.assertTrue(related is None)
+        hasGasRefund = related is not None
+        relatedTransactions = ({
+            'related_transactions': [{
+                'direction': 'forward',
+                'transaction_identifier': related.identifier
+            }]
+        } if hasGasRefund else {})
 
         self.assertEqual(
             {
@@ -890,10 +897,43 @@ class RosettaTestCase(unittest.TestCase):
                         }
                     }
                 }],
-                'metadata': {
+                **relatedTransactions, 'metadata': {
                     'type': 'TRANSACTION'
                 }
             }, result.transaction())
+
+        # Fetch the refund receipt through Rosetta RPC, if any.
+        if hasGasRefund:
+            self.assertEqual(
+                {
+                    'metadata': {
+                        'type': 'TRANSACTION'
+                    },
+                    'operations': [{
+                        'account': {
+                            'address': 'test0'
+                        },
+                        'amount': {
+                            'currency': {
+                                'decimals': 24,
+                                'symbol': 'NEAR'
+                            },
+                            'value': '12524843062500000000'
+                        },
+                        'operation_identifier': {
+                            'index': 0
+                        },
+                        'status': 'SUCCESS',
+                        'type': 'TRANSFER',
+                        'metadata': {
+                            'predecessor_id': {
+                                'address': 'system'
+                            },
+                            'transfer_fee_type': 'GAS_REFUND'
+                        }
+                    }],
+                    'transaction_identifier': related.identifier
+                }, related.transaction())
 
         # 2. Delete the account.
         logger.info(f'Deleting implicit account: {implicit.account_id}')

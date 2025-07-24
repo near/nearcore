@@ -256,7 +256,7 @@ pub fn tx_cost(
         total_prepaid_gas(&tx.actions())?,
         total_prepaid_send_fees(config, &tx.actions())?,
     )?;
-    let receipt_gas_price = if ProtocolFeature::ReducedGasRefunds.enabled(protocol_version) {
+    let receipt_gas_price = if ProtocolFeature::reduced_gas_refunds_enabled(protocol_version) {
         gas_price
     } else {
         pessimistic_gas_price(gas_price, sender_is_receiver, fees, prepaid_gas)?

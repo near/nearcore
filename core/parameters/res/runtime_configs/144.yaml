@@ -1,0 +1,8 @@
+# Reintroducing the ReducedGasRefunds feature
+# [NEP-536](https://github.com/near/NEPs/pull/536)
+pessimistic_gas_price_inflation:
+  {
+    old: { numerator: 103, denominator: 100 },
+    new: { numerator: 1, denominator: 1 },
+  }
+refund_gas_price_changes: { old: true, new: false }
