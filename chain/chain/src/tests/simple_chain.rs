@@ -1,12 +1,15 @@
 use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::{setup, wait_for_all_blocks_in_processing};
-use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
+use crate::{Block, BlockProcessingArtifact, Chain, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::OptimisticBlock;
+use near_primitives::utils::MaybeValidated;
 use near_primitives::{hash::CryptoHash, test_utils::TestBlockBuilder, version::PROTOCOL_VERSION};
+use near_store::DBCol;
+use near_store::adapter::StoreAdapter;
 use num_rational::Ratio;
 use std::sync::Arc;
 
@@ -48,8 +51,8 @@ fn build_chain() {
         chain.process_block_test(block).unwrap();
         assert_eq!(chain.head().unwrap().height, i as u64);
     }
-
-    assert_eq!(chain.head().unwrap().height, 4);
+    let last_height = chain.head().unwrap().height;
+    assert_eq!(last_height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
@@ -58,6 +61,60 @@ fn build_chain() {
     } else {
         // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"6amtpQxcJYguKKEh4DUpgzrtJQ1JSJ9ivW8VQqf9Z2v2");
+    }
+
+    // Check we have the state column
+    check_state_column(&chain, true, last_height);
+
+    // Simulate loss of the state column in an unreliable write.
+    let mut store_update = chain.chain_store.store().store_update();
+    store_update.delete_all(DBCol::State);
+    store_update.commit().unwrap();
+
+    // Check we don't have the state column
+    check_state_column(&chain, false, last_height);
+
+    // Get block again
+    for i in 1..=last_height {
+        eprintln!("Reprocessing block {}", i);
+        let block = chain.get_block_by_height(i).unwrap();
+        let mut artifacts = BlockProcessingArtifact::default();
+        assert_eq!(block.header().height(), i);
+        chain.reprocess_block_sync(MaybeValidated::from(block), &mut artifacts).unwrap();
+
+        // XXX: Are these expectations correct?
+        assert!(artifacts.blocks_missing_chunks.is_empty());
+        assert!(artifacts.invalid_chunks.is_empty());
+        assert!(artifacts.orphans_missing_chunks.is_empty());
+
+        // Reprocessing block should not change the head.
+        assert_eq!(chain.head().unwrap().height, last_height);
+    }
+
+    // Check we have the state column again
+    check_state_column(&chain, true, last_height);
+}
+
+// Check that the state column is present or not based on the `expect` parameter.
+// Just checks the state root of the chunk extra for now.
+fn check_state_column(chain: &Chain, expect: bool, last_height: u64) {
+    for i in 1..=last_height {
+        let block = chain.get_block_by_height(i).unwrap();
+        let shard_layout = chain.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+        for shard_uid in shard_layout.shard_uids() {
+            let chunk_extra = chain.get_chunk_extra(block.hash(), &shard_uid).unwrap();
+            let state_root = chunk_extra.state_root();
+            if expect {
+                let root =
+                    chain.chain_store.store().trie_store().get(shard_uid, &state_root).unwrap();
+                eprintln!("Shard UID: {}, State Root: {}, Root: {:?}", shard_uid, state_root, root);
+            } else {
+                assert!(
+                    chain.chain_store.store().trie_store().get(shard_uid, &state_root).is_err()
+                );
+                eprintln!("Shard UID: {}, State Root: {} not found", shard_uid, state_root);
+            }
+        }
     }
 }
 

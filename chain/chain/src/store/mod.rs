@@ -1057,6 +1057,7 @@ pub struct ChainStoreUpdate<'a> {
     add_state_sync_infos: Vec<StateSyncInfo>,
     remove_state_sync_infos: Vec<CryptoHash>,
     chunk_apply_stats: HashMap<(CryptoHash, ShardId), ChunkApplyStats>,
+    column_filter: Option<Box<dyn Fn(&DBCol) -> bool>>,
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1081,7 +1082,16 @@ impl<'a> ChainStoreUpdate<'a> {
             add_state_sync_infos: vec![],
             remove_state_sync_infos: vec![],
             chunk_apply_stats: HashMap::default(),
+            column_filter: None,
         }
+    }
+
+    /// Set the column filter for this update.
+    pub fn set_column_filter<F>(&mut self, filter: F)
+    where
+        F: Fn(&DBCol) -> bool + 'static,
+    {
+        self.column_filter = Some(Box::new(filter));
     }
 
     pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ArcedShardChunk>, Error> {
@@ -2121,7 +2131,10 @@ impl<'a> ChainStoreUpdate<'a> {
 
     #[tracing::instrument(level = "debug", target = "store", "ChainStoreUpdate::commit", skip_all)]
     pub fn commit(mut self) -> Result<(), Error> {
-        let store_update = self.finalize()?;
+        let mut store_update = self.finalize()?;
+        if let Some(filter) = &self.column_filter {
+            store_update.retain_columns(filter);
+        }
         store_update.commit()?;
         Ok(())
     }

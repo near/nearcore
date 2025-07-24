@@ -75,6 +75,8 @@ pub enum Provenance {
     SYNC,
     /// Block we produced ourselves.
     PRODUCED,
+    /// Reprocessing a block that was already processed.
+    REPROCESS,
 }
 
 /// Information about processed block.
