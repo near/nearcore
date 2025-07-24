@@ -486,7 +486,13 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
-    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool;
+    fn validate_state_part(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: PartId,
+        data: &[u8],
+    ) -> bool;
 
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
