@@ -1,3 +1,5 @@
+use smallvec::SmallVec;
+
 use super::arena::ArenaMemory;
 use super::flexible_data::value::ValueView;
 use super::metrics::MEMTRIE_NUM_LOOKUPS;
@@ -18,6 +20,7 @@ pub fn memtrie_lookup<'a, M: ArenaMemory>(
     MEMTRIE_NUM_LOOKUPS.inc();
     let mut nibbles = NibbleSlice::new(key);
     let mut node = root;
+    let mut cur_path_length = 0;
 
     loop {
         let view = node.view();
@@ -26,7 +29,13 @@ pub fn memtrie_lookup<'a, M: ArenaMemory>(
             // todo - memtrie node id?
             let record_id = match view.node_hash_if_available() {
                 Some(hash) => RecordedNodeId::Hash(hash),
-                None => RecordedNodeId::MemtrieId(node.id()),
+                None => RecordedNodeId::TriePath(if cur_path_length % 2 == 0 {
+                    key[..cur_path_length / 2].into()
+                } else {
+                    let mut vec: SmallVec<[u8; 32]> = key[..cur_path_length / 2].into();
+                    vec.push(NibbleSlice::new(key).at(cur_path_length - 1));
+                    vec
+                }),
             };
             nodes_accessed.push((record_id, raw_node_serialized.into()));
         }
@@ -43,6 +52,7 @@ pub fn memtrie_lookup<'a, M: ArenaMemory>(
                 if nibbles.starts_with(&extension_nibbles) {
                     nibbles = nibbles.mid(extension_nibbles.len());
                     node = child;
+                    cur_path_length += extension_nibbles.len();
                 } else {
                     return None;
                 }
@@ -57,6 +67,7 @@ pub fn memtrie_lookup<'a, M: ArenaMemory>(
                     Some(child) => child,
                     None => return None,
                 };
+                cur_path_length += 1;
             }
             MemTrieNodeView::BranchWithValue { children, value, .. } => {
                 if nibbles.is_empty() {
@@ -68,6 +79,7 @@ pub fn memtrie_lookup<'a, M: ArenaMemory>(
                     Some(child) => child,
                     None => return None,
                 };
+                cur_path_length += 1;
             }
         }
     }

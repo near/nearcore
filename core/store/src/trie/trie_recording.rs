@@ -5,6 +5,7 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::PartialState;
 use near_primitives::trie_key::col::ALL_COLUMNS_WITH_NAMES;
 use near_primitives::types::AccountId;
+use smallvec::SmallVec;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -12,7 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub enum RecordedNodeId {
     Hash(CryptoHash),
     MemtrieId(MemTrieNodeId),
-    //TriePath(Vec<u8>),
+    TriePath(SmallVec<[u8; 32]>),
 }
 
 /// A simple struct to capture a state proof as it's being accumulated.
