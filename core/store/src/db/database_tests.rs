@@ -209,7 +209,6 @@ fn do_the_write(store: &mut Store, transaction: DBTransaction) {
         col_transaction.ops.push(op.clone());
     }
     for (col, col_transaction) in col_transactions {
-        eprintln!("Writing {} ops to column {}", col_transaction.ops.len(), col);
         store.write(col_transaction).expect("Failed to write transaction to store");
     }
 
