@@ -444,7 +444,7 @@ impl ChunkProducer {
     }
 
     #[cfg(feature = "test_features")]
-    pub fn should_skip_chunk_production_window(
+    fn should_skip_chunk_production_window(
         &self,
         next_block_height: BlockHeight,
         shard_id: ShardId,
