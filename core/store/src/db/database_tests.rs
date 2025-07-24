@@ -4,6 +4,8 @@
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use itertools::Itertools;
 use near_crypto::{InMemorySigner, PublicKey};
@@ -174,7 +176,7 @@ fn test_replay_batches() {
         let now = std::time::Instant::now();
         if cols.starts_with("Block-") || cols.starts_with("FlatState-FlatStateChanges-") {
             //print_batch_stats(cols, &transaction);
-            do_the_write(&mut store, transaction);
+            do_the_write(store.clone(), transaction);
         } else {
             store.write(transaction).expect("Failed to write transaction to store");
             store.database().flush_wal().expect("Failed to flush WAL");
@@ -200,7 +202,7 @@ fn test_replay_batches() {
 }
 
 #[inline(never)]
-fn do_the_write(store: &mut Store, transaction: DBTransaction) {
+fn do_the_write(store: Store, transaction: DBTransaction) {
     // Let's split the transaction by columns and write them separately.
     let mut col_transactions: HashMap<&str, DBTransaction> = HashMap::new();
     for op in &transaction.ops {
@@ -208,8 +210,34 @@ fn do_the_write(store: &mut Store, transaction: DBTransaction) {
         let col_transaction = col_transactions.entry(col_name).or_default();
         col_transaction.ops.push(op.clone());
     }
-    for (col, col_transaction) in col_transactions {
-        store.write(col_transaction).expect("Failed to write transaction to store");
+
+    // Wrap store in Arc<Mutex<>> to allow sharing across threads
+    let store = Arc::new(Mutex::new(store));
+    let col_transactions_vec: Vec<_> = col_transactions.into_iter().collect();
+
+    // Split transactions across 3 threads
+    let chunk_size = (col_transactions_vec.len() + 2) / 3; // Round up division
+    let chunks: Vec<_> = col_transactions_vec.chunks(chunk_size).collect();
+
+    let mut handles = Vec::new();
+
+    for chunk in chunks {
+        let store_clone = Arc::clone(&store);
+        let chunk_owned = chunk.to_vec();
+
+        let handle = thread::spawn(move || {
+            for (_col, col_transaction) in chunk_owned {
+                let store_guard = store_clone.lock().unwrap();
+                store_guard.write(col_transaction).expect("Failed to write transaction to store");
+            }
+        });
+
+        handles.push(handle);
+    }
+
+    // Join all threads
+    for handle in handles {
+        handle.join().expect("Thread panicked");
     }
 
     //store.write(transaction).expect("Failed to write transaction to store");
