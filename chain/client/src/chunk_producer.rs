@@ -125,7 +125,7 @@ impl ChunkProducer {
     }
 
     #[instrument(target = "client", level = "debug", "produce_chunk", skip_all, fields(
-        height = next_height,
+        %next_height,
         %shard_id,
         ?epoch_id,
         prev_block_hash = ?prev_block.header().hash(),
