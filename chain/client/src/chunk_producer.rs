@@ -154,7 +154,6 @@ impl ChunkProducer {
         if signer.validator_id() != &chunk_proposer {
             debug!(
                 target: "client",
-                me = ?signer.as_ref().validator_id(),
                 ?chunk_proposer,
                 "not a chunk producer for this height"
             );
@@ -254,7 +253,7 @@ impl ChunkProducer {
             }
         }
 
-        debug!(target: "client", me = ?validator_signer.validator_id(), "start producing the chunk");
+        debug!(target: "client", "start producing the chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         let chunk_extra = if cfg!(feature = "protocol_feature_spice") {
@@ -337,7 +336,6 @@ impl ChunkProducer {
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         debug!(
             target: "client",
-            me = %validator_signer.validator_id(),
             num_filtered_transactions,
             num_outgoing_receipts = outgoing_receipts.len(),
             "finished producing the chunk"
