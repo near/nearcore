@@ -1525,22 +1525,24 @@ impl Trie {
                 self.retrieve_value(&value_ref.hash, operation_options)
             }
             OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
-                let value_hash = hash(value);
-                let arc_value: Arc<[u8]> = value.clone().into();
-                if operation_options
-                    .trie_access_tracker
-                    .track_mem_lookup(&RecordedNodeId::Hash(value_hash))
-                    .is_none()
-                {
-                    operation_options
-                        .trie_access_tracker
-                        .track_disk_lookup(RecordedNodeId::Hash(value_hash), arc_value.clone());
-                }
-                if operation_options.enable_state_witness_recording {
-                    if let Some(recorder) = &self.recorder {
-                        recorder.record(RecordedNodeId::Hash(value_hash), arc_value);
-                    }
-                }
+                // Don't need to record a value that is inlined in the node that was already recorded
+                //
+                // let value_hash = hash(value);
+                // let arc_value: Arc<[u8]> = value.clone().into();
+                // if operation_options
+                //     .trie_access_tracker
+                //     .track_mem_lookup(&RecordedNodeId::Hash(value_hash))
+                //     .is_none()
+                // {
+                //     operation_options
+                //         .trie_access_tracker
+                //         .track_disk_lookup(RecordedNodeId::Hash(value_hash), arc_value.clone());
+                // }
+                // if operation_options.enable_state_witness_recording {
+                //     if let Some(recorder) = &self.recorder {
+                //         recorder.record(RecordedNodeId::Hash(value_hash), arc_value);
+                //     }
+                // }
                 Ok(value.clone())
             }
         }
