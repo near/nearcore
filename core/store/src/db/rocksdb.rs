@@ -812,6 +812,7 @@ fn common_rocksdb_options() -> Options {
         opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
         opts.set_max_total_wal_size(u64::MAX);
         opts.set_manual_wal_flush(true);
+        opts.set_writable_file_max_buffer_size(128 * bytesize::MIB);
     }
     opts
 }
