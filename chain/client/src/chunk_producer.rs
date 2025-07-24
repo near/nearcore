@@ -121,6 +121,14 @@ impl ChunkProducer {
         }
     }
 
+    #[instrument(target = "client", level = "debug", "produce_chunk", skip_all, fields(
+        height = next_height,
+        %shard_id,
+        ?epoch_id,
+        prev_block_hash = ?prev_block.header().hash(),
+        chunk_hash = tracing::field::Empty,
+        tag_block_production = true
+    ))]
     pub fn produce_chunk(
         &mut self,
         prev_block: &Block,
@@ -141,12 +149,17 @@ impl ChunkProducer {
             .unwrap()
             .take_account_id();
         if signer.validator_id() != &chunk_proposer {
-            debug!(target: "client",
+            debug!(
+                target: "client",
                 me = ?signer.as_ref().validator_id(),
                 ?chunk_proposer,
-                next_height,
-                %shard_id,
-                "Not producing chunk. Not chunk producer for next chunk.");
+                "not a chunk producer for this height"
+            );
+            return Ok(None);
+        }
+
+        if self.should_skip_chunk_production(next_height, shard_id) {
+            debug!(target: "client", "skip chunk production");
             return Ok(None);
         }
 
@@ -208,13 +221,6 @@ impl ChunkProducer {
         Ok(receipts_root)
     }
 
-    #[instrument(target = "client", level = "debug", "produce_chunk", skip_all, fields(
-        height = next_height,
-        %shard_id,
-        ?epoch_id,
-        chunk_hash = tracing::field::Empty,
-        tag_block_production = true
-    ))]
     fn produce_chunk_internal(
         &mut self,
         prev_block: &Block,
@@ -237,7 +243,7 @@ impl ChunkProducer {
             // apply block with the new chunk, so we also skip chunk production.
             if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)?
             {
-                debug!(target: "client", %shard_id, next_height, "Produce chunk: prev block is not caught up");
+                debug!(target: "client", "prev block is not caught up");
                 return Err(Error::ChunkProducer(
                     "State for the epoch is not downloaded yet, skipping chunk production"
                         .to_string(),
@@ -245,7 +251,7 @@ impl ChunkProducer {
             }
         }
 
-        debug!(target: "client", me = ?validator_signer.validator_id(), next_height, %shard_id, "Producing chunk");
+        debug!(target: "client", me = ?validator_signer.validator_id(), "start producing the chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         let chunk_extra = if cfg!(feature = "protocol_feature_spice") {
@@ -325,13 +331,13 @@ impl ChunkProducer {
 
         let encoded_chunk = chunk.to_encoded_shard_chunk();
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
-        debug!(target: "client",
+        debug!(
+            target: "client",
             me = %validator_signer.validator_id(),
-            chunk_hash = ?encoded_chunk.chunk_hash(),
-            %prev_block_hash,
             num_filtered_transactions,
             num_outgoing_receipts = outgoing_receipts.len(),
-            "produced_chunk");
+            "finished producing the chunk"
+        );
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
 
@@ -407,7 +413,12 @@ impl ChunkProducer {
             .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
 
         if reintroduced_count < prepared_transactions.transactions.len() {
-            debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
+            debug!(
+                target: "client",
+                reintroduced_count,
+                num_tx = prepared_transactions.transactions.len(),
+                "reintroduced transactions"
+            );
         }
         Ok(prepared_transactions)
     }
