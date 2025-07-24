@@ -6,6 +6,8 @@
 import pathlib
 import sys
 import unittest
+import os
+import shutil
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -61,8 +63,8 @@ class EpochSyncTest(unittest.TestCase):
         logger.info('Kill node 1')
         self.nodes[1].kill()
         
-  
         # remove the state from node 1 here
+        shutil.rmtree(os.path.expandvars('${HOME}/.near/test1/data'))
 
         logger.info('Restart node 1')
         self.nodes[1].start(boot_node=self.nodes[0])
