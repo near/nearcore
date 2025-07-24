@@ -211,8 +211,6 @@ fn do_the_write(store: Store, transaction: DBTransaction) {
         col_transaction.ops.push(op.clone());
     }
 
-    // Wrap store in Arc<Mutex<>> to allow sharing across threads
-    let store = Arc::new(Mutex::new(store));
     let col_transactions_vec: Vec<_> = col_transactions.into_iter().collect();
 
     // Split transactions across 3 threads
@@ -222,13 +220,12 @@ fn do_the_write(store: Store, transaction: DBTransaction) {
     let mut handles = Vec::new();
 
     for chunk in chunks {
-        let store_clone = Arc::clone(&store);
+        let store_clone = store.clone();
         let chunk_owned = chunk.to_vec();
 
         let handle = thread::spawn(move || {
             for (_col, col_transaction) in chunk_owned {
-                let store_guard = store_clone.lock().unwrap();
-                store_guard.write(col_transaction).expect("Failed to write transaction to store");
+                store_clone.write(col_transaction).expect("Failed to write transaction to store");
             }
         });
 
