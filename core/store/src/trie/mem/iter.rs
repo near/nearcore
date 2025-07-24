@@ -5,9 +5,10 @@ use super::node::MemTrieNodeId;
 use crate::Trie;
 use crate::trie::ops::interface::GenericTrieInternalStorage;
 use crate::trie::ops::iter::TrieIteratorImpl;
+use crate::trie::trie_recording::RecordedNodeId;
 use crate::trie::{AccessOptions, OptimizedValueRef};
 use near_primitives::errors::StorageError;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::FlatStateValue;
 
 /// Tiny wrapper around `MemTries` and `Trie` to provide `GenericTrieInternalStorage` implementation.
@@ -43,7 +44,11 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
             if let Some(recorder) = &self.trie.recorder {
                 let raw_node_serialized =
                     borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
-                recorder.record(&view.node_hash(), raw_node_serialized.into());
+                // todo - memtrie node id?
+                recorder.record(
+                    RecordedNodeId::Hash(hash(&raw_node_serialized)),
+                    raw_node_serialized.into(),
+                );
             }
         }
         let node = MemTrieNode::from_existing_node_view(view);

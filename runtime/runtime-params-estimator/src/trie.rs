@@ -2,8 +2,8 @@ use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block, percentiles};
 use near_parameters::ExtCosts;
-use near_primitives::hash::{CryptoHash, hash};
-use near_store::trie::AccessTracker;
+use near_primitives::hash::hash;
+use near_store::trie::{AccessTracker, RecordedNodeId};
 use near_store::{TrieCachingStorage, TrieStorage};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -193,20 +193,13 @@ pub(crate) fn read_node_from_accounting_cache(testbed: &mut Testbed) -> GasCost 
 }
 
 #[derive(Debug, Default)]
-struct EstimatorAccessTracker(RefCell<BTreeMap<CryptoHash, Arc<[u8]>>>);
+struct EstimatorAccessTracker(RefCell<BTreeMap<RecordedNodeId, Arc<[u8]>>>);
 impl AccessTracker for EstimatorAccessTracker {
-    fn track_mem_lookup(
-        &self,
-        key: &near_primitives::hash::CryptoHash,
-    ) -> Option<std::sync::Arc<[u8]>> {
+    fn track_mem_lookup(&self, key: &RecordedNodeId) -> Option<std::sync::Arc<[u8]>> {
         self.0.borrow().get(key).cloned()
     }
 
-    fn track_disk_lookup(
-        &self,
-        key: near_primitives::hash::CryptoHash,
-        value: std::sync::Arc<[u8]>,
-    ) {
+    fn track_disk_lookup(&self, key: RecordedNodeId, value: std::sync::Arc<[u8]>) {
         self.0.borrow_mut().insert(key, value);
     }
 }
@@ -316,11 +309,13 @@ fn read_raw_nodes_from_storage(
 ) -> usize {
     keys.iter()
         .map(|key| {
-            let bytes = accounting_cache.track_mem_lookup(&key).or_else(|| {
-                let value = caching_storage.retrieve_raw_bytes(key).ok()?;
-                accounting_cache.track_disk_lookup(*key, Arc::clone(&value));
-                Some(value)
-            });
+            let bytes =
+                accounting_cache.track_mem_lookup(&RecordedNodeId::Hash(*key)).or_else(|| {
+                    let value = caching_storage.retrieve_raw_bytes(key).ok()?;
+                    accounting_cache
+                        .track_disk_lookup(RecordedNodeId::Hash(*key), Arc::clone(&value));
+                    Some(value)
+                });
             let Some(bytes) = bytes else { return 0 };
             near_store::estimator::decode_extension_node(&bytes).len()
         })

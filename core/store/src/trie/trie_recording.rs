@@ -1,17 +1,23 @@
+use super::mem::node::MemTrieNodeId;
 use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
-use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
-use borsh::BorshDeserialize;
-use near_primitives::hash::CryptoHash;
+use crate::{NibbleSlice, PartialStorage};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::PartialState;
 use near_primitives::trie_key::col::ALL_COLUMNS_WITH_NAMES;
 use near_primitives::types::AccountId;
-use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RecordedNodeId {
+    Hash(CryptoHash),
+    MemtrieId(MemTrieNodeId),
+    //TriePath(Vec<u8>),
+}
+
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
-    recorded: dashmap::DashMap<CryptoHash, TrieNodeWithRefcount>,
+    recorded: dashmap::DashMap<RecordedNodeId, TrieNodeWithRefcount>,
     size: crossbeam::utils::CachePadded<AtomicUsize>,
     /// Size of the recorded state proof plus some additional size added to cover removals and
     /// contract code.
@@ -90,13 +96,13 @@ impl TrieRecorder {
     /// This is used to bypass witness size checks in order to generate
     /// large witness for testing.
     #[cfg(feature = "test_features")]
-    pub fn record_unaccounted(&self, hash: &CryptoHash, node: Arc<[u8]>) {
-        self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
+    pub fn record_unaccounted(&self, id: RecordedNodeId, node: Arc<[u8]>) {
+        self.recorded.entry(id).or_insert_with(|| node.into()).increment();
     }
 
-    pub fn record(&self, hash: &CryptoHash, node: Arc<[u8]>) {
+    pub fn record(&self, id: RecordedNodeId, node: Arc<[u8]>) {
         let size = node.len();
-        let times_seen = self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
+        let times_seen = self.recorded.entry(id).or_insert_with(|| node.into()).increment();
 
         // Only do size accounting if this is the first time we see this value.
         if times_seen == 1 {
@@ -147,10 +153,15 @@ impl TrieRecorder {
         let mut refcounts = TrieRefcountDeltaMap::new();
         for shard in self.recorded.into_shards() {
             let map = shard.into_inner().into_inner();
-            for (key, node) in map {
+            for (node_id, node) in map {
                 let node = node.into_inner();
                 // FIXME(nagisa): lets not reallocate all the values
-                refcounts.add(key, node.0.to_vec(), node.1);
+                // TODO - avoid rehashing?
+                let node_hash = match node_id {
+                    RecordedNodeId::Hash(hash) => hash,
+                    _ => hash(&*node.0),
+                };
+                refcounts.add(node_hash, node.0.to_vec(), node.1);
             }
         }
         let (insertions, deletions) = refcounts.into_changes();
@@ -378,6 +389,8 @@ mod trie_recording_tests {
     use std::num::NonZeroU32;
     use std::sync::Arc;
 
+    use super::RecordedNodeId;
+
     const NUM_ITERATIONS_PER_TEST: usize = 300;
 
     /// Prepared on-disk trie and flat storage for testing.
@@ -567,17 +580,17 @@ mod trie_recording_tests {
         allow_insert: bool,
         mem_reads: Cell<u64>,
         db_reads: Cell<u64>,
-        cache: RefCell<BTreeMap<CryptoHash, Arc<[u8]>>>,
+        cache: RefCell<BTreeMap<RecordedNodeId, Arc<[u8]>>>,
     }
 
     impl AccessTracker for AccountingAccessTracker {
-        fn track_mem_lookup(&self, key: &CryptoHash) -> Option<std::sync::Arc<[u8]>> {
+        fn track_mem_lookup(&self, key: &RecordedNodeId) -> Option<std::sync::Arc<[u8]>> {
             let value = Arc::clone(self.cache.borrow().get(key)?);
             self.mem_reads.set(self.mem_reads.get() + 1);
             Some(value)
         }
 
-        fn track_disk_lookup(&self, key: CryptoHash, value: std::sync::Arc<[u8]>) {
+        fn track_disk_lookup(&self, key: RecordedNodeId, value: std::sync::Arc<[u8]>) {
             self.db_reads.set(self.db_reads.get() + 1);
             if self.allow_insert {
                 self.cache.borrow_mut().insert(key, value);

@@ -10,6 +10,7 @@ use crate::Trie;
 use crate::trie::MemTrieChanges;
 use crate::trie::mem::arena::ArenaMut;
 use crate::trie::mem::metrics::MEMTRIE_NUM_ROOTS;
+use crate::trie::trie_recording::RecordedNodeId;
 
 use super::arena::Arena;
 use super::arena::FrozenArena;
@@ -199,7 +200,7 @@ impl MemTries {
         &self,
         state_root: &CryptoHash,
         key: &[u8],
-        nodes_accessed: Option<&mut Vec<(CryptoHash, Arc<[u8]>)>>,
+        nodes_accessed: Option<&mut Vec<(RecordedNodeId, Arc<[u8]>)>>,
     ) -> Result<Option<ValueView>, StorageError> {
         let root = self.get_root(state_root)?;
         Ok(memtrie_lookup(root, key, nodes_accessed))

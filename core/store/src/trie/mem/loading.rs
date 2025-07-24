@@ -192,6 +192,7 @@ mod tests {
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_flat_storage,
         test_populate_trie,
     };
+    use crate::trie::RecordedNodeId;
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
@@ -200,7 +201,7 @@ mod tests {
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::congestion_info::CongestionInfo;
-    use near_primitives::hash::CryptoHash;
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
@@ -250,11 +251,11 @@ mod tests {
         #[derive(Debug, Default)]
         struct Tracker(std::cell::Cell<u64>);
         impl AccessTracker for Tracker {
-            fn track_mem_lookup(&self, _: &CryptoHash) -> Option<std::sync::Arc<[u8]>> {
+            fn track_mem_lookup(&self, _: &RecordedNodeId) -> Option<std::sync::Arc<[u8]>> {
                 None
             }
 
-            fn track_disk_lookup(&self, _: CryptoHash, _: std::sync::Arc<[u8]>) {
+            fn track_disk_lookup(&self, _: RecordedNodeId, _: std::sync::Arc<[u8]>) {
                 self.0.set(self.0.get() + 1);
             }
         }
@@ -284,7 +285,11 @@ mod tests {
             );
 
             // Check that the accessed nodes are consistent with those from disk.
-            for (node_hash, serialized_node) in nodes_accessed {
+            for (recorded_node_id, serialized_node) in nodes_accessed {
+                let node_hash = match recorded_node_id {
+                    RecordedNodeId::Hash(hash) => hash,
+                    _ => hash(&serialized_node),
+                };
                 let expected_serialized_node =
                     trie.internal_retrieve_trie_node(&node_hash, false, opts).unwrap();
                 assert_eq!(expected_serialized_node, serialized_node);

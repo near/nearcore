@@ -3,7 +3,7 @@ use super::flexible_data::value::ValueView;
 use super::metrics::MEMTRIE_NUM_LOOKUPS;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
 use crate::NibbleSlice;
-use near_primitives::hash::CryptoHash;
+use crate::trie::trie_recording::RecordedNodeId;
 use std::sync::Arc;
 
 /// If `nodes_accessed` is provided, each trie node along the lookup path
@@ -13,7 +13,7 @@ use std::sync::Arc;
 pub fn memtrie_lookup<'a, M: ArenaMemory>(
     root: MemTrieNodePtr<'a, M>,
     key: &[u8],
-    mut nodes_accessed: Option<&mut Vec<(CryptoHash, Arc<[u8]>)>>,
+    mut nodes_accessed: Option<&mut Vec<(RecordedNodeId, Arc<[u8]>)>>,
 ) -> Option<ValueView<'a>> {
     MEMTRIE_NUM_LOOKUPS.inc();
     let mut nibbles = NibbleSlice::new(key);
@@ -23,7 +23,9 @@ pub fn memtrie_lookup<'a, M: ArenaMemory>(
         let view = node.view();
         if let Some(nodes_accessed) = &mut nodes_accessed {
             let raw_node_serialized = borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
-            nodes_accessed.push((view.node_hash(), raw_node_serialized.into()));
+            // todo - memtrie node id?
+            nodes_accessed
+                .push((RecordedNodeId::Hash(view.node_hash()), raw_node_serialized.into()));
         }
         match view {
             MemTrieNodeView::Leaf { extension, value } => {

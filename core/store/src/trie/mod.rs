@@ -41,7 +41,7 @@ use std::fmt::Write;
 use std::hash::Hash;
 use std::str;
 use std::sync::Arc;
-pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
+pub use trie_recording::{RecordedNodeId, SubtreeSize, TrieRecorder, TrieRecorderStats};
 use trie_storage_update::{
     TrieStorageNodeWithSize, TrieStorageUpdate, UpdatedTrieStorageNodeWithSize,
 };
@@ -118,21 +118,21 @@ pub trait AccessTracker: std::fmt::Debug {
     /// Lookup a value in the in-memory store.
     ///
     /// If result is `Some`, implementations should increment memory TTN counter.
-    fn track_mem_lookup(&self, key: &CryptoHash) -> Option<Arc<[u8]>>;
+    fn track_mem_lookup(&self, key: &RecordedNodeId) -> Option<Arc<[u8]>>;
 
     /// Insert the value into the in-memory store.
     ///
     /// Implementations should increment the disk TTN counter.
-    fn track_disk_lookup(&self, key: CryptoHash, value: Arc<[u8]>);
+    fn track_disk_lookup(&self, key: RecordedNodeId, value: Arc<[u8]>);
 }
 
 #[derive(Debug)]
 struct NoAccessTracker;
 impl AccessTracker for NoAccessTracker {
-    fn track_mem_lookup(&self, _: &CryptoHash) -> Option<Arc<[u8]>> {
+    fn track_mem_lookup(&self, _: &RecordedNodeId) -> Option<Arc<[u8]>> {
         None
     }
-    fn track_disk_lookup(&self, _: CryptoHash, _: Arc<[u8]>) {}
+    fn track_disk_lookup(&self, _: RecordedNodeId, _: Arc<[u8]>) {}
 }
 
 impl AccessOptions<'static> {
@@ -726,6 +726,8 @@ impl Trie {
 
     #[cfg(feature = "test_features")]
     pub fn record_storage_garbage(&self, size_mbs: usize) -> bool {
+        use trie_recording::RecordedNodeId;
+
         let Some(recorder) = &self.recorder else {
             return false;
         };
@@ -736,7 +738,7 @@ impl Trie {
         // size. Using static key achieves that since in case of multiple receipts garbage
         // data will simply be overwritten, not accumulated.
         recorder.record_unaccounted(
-            &CryptoHash::hash_bytes(b"__garbage_data_key_1720025071757228"),
+            RecordedNodeId::Hash(hash(b"__garbage_data_key_1720025071757228")),
             data.into(),
         );
         true
@@ -755,11 +757,14 @@ impl Trie {
         access_options: AccessOptions,
     ) -> Result<Arc<[u8]>, StorageError> {
         let result = if use_accounting_cache {
-            match access_options.trie_access_tracker.track_mem_lookup(hash) {
+            match access_options.trie_access_tracker.track_mem_lookup(&RecordedNodeId::Hash(*hash))
+            {
                 Some(v) => v,
                 None => {
                     let v = self.storage.retrieve_raw_bytes(hash)?;
-                    access_options.trie_access_tracker.track_disk_lookup(*hash, Arc::clone(&v));
+                    access_options
+                        .trie_access_tracker
+                        .track_disk_lookup(RecordedNodeId::Hash(*hash), Arc::clone(&v));
                     v
                 }
             }
@@ -768,7 +773,7 @@ impl Trie {
         };
         if access_options.enable_state_witness_recording {
             if let Some(recorder) = &self.recorder {
-                recorder.record(hash, result.clone());
+                recorder.record(RecordedNodeId::Hash(*hash), result.clone());
             }
         }
         Ok(result)
@@ -1323,31 +1328,30 @@ impl Trie {
         }
 
         let lock = self.memtries.as_ref().unwrap().read();
-        let mem_value = if use_trie_accounting_cache
-            || access_options.enable_state_witness_recording
-        {
-            let mut accessed_nodes = Vec::new();
-            let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
-            if use_trie_accounting_cache {
-                for (node_hash, serialized_node) in &accessed_nodes {
-                    if access_options.trie_access_tracker.track_mem_lookup(node_hash).is_none() {
-                        access_options
-                            .trie_access_tracker
-                            .track_disk_lookup(*node_hash, Arc::clone(serialized_node));
+        let mem_value =
+            if use_trie_accounting_cache || access_options.enable_state_witness_recording {
+                let mut accessed_nodes = Vec::new();
+                let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
+                if use_trie_accounting_cache {
+                    for (node_id, serialized_node) in &accessed_nodes {
+                        if access_options.trie_access_tracker.track_mem_lookup(node_id).is_none() {
+                            access_options
+                                .trie_access_tracker
+                                .track_disk_lookup(node_id.clone(), Arc::clone(serialized_node));
+                        }
                     }
                 }
-            }
-            if access_options.enable_state_witness_recording {
-                if let Some(recorder) = &self.recorder {
-                    for (node_hash, serialized_node) in accessed_nodes {
-                        recorder.record(&node_hash, serialized_node);
+                if access_options.enable_state_witness_recording {
+                    if let Some(recorder) = &self.recorder {
+                        for (node_id, serialized_node) in accessed_nodes {
+                            recorder.record(node_id, serialized_node);
+                        }
                     }
                 }
-            }
-            mem_value
-        } else {
-            lock.lookup(&self.root, key, None)?
-        };
+                mem_value
+            } else {
+                lock.lookup(&self.root, key, None)?
+            };
         Ok(mem_value.map(map_result))
     }
 
@@ -1523,14 +1527,18 @@ impl Trie {
             OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
                 let value_hash = hash(value);
                 let arc_value: Arc<[u8]> = value.clone().into();
-                if operation_options.trie_access_tracker.track_mem_lookup(&value_hash).is_none() {
+                if operation_options
+                    .trie_access_tracker
+                    .track_mem_lookup(&RecordedNodeId::Hash(value_hash))
+                    .is_none()
+                {
                     operation_options
                         .trie_access_tracker
-                        .track_disk_lookup(value_hash, arc_value.clone());
+                        .track_disk_lookup(RecordedNodeId::Hash(value_hash), arc_value.clone());
                 }
                 if operation_options.enable_state_witness_recording {
                     if let Some(recorder) = &self.recorder {
-                        recorder.record(&value_hash, arc_value);
+                        recorder.record(RecordedNodeId::Hash(value_hash), arc_value);
                     }
                 }
                 Ok(value.clone())
