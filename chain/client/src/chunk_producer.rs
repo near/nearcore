@@ -25,6 +25,8 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
+#[cfg(feature = "test_features")]
+use rand::{Rng, SeedableRng};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -51,17 +53,6 @@ pub enum AdvProduceChunksMode {
     },
 }
 
-#[cfg(feature = "test_features")]
-/// State tracking for chunk skipping feature.
-pub struct ChunkSkippingState {
-    /// Start of the current window.
-    pub window_start: BlockHeight,
-    /// Height at which to start skipping.
-    pub skip_start: BlockHeight,
-    /// Height at which to stop skipping (exclusive).
-    pub skip_end: BlockHeight,
-}
-
 pub struct ProduceChunkResult {
     pub chunk: ShardChunkWithEncoding,
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
@@ -78,8 +69,6 @@ pub struct ChunkProducer {
     pub produce_invalid_chunks: bool,
     #[cfg(feature = "test_features")]
     pub produce_invalid_tx_in_chunks: bool,
-    #[cfg(feature = "test_features")]
-    chunk_skipping_state: Option<ChunkSkippingState>,
 
     clock: Clock,
     /// If present, limits adding transactions from the transaction
@@ -116,8 +105,6 @@ impl ChunkProducer {
             produce_invalid_chunks: false,
             #[cfg(feature = "test_features")]
             produce_invalid_tx_in_chunks: false,
-            #[cfg(feature = "test_features")]
-            chunk_skipping_state: None,
             clock,
             chunk_transactions_time_limit,
             chain: chain_store.clone(),
@@ -426,11 +413,9 @@ impl ChunkProducer {
     }
 
     pub fn should_skip_chunk_production(
-        &mut self,
-        #[allow(unused)]
-        next_block_height: BlockHeight,
-        #[allow(unused)]
-        shard_id: ShardId,
+        &self,
+        #[allow(unused)] next_block_height: BlockHeight,
+        #[allow(unused)] shard_id: ShardId,
     ) -> bool {
         #[cfg(feature = "test_features")]
         if let Some(adv_produce_chunks) = &self.adv_produce_chunks {
@@ -460,19 +445,14 @@ impl ChunkProducer {
 
     #[cfg(feature = "test_features")]
     pub fn should_skip_chunk_production_window(
-        &mut self,
+        &self,
         next_block_height: BlockHeight,
         shard_id: ShardId,
         window_size: u64,
         skip_length: u64,
     ) -> bool {
         let window_start = next_block_height / window_size * window_size;
-        // If new window or no state, pick new skip range
-        let need_new = match &self.chunk_skipping_state {
-            Some(state) => state.window_start != window_start,
-            None => true,
-        };
-        if need_new {
+        let offset = {
             // Deterministic random: hash the window_start and shard_id to get a seed.
             // This ensures different chunk producers for the same shard skip the same
             // range.
@@ -480,32 +460,29 @@ impl ChunkProducer {
             seed_bytes.extend_from_slice(&window_start.to_le_bytes());
             seed_bytes.extend_from_slice(&shard_id.to_le_bytes());
             let hash = near_primitives::hash::hash(&seed_bytes);
+            let mut rng = rand::rngs::StdRng::from_seed(hash.0);
             let max_offset = window_size - skip_length;
-            let offset =
-                u64::from_le_bytes(hash.as_ref()[0..8].try_into().unwrap()) % (max_offset + 1);
-            let skip_start = window_start + offset;
-            let skip_end = skip_start + skip_length;
-            self.chunk_skipping_state =
-                Some(ChunkSkippingState { window_start, skip_start, skip_end });
-            tracing::info!(
-                target: "adversary",
-                window_start,
-                skip_start,
-                skip_end,
-                "Scheduled chunk skipping in window"
-            );
-        }
-        let state = self.chunk_skipping_state.as_ref().unwrap();
-        if next_block_height >= state.skip_start && next_block_height < state.skip_end {
+            rng.gen_range(0..=max_offset)
+        };
+        let skip_start = window_start + offset;
+        let skip_end = skip_start + skip_length;
+        tracing::debug!(
+            target: "adversary",
+            window_start,
+            skip_start,
+            skip_end,
+            "Computed chunk skipping window"
+        );
+        let should_skip = next_block_height >= skip_start && next_block_height < skip_end;
+        if should_skip {
             tracing::info!(
                 target: "adversary",
                 next_block_height,
-                skip_start = state.skip_start,
-                skip_end = state.skip_end,
+                skip_start,
+                skip_end,
                 "Skipping chunk production in skip window"
             );
-            return true;
         }
-        false
+        should_skip
     }
 }
