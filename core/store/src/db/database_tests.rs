@@ -201,7 +201,19 @@ fn test_replay_batches() {
 
 #[inline(never)]
 fn do_the_write(store: &mut Store, transaction: DBTransaction) {
-    store.write(transaction).expect("Failed to write transaction to store");
+    // Let's split the transaction by columns and write them separately.
+    let mut col_transactions: HashMap<&str, DBTransaction> = HashMap::new();
+    for op in &transaction.ops {
+        let col_name: &'static str = op.col().into();
+        let col_transaction = col_transactions.entry(col_name).or_default();
+        col_transaction.ops.push(op.clone());
+    }
+    for (col, col_transaction) in col_transactions {
+        eprintln!("Writing {} ops to column {}", col_transaction.ops.len(), col);
+        store.write(col_transaction).expect("Failed to write transaction to store");
+    }
+
+    //store.write(transaction).expect("Failed to write transaction to store");
 }
 
 fn print_batch_stats(cols: &str, transaction: &DBTransaction) {
