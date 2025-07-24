@@ -388,10 +388,6 @@ where
 /// we figure that out, we can keep the implementation below
 /// *************************************************************************************************
 
-/// Trie key in nibbles corresponding to the right boundary for the last state part.
-/// Guaranteed to be bigger than any existing trie key.
-const LAST_STATE_PART_BOUNDARY_NIBBLES: &[u8; 1] = &[16];
-
 // Item extracted from Trie during depth first traversal, corresponding to some Trie node.
 #[derive(Debug)]
 pub struct TrieTraversalItem {
@@ -400,6 +396,10 @@ pub struct TrieTraversalItem {
     /// Key of the node if it stores a value.
     pub key: Option<Vec<u8>>,
 }
+
+// Trie key in nibbles corresponding to the right boundary for the last state part.
+// Guaranteed to be bigger than any existing trie key.
+const LAST_STATE_PART_BOUNDARY_NIBBLES: &[u8; 1] = &[16];
 
 // Extension for State Parts processing
 impl<I> TrieIteratorImpl<CryptoHash, ValueHandle, I>
