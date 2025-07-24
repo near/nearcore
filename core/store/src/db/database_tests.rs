@@ -147,7 +147,7 @@ fn test_replay_batches() {
                         std::time::Instant::now().duration_since(processed_at).as_nanos() as u64;
                     if elapsed < nanos - last {
                         let delay = std::time::Duration::from_nanos(std::cmp::min(
-                            100_000_000, // at most 100 ms delay
+                            1_000_000_000, // at most 1000 ms delay
                             nanos - last - elapsed,
                         ));
                         eprintln!(
