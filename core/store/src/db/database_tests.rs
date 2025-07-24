@@ -27,7 +27,7 @@ use crate::flat::{
 };
 use crate::test_utils::TestTriesBuilder;
 use crate::{
-    DBCol, NodeStorage, ShardTries, StoreConfig, StoreUpdate, TrieUpdate, get_access_key,
+    DBCol, NodeStorage, ShardTries, Store, StoreConfig, StoreUpdate, TrieUpdate, get_access_key,
     get_account, set_access_key, set_account,
 };
 
@@ -172,10 +172,11 @@ fn test_replay_batches() {
             //print_batch_stats(cols, &transaction);
         }
         let now = std::time::Instant::now();
-        store.write(transaction).expect("Failed to write transaction to store");
         if cols.starts_with("Block-") || cols.starts_with("FlatState-FlatStateChanges-") {
             //print_batch_stats(cols, &transaction);
+            do_the_write(&mut store, transaction);
         } else {
+            store.write(transaction).expect("Failed to write transaction to store");
             store.database().flush_wal().expect("Failed to flush WAL");
         }
         let elapsed = now.elapsed();
@@ -196,6 +197,11 @@ fn test_replay_batches() {
             );
         }
     }
+}
+
+#[inline(never)]
+fn do_the_write(store: &mut Store, transaction: DBTransaction) {
+    store.write(transaction).expect("Failed to write transaction to store");
 }
 
 fn print_batch_stats(cols: &str, transaction: &DBTransaction) {
