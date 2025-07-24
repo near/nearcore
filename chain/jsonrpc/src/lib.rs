@@ -1338,6 +1338,15 @@ impl JsonRpcHandler {
 
     fn adv_produce_chunks(&self, params: Value) -> Result<Value, RpcError> {
         let mode = crate::api::Params::parse(params)?;
+        if let near_client::client_actor::AdvProduceChunksMode::SkipWindow {
+            window_size,
+            skip_length,
+        } = &mode
+        {
+            if skip_length >= window_size {
+                return Err(RpcError::invalid_params("Expected skip_length < window_size"));
+            }
+        }
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvProduceChunks(mode));
         Ok(Value::String(String::new()))
     }
