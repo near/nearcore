@@ -1709,7 +1709,7 @@ impl Client {
 
                 #[cfg(feature = "test_features")]
                 let chain_validate: &dyn Fn(&SignedTransaction) -> bool = {
-                    match self.chunk_producer.adv_produce_chunks {
+                    match self.chunk_producer.adversarial.produce_mode {
                         Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => &|_| true,
                         _ => &transaction_validity_check,
                     }

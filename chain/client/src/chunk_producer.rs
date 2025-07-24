@@ -53,6 +53,13 @@ pub enum AdvProduceChunksMode {
     },
 }
 
+#[cfg(feature = "test_features")]
+pub struct ChunkProducerAdversarialControls {
+    pub produce_mode: Option<AdvProduceChunksMode>,
+    pub produce_invalid_chunks: bool,
+    pub produce_invalid_tx_in_chunks: bool,
+}
+
 pub struct ProduceChunkResult {
     pub chunk: ShardChunkWithEncoding,
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
@@ -64,11 +71,7 @@ pub struct ChunkProducer {
     /// Adversarial controls - should be enabled only to test disruptive
     /// behavior on chain.
     #[cfg(feature = "test_features")]
-    pub adv_produce_chunks: Option<AdvProduceChunksMode>,
-    #[cfg(feature = "test_features")]
-    pub produce_invalid_chunks: bool,
-    #[cfg(feature = "test_features")]
-    pub produce_invalid_tx_in_chunks: bool,
+    pub adversarial: ChunkProducerAdversarialControls,
 
     clock: Clock,
     /// If present, limits adding transactions from the transaction
@@ -100,11 +103,11 @@ impl ChunkProducer {
 
         Self {
             #[cfg(feature = "test_features")]
-            adv_produce_chunks: None,
-            #[cfg(feature = "test_features")]
-            produce_invalid_chunks: false,
-            #[cfg(feature = "test_features")]
-            produce_invalid_tx_in_chunks: false,
+            adversarial: ChunkProducerAdversarialControls {
+                produce_mode: None,
+                produce_invalid_chunks: false,
+                produce_invalid_tx_in_chunks: false,
+            },
             clock,
             chunk_transactions_time_limit,
             chain: chain_store.clone(),
@@ -265,7 +268,7 @@ impl ChunkProducer {
 
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
-            match self.adv_produce_chunks {
+            match self.adversarial.produce_mode {
                 Some(AdvProduceChunksMode::ProduceWithoutTx) => {
                     PreparedTransactions { transactions: Vec::new(), limited_by: None }
                 }
@@ -284,7 +287,7 @@ impl ChunkProducer {
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
             prepared_transactions,
             prev_block_hash,
-            self.produce_invalid_tx_in_chunks,
+            self.adversarial.produce_invalid_tx_in_chunks,
         );
         let num_filtered_transactions = prepared_transactions.transactions.len();
         let (tx_root, _) = merklize(
@@ -301,7 +304,8 @@ impl ChunkProducer {
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
-        let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
+        let gas_used =
+            if self.adversarial.produce_invalid_chunks { gas_used + 1 } else { gas_used };
 
         let congestion_info = chunk_extra.congestion_info();
         let bandwidth_requests = chunk_extra.bandwidth_requests();
@@ -423,13 +427,13 @@ impl ChunkProducer {
         Ok(prepared_transactions)
     }
 
-    pub fn should_skip_chunk_production(
+    fn should_skip_chunk_production(
         &self,
         #[allow(unused)] next_block_height: BlockHeight,
         #[allow(unused)] shard_id: ShardId,
     ) -> bool {
         #[cfg(feature = "test_features")]
-        if let Some(adv_produce_chunks) = &self.adv_produce_chunks {
+        if let Some(adv_produce_chunks) = &self.adversarial.produce_mode {
             return match adv_produce_chunks {
                 AdvProduceChunksMode::StopProduce => {
                     tracing::info!(
