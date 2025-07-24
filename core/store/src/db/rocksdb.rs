@@ -798,7 +798,7 @@ fn common_rocksdb_options() -> Options {
     opts.set_enable_blob_files(true);
     opts.set_min_blob_size(1024);
     opts.set_enable_blob_gc(true);
-    opts.set_atomic_flush(true);
+    //opts.set_atomic_flush(true);
 
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
@@ -875,7 +875,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
     opts.set_enable_blob_files(true);
-    opts.set_min_blob_size(1024);
+    opts.set_min_blob_size(16 * 1024);
     opts.set_enable_blob_gc(true);
 
     // Note that this function changes a lot of RocksDB parameters including:
