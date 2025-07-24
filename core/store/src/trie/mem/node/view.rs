@@ -21,6 +21,18 @@ impl<'a, M: ArenaMemory> MemTrieNodeView<'a, M> {
         }
     }
 
+    pub fn node_hash_if_available(&self) -> Option<CryptoHash> {
+        match self {
+            Self::Leaf { .. } => None,
+            Self::Extension { hash, .. }
+            | Self::Branch { hash, .. }
+            | Self::BranchWithValue { hash, .. } => {
+                debug_assert_ne!(hash, &CryptoHash::default(), "Hash not computed");
+                Some(*hash)
+            }
+        }
+    }
+
     /// Returns the memory usage of the node, in Near's trie cost terms, not
     /// in terms of the physical memory usage.
     pub fn memory_usage(&self) -> u64 {
