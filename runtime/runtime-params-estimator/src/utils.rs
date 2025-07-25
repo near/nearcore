@@ -2,6 +2,7 @@ use crate::apply_block_cost;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
+use near_gas::NearGas;
 use near_parameters::ExtCosts;
 use near_parameters::vm::{Config as VMConfig, VMKind};
 use near_primitives::transaction::{
@@ -307,7 +308,7 @@ fn function_call_action(method_name: String) -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args: Vec::new(),
-        gas: 10u64.pow(15),
+        gas: NearGas::from_gas(10u64.pow(15)),
         deposit: 0,
     }))
 }

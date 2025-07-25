@@ -15,6 +15,7 @@ use bencher::{Bencher, benchmark_group, benchmark_main, black_box};
 use borsh::BorshSerialize;
 use near_chain::Chain;
 use near_crypto::{InMemorySigner, KeyType};
+use near_gas::NearGas;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
@@ -97,7 +98,7 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         args: vec![42u8; 2_000_000],
         method_name: "foo".to_owned(),
-        gas: 10_000_000_000_000u64,
+        gas: NearGas::from_gas(10_000_000_000_000u64),
         deposit: 1,
     }));
 

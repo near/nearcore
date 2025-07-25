@@ -494,6 +494,7 @@ mod tests {
     use super::{ContractAccount, ContractAccountFilter, Summary};
     use borsh::BorshSerialize;
     use near_crypto::InMemorySigner;
+    use near_gas::NearGas;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::transaction::{
@@ -579,7 +580,7 @@ mod tests {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "foo".to_owned(),
                 args: vec![],
-                gas: 1000,
+                gas: NearGas::from_gas(1000),
                 deposit: 0,
             }))],
         );

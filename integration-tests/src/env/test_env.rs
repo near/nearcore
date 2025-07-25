@@ -13,6 +13,7 @@ use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShar
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandler};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
+use near_gas::NearGas;
 use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -833,7 +834,7 @@ impl TestEnv {
         let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
-            gas: 3 * 10u64.pow(14),
+            gas: NearGas::from_gas(3 * 10u64.pow(14)),
             deposit: 0,
         }))];
         let tx = self.tx_from_actions(actions, &signer, signer.get_account_id());

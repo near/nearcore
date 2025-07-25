@@ -1,6 +1,7 @@
 use crate::cost::Cost;
 use crate::cost_table::CostTable;
 use anyhow::Context;
+use near_gas::NearGas;
 use near_parameters::vm::Config as VMConfig;
 use near_parameters::{
     AccountCreationConfig, ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost,
@@ -47,10 +48,15 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
 
 fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConfig> {
     let fee = |cost: Cost| -> anyhow::Result<Fee> {
-        let total_gas =
-            cost_table.get(cost).with_context(|| format!("undefined cost: {}", cost))?;
+        let total_gas = NearGas::from_gas(
+            cost_table.get(cost).with_context(|| format!("undefined cost: {}", cost))?,
+        );
         // Split the total cost evenly between send and execution fee.
-        Ok(Fee { send_sir: total_gas / 2, send_not_sir: total_gas / 2, execution: total_gas / 2 })
+        Ok(Fee {
+            send_sir: total_gas.checked_div(2).unwrap(),
+            send_not_sir: total_gas.checked_div(2).unwrap(),
+            execution: total_gas.checked_div(2).unwrap(),
+        })
     };
 
     let config_store = RuntimeConfigStore::new(None);

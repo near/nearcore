@@ -6,9 +6,9 @@ use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+use near_gas::NearGas;
 use near_primitives_core::types::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
-use near_gas::NearGas;
 use std::fmt::{Debug, Display};
 
 /// Error returned in the ExecutionOutcome in case of failure

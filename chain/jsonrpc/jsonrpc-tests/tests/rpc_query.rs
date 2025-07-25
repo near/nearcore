@@ -11,6 +11,7 @@ use serde_json::json;
 
 use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, Signature};
+use near_gas::NearGas;
 use near_jsonrpc::client::{ChunkId, JsonRpcClient, new_client};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
@@ -102,8 +103,8 @@ fn test_chunk_by_hash() {
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.encoded_length, 8);
         assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-        assert_eq!(chunk.header.gas_limit, 1000000);
-        assert_eq!(chunk.header.gas_used, 0);
+        assert_eq!(chunk.header.gas_limit, NearGas::from_gas(1000000));
+        assert_eq!(chunk.header.gas_used, NearGas::from_gas(0));
         assert_eq!(chunk.header.height_created, 0);
         assert_eq!(chunk.header.height_included, 0);
         assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
@@ -674,8 +675,8 @@ fn test_get_chunk_with_object_in_params() {
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.encoded_length, 8);
         assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-        assert_eq!(chunk.header.gas_limit, 1000000);
-        assert_eq!(chunk.header.gas_used, 0);
+        assert_eq!(chunk.header.gas_limit, NearGas::from_gas(1000000));
+        assert_eq!(chunk.header.gas_used, NearGas::from_gas(0));
         assert_eq!(chunk.header.height_created, 0);
         assert_eq!(chunk.header.height_included, 0);
         assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);

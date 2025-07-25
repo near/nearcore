@@ -6,6 +6,7 @@ use crate::logic::{HostError, VMLogicError};
 use crate::tests::test_builder::test_builder;
 use crate::tests::test_vm_config;
 use expect_test::expect;
+use near_gas::NearGas;
 use near_parameters::{ActionCosts, ExtCosts, Fee};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::version::ProtocolFeature;
@@ -15,7 +16,7 @@ fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
     let gas_limit = 10u64.pow(14);
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit * 2);
     logic_builder.context.prepaid_gas = gas_limit;
     let mut logic = logic_builder.build();
 
@@ -35,7 +36,7 @@ fn test_limit_wasm_gas_after_attaching_gas() {
     let op_limit = op_limit(gas_limit);
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit * 2);
     logic_builder.context.prepaid_gas = gas_limit;
     let mut logic = logic_builder.build();
 
@@ -56,7 +57,7 @@ fn test_cant_burn_more_than_max_gas_burnt_gas() {
     let op_limit = op_limit(gas_limit);
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit);
     logic_builder.context.prepaid_gas = gas_limit * 2;
     let mut logic = logic_builder.build();
 
@@ -73,7 +74,7 @@ fn test_cant_burn_more_than_prepaid_gas() {
     let op_limit = op_limit(gas_limit);
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit * 2);
     logic_builder.context.prepaid_gas = gas_limit;
     let mut logic = logic_builder.build();
 
@@ -90,7 +91,7 @@ fn test_hit_max_gas_burnt_limit() {
     let op_limit = op_limit(gas_limit);
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit);
     logic_builder.context.prepaid_gas = gas_limit * 3;
     let mut logic = logic_builder.build();
 
@@ -108,7 +109,7 @@ fn test_hit_prepaid_gas_limit() {
     let op_limit = op_limit(gas_limit);
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 3;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit * 3);
     logic_builder.context.prepaid_gas = gas_limit;
     let mut logic = logic_builder.build();
 
@@ -125,7 +126,7 @@ fn function_call_no_weight_refund() {
     let gas_limit = 10u64.pow(14);
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit);
     logic_builder.context.prepaid_gas = gas_limit;
     let mut logic = logic_builder.build();
 
@@ -143,7 +144,7 @@ fn function_call_no_weight_refund() {
 fn test_overflowing_burn_gas_with_promises_gas() {
     let gas_limit = 3 * 10u64.pow(14);
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit);
     logic_builder.context.prepaid_gas = gas_limit;
     let mut logic = logic_builder.build();
 
@@ -179,7 +180,7 @@ fn test_overflowing_burn_gas_with_promises_gas() {
 fn test_overflowing_burn_gas_with_promises_gas_2() {
     let gas_limit = 3 * 10u64.pow(14);
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit);
     logic_builder.context.prepaid_gas = gas_limit / 2;
     let mut logic = logic_builder.build();
 
@@ -241,12 +242,12 @@ fn check_action_gas_exceeds_limit(
     let gas_limit = 10u64.pow(13);
     let gas_attached = gas_limit;
     let fee = Fee {
-        send_sir: gas_limit / num_action_paid + 1,
-        send_not_sir: gas_limit / num_action_paid + 10,
-        execution: 1, // exec part is `used`, make it small
+        send_sir: NearGas::from_gas(gas_limit / num_action_paid + 1),
+        send_not_sir: NearGas::from_gas(gas_limit / num_action_paid + 10),
+        execution: NearGas::from_gas(1), // exec part is `used`, make it small
     };
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit);
     logic_builder.fees_config.action_fees[cost] = fee;
     logic_builder.context.prepaid_gas = gas_attached;
     logic_builder.context.output_data_receivers = vec!["alice.test".parse().unwrap()];
@@ -293,12 +294,12 @@ fn check_action_gas_exceeds_attached(
     let gas_limit = 10u64.pow(14);
     let gas_attached = 10u64.pow(13);
     let fee = Fee {
-        send_sir: 1,      // make burnt gas small
-        send_not_sir: 10, // make it easy to distinguish `sir` / `not_sir`
-        execution: gas_attached / num_action_paid + 1,
+        send_sir: NearGas::from_gas(1),      // make burnt gas small
+        send_not_sir: NearGas::from_gas(10), // make it easy to distinguish `sir` / `not_sir`
+        execution: NearGas::from_gas(gas_attached / num_action_paid + 1),
     };
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.config.limit_config.max_gas_burnt = NearGas::from_gas(gas_limit);
     logic_builder.fees_config.action_fees[cost] = fee;
     logic_builder.context.prepaid_gas = gas_attached;
     logic_builder.context.output_data_receivers = vec!["alice.test".parse().unwrap()];

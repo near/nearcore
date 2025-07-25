@@ -1,7 +1,7 @@
 use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
-use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_gas::NearGas;
+use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

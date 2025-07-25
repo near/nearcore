@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
+use near_gas::NearGas;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -27,7 +28,7 @@ impl GenesisConfig {
         GenesisConfig {
             genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
             genesis_height: 0,
-            gas_limit: 10u64.pow(15),
+            gas_limit: NearGas::from_gas(10u64.pow(15)),
             min_gas_price: 0,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
@@ -100,7 +101,7 @@ impl Genesis {
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-            gas_limit: INITIAL_GAS_LIMIT,
+            gas_limit: NearGas::from_gas(INITIAL_GAS_LIMIT),
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             min_gas_price: MIN_GAS_PRICE,
 

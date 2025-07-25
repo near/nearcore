@@ -22,6 +22,7 @@ use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
+use near_gas::NearGas;
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
 use std::collections::HashMap;
@@ -113,7 +114,7 @@ impl Transaction {
         self.actions_mut().push(Action::FunctionCall(Box::new(FunctionCallAction {
             method_name,
             args,
-            gas,
+            gas: NearGas::from_gas(gas),
             deposit,
         })));
         self
@@ -369,7 +370,7 @@ impl SignedTransaction {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 args,
                 method_name,
-                gas,
+                gas: NearGas::from_gas(gas),
                 deposit,
             }))],
             block_hash,

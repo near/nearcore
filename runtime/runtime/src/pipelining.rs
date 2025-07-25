@@ -191,7 +191,8 @@ impl ReceiptPreparationPipeline {
                         }
                     };
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
-                    let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+                    let gas_counter =
+                        self.gas_counter(view_config.as_ref(), function_call.gas.as_gas());
                     let entry = match self.map.entry(key) {
                         std::collections::btree_map::Entry::Vacant(v) => v,
                         // Already been submitted.
@@ -282,7 +283,7 @@ impl ReceiptPreparationPipeline {
         let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
         let Some(task) = self.map.get(&key) else {
             let start = Instant::now();
-            let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+            let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas.as_gas());
             if !self.block_accounts.contains(account_id) {
                 tracing::debug!(
                     target: "runtime::pipelining",
@@ -318,7 +319,8 @@ impl ReceiptPreparationPipeline {
                         receipt=%receipt.get_hash(),
                         action_index
                     );
-                    let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+                    let gas_counter =
+                        self.gas_counter(view_config.as_ref(), function_call.gas.as_gas());
                     let cache = self.contract_cache.as_ref().map(|c| c.handle());
                     let method_name = function_call.method_name.clone();
                     let contract = prepare_function_call(
@@ -357,7 +359,7 @@ impl ReceiptPreparationPipeline {
     fn gas_counter(&self, view_config: Option<&ViewConfig>, gas: Gas) -> GasCounter {
         let max_gas_burnt = match view_config {
             Some(ViewConfig { max_gas_burnt }) => *max_gas_burnt,
-            None => self.config.wasm_config.limit_config.max_gas_burnt,
+            None => self.config.wasm_config.limit_config.max_gas_burnt.as_gas(),
         };
         GasCounter::new(
             self.config.wasm_config.ext_costs.clone(),

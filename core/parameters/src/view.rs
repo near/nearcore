@@ -1,9 +1,9 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
+use near_gas::NearGas;
 use near_primitives_core::serialize::dec_format;
 use near_primitives_core::types::Balance;
-use near_gas::NearGas;
 use num_rational::Rational32;
 
 /// View that preserves JSON format of the runtime config.
@@ -496,20 +496,24 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
     fn from(config: crate::ExtCostsConfig) -> Self {
         Self {
             base: NearGas::from_gas(config.gas_cost(ExtCosts::base)),
-            contract_loading_base:  NearGas::from_gas(config.gas_cost(ExtCosts::contract_loading_base)),
-            contract_loading_bytes:  NearGas::from_gas(config.gas_cost(ExtCosts::contract_loading_bytes)),
-            read_memory_base:  NearGas::from_gas(config.gas_cost(ExtCosts::read_memory_base)),
-            read_memory_byte:  NearGas::from_gas(config.gas_cost(ExtCosts::read_memory_byte)),
-            write_memory_base:  NearGas::from_gas(config.gas_cost(ExtCosts::write_memory_base)),
-            write_memory_byte:  NearGas::from_gas(config.gas_cost(ExtCosts::write_memory_byte)),
-            read_register_base:  NearGas::from_gas(config.gas_cost(ExtCosts::read_register_base)),
-            read_register_byte:  NearGas::from_gas(config.gas_cost(ExtCosts::read_register_byte)),
-            write_register_base:  NearGas::from_gas(config.gas_cost(ExtCosts::write_register_base)),
-            write_register_byte:  NearGas::from_gas(config.gas_cost(ExtCosts::write_register_byte)),
-            utf8_decoding_base:  NearGas::from_gas(config.gas_cost(ExtCosts::utf8_decoding_base)),
-            utf8_decoding_byte:  NearGas::from_gas(config.gas_cost(ExtCosts::utf8_decoding_byte)),
-            utf16_decoding_base:  NearGas::from_gas(config.gas_cost(ExtCosts::utf16_decoding_base)),
-            utf16_decoding_byte:  NearGas::from_gas(config.gas_cost(ExtCosts::utf16_decoding_byte)),
+            contract_loading_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::contract_loading_base),
+            ),
+            contract_loading_bytes: NearGas::from_gas(
+                config.gas_cost(ExtCosts::contract_loading_bytes),
+            ),
+            read_memory_base: NearGas::from_gas(config.gas_cost(ExtCosts::read_memory_base)),
+            read_memory_byte: NearGas::from_gas(config.gas_cost(ExtCosts::read_memory_byte)),
+            write_memory_base: NearGas::from_gas(config.gas_cost(ExtCosts::write_memory_base)),
+            write_memory_byte: NearGas::from_gas(config.gas_cost(ExtCosts::write_memory_byte)),
+            read_register_base: NearGas::from_gas(config.gas_cost(ExtCosts::read_register_base)),
+            read_register_byte: NearGas::from_gas(config.gas_cost(ExtCosts::read_register_byte)),
+            write_register_base: NearGas::from_gas(config.gas_cost(ExtCosts::write_register_base)),
+            write_register_byte: NearGas::from_gas(config.gas_cost(ExtCosts::write_register_byte)),
+            utf8_decoding_base: NearGas::from_gas(config.gas_cost(ExtCosts::utf8_decoding_base)),
+            utf8_decoding_byte: NearGas::from_gas(config.gas_cost(ExtCosts::utf8_decoding_byte)),
+            utf16_decoding_base: NearGas::from_gas(config.gas_cost(ExtCosts::utf16_decoding_base)),
+            utf16_decoding_byte: NearGas::from_gas(config.gas_cost(ExtCosts::utf16_decoding_byte)),
             sha256_base: NearGas::from_gas(config.gas_cost(ExtCosts::sha256_base)),
             sha256_byte: NearGas::from_gas(config.gas_cost(ExtCosts::sha256_byte)),
             keccak256_base: NearGas::from_gas(config.gas_cost(ExtCosts::keccak256_base)),
@@ -524,62 +528,156 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             log_base: NearGas::from_gas(config.gas_cost(ExtCosts::log_base)),
             log_byte: NearGas::from_gas(config.gas_cost(ExtCosts::log_byte)),
             storage_write_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_write_base)),
-            storage_write_key_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_write_key_byte)),
-            storage_write_value_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_write_value_byte)),
-            storage_write_evicted_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_write_evicted_byte)),
+            storage_write_key_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_write_key_byte),
+            ),
+            storage_write_value_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_write_value_byte),
+            ),
+            storage_write_evicted_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_write_evicted_byte),
+            ),
             storage_read_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_read_base)),
-            storage_read_key_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_read_key_byte)),
-            storage_read_value_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_read_value_byte)),
-            storage_large_read_overhead_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_large_read_overhead_base)),
-            storage_large_read_overhead_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_large_read_overhead_byte)),
+            storage_read_key_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_read_key_byte),
+            ),
+            storage_read_value_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_read_value_byte),
+            ),
+            storage_large_read_overhead_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_large_read_overhead_base),
+            ),
+            storage_large_read_overhead_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_large_read_overhead_byte),
+            ),
             storage_remove_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_remove_base)),
-            storage_remove_key_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_remove_key_byte)),
-            storage_remove_ret_value_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_remove_ret_value_byte)),
-            storage_has_key_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_has_key_base)),
-            storage_has_key_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_has_key_byte)),
-            storage_iter_create_prefix_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_iter_create_prefix_base)),
-            storage_iter_create_prefix_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_iter_create_prefix_byte)),
-            storage_iter_create_range_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_iter_create_range_base)),
-            storage_iter_create_from_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_iter_create_from_byte)),
-            storage_iter_create_to_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_iter_create_to_byte)),
-            storage_iter_next_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_iter_next_base)),
-            storage_iter_next_key_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_iter_next_key_byte)),
-            storage_iter_next_value_byte: NearGas::from_gas(config.gas_cost(ExtCosts::storage_iter_next_value_byte)),
+            storage_remove_key_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_remove_key_byte),
+            ),
+            storage_remove_ret_value_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_remove_ret_value_byte),
+            ),
+            storage_has_key_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_has_key_base),
+            ),
+            storage_has_key_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_has_key_byte),
+            ),
+            storage_iter_create_prefix_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_iter_create_prefix_base),
+            ),
+            storage_iter_create_prefix_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_iter_create_prefix_byte),
+            ),
+            storage_iter_create_range_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_iter_create_range_base),
+            ),
+            storage_iter_create_from_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_iter_create_from_byte),
+            ),
+            storage_iter_create_to_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_iter_create_to_byte),
+            ),
+            storage_iter_next_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_iter_next_base),
+            ),
+            storage_iter_next_key_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_iter_next_key_byte),
+            ),
+            storage_iter_next_value_byte: NearGas::from_gas(
+                config.gas_cost(ExtCosts::storage_iter_next_value_byte),
+            ),
             touching_trie_node: NearGas::from_gas(config.gas_cost(ExtCosts::touching_trie_node)),
-            read_cached_trie_node: NearGas::from_gas(config.gas_cost(ExtCosts::read_cached_trie_node)),
+            read_cached_trie_node: NearGas::from_gas(
+                config.gas_cost(ExtCosts::read_cached_trie_node),
+            ),
             promise_and_base: NearGas::from_gas(config.gas_cost(ExtCosts::promise_and_base)),
-            promise_and_per_promise: NearGas::from_gas(config.gas_cost(ExtCosts::promise_and_per_promise)),
+            promise_and_per_promise: NearGas::from_gas(
+                config.gas_cost(ExtCosts::promise_and_per_promise),
+            ),
             promise_return: NearGas::from_gas(config.gas_cost(ExtCosts::promise_return)),
-            validator_stake_base: NearGas::from_gas(config.gas_cost(ExtCosts::validator_stake_base)),
-            validator_total_stake_base: NearGas::from_gas(config.gas_cost(ExtCosts::validator_total_stake_base)),
-            alt_bn128_g1_multiexp_base: NearGas::from_gas(config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_base)),
-            alt_bn128_g1_multiexp_element: NearGas::from_gas(config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_element)),
-            alt_bn128_g1_sum_base: NearGas::from_gas(config.gas_cost(ExtCosts::alt_bn128_g1_sum_base)),
-            alt_bn128_g1_sum_element: NearGas::from_gas(config.gas_cost(ExtCosts::alt_bn128_g1_sum_element)),
-            alt_bn128_pairing_check_base: NearGas::from_gas(config.gas_cost(ExtCosts::alt_bn128_pairing_check_base)),
-            alt_bn128_pairing_check_element: NearGas::from_gas(config.gas_cost(ExtCosts::alt_bn128_pairing_check_element)),
+            validator_stake_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::validator_stake_base),
+            ),
+            validator_total_stake_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::validator_total_stake_base),
+            ),
+            alt_bn128_g1_multiexp_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_base),
+            ),
+            alt_bn128_g1_multiexp_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_element),
+            ),
+            alt_bn128_g1_sum_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::alt_bn128_g1_sum_base),
+            ),
+            alt_bn128_g1_sum_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::alt_bn128_g1_sum_element),
+            ),
+            alt_bn128_pairing_check_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::alt_bn128_pairing_check_base),
+            ),
+            alt_bn128_pairing_check_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::alt_bn128_pairing_check_element),
+            ),
             yield_create_base: NearGas::from_gas(config.gas_cost(ExtCosts::yield_create_base)),
             yield_create_byte: NearGas::from_gas(config.gas_cost(ExtCosts::yield_create_byte)),
             yield_resume_base: NearGas::from_gas(config.gas_cost(ExtCosts::yield_resume_base)),
             yield_resume_byte: NearGas::from_gas(config.gas_cost(ExtCosts::yield_resume_byte)),
-            bls12381_p1_sum_base: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_p1_sum_base)),
-            bls12381_p1_sum_element: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_p1_sum_element)),
-            bls12381_p2_sum_base: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_p2_sum_base)),
-            bls12381_p2_sum_element: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_p2_sum_element)),
-            bls12381_g1_multiexp_base: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_g1_multiexp_base)),
-            bls12381_g1_multiexp_element: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_g1_multiexp_element)),
-            bls12381_g2_multiexp_base: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_g2_multiexp_base)),
-            bls12381_g2_multiexp_element: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_g2_multiexp_element)),
-            bls12381_map_fp_to_g1_base: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_base)),
-            bls12381_map_fp_to_g1_element: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_element)),
-            bls12381_map_fp2_to_g2_base: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_base)),
-            bls12381_map_fp2_to_g2_element: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_element)),
-            bls12381_pairing_base: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_pairing_base)),
-            bls12381_pairing_element: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_pairing_element)),
-            bls12381_p1_decompress_base: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_p1_decompress_base)),
-            bls12381_p1_decompress_element: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_p1_decompress_element)),
-            bls12381_p2_decompress_base: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_p2_decompress_base)),
-            bls12381_p2_decompress_element: NearGas::from_gas(config.gas_cost(ExtCosts::bls12381_p2_decompress_element)),
+            bls12381_p1_sum_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_p1_sum_base),
+            ),
+            bls12381_p1_sum_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_p1_sum_element),
+            ),
+            bls12381_p2_sum_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_p2_sum_base),
+            ),
+            bls12381_p2_sum_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_p2_sum_element),
+            ),
+            bls12381_g1_multiexp_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_g1_multiexp_base),
+            ),
+            bls12381_g1_multiexp_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_g1_multiexp_element),
+            ),
+            bls12381_g2_multiexp_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_g2_multiexp_base),
+            ),
+            bls12381_g2_multiexp_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_g2_multiexp_element),
+            ),
+            bls12381_map_fp_to_g1_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_base),
+            ),
+            bls12381_map_fp_to_g1_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_element),
+            ),
+            bls12381_map_fp2_to_g2_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_base),
+            ),
+            bls12381_map_fp2_to_g2_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_element),
+            ),
+            bls12381_pairing_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_pairing_base),
+            ),
+            bls12381_pairing_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_pairing_element),
+            ),
+            bls12381_p1_decompress_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_p1_decompress_base),
+            ),
+            bls12381_p1_decompress_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_p1_decompress_element),
+            ),
+            bls12381_p2_decompress_base: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_p2_decompress_base),
+            ),
+            bls12381_p2_decompress_element: NearGas::from_gas(
+                config.gas_cost(ExtCosts::bls12381_p2_decompress_element),
+            ),
             // removed parameters
             contract_compile_base: NearGas::from_gas(0),
             contract_compile_bytes: NearGas::from_gas(0),

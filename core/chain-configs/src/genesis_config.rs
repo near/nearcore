@@ -11,6 +11,7 @@ use crate::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
+use near_gas::NearGas;
 #[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
 use near_parameters::{RuntimeConfig, RuntimeConfigView};
@@ -22,12 +23,9 @@ use near_primitives::{
     hash::CryptoHash,
     serialize::dec_format,
     state_record::StateRecord,
-    types::{
-        AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats,
-    },
+    types::{AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats},
     version::ProtocolVersion,
 };
-use near_gas::NearGas;
 use num_rational::Rational32;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};

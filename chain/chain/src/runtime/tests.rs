@@ -13,6 +13,7 @@ use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_gas::NearGas;
 use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::action::FunctionCallAction;
@@ -1497,7 +1498,7 @@ fn test_storage_proof_garbage() {
                 FunctionCallAction {
                     method_name: format!("internal_record_storage_garbage_{garbage_size_mb}"),
                     args: vec![],
-                    gas: 300000000000000,
+                    gas: NearGas::from_gas(300000000000000),
                     deposit: 300000000000000,
                 }
                 .into(),

@@ -33,6 +33,7 @@ near-primitives.workspace = true
 near-store.workspace = true
 near-test-contracts.workspace = true
 near-vm-runner.workspace = true
+near-gas.workspace = true
 
 [dev-dependencies]
 testlib.workspace = true

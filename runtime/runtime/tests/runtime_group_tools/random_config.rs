@@ -1,3 +1,4 @@
+use near_gas::NearGas;
 use near_parameters::{Fee, RuntimeConfig, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::num_rational::Rational32;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -6,9 +7,9 @@ use rand::{Rng, RngCore, thread_rng};
 pub fn random_config() -> RuntimeConfig {
     let mut rng = thread_rng();
     let mut random_fee = || Fee {
-        send_sir: rng.next_u64() % 1000,
-        send_not_sir: rng.next_u64() % 1000,
-        execution: rng.next_u64() % 1000,
+        send_sir: NearGas::from_gas(rng.next_u64() % 1000),
+        send_not_sir: NearGas::from_gas(rng.next_u64() % 1000),
+        execution: NearGas::from_gas(rng.next_u64() % 1000),
     };
     RuntimeConfig {
         fees: std::sync::Arc::new(RuntimeFeesConfig {

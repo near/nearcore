@@ -34,6 +34,7 @@ use near_chain_configs::{
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_epoch_manager::EpochManagerHandle;
+use near_gas::NearGas;
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::PeerAddr;
@@ -632,7 +633,7 @@ impl NearConfig {
                 view_client_num_state_requests_per_throttle_period: config
                     .view_client_num_state_requests_per_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
-                max_gas_burnt_view: config.max_gas_burnt_view,
+                max_gas_burnt_view: config.max_gas_burnt_view.map(NearGas::from_gas),
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
                 state_sync_enabled: config.state_sync_enabled,
@@ -742,7 +743,7 @@ impl NightshadeRuntime {
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
-            config.client_config.max_gas_burnt_view,
+            config.client_config.max_gas_burnt_view.map(|gas| gas.as_gas()),
             None,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
@@ -1033,7 +1034,7 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
-                gas_limit: INITIAL_GAS_LIMIT,
+                gas_limit: NearGas::from_gas(INITIAL_GAS_LIMIT),
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
