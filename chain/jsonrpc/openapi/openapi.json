@@ -936,6 +936,7 @@
         "type": "object"
       },
       "AccessKeyInfoView": {
+        "description": "Describes information about an access key including the public key.",
         "properties": {
           "access_key": {
             "$ref": "#/components/schemas/AccessKeyView"
@@ -951,6 +952,7 @@
         "type": "object"
       },
       "AccessKeyList": {
+        "description": "Lists access keys",
         "properties": {
           "keys": {
             "items": {
@@ -989,6 +991,7 @@
         ]
       },
       "AccessKeyPermissionView": {
+        "description": "Describes the permission scope for an access key. Whether it is a function call or a full access key.",
         "oneOf": [
           {
             "enum": [
@@ -1030,6 +1033,7 @@
         ]
       },
       "AccessKeyView": {
+        "description": "Describes access key permission scope and nonce.",
         "properties": {
           "nonce": {
             "format": "uint64",
@@ -1072,20 +1076,33 @@
         "type": "object"
       },
       "AccountDataView": {
+        "description": "AccountData is a piece of global state that a validator\nsigns and broadcasts to the network.\n\nIt is essentially the data that a validator wants to share with the network.\nAll the nodes in the network are collecting the account data\nbroadcasted by the validators.\nSince the number of the validators is bounded and their\nidentity is known (and the maximal size of allowed AccountData is bounded)\nthe global state that is distributed in the form of AccountData is bounded\nas well.\nFind more information in the docs [here](https://github.com/near/nearcore/blob/560f7fc8f4b3106e0d5d46050688610b1f104ac6/chain/client/src/client.rs#L2232)",
         "properties": {
           "account_key": {
-            "$ref": "#/components/schemas/PublicKey"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "Account key of the validator signing this AccountData."
           },
           "peer_id": {
-            "$ref": "#/components/schemas/PublicKey"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "ID of the node that handles the account key (aka validator key)."
           },
           "proxies": {
+            "description": "Proxy nodes that are directly connected to the validator node\n(this list may include the validator node itself).\nTIER1 nodes should connect to one of the proxies to sent TIER1\nmessages to the validator.",
             "items": {
               "$ref": "#/components/schemas/Tier1ProxyView"
             },
             "type": "array"
           },
           "timestamp": {
+            "description": "UTC timestamp of when the AccountData has been signed.",
             "type": "string"
           }
         },
@@ -1187,6 +1204,7 @@
         "type": "object"
       },
       "AccountWithPublicKey": {
+        "description": "Account ID with its public key.",
         "properties": {
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
@@ -2562,6 +2580,7 @@
         ]
       },
       "AddKeyAction": {
+        "description": "An action that adds key with public key associated",
         "properties": {
           "access_key": {
             "allOf": [
@@ -2649,6 +2668,7 @@
         ]
       },
       "BandwidthRequestsV1": {
+        "description": "Version 1 of [`BandwidthRequest`].",
         "properties": {
           "requests": {
             "items": {
@@ -2663,12 +2683,23 @@
         "type": "object"
       },
       "BlockHeaderInnerLiteView": {
+        "description": "A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).",
         "properties": {
           "block_merkle_root": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The merkle root of all the block hashes"
           },
           "epoch_id": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The epoch to which the block that is the current known head belongs"
           },
           "height": {
             "format": "uint64",
@@ -2676,10 +2707,20 @@
             "type": "integer"
           },
           "next_bp_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The hash of the block producers set for the next epoch"
           },
           "next_epoch_id": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The epoch that will follow the current epoch"
           },
           "outcome_root": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -2711,6 +2752,7 @@
         "type": "object"
       },
       "BlockHeaderView": {
+        "description": "Contains main info about the block.",
         "properties": {
           "approvals": {
             "items": {
@@ -2840,7 +2882,12 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "prev_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The hash of the previous Block"
           },
           "prev_height": {
             "format": "uint64",
@@ -2859,7 +2906,12 @@
             "type": "string"
           },
           "signature": {
-            "$ref": "#/components/schemas/Signature"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Signature"
+              }
+            ],
+            "description": "Signature of the block producer."
           },
           "timestamp": {
             "description": "Legacy json number. Should not be used.",
@@ -2922,6 +2974,7 @@
           {
             "format": "uint64",
             "minimum": 0,
+            "title": "block_height",
             "type": "integer"
           },
           {
@@ -2930,6 +2983,7 @@
         ]
       },
       "BlockStatusView": {
+        "description": "Height and hash of a block",
         "properties": {
           "hash": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -2947,6 +3001,7 @@
         "type": "object"
       },
       "CallResult": {
+        "description": "A result returned by contract method",
         "properties": {
           "logs": {
             "items": {
@@ -2971,6 +3026,7 @@
         "type": "object"
       },
       "CatchupStatusView": {
+        "description": "Status of the [catchup](https://near.github.io/nearcore/architecture/how/sync.html#catchup) process",
         "properties": {
           "blocks_to_catchup": {
             "items": {
@@ -3039,6 +3095,7 @@
         "type": "object"
       },
       "ChunkHeaderView": {
+        "description": "Contains main info about the chunk.",
         "properties": {
           "balance_burnt": {
             "type": "string"
@@ -3216,6 +3273,7 @@
         ]
       },
       "CongestionControlConfigView": {
+        "description": "The configuration for congestion control. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)",
         "properties": {
           "allowed_shard_outgoing_gas": {
             "description": "How much gas the chosen allowed shard can send to a 100% congested shard.\n\nSee [`CongestionControlConfig`] for more details.",
@@ -3306,6 +3364,7 @@
         "type": "object"
       },
       "CongestionInfoView": {
+        "description": "Stores the congestion level of a shard. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)",
         "properties": {
           "allowed_shard": {
             "format": "uint16",
@@ -3350,11 +3409,13 @@
         "type": "object"
       },
       "CostGasUsed": {
+        "description": "Shows gas profile. More info [here](https://near.github.io/nearcore/architecture/gas/gas_profile.html?highlight=WASM_HOST_COST#example-transaction-gas-profile).",
         "properties": {
           "cost": {
             "type": "string"
           },
           "cost_category": {
+            "description": "Either ACTION_COST or WASM_HOST_COST.",
             "type": "string"
           },
           "gas_used": {
@@ -3376,6 +3437,7 @@
         "type": "string"
       },
       "CurrentEpochValidatorInfo": {
+        "description": "Describes information about the current epoch validator",
         "properties": {
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
@@ -3489,6 +3551,7 @@
         "type": "object"
       },
       "DataReceiptCreationConfigView": {
+        "description": "The fees settings for a data receipt creation",
         "properties": {
           "base_cost": {
             "allOf": [
@@ -9255,7 +9318,12 @@
       "RpcBlockResponse": {
         "properties": {
           "author": {
-            "$ref": "#/components/schemas/AccountId"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "description": "The AccountId of the author of the Block"
           },
           "chunks": {
             "items": {
@@ -9289,6 +9357,7 @@
               "block_id",
               "shard_id"
             ],
+            "title": "block_shard_id",
             "type": "object"
           },
           {
@@ -9300,6 +9369,7 @@
             "required": [
               "chunk_id"
             ],
+            "title": "chunk_hash",
             "type": "object"
           }
         ],
@@ -9869,6 +9939,7 @@
               "block_id",
               "shard_id"
             ],
+            "title": "block_shard_id",
             "type": "object"
           },
           {
@@ -9880,6 +9951,7 @@
             "required": [
               "chunk_id"
             ],
+            "title": "chunk_hash",
             "type": "object"
           }
         ],
@@ -10171,6 +10243,7 @@
         "type": "object"
       },
       "RpcLightClientNextBlockResponse": {
+        "description": "A state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).",
         "properties": {
           "approvals_after_next": {
             "items": {
@@ -10189,7 +10262,12 @@
             "type": "array"
           },
           "inner_lite": {
-            "$ref": "#/components/schemas/BlockHeaderInnerLiteView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BlockHeaderInnerLiteView"
+              }
+            ],
+            "description": "Inner part of the block header that gets hashed, split into two parts, one that is sent\n   to light clients, and the rest"
           },
           "inner_rest_hash": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -12934,6 +13012,7 @@
         "type": "object"
       },
       "RuntimeFeesConfigView": {
+        "description": "Describes different fees for the runtime",
         "properties": {
           "action_creation_config": {
             "allOf": [
@@ -14840,6 +14919,7 @@
         "type": "object"
       },
       "ViewStateResult": {
+        "description": "Resulting state values for a view state query request",
         "properties": {
           "proof": {
             "items": {
