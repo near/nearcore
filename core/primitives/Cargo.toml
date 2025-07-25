@@ -110,5 +110,5 @@ name = "compression"
 harness = false
 
 [[bench]]
-name = "state_witness_borsh"
+name = "state_witness_serde"
 harness = false

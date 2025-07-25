@@ -9,7 +9,7 @@ use crate::Client;
 use near_chain::Block;
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
+use near_primitives::stateless_validation::lazy_state_witness::LazyChunkStateWitness;
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 use std::ops::Range;
@@ -25,10 +25,10 @@ pub const ALLOWED_ORPHAN_WITNESS_DISTANCE_FROM_HEAD: Range<BlockHeight> = 2..6;
 impl Client {
     pub fn handle_orphan_state_witness(
         &mut self,
-        witness: ChunkStateWitness,
+        lazy_witness: LazyChunkStateWitness,
         witness_size: usize,
     ) -> Result<HandleOrphanWitnessOutcome, Error> {
-        let chunk_header = &witness.chunk_header();
+        let chunk_header = lazy_witness.chunk_header();
         let witness_height = chunk_header.height_created();
         let witness_shard = chunk_header.shard_id();
 
@@ -72,8 +72,12 @@ impl Client {
         }
 
         // Orphan witness is OK, save it to the pool
+        // TODO: Consider storing the lazy witnesses in orphan pool
         tracing::debug!(target: "client", "Saving an orphaned ChunkStateWitness to orphan pool");
-        self.chunk_validator.orphan_witness_pool.add_orphan_state_witness(witness, witness_size);
+        let full_witness = lazy_witness.into_chunk_state_witness();
+        self.chunk_validator
+            .orphan_witness_pool
+            .add_orphan_state_witness(full_witness, witness_size);
         Ok(HandleOrphanWitnessOutcome::SavedToPool)
     }
 
@@ -92,8 +96,10 @@ impl Client {
                 witness_prev_block = ?header.prev_block_hash(),
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
             );
+            // TODO: Store lazy witnesses in orphan pool and avoid this conversion
+            let lazy_witness = LazyChunkStateWitness::from_full_witness(witness);
             if let Err(err) = self.process_chunk_state_witness_with_prev_block(
-                witness,
+                lazy_witness,
                 new_block,
                 None,
                 signer,

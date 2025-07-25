@@ -27,6 +27,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::lazy_state_witness::LazyChunkStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessV1, EncodedChunkStateWitness,
 };
@@ -134,7 +135,7 @@ fn block_has_new_chunk(block: &Block, shard_index: ShardIndex) -> Result<bool, E
 fn get_state_witness_block_range(
     store: &ChainStore,
     epoch_manager: &dyn EpochManagerAdapter,
-    state_witness: &ChunkStateWitness,
+    lazy_witness: &LazyChunkStateWitness,
 ) -> Result<StateWitnessBlockRange, Error> {
     let mut implicit_transition_params = Vec::new();
     let mut blocks_after_last_last_chunk = Vec::new();
@@ -156,11 +157,11 @@ fn get_state_witness_block_range(
         last_chunk_shard_id: ShardId,
     }
 
-    let initial_prev_hash = *state_witness.chunk_header().prev_block_hash();
+    let initial_prev_hash = *lazy_witness.chunk_header().prev_block_hash();
     let initial_prev_block = store.get_block(&initial_prev_hash)?;
     let initial_shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(&initial_prev_hash)?;
-    let initial_shard_id = state_witness.chunk_header().shard_id();
+    let initial_shard_id = lazy_witness.chunk_header().shard_id();
     // Check that shard id is present in current epoch.
     // TODO: consider more proper way to validate this.
     let _ = initial_shard_layout.get_shard_index(initial_shard_id)?;
@@ -298,16 +299,16 @@ fn get_resharding_transition(
 /// We do this before handing off the computationally intensive part to a
 /// validation thread.
 pub fn pre_validate_chunk_state_witness(
-    state_witness: &ChunkStateWitness,
+    lazy_witness: LazyChunkStateWitness,
     chain: &Chain,
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Result<PreValidationOutput, Error> {
+) -> Result<(PreValidationOutput, ChunkStateWitness), Error> {
     let store = chain.chain_store();
 
     // Ensure that the chunk header version is supported in this protocol version
-    let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
+    let ChunkProductionKey { epoch_id, .. } = lazy_witness.chunk_production_key();
     let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
-    state_witness.chunk_header().validate_version(protocol_version)?;
+    lazy_witness.chunk_header().validate_version(protocol_version)?;
 
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
@@ -316,8 +317,10 @@ pub fn pre_validate_chunk_state_witness(
         blocks_after_last_last_chunk,
         last_chunk_shard_layout,
         last_chunk_shard_id,
-    } = get_state_witness_block_range(store, epoch_manager, state_witness)?;
+    } = get_state_witness_block_range(store, epoch_manager, &lazy_witness)?;
     let last_chunk_shard_index = last_chunk_shard_layout.get_shard_index(last_chunk_shard_id)?;
+
+    let state_witness = lazy_witness.into_chunk_state_witness();
 
     let receipts_to_apply = validate_source_receipt_proofs(
         epoch_manager,
@@ -395,7 +398,7 @@ pub fn pre_validate_chunk_state_witness(
         }
     };
 
-    Ok(PreValidationOutput { main_transition_params, implicit_transition_params })
+    Ok((PreValidationOutput { main_transition_params, implicit_transition_params }, state_witness))
 }
 
 /// Validate that receipt proofs contain the receipts that should be applied during the
@@ -830,8 +833,9 @@ impl Chain {
             (encoded_witness, raw_witness_size)
         };
         let pre_validation_start = Instant::now();
-        let pre_validation_result =
-            pre_validate_chunk_state_witness(&witness, &self, epoch_manager)?;
+        let lazy_witness = LazyChunkStateWitness::from_full_witness(witness.clone());
+        let (pre_validation_result, witness) =
+            pre_validate_chunk_state_witness(lazy_witness, &self, epoch_manager)?;
         tracing::debug!(
             parent: &parent_span,
             %shard_id,

@@ -18,8 +18,9 @@ use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::lazy_state_witness::LazyChunkStateWitness;
 use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
+    ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -85,7 +86,7 @@ impl ChunkValidator {
     /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     fn start_validating_chunk(
         &self,
-        state_witness: ChunkStateWitness,
+        lazy_witness: LazyChunkStateWitness,
         chain: &Chain,
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
@@ -94,16 +95,16 @@ impl ChunkValidator {
         let _span = tracing::debug_span!(
             target: "client",
             "start_validating_chunk",
-            height = %state_witness.chunk_production_key().height_created,
-            shard_id = %state_witness.chunk_production_key().shard_id,
+            height = %lazy_witness.chunk_production_key().height_created,
+            shard_id = %lazy_witness.chunk_production_key().shard_id,
             validator = %signer.validator_id(),
             tag_block_production = true,
         )
         .entered();
 
-        let prev_block_hash = state_witness.chunk_header().prev_block_hash();
-        let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
-        let shard_id = state_witness.chunk_header().shard_id();
+        let prev_block_hash = *lazy_witness.chunk_header().prev_block_hash();
+        let ChunkProductionKey { epoch_id, .. } = lazy_witness.chunk_production_key();
+        let shard_id = lazy_witness.chunk_header().shard_id();
         let expected_epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
         if expected_epoch_id != epoch_id {
@@ -113,11 +114,12 @@ impl ChunkValidator {
             )));
         }
 
-        let pre_validation_result = chunk_validation::pre_validate_chunk_state_witness(
-            &state_witness,
-            chain,
-            self.epoch_manager.as_ref(),
-        )?;
+        let (pre_validation_result, state_witness) =
+            chunk_validation::pre_validate_chunk_state_witness(
+                lazy_witness,
+                chain,
+                self.epoch_manager.as_ref(),
+            )?;
 
         let chunk_header = state_witness.chunk_header().clone();
         let network_sender = self.network_sender.clone();
@@ -284,13 +286,13 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
 }
 
 impl Client {
-    /// Responds to a network request to verify a `ChunkStateWitness`, which is
+    /// Responds to a network request to verify a `LazyChunkStateWitness`, which is
     /// sent by chunk producers after they produce a chunk.
     /// State witness is processed asynchronously, if you want to wait for the processing to finish
     /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     pub fn process_chunk_state_witness(
         &mut self,
-        witness: ChunkStateWitness,
+        lazy_witness: LazyChunkStateWitness,
         raw_witness_size: ChunkStateWitnessSize,
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: Option<Arc<ValidatorSigner>>,
@@ -298,9 +300,9 @@ impl Client {
         let _span = tracing::debug_span!(
             target: "client",
             "process_chunk_state_witness",
-            chunk_hash = ?witness.chunk_header().chunk_hash(),
-            height = %witness.chunk_header().height_created(),
-            shard_id = %witness.chunk_header().shard_id(),
+            chunk_hash = ?lazy_witness.chunk_header().chunk_hash(),
+            height = %lazy_witness.chunk_header().height_created(),
+            shard_id = %lazy_witness.chunk_header().shard_id(),
             tag_witness_distribution = true,
         )
         .entered();
@@ -309,22 +311,23 @@ impl Client {
         log_assert!(
             signer.is_some(),
             "Received a chunk state witness but this is not a validator node. Witness={:?}",
-            witness
+            lazy_witness
         );
 
         // Send the acknowledgement for the state witness back to the chunk producer.
         // This is currently used for network roundtrip time measurement, so we do not need to
         // wait for validation to finish.
-        self.send_state_witness_ack(&witness, &signer)?;
+        self.send_state_witness_ack(&lazy_witness, &signer)?;
 
         if self.config.save_latest_witnesses {
-            self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
+            let full_witness = lazy_witness.clone().into_chunk_state_witness();
+            self.chain.chain_store.save_latest_chunk_state_witness(&full_witness)?;
         }
 
         let signer = signer.unwrap();
-        match self.chain.get_block(witness.chunk_header().prev_block_hash()) {
+        match self.chain.get_block(lazy_witness.chunk_header().prev_block_hash()) {
             Ok(block) => self.process_chunk_state_witness_with_prev_block(
-                witness,
+                lazy_witness,
                 &block,
                 processing_done_tracker,
                 &signer,
@@ -332,7 +335,7 @@ impl Client {
             ),
             Err(Error::DBNotFoundErr(_)) => {
                 // Previous block isn't available at the moment, add this witness to the orphan pool.
-                self.handle_orphan_state_witness(witness, raw_witness_size)?;
+                self.handle_orphan_state_witness(lazy_witness, raw_witness_size)?;
                 Ok(())
             }
             Err(err) => Err(err),
@@ -341,7 +344,7 @@ impl Client {
 
     fn send_state_witness_ack(
         &self,
-        witness: &ChunkStateWitness,
+        witness: &LazyChunkStateWitness,
         signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
         let chunk_producer = self
@@ -368,22 +371,22 @@ impl Client {
 
     pub fn process_chunk_state_witness_with_prev_block(
         &mut self,
-        witness: ChunkStateWitness,
+        lazy_witness: LazyChunkStateWitness,
         prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: &Arc<ValidatorSigner>,
         save_witness_if_invalid: bool,
     ) -> Result<(), Error> {
-        if witness.chunk_header().prev_block_hash() != prev_block.hash() {
+        if lazy_witness.chunk_header().prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(
                 "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",
-                witness.chunk_header().prev_block_hash(),
+                lazy_witness.chunk_header().prev_block_hash(),
                 prev_block.hash()
             )));
         }
 
         self.chunk_validator.start_validating_chunk(
-            witness,
+            lazy_witness,
             &self.chain,
             processing_done_tracker,
             signer,

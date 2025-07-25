@@ -5,6 +5,7 @@ use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
+use crate::stateless_validation::lazy_state_witness::LazyChunkStateWitness;
 use crate::transaction::SignedTransaction;
 use crate::types::{EpochId, SignatureDifferentiator};
 use crate::utils::compression::CompressedData;
@@ -94,7 +95,7 @@ pub struct ChunkStateWitnessAck {
 }
 
 impl ChunkStateWitnessAck {
-    pub fn new(witness: &ChunkStateWitness) -> Self {
+    pub fn new(witness: &LazyChunkStateWitness) -> Self {
         Self { chunk_hash: witness.chunk_header().chunk_hash().clone() }
     }
 }
