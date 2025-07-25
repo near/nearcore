@@ -1,5 +1,6 @@
 use crate::config::Mode;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
+use crate::store::PendingWrites;
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
@@ -50,6 +51,7 @@ pub struct RocksDB {
     db: DB,
     db_opt: Options,
     cache: Arc<deserialized_column::Cache>,
+    pending: Arc<PendingWrites>,
 
     /// Map from [`DBCol`] to a column family handler in the RocksDB.
     ///
@@ -121,15 +123,28 @@ impl RocksDB {
     ) -> io::Result<Self> {
         static MAP: Mutex<BTreeMap<PathBuf, Arc<deserialized_column::Cache>>> =
             Mutex::new(BTreeMap::new());
+        static PENDING_MAP: Mutex<BTreeMap<PathBuf, Arc<PendingWrites>>> =
+            Mutex::new(BTreeMap::new());
         let mut guard = MAP.lock();
+        let mut pending_guard = PENDING_MAP.lock();
         let cache = guard
             .entry(path.to_path_buf())
             .or_insert_with(|| Arc::new(deserialized_column::Cache::enabled()));
+        let pending = pending_guard
+            .entry(path.to_path_buf())
+            .or_insert_with(|| Arc::new(PendingWrites::default()));
         let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
             .map_err(io::Error::other)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
-        Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter, cache: Arc::clone(cache) })
+        Ok(Self {
+            db,
+            db_opt,
+            cf_handles,
+            _instance_tracker: counter,
+            cache: Arc::clone(cache),
+            pending: Arc::clone(pending),
+        })
     }
 
     /// Opens the database with given column families configured.
@@ -503,6 +518,10 @@ impl Database for RocksDB {
 
     fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
         Arc::clone(&self.cache)
+    }
+
+    fn pending_writes(&self) -> Option<Arc<PendingWrites>> {
+        Some(Arc::clone(&self.pending))
     }
 }
 
