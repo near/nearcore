@@ -1219,6 +1219,49 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         peer_msg: PeerMessage,
     ) {
+        // Optimization: heavy messages are processed asynchronously to avoid blocking
+        if let PeerMessage::Routed(routed_msg) = &peer_msg {
+            match routed_msg.body() {
+                TieredMessageBody::T1(body) => match body.as_ref() {
+                    T1MessageBody::PartialEncodedStateWitness(_)
+                    | T1MessageBody::PartialEncodedStateWitnessForward(_)
+                    | T1MessageBody::VersionedPartialEncodedChunk(_)
+                    | T1MessageBody::PartialEncodedChunkForward(_) => {
+                        let addr = ctx.address();
+                        let peer_msg_clone = peer_msg.clone();
+                        tokio::spawn(async move {
+                            let _ =
+                                addr.send(ProcessHeavyMessage { msg: peer_msg_clone, conn }).await;
+                        });
+                        return;
+                    }
+                    _ => {}
+                },
+                TieredMessageBody::T2(body) => match body.as_ref() {
+                    T2MessageBody::PartialEncodedChunkRequest(_)
+                    | T2MessageBody::PartialEncodedChunkResponse(_) => {
+                        let addr = ctx.address();
+                        let peer_msg_clone = peer_msg.clone();
+                        tokio::spawn(async move {
+                            let _ =
+                                addr.send(ProcessHeavyMessage { msg: peer_msg_clone, conn }).await;
+                        });
+                        return;
+                    }
+                    _ => {}
+                },
+            }
+        }
+
+        self.handle_msg_ready_sync(ctx, conn, peer_msg);
+    }
+
+    fn handle_msg_ready_sync(
+        &mut self,
+        ctx: &mut actix::Context<Self>,
+        conn: Arc<connection::Connection>,
+        peer_msg: PeerMessage,
+    ) {
         #[cfg(test)]
         let message_processed_event = {
             let sink = self.network_state.config.event_sink.clone();
@@ -1879,6 +1922,14 @@ pub(crate) struct Stop {
     pub ban_reason: Option<ReasonForBan>,
 }
 
+/// Internal message for processing heavy messages on background threads.
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+struct ProcessHeavyMessage {
+    msg: PeerMessage,
+    conn: Arc<connection::Connection>,
+}
+
 impl actix::Handler<WithSpanContext<SpanWrapped<Stop>>> for PeerActor {
     type Result = ();
 
@@ -1897,6 +1948,15 @@ impl actix::Handler<WithSpanContext<SpanWrapped<Stop>>> for PeerActor {
                 None => ClosingReason::PeerManagerRequest,
             },
         );
+    }
+}
+
+impl actix::Handler<ProcessHeavyMessage> for PeerActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: ProcessHeavyMessage, ctx: &mut Self::Context) -> Self::Result {
+        self.handle_msg_ready_sync(ctx, msg.conn, msg.msg);
     }
 }
 
