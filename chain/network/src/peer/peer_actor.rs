@@ -477,7 +477,38 @@ impl PeerActor {
             _ => (),
         };
 
-        let bytes = msg.serialize(enc);
+        let bytes = {
+            let _ser_span = match msg {
+                PeerMessage::Routed(routed_msg) => match routed_msg.body() {
+                    TieredMessageBody::T1(body) => match body.as_ref() {
+                        T1MessageBody::PartialEncodedStateWitness(witness) => Some(
+                            tracing::debug_span!(target: "client", "serialize_message",
+                                msg_type = "PartialEncodedStateWitness",
+                                part_ord = witness.part_ord(),
+                                height = witness.chunk_production_key().height_created,
+                                shard_id = %witness.chunk_production_key().shard_id,
+                                tag_witness_distribution = true,
+                            )
+                            .entered(),
+                        ),
+                        T1MessageBody::PartialEncodedStateWitnessForward(witness) => Some(
+                            tracing::debug_span!(target: "client", "serialize_message",
+                                msg_type = "PartialEncodedStateWitnessForward",
+                                part_ord = witness.part_ord(),
+                                height = witness.chunk_production_key().height_created,
+                                shard_id = %witness.chunk_production_key().shard_id,
+                                tag_witness_distribution = true,
+                            )
+                            .entered(),
+                        ),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            };
+            msg.serialize(enc)
+        };
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
         tracing::trace!(target: "network", msg_len = bytes_len);
@@ -1768,13 +1799,40 @@ impl actix::Handler<stream::Frame> for PeerActor {
             self.tracker.lock().increment_received(&self.clock, msg.len() as u64);
         }
 
-        let mut peer_msg = match self.parse_message(&msg) {
-            Ok(msg) => msg,
-            Err(err) => {
-                tracing::debug!(target: "network", "Received invalid data {} from {}: {}", near_fmt::AbbrBytes(&msg), self.peer_info, err);
-                return;
+        let mut peer_msg = {
+            let _parse_span_guard =
+                { tracing::debug_span!(target:"client", "parse_message").entered() };
+            match self.parse_message(&msg) {
+                Ok(msg) => msg,
+                Err(err) => {
+                    tracing::debug!(target: "network", "Received invalid data {} from {}: {}", near_fmt::AbbrBytes(&msg), self.peer_info, err);
+                    return;
+                }
             }
         };
+
+        tracing::Span::current()
+            .record("msg_type", &tracing::field::display(peer_msg.msg_variant()));
+        if let PeerMessage::Routed(routed_msg) = &peer_msg {
+            if let TieredMessageBody::T1(body) = routed_msg.body() {
+                match body.as_ref() {
+                    T1MessageBody::PartialEncodedStateWitness(witness)
+                    | T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
+                        tracing::Span::current()
+                            .record("part_ord", &tracing::field::display(witness.part_ord()));
+                        tracing::Span::current().record(
+                            "height",
+                            &tracing::field::display(witness.chunk_production_key().height_created),
+                        );
+                        tracing::Span::current().record(
+                            "shard_id",
+                            &tracing::field::display(witness.chunk_production_key().shard_id),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         tracing::trace!(target: "network", "Received message: {}", peer_msg);
 
