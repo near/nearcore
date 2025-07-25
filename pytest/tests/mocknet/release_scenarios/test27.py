@@ -2,6 +2,7 @@
 Test case classes for release tests on forknet.
 """
 from .base import TestSetup
+from mirror import CommandContext, update_config_cmd
 import copy
 
 
@@ -16,16 +17,22 @@ class Test27(TestSetup):
         super().__init__(args)
         self.start_height = 149655594
         self.args.start_height = self.start_height
-        self.validators = 21
-        self.block_producers = 18
+        self.validators = 24
+        self.block_producers = 19
         self.epoch_len = 18000  # roughly 2h 30m @ 2bps
+        self.has_state_dumper = True
         self.genesis_protocol_version = 77
         self.has_archival = True
-        self.regions = None
-        self.upgrade_interval_minutes = 40  # Within the first 2 epochs
+        self.regions = "us-east1,europe-west4,asia-east1,us-west1"
+        self.upgrade_interval_minutes = 60  # Within the first 2 epochs
 
-    def amend_configs(self):
-        super().amend_configs()
+    def amend_epoch_config(self):
+        super().amend_epoch_config()
+        self._amend_epoch_config(
+            f".shuffle_shard_assignment_for_chunk_producers = true")
+
+    def amend_configs_before_test_start(self):
+        super().amend_configs_before_test_start()
         cfg_args = copy.deepcopy(self.args)
         # Reduce the block production delay for this release test.
         # These configs will be default in 2.7
@@ -55,15 +62,12 @@ class Test27Small(Test27):
 
     def __init__(self, args):
         super().__init__(args)
-        self.validators = 9
-        self.block_producers = 8
-        self.epoch_len = 5000
-        self.has_archival = True
-        self.regions = None
-        self.upgrade_interval_minutes = 5  # Within the first 2 epochs
+        self.validators = 10
+        self.block_producers = 9
+        self.upgrade_interval_minutes = 20  # Within the first 2 epochs
 
-    def amend_configs(self):
-        super().amend_configs()
+    def amend_configs_before_test_start(self):
+        super().amend_configs_before_test_start()
         cfg_args = copy.deepcopy(self.args)
         cfg_args.set = ';'.join([
             'consensus.min_block_production_delay={"secs":1,"nanos":300000000}',

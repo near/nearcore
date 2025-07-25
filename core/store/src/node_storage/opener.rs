@@ -1,4 +1,4 @@
-use crate::config::ArchivalConfig;
+use crate::config::{ArchivalConfig, STATE_SNAPSHOT_DIR, StateSnapshotType};
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
@@ -262,6 +262,58 @@ impl<'a> StoreOpener<'a> {
         Ok(storage)
     }
 
+    /// Migrate state snapshots.
+    ///
+    /// This function iterates over all state snapshots in the state snapshots directory
+    /// and runs the migration on each of them.
+    ///
+    /// Migrations is not performed in the following cases:
+    /// - If snapshots are disabled
+    /// - If the migrator is not found
+    /// - If the state snapshots directory does not exist
+    /// - If the state snapshot is already migrated
+    fn migrate_state_snapshots(&self) -> Result<(), StoreOpenerError> {
+        if self.migrator.is_none() {
+            tracing::debug!(target: "db_opener", "No migrator found, skipping state snapshots migration");
+            return Ok(());
+        }
+
+        let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
+            StateSnapshotType::Enabled => self.hot.path.join(STATE_SNAPSHOT_DIR),
+            StateSnapshotType::Disabled => {
+                tracing::debug!(target: "db_opener", "State snapshots are disabled, skipping state snapshots migration");
+                return Ok(());
+            }
+        };
+
+        if !state_snapshots_dir.exists() {
+            tracing::debug!(
+                target: "db_opener",
+                ?state_snapshots_dir,
+                "State snapshots directory does not exist, skipping state snapshots migration"
+            );
+            return Ok(());
+        }
+
+        for entry in std::fs::read_dir(state_snapshots_dir)? {
+            let entry = entry?;
+            let snapshot_path = entry.path();
+            if !entry.file_type()?.is_dir() {
+                tracing::trace!(
+                    target: "db_opener",
+                    ?snapshot_path,
+                    "This entry is not a directory, skipping"
+                );
+                continue;
+            }
+
+            let opener = NodeStorage::opener(&snapshot_path, &self.hot.config, None)
+                .with_migrator(self.migrator.unwrap());
+            let _ = opener.open_in_mode(Mode::ReadWrite)?;
+        }
+        Ok(())
+    }
+
     fn open_dbs(
         &self,
         mode: Mode,
@@ -288,6 +340,11 @@ impl<'a> StoreOpener<'a> {
         } else {
             Snapshot::none()
         };
+
+        if let Err(error) = self.migrate_state_snapshots() {
+            // If migration fails the node may not be able to share state parts.
+            tracing::error!(target: "db_opener", ?error, "Error migrating state snapshots");
+        }
 
         let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
         let cold_db = self

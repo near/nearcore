@@ -609,6 +609,7 @@ impl ChunkExecutorActor {
         };
         // TODO(spice-resharding): implicit_transitions are used for resharding.
         let implicit_transitions = Vec::new();
+        let new_transactions = Vec::new();
         let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let state_witness = ChunkStateWitness::new(
@@ -622,6 +623,7 @@ impl ChunkExecutorActor {
             applied_receipts_hash,
             chunk.to_transactions().to_vec(),
             implicit_transitions,
+            new_transactions,
             protocol_version,
         );
         Ok(state_witness)

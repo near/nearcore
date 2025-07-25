@@ -1690,19 +1690,6 @@ impl Client {
             block_height = block.header().height())
         .entered();
 
-        #[cfg(feature = "test_features")]
-        match self.chunk_producer.adv_produce_chunks {
-            Some(AdvProduceChunksMode::StopProduce) => {
-                tracing::info!(
-                    target: "adversary",
-                    block_height = block.header().height(),
-                    "skipping chunk production due to adversary configuration"
-                );
-                return;
-            }
-            _ => {}
-        };
-
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
@@ -1717,6 +1704,10 @@ impl Client {
                 .unwrap()
                 .take_account_id();
             if &chunk_proposer != &validator_id {
+                continue;
+            }
+
+            if self.chunk_producer.should_skip_chunk_production(next_height, shard_id) {
                 continue;
             }
 

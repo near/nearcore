@@ -41,6 +41,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::{ContractCode, ContractRuntimeCache, get_contract_cache_key};
+use parking_lot::Mutex;
 use rand::Rng;
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
@@ -75,7 +76,7 @@ pub struct PartialWitnessActor {
     partial_witness_tracker: Arc<PartialEncodedStateWitnessTracker>,
     partial_deploys_tracker: PartialEncodedContractDeploysTracker,
     /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
-    state_witness_tracker: ChunkStateWitnessTracker,
+    state_witness_tracker: Arc<Mutex<ChunkStateWitnessTracker>>,
     /// Reed Solomon encoder for encoding state witness parts.
     /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
     witness_encoders: ReedSolomonEncoderCache,
@@ -83,6 +84,8 @@ pub struct PartialWitnessActor {
     contract_deploys_encoders: ReedSolomonEncoderCache,
     compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
     partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
+    /// Spawner for witness creation tasks.
+    witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,
     /// AccountId in the key corresponds to the requester (chunk validator).
     processed_contract_code_requests: LruCache<(ChunkProductionKey, AccountId), ()>,
 }
@@ -175,6 +178,7 @@ impl PartialWitnessActor {
         runtime: Arc<dyn RuntimeAdapter>,
         compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
         partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
+        witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let partial_witness_tracker =
             Arc::new(PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone()));
@@ -184,7 +188,7 @@ impl PartialWitnessActor {
             epoch_manager,
             partial_witness_tracker,
             partial_deploys_tracker: PartialEncodedContractDeploysTracker::new(),
-            state_witness_tracker: ChunkStateWitnessTracker::new(clock),
+            state_witness_tracker: Arc::new(Mutex::new(ChunkStateWitnessTracker::new(clock))),
             runtime,
             witness_encoders: ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS),
             contract_deploys_encoders: ReedSolomonEncoderCache::new(
@@ -192,6 +196,7 @@ impl PartialWitnessActor {
             ),
             compile_contracts_spawner,
             partial_witness_spawner,
+            witness_creation_spawner,
             processed_contract_code_requests: LruCache::new(
                 NonZeroUsize::new(PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE).unwrap(),
             ),
@@ -246,18 +251,52 @@ impl PartialWitnessActor {
             );
         }
 
-        let witness_bytes = compress_witness(&state_witness)?;
-        self.send_state_witness_parts(
-            key.epoch_id,
-            state_witness.chunk_header(),
-            witness_bytes,
-            &chunk_validators,
-            &signer,
-        );
+        // Move witness compression, encoding and distribution to the witness_creation_spawner
+        // to avoid blocking the actor thread
+        let encoder = self.witness_encoders.entry(chunk_validators.len());
+        let network_adapter = self.network_adapter.clone();
+        let state_witness_tracker = self.state_witness_tracker.clone();
+
+        self.witness_creation_spawner.spawn("compress_and_distribute_witness", move || {
+            if let Err(err) = Self::compress_and_distribute_witness(
+                state_witness,
+                chunk_validators,
+                (*signer).clone(),
+                network_adapter,
+                state_witness_tracker,
+                encoder,
+            ) {
+                tracing::error!(target: "client", ?err, "Failed to compress and distribute chunk state witness");
+            }
+        });
 
         if !contract_deploys.is_empty() {
             self.send_chunk_contract_deploys_parts(key, contract_deploys)?;
         }
+        Ok(())
+    }
+
+    fn compress_and_distribute_witness(
+        state_witness: ChunkStateWitness,
+        chunk_validators: Vec<AccountId>,
+        signer: ValidatorSigner,
+        network_adapter: PeerManagerAdapter,
+        state_witness_tracker: Arc<Mutex<ChunkStateWitnessTracker>>,
+        encoder: Arc<ReedSolomonEncoder>,
+    ) -> Result<(), Error> {
+        let witness_bytes = compress_witness(&state_witness)?;
+
+        Self::send_state_witness_parts(
+            encoder,
+            *state_witness.epoch_id(),
+            state_witness.chunk_header(),
+            witness_bytes,
+            &chunk_validators,
+            &signer,
+            &network_adapter,
+            &state_witness_tracker,
+        );
+
         Ok(())
     }
 
@@ -300,12 +339,14 @@ impl PartialWitnessActor {
     // The chunk validator owner will then forward the part to all other chunk validators.
     // Each chunk validator would collect the parts and reconstruct the state witness.
     fn send_state_witness_parts(
-        &mut self,
+        encoder: Arc<ReedSolomonEncoder>,
         epoch_id: EpochId,
         chunk_header: &ShardChunkHeader,
         witness_bytes: EncodedChunkStateWitness,
         chunk_validators: &[AccountId],
         signer: &ValidatorSigner,
+        network_adapter: &PeerManagerAdapter,
+        state_witness_tracker: &Arc<Mutex<ChunkStateWitnessTracker>>,
     ) {
         let _span = tracing::debug_span!(
             target: "client",
@@ -327,7 +368,7 @@ impl PartialWitnessActor {
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
         let validator_witness_tuple = generate_state_witness_parts(
-            self.witness_encoders.entry(chunk_validators.len()),
+            encoder,
             epoch_id,
             chunk_header,
             witness_bytes,
@@ -338,14 +379,14 @@ impl PartialWitnessActor {
 
         // Record the witness in order to match the incoming acks for measuring round-trip times.
         // See process_chunk_state_witness_ack for the handling of the ack messages.
-        self.state_witness_tracker.record_witness_sent(
+        state_witness_tracker.lock().record_witness_sent(
             chunk_hash.clone(),
             witness_size_in_bytes,
             validator_witness_tuple.len(),
         );
 
         // Send the parts to the corresponding chunk validator owners.
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+        network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
         ));
     }
@@ -602,8 +643,8 @@ impl PartialWitnessActor {
     /// the ack message and updates the corresponding metric with it.
     /// Currently we do not raise an error for handling of witness-ack messages,
     /// as it is used only for tracking some networking metrics.
-    fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
-        self.state_witness_tracker.on_witness_ack_received(witness_ack);
+    fn handle_chunk_state_witness_ack(&self, witness_ack: ChunkStateWitnessAck) {
+        self.state_witness_tracker.lock().on_witness_ack_received(witness_ack);
     }
 
     /// Handles contract code accesses message from chunk producer.

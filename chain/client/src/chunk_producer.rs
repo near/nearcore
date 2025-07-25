@@ -25,6 +25,8 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
+#[cfg(feature = "test_features")]
+use rand::{Rng, SeedableRng};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -42,6 +44,13 @@ pub enum AdvProduceChunksMode {
     ProduceWithoutTx,
     // Produce chunks but do not bother checking if included transactions pass validity check.
     ProduceWithoutTxValidityCheck,
+    // Randomly skip multiple chunks in a row.
+    SkipWindow {
+        // Size of the window in which to randomly pick a skip start.
+        window_size: u64,
+        // Number of consecutive chunks to skip when skipping is triggered.
+        skip_length: u64,
+    },
 }
 
 pub struct ProduceChunkResult {
@@ -401,5 +410,79 @@ impl ChunkProducer {
             debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
         }
         Ok(prepared_transactions)
+    }
+
+    pub fn should_skip_chunk_production(
+        &self,
+        #[allow(unused)] next_block_height: BlockHeight,
+        #[allow(unused)] shard_id: ShardId,
+    ) -> bool {
+        #[cfg(feature = "test_features")]
+        if let Some(adv_produce_chunks) = &self.adv_produce_chunks {
+            return match adv_produce_chunks {
+                AdvProduceChunksMode::StopProduce => {
+                    tracing::info!(
+                        target: "adversary",
+                        next_block_height,
+                        "Skipping chunk production due to adversary configuration"
+                    );
+                    true
+                }
+                AdvProduceChunksMode::SkipWindow { window_size, skip_length } => self
+                    .should_skip_chunk_production_window(
+                        next_block_height,
+                        shard_id,
+                        *window_size,
+                        *skip_length,
+                    ),
+                AdvProduceChunksMode::Valid
+                | AdvProduceChunksMode::ProduceWithoutTx
+                | AdvProduceChunksMode::ProduceWithoutTxValidityCheck => false,
+            };
+        }
+        false
+    }
+
+    #[cfg(feature = "test_features")]
+    fn should_skip_chunk_production_window(
+        &self,
+        next_block_height: BlockHeight,
+        shard_id: ShardId,
+        window_size: u64,
+        skip_length: u64,
+    ) -> bool {
+        let window_start = next_block_height / window_size * window_size;
+        let offset = {
+            // Deterministic random: hash the window_start and shard_id to get a seed.
+            // This ensures different chunk producers for the same shard skip the same
+            // range.
+            let mut seed_bytes = vec![];
+            seed_bytes.extend_from_slice(&window_start.to_le_bytes());
+            seed_bytes.extend_from_slice(&shard_id.to_le_bytes());
+            let hash = near_primitives::hash::hash(&seed_bytes);
+            let mut rng = rand::rngs::StdRng::from_seed(hash.0);
+            let max_offset = window_size - skip_length;
+            rng.gen_range(0..=max_offset)
+        };
+        let skip_start = window_start + offset;
+        let skip_end = skip_start + skip_length;
+        tracing::debug!(
+            target: "adversary",
+            window_start,
+            skip_start,
+            skip_end,
+            "Computed chunk skipping window"
+        );
+        let should_skip = next_block_height >= skip_start && next_block_height < skip_end;
+        if should_skip {
+            tracing::info!(
+                target: "adversary",
+                next_block_height,
+                skip_start,
+                skip_end,
+                "Skipping chunk production in skip window"
+            );
+        }
+        should_skip
     }
 }

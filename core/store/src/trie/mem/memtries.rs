@@ -37,8 +37,12 @@ pub struct MemTries {
     /// Maps a block height to a list of state roots present at that height.
     /// This is used for GC. The invariant is that for any state root, the
     /// number of times the state root appears in this map is equal to the
-    /// sum of the refcounts of each `MemTrieNodeId`s in `roots[state hash]`.
+    /// sum of the refcounts of each `MemTrieNodeId`s in `roots[state_hash]`.
+    /// plus one for the snapshot root.
     heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
+    /// The state root of the snapshot trie, if any.
+    /// Note that this counts towards the Rc of the root node.
+    snapshot_root: Option<StateRoot>,
     /// Shard UID, for exporting metrics only.
     shard_uid: ShardUId,
 }
@@ -50,6 +54,7 @@ pub struct FrozenMemTries {
     arena: FrozenArena,
     roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
     heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
+    snapshot_root: Option<StateRoot>,
 }
 
 impl MemTries {
@@ -58,6 +63,7 @@ impl MemTries {
             arena: STArena::new(shard_uid.to_string()).into(),
             roots: HashMap::new(),
             heights: Default::default(),
+            snapshot_root: None,
             shard_uid,
         }
     }
@@ -70,6 +76,7 @@ impl MemTries {
             arena: HybridArena::from_frozen(shard_uid.to_string(), frozen_memtries.arena),
             roots: frozen_memtries.roots,
             heights: frozen_memtries.heights,
+            snapshot_root: frozen_memtries.snapshot_root,
             shard_uid,
         }
     }
@@ -84,10 +91,32 @@ impl MemTries {
             arena: arena.into(),
             roots: HashMap::new(),
             heights: Default::default(),
+            snapshot_root: None,
             shard_uid,
         };
         tries.insert_root(root.as_ptr(tries.arena.memory()).view().node_hash(), root, block_height);
         tries
+    }
+
+    pub fn snapshot(&mut self, state_root: &StateRoot) -> Result<(), StorageError> {
+        self.delete_snapshot();
+        let ids = self.roots.get(state_root).ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Failed to find root node {:?} in memtrie during snapshot",
+                state_root
+            ))
+        })?;
+        let last_id = ids.last().unwrap();
+        last_id.add_ref(self.arena.memory_mut());
+        self.snapshot_root = Some(*state_root);
+        Ok(())
+    }
+
+    pub fn delete_snapshot(&mut self) {
+        if let Some(snapshot_root) = self.snapshot_root {
+            self.delete_root(&snapshot_root);
+        }
+        self.snapshot_root = None;
     }
 
     /// This function should perform the entire construction of the new trie, possibly based on some existing
@@ -208,7 +237,12 @@ impl MemTries {
     /// Freezes memtrie. The result is used as a shared data to construct new
     /// memtries.
     pub fn freeze(self) -> FrozenMemTries {
-        FrozenMemTries { arena: self.arena.freeze(), roots: self.roots, heights: self.heights }
+        FrozenMemTries {
+            arena: self.arena.freeze(),
+            roots: self.roots,
+            heights: self.heights,
+            snapshot_root: self.snapshot_root,
+        }
     }
 
     #[cfg(test)]

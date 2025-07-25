@@ -10,7 +10,9 @@ use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::store::latest_witnesses::save_invalid_chunk_state_witness;
 use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource};
-use crate::validate::validate_chunk_with_chunk_extra_and_receipts_root;
+use crate::validate::{
+    validate_chunk_with_chunk_extra_and_receipts_root, validate_chunk_with_encoded_merkle_root,
+};
 use crate::{Chain, ChainStore, ChainStoreAccess};
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
@@ -37,6 +39,7 @@ use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Store, Trie};
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -521,6 +524,7 @@ pub fn validate_chunk_state_witness_impl(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
     main_state_transition_cache: &MainStateTransitionCache,
+    rs: Arc<ReedSolomon>,
 ) -> Result<ChunkExecutionResult, Error> {
     let ChunkProductionKey { shard_id: witness_chunk_shard_id, epoch_id, height_created } =
         state_witness.chunk_production_key();
@@ -603,7 +607,7 @@ pub fn validate_chunk_state_witness_impl(
             block_hash,
             ChunkStateWitnessValidationResult {
                 chunk_extra: chunk_extra.clone(),
-                outgoing_receipts,
+                outgoing_receipts: outgoing_receipts.clone(),
             },
         );
     }
@@ -704,6 +708,21 @@ pub fn validate_chunk_state_witness_impl(
             &state_witness.chunk_header(),
             &outgoing_receipts_root,
         )?;
+
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
+            let (tx_root, _) = merklize(&state_witness.new_transactions());
+            if tx_root != *state_witness.chunk_header().tx_root() {
+                return Err(Error::InvalidTxRoot);
+            }
+            validate_chunk_with_encoded_merkle_root(
+                &state_witness.chunk_header(),
+                outgoing_receipts,
+                state_witness.new_transactions().clone(),
+                rs.as_ref(),
+                shard_id,
+            )?;
+        }
     }
 
     Ok(ChunkExecutionResult { chunk_extra, outgoing_receipts_root })
@@ -717,6 +736,7 @@ pub fn validate_chunk_state_witness(
     main_state_transition_cache: &MainStateTransitionCache,
     store: Store,
     save_witness_if_invalid: bool,
+    rs: Arc<ReedSolomon>,
 ) -> Result<ChunkExecutionResult, Error> {
     // Avoid cloning the witness if possible
     if !save_witness_if_invalid {
@@ -726,6 +746,7 @@ pub fn validate_chunk_state_witness(
             epoch_manager,
             runtime_adapter,
             main_state_transition_cache,
+            rs,
         );
     }
 
@@ -735,6 +756,7 @@ pub fn validate_chunk_state_witness(
         epoch_manager,
         runtime_adapter,
         main_state_transition_cache,
+        rs,
     );
     if result.is_err() {
         if let Err(storage_err) = save_invalid_chunk_state_witness(store, &state_witness) {
@@ -771,6 +793,7 @@ impl Chain {
         witness: ChunkStateWitness,
         epoch_manager: &dyn EpochManagerAdapter,
         processing_done_tracker: Option<ProcessingDoneTracker>,
+        rs: Arc<ReedSolomon>,
     ) -> Result<(), Error> {
         let shard_id = witness.chunk_header().shard_id();
         let height_created = witness.chunk_header().height_created();
@@ -836,6 +859,7 @@ impl Chain {
                 &MainStateTransitionCache::default(),
                 store,
                 false,
+                rs,
             ) {
                 Ok(_) => {
                     tracing::debug!(

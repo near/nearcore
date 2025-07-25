@@ -281,8 +281,9 @@ pub fn setup_client(
         validator_signer.clone(),
         epoch_manager.clone(),
         runtime_adapter.clone(),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))), // Heavy contract compilation
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
     );
 
     let peer_manager_actor = TestLoopPeerManagerActor::new(

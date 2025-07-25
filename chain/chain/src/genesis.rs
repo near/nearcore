@@ -296,13 +296,23 @@ fn get_genesis_congestion_infos_impl(
     let mut new_infos = vec![];
     for (shard_index, &state_root) in state_roots.iter().enumerate() {
         let shard_id = genesis_shard_layout.get_shard_id(shard_index)?;
-        let congestion_info = get_genesis_congestion_info(
+        let congestion_info = match get_genesis_congestion_info(
             runtime,
             genesis_protocol_version,
             &genesis_prev_hash,
             shard_id,
             state_root,
-        )?;
+        ) {
+            Ok(info) => info,
+            Err(_) => {
+                tracing::info!(
+                    target: "chain",
+                    %shard_id,
+                    "Genesis state unavailable, using default congestion info"
+                );
+                CongestionInfo::default()
+            }
+        };
         new_infos.push(congestion_info);
     }
 

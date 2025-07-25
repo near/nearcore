@@ -6,7 +6,7 @@
 use super::Action;
 use crate::signable_message::{SignableMessage, SignableMessageType};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{PublicKey, Signature};
+use near_crypto::{PublicKey, Signature, Signer};
 use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::BlockHeight;
 use near_primitives_core::types::{AccountId, Nonce};
@@ -73,6 +73,11 @@ impl SignedDelegateAction {
         let public_key = &delegate_action.public_key;
 
         self.signature.verify(hash.as_ref(), public_key)
+    }
+
+    pub fn sign(singer: &Signer, delegate_action: DelegateAction) -> Self {
+        let signature = singer.sign(delegate_action.get_nep461_hash().as_bytes());
+        Self { delegate_action, signature }
     }
 }
 

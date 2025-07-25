@@ -210,8 +210,9 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         main_state_transition,
         HashMap::new(),
         applied_receipts_hash,
-        all_transactions,
+        all_transactions.clone(),
         vec![],
+        all_transactions,
         PROTOCOL_VERSION,
     )
 }
