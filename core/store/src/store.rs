@@ -8,12 +8,45 @@ use enum_map::EnumMap;
 use near_fmt::{AbbrBytes, StorageKey};
 use std::fs::File;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::{fmt, io};
 use strum::IntoEnumIterator;
 
 const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
 const STATE_FILE_END_MARK: u8 = 255;
+
+#[derive(Debug, Default)]
+pub struct PendingWritesInner {
+    batches: Vec<DBTransaction>,
+}
+
+#[derive(Default, Debug)]
+pub struct PendingWrites(RwLock<PendingWritesInner>);
+
+impl PendingWrites {
+    pub fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<Vec<u8>> {
+        let inner = self.0.read().expect("poisoned");
+        // Iterate over batches in reverse order to find the most recent write.
+        // TODO: Support deletes
+        inner.batches.iter().rev().find_map(|batch| {
+            batch.ops.iter().find_map(|op| match op {
+                DBOp::Set { col: c, key: k, value }
+                | DBOp::Insert { col: c, key: k, value }
+                | DBOp::UpdateRefcount { col: c, key: k, value }
+                    if *c == col && k == key =>
+                {
+                    Some(value.clone())
+                }
+                _ => None,
+            })
+        })
+    }
+
+    pub fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> Option<Vec<u8>> {
+        assert!(col.is_rc());
+        self.get_raw_bytes(col, key).and_then(refcount::strip_refcount)
+    }
+}
 
 /// Node’s single storage source.
 ///
@@ -25,6 +58,7 @@ const STATE_FILE_END_MARK: u8 = 255;
 pub struct Store {
     storage: Arc<dyn Database>,
     cache: Arc<deserialized_column::Cache>,
+    pending: Option<Arc<PendingWrites>>,
 }
 
 impl StoreAdapter for Store {
@@ -36,7 +70,8 @@ impl StoreAdapter for Store {
 impl Store {
     pub fn new(storage: Arc<dyn Database>) -> Self {
         let cache = storage.deserialized_column_cache();
-        Self { storage, cache }
+        let pending = storage.pending_writes();
+        Self { storage, cache, pending }
     }
 
     pub fn database(&self) -> &dyn Database {
@@ -50,6 +85,17 @@ impl Store {
     /// a slice, for cases when caller doesn’t need to own the value, and
     /// provides conversion into a vector or an Arc.
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        // Try to get the value from pending writes first.
+        if let Some(pending) = self.pending.as_ref() {
+            if let Some(value) = if column.is_rc() {
+                pending.get_with_rc_stripped(column, key)
+            } else {
+                pending.get_raw_bytes(column, key)
+            } {
+                return Ok(Some(DBSlice::from_vec(value)));
+            }
+        }
+
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, &key)
         } else {
@@ -262,6 +308,32 @@ impl Store {
             }
         }
         result
+    }
+
+    pub fn write_pending(&self, transaction: DBTransaction) -> io::Result<()> {
+        if let Some(pending) = self.pending.as_ref() {
+            // If there are pending writes, add the transaction to them.
+            pending.0.write().expect("poisoned").batches.push(transaction);
+            Ok(())
+        } else {
+            // Otherwise, write the transaction directly.
+            self.write(transaction)
+        }
+    }
+
+    pub fn flush_pending(&self) -> io::Result<()> {
+        let Some(pending) = self.pending.as_ref() else {
+            return Ok(()); // Nothing to flush if there are no pending writes.
+        };
+        let mut pending = pending.0.write().expect("poisoned");
+        if pending.batches.is_empty() {
+            return Ok(());
+        }
+        let batches = std::mem::take(&mut pending.batches);
+        for batch in batches {
+            self.write(batch)?;
+        }
+        Ok(())
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
@@ -585,6 +657,26 @@ impl StoreUpdate {
             }
         }
         self.store.write(self.transaction)
+    }
+
+    pub fn write_pending(self) -> io::Result<()> {
+        self.store.write_pending(self.transaction)
+    }
+
+    /// Splits the store update into two parts based on a filter function.
+    pub fn split_by_column(self, filter: impl Fn(&DBCol) -> bool) -> (StoreUpdate, StoreUpdate) {
+        let (mut left, mut right) = (DBTransaction::new(), DBTransaction::new());
+        for op in self.transaction.ops {
+            if filter(&op.col()) {
+                left.ops.push(op);
+            } else {
+                right.ops.push(op);
+            }
+        }
+        (
+            StoreUpdate { transaction: left, store: self.store.clone() },
+            StoreUpdate { transaction: right, store: self.store },
+        )
     }
 }
 
