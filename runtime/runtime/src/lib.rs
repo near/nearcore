@@ -25,6 +25,7 @@ use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_crypto::PublicKey;
+use near_o11y::metrics::prometheus;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account};
@@ -79,7 +80,7 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
 
@@ -1758,19 +1759,31 @@ impl Runtime {
         let tx_vec = signed_txs.into_nonexpired_transactions();
         let tx_batches = TransactionBatches::new(&tx_vec);
 
+        static TX_WALL_TIME: LazyLock<prometheus::Counter> = LazyLock::new(|| {
+            prometheus::Counter::new("near_tx_wall_time", "wall time taken by tx processing").unwrap()
+        });
+        static TX_CPU_TIME: LazyLock<prometheus::Counter> = LazyLock::new(|| {
+            prometheus::Counter::new("near_tx_cpu_time", "cpu time taken by tx processing").unwrap()
+        });
+
+        let wall_time = std::time::Instant::now();
         let batch_outputs = tx_batches
             .par_batches()
             .map(|batch| {
-                self.process_batched_transactions(
+                let start = cpu_time::ThreadTime::now();
+                let result = self.process_batched_transactions(
                     batch,
                     apply_state,
                     state_update,
                     apply_state.gas_price,
                     apply_state.block_height,
                     apply_state.current_protocol_version,
-                )
+                );
+                TX_CPU_TIME.inc_by(start.elapsed().as_secs_f64());
+                result
             })
             .collect_vec_list();
+        TX_WALL_TIME.inc_by(wall_time.elapsed().as_secs_f64());
 
         // NOTE: vec![None; tx_vec.len()] does not work due to item type not being Clone.
         let mut all_processed =
