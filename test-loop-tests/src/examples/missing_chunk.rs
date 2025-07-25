@@ -3,6 +3,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight, NumShards};
 
@@ -14,6 +15,7 @@ use crate::utils::{get_node_client, get_node_data, run_until_node_head_height};
 /// Requires "test_features" feature to be enabled.
 #[test]
 fn missing_chunk_example_test() {
+    init_test_logger();
     let validators = ["validator0", "validator1"];
     let missing_chunk_heigh = 8;
     let shard_layout = ShardLayout::multi_shard(2, 1);
@@ -68,6 +70,7 @@ fn missing_chunk_example_test() {
 
 #[test]
 fn missing_chunk_window_example_test() {
+    init_test_logger();
     let validators = ["validator0", "validator1"];
     let num_shards: NumShards = 2;
     let shard_layout = ShardLayout::multi_shard(num_shards, 1);

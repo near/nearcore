@@ -1695,28 +1695,6 @@ impl Client {
         for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
             let next_height = block.header().height() + 1;
             let epoch_manager = self.epoch_manager.as_ref();
-            let chunk_proposer = epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    epoch_id,
-                    height_created: next_height,
-                    shard_id,
-                })
-                .unwrap()
-                .take_account_id();
-            if &chunk_proposer != &validator_id {
-                continue;
-            }
-
-            if self.chunk_producer.should_skip_chunk_production(next_height, shard_id) {
-                continue;
-            }
-
-            let _span = debug_span!(
-                target: "client",
-                "on_block_accepted",
-                prev_block_hash = ?*block.hash(),
-                %shard_id)
-            .entered();
             let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
@@ -1731,7 +1709,7 @@ impl Client {
 
                 #[cfg(feature = "test_features")]
                 let chain_validate: &dyn Fn(&SignedTransaction) -> bool = {
-                    match self.chunk_producer.adv_produce_chunks {
+                    match self.chunk_producer.adversarial.produce_mode {
                         Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => &|_| true,
                         _ => &transaction_validity_check,
                     }
@@ -1750,10 +1728,10 @@ impl Client {
 
             let ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts } = match result {
                 Ok(Some(res)) => res,
-                Ok(None) => return,
+                Ok(None) => continue,
                 Err(err) => {
-                    error!(target: "client", ?err, "Error producing chunk");
-                    return;
+                    error!(target: "client", ?shard_id, ?err, "error producing chunk");
+                    continue;
                 }
             };
             if !cfg!(feature = "protocol_feature_spice") {
