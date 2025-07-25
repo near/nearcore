@@ -55,8 +55,8 @@ To add a new test scenario:
    ```
 
 3. Override methods to customize behavior:
-   - `amend_configs()` - Modify node configs before start
    - `before_test_setup()` - Run commands before test creation
+   - `amend_configs_before_test_start()` - Modify node configs before start
    - `after_test_start()` - Run commands after test starts
 
 4. Add your class to the list of testcases under [TEST_CASES](../release_scenarios/__init__.py).

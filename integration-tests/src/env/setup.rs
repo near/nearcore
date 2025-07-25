@@ -177,6 +177,7 @@ fn setup(
         runtime.clone(),
         Arc::new(RayonAsyncComputationSpawner),
         Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 
