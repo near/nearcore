@@ -160,6 +160,7 @@ impl ChunkProducer {
             return Ok(None);
         }
 
+        #[cfg(feature = "test_features")]
         if self.should_skip_chunk_production(next_height, shard_id) {
             debug!(target: "client", "skip chunk production");
             return Ok(None);
@@ -425,35 +426,35 @@ impl ChunkProducer {
         Ok(prepared_transactions)
     }
 
+    #[cfg(feature = "test_features")]
     fn should_skip_chunk_production(
         &self,
-        #[allow(unused)] next_block_height: BlockHeight,
-        #[allow(unused)] shard_id: ShardId,
+        next_block_height: BlockHeight,
+        shard_id: ShardId,
     ) -> bool {
-        #[cfg(feature = "test_features")]
-        if let Some(adv_produce_chunks) = &self.adversarial.produce_mode {
-            return match adv_produce_chunks {
-                AdvProduceChunksMode::StopProduce => {
-                    tracing::info!(
-                        target: "adversary",
-                        next_block_height,
-                        "Skipping chunk production due to adversary configuration"
-                    );
-                    true
-                }
-                AdvProduceChunksMode::SkipWindow { window_size, skip_length } => self
-                    .should_skip_chunk_production_window(
-                        next_block_height,
-                        shard_id,
-                        *window_size,
-                        *skip_length,
-                    ),
-                AdvProduceChunksMode::Valid
-                | AdvProduceChunksMode::ProduceWithoutTx
-                | AdvProduceChunksMode::ProduceWithoutTxValidityCheck => false,
-            };
+        let Some(adv_produce_chunks) = &self.adversarial.produce_mode else {
+            return false;
+        };
+        match adv_produce_chunks {
+            AdvProduceChunksMode::StopProduce => {
+                tracing::info!(
+                    target: "adversary",
+                    next_block_height,
+                    "Skipping chunk production due to adversary configuration"
+                );
+                true
+            }
+            AdvProduceChunksMode::SkipWindow { window_size, skip_length } => self
+                .should_skip_chunk_production_window(
+                    next_block_height,
+                    shard_id,
+                    *window_size,
+                    *skip_length,
+                ),
+            AdvProduceChunksMode::Valid
+            | AdvProduceChunksMode::ProduceWithoutTx
+            | AdvProduceChunksMode::ProduceWithoutTxValidityCheck => false,
         }
-        false
     }
 
     #[cfg(feature = "test_features")]
