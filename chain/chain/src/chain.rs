@@ -1798,7 +1798,15 @@ impl Chain {
         if new_head.is_some() {
             chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
         }
-        chain_update.commit()?;
+        let (async_batch, sync_batch) = chain_update.into_split_store_updates()?;
+        let reprocessing = false; // XXX: Add support for reprocessing blocks.
+        if reprocessing {
+            async_batch.commit()?; // Just need to write the async batch, as sync batch was already written.
+        } else {
+            self.chain_store().store().flush_pending()?; // XXX: Shouldn't have to flush pending writes here, but just in case.
+            async_batch.write_pending()?;
+            sync_batch.commit()?;
+        }
         Ok(new_head)
     }
 
