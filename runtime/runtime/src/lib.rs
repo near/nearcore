@@ -75,7 +75,6 @@ use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
-use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -197,11 +196,9 @@ impl<'a> TransactionBatches<'a> {
     }
 
     /// Returns a parallel iterator that yields a [`TransactionBatch`] for each signer.
-    pub fn par_batches(
-        &'a self,
-    ) -> impl rayon::iter::ParallelIterator<Item = TransactionBatch<'a>> + 'a {
+    pub fn par_batches(&'a self) -> impl Iterator<Item = TransactionBatch<'a>> + 'a {
         self.indices
-            .par_chunk_by(|&left, &right| {
+            .chunk_by(|&left, &right| {
                 let left_tx = &self.signed_txs[left].transaction;
                 let right_tx = &self.signed_txs[right].transaction;
                 left_tx.signer_id() == right_tx.signer_id()
@@ -1795,7 +1792,8 @@ impl Runtime {
                     apply_state.current_protocol_version,
                 )
             })
-            .collect_vec_list();
+            .collect::<Vec<_>>();
+        let batch_outputs = vec![batch_outputs];
 
         let mut all_processed = Vec::new();
         for batch_vec in batch_outputs {
