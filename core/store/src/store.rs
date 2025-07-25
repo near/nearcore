@@ -471,6 +471,19 @@ impl StoreUpdate {
         self.transaction.merge(other.transaction)
     }
 
+    pub fn retain_columns<F>(&mut self, filter: F)
+    where
+        F: Fn(&DBCol) -> bool,
+    {
+        self.transaction.ops.retain(|op| match op {
+            DBOp::Set { col, .. }
+            | DBOp::Insert { col, .. }
+            | DBOp::UpdateRefcount { col, .. }
+            | DBOp::Delete { col, .. } => filter(col),
+            DBOp::DeleteAll { col } | DBOp::DeleteRange { col, .. } => filter(col),
+        });
+    }
+
     #[tracing::instrument(
         level = "trace",
         target = "store::update",

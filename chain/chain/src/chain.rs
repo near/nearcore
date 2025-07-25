@@ -896,7 +896,7 @@ impl Chain {
         }
         // If this is not the block we produced (hence trust in it) - validates block
         // producer, confirmation signatures and finality info.
-        if *provenance != Provenance::PRODUCED {
+        if *provenance != Provenance::PRODUCED && *provenance != Provenance::REPROCESS {
             // first verify aggregated signature
             let info = self.epoch_manager.get_epoch_block_approvers_ordered(prev_header.hash())?;
             if !verify_approval_with_approvers_info(
@@ -2233,8 +2233,10 @@ impl Chain {
             return Err(Error::IncorrectNumberOfChunkHeaders);
         }
 
-        // Check if we have already processed this block previously.
-        check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
+        // It's an error to process a known block, except in the case of reprocessing.
+        if provenance != &Provenance::REPROCESS {
+            check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
+        }
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.head()?;
@@ -2356,7 +2358,9 @@ impl Chain {
         };
 
         // Check if block can be finalized and drop it otherwise.
-        self.check_if_finalizable(header)?;
+        if provenance != &Provenance::REPROCESS {
+            self.check_if_finalizable(header)?;
+        }
 
         let apply_chunk_work = self.apply_chunks_preprocessing(
             block,
@@ -3334,6 +3338,22 @@ impl Chain {
 
     pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
         self.chain_store.transaction_validity_period = to;
+    }
+
+    pub fn reprocess_block_sync(
+        &mut self,
+        block: MaybeValidated<Arc<Block>>,
+        block_processing_artifacts: &mut BlockProcessingArtifact,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
+        let provenance = Provenance::REPROCESS;
+        let block_hash = *block.hash();
+        self.start_process_block_async(block, provenance, block_processing_artifacts, None)?;
+        self.blocks_in_processing.wait_for_block(&block_hash).unwrap();
+        let (accepted_blocks, errors) =
+            self.postprocess_ready_blocks(block_processing_artifacts, None);
+        // Reprocessing accepted blocks should not have any errors.
+        debug_assert!(errors.is_empty());
+        Ok(accepted_blocks)
     }
 }
 

@@ -9,7 +9,7 @@ use crate::types::{
     RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
-use crate::{Chain, Doomslug};
+use crate::{Chain, Doomslug, Provenance};
 use crate::{DoomslugThresholdMode, metrics};
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -25,6 +25,7 @@ use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHe
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::LightClientBlockView;
+use near_store::DBCol;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -230,6 +231,11 @@ impl<'a> ChainUpdate<'a> {
         apply_chunks_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         should_save_state_transition_data: bool,
     ) -> Result<Option<Tip>, Error> {
+        // TODO: Any better place to filter the column?
+        // XXX: Use actual set of async columns
+        if block_preprocess_info.provenance == Provenance::REPROCESS {
+            self.chain_store_update.set_column_filter(|col| col == &DBCol::State);
+        }
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
