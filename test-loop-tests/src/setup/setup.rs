@@ -11,9 +11,7 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, ChainGenesis};
-use near_chain_configs::{
-    MutableConfigValue, ReshardingHandle, default_orphan_state_witness_max_size,
-};
+use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
@@ -251,7 +249,8 @@ pub fn setup_client(
         client_config.save_latest_witnesses,
         client_config.save_invalid_witnesses,
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
-        default_orphan_state_witness_max_size().as_u64(),
+        client_config.orphan_state_witness_pool_size,
+        client_config.orphan_state_witness_max_size.as_u64(),
     );
     let chunk_executor_sender = if cfg!(feature = "protocol_feature_spice") {
         chunk_executor_adapter.as_sender()

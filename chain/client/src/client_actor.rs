@@ -222,6 +222,7 @@ pub fn start_client(
             let max_num_shards = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
             ApplyChunksSpawner::Default.into_spawner(max_num_shards)
         },
+        client.config.orphan_state_witness_pool_size,
         client.config.orphan_state_witness_max_size.as_u64(),
         num_chunk_validation_threads,
     );

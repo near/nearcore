@@ -504,6 +504,7 @@ pub fn setup_client_with_runtime(
         false,
         false,
         Arc::new(RayonAsyncComputationSpawner),
+        near_chain_configs::default_orphan_state_witness_pool_size(),
         near_chain_configs::default_orphan_state_witness_max_size().as_u64(),
     );
 

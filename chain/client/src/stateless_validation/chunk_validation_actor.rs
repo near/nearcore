@@ -20,7 +20,7 @@ use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::types::RuntimeAdapter;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{ChainStore, ChainStoreAccess, Error};
-use near_chain_configs::{MutableValidatorSigner, default_orphan_state_witness_pool_size};
+use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -104,6 +104,7 @@ impl ChunkValidationActorInner {
         save_latest_witnesses: bool,
         save_invalid_witnesses: bool,
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
+        orphan_witness_pool_size: usize,
         max_orphan_witness_size: u64,
     ) -> Self {
         let data_parts = epoch_manager.num_data_parts();
@@ -121,7 +122,7 @@ impl ChunkValidationActorInner {
             validation_spawner,
             main_state_transition_result_cache: MainStateTransitionCache::default(),
             orphan_witness_pool: Arc::new(Mutex::new(OrphanStateWitnessPool::new(
-                default_orphan_state_witness_pool_size(),
+                orphan_witness_pool_size,
             ))),
             max_orphan_witness_size,
             rs,
@@ -173,13 +174,13 @@ impl ChunkValidationActorInner {
         save_latest_witnesses: bool,
         save_invalid_witnesses: bool,
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
+        orphan_witness_pool_size: usize,
         max_orphan_witness_size: u64,
         num_actors: usize,
     ) -> actix::Addr<ChunkValidationSyncActor> {
         // Create shared orphan witness pool
-        let shared_orphan_pool = Arc::new(Mutex::new(OrphanStateWitnessPool::new(
-            default_orphan_state_witness_pool_size(),
-        )));
+        let shared_orphan_pool =
+            Arc::new(Mutex::new(OrphanStateWitnessPool::new(orphan_witness_pool_size)));
 
         actix::SyncArbiter::start(num_actors, move || {
             let actor = ChunkValidationActorInner::new_with_shared_pool(
