@@ -133,10 +133,10 @@ mod tests {
         let state_root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
-        let path_begin: Vec<_> = NibbleSlice::new(b"aa").iter().collect();
-        let path_end: Vec<_> = NibbleSlice::new(b"abb").iter().collect();
+        let path_begin = Some(b"aa".as_slice());
+        let path_end = Some(b"abb".as_slice());
         let mut trie_iter = trie.disk_iter().unwrap();
-        let items = trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap();
+        let items = trie_iter.visit_nodes_interval(path_begin, path_end).unwrap();
         let trie_items: Vec<_> = items.into_iter().map(|item| item.key).flatten().collect();
         assert_eq!(trie_items, vec![b"aa"]);
     }

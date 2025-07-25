@@ -383,7 +383,7 @@ fn slow_test_tx_not_enough_balance_must_return_error() {
                 }
                 sleep(std::time::Duration::from_millis(500)).await;
             }
-            let expected_cost = if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
+            let expected_cost = if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
                 "1100000000000044636512500000000000"
             } else {
                 "1100000000000045306060187500000000"
