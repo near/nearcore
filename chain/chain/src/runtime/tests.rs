@@ -1,4 +1,5 @@
 use super::*;
+use crate::spice_core::CoreStatementsProcessor;
 use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
@@ -1385,6 +1386,10 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        CoreStatementsProcessor::new_with_noop_senders(
+            env.runtime.store().chain_store(),
+            env.epoch_manager.clone(),
+        ),
     )
     .unwrap();
 

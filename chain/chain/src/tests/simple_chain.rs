@@ -93,6 +93,7 @@ fn build_chain_with_orphans() {
         clock,
         None,
         None,
+        vec![],
     ));
     assert_matches!(chain.process_block_test(block).unwrap_err(), Error::Orphan);
     assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);

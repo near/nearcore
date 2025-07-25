@@ -65,6 +65,7 @@ pub fn make_block(
         clock,
         None,
         None,
+        vec![],
     ))
 }
 

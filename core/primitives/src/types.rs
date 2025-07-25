@@ -1297,7 +1297,7 @@ pub struct ChunkExecutionResult {
 /// For genesis inner hashmap is always empty.
 pub struct BlockExecutionResults(pub HashMap<ChunkHash, ChunkExecutionResult>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ChunkExecutionResultHash(pub CryptoHash);
 
 impl ChunkExecutionResult {

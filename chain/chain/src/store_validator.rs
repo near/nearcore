@@ -403,10 +403,12 @@ mod tests {
     use near_async::time::Clock;
     use near_chain_configs::{Genesis, MutableConfigValue};
     use near_epoch_manager::EpochManager;
+    use near_store::adapter::StoreAdapter as _;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
 
     use crate::runtime::NightshadeRuntime;
+    use crate::spice_core::CoreStatementsProcessor;
     use crate::types::ChainConfig;
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
@@ -439,6 +441,10 @@ mod tests {
             Default::default(),
             MutableConfigValue::new(None, "validator_signer"),
             noop().into_multi_sender(),
+            CoreStatementsProcessor::new_with_noop_senders(
+                runtime.store().chain_store(),
+                epoch_manager.clone(),
+            ),
         )
         .unwrap();
         (

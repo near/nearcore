@@ -723,6 +723,7 @@ impl BlockBody {
         match self {
             BlockBody::V1(body) => &mut body.chunks,
             BlockBody::V2(body) => &mut body.chunks,
+            BlockBody::V3(body) => &mut body.chunks,
         }
     }
 
@@ -730,6 +731,7 @@ impl BlockBody {
         match self {
             BlockBody::V1(body) => body.chunks = chunks,
             BlockBody::V2(body) => body.chunks = chunks,
+            BlockBody::V3(body) => body.chunks = chunks,
         }
     }
 
@@ -737,6 +739,7 @@ impl BlockBody {
         match self {
             BlockBody::V1(body) => body.vrf_value = vrf_value,
             BlockBody::V2(body) => body.vrf_value = vrf_value,
+            BlockBody::V3(body) => body.vrf_value = vrf_value,
         }
     }
 
@@ -744,6 +747,7 @@ impl BlockBody {
         match self {
             BlockBody::V1(_) => unreachable!("old body should not appear in tests"),
             BlockBody::V2(body) => body.chunk_endorsements = chunk_endorsements,
+            BlockBody::V3(_) => unreachable!("block body for spice should not appear in tests"),
         }
     }
 }
@@ -845,6 +849,7 @@ impl TestBlockBuilder {
             self.clock,
             None,
             None,
+            vec![],
         ))
     }
 }
