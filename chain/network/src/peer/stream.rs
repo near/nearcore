@@ -162,6 +162,7 @@ where
             msg_size_metric.observe(n as f64);
             buf_size_metric.set(n as i64);
             let mut buf = vec![0; n];
+            let _read_span = tracing::debug_span!(target: "client", "read_exact", msg_len = n, tag_witness_distribution = true).entered();
             let t = metrics::PEER_MSG_READ_LATENCY.start_timer();
             read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
             t.observe_duration();
@@ -185,6 +186,7 @@ where
         let mut writer = tokio::io::BufWriter::with_capacity(WRITE_BUFFER_CAPACITY, tcp_send);
         while let Some(Frame(mut msg)) = queue_recv.recv().await {
             // Try writing a batch of messages and flush once at the end.
+            let mut batch_size_bytes = 0usize; // New: track how many bytes we will flush
             loop {
                 // TODO(gprusak): sending a too large message should probably be treated as a bug,
                 // since dropping messages may lead to hard-to-debug high-level issues.
@@ -193,6 +195,7 @@ where
                 } else {
                     writer.write_u32_le(msg.len() as u32).await?;
                     writer.write_all(&msg[..]).await?;
+                    batch_size_bytes += msg.len() + 4; // account for length prefix
                 }
                 stats.messages_to_send.fetch_sub(1, Ordering::Release);
                 stats.bytes_to_send.fetch_sub(msg.len() as u64, Ordering::Release);
@@ -208,6 +211,7 @@ where
             // and added to the queue at a rate similar to flush latency. To fix that
             // we would need to put writer.flush() and queue_recv.recv() into a tokio::select
             // and make sure that both are cancellation-safe.
+            let _flush_span = tracing::debug_span!(target: "client", "flush_socket", batch_bytes = batch_size_bytes, tag_witness_distribution = true).entered();
             writer.flush().await?;
         }
         Ok(())
