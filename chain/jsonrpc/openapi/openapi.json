@@ -7,7 +7,7 @@
   "paths": {
     "/EXPERIMENTAL_changes": {
       "post": {
-        "description": "Returns changes in block for given block height or hash over all transactions for the current type. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched",
+        "description": "[Deprecated] Returns changes for a given account, contract or contract code for given block height or hash. Consider using changes instead.",
         "operationId": "EXPERIMENTAL_changes",
         "requestBody": {
           "content": {
@@ -35,7 +35,7 @@
     },
     "/EXPERIMENTAL_changes_in_block": {
       "post": {
-        "description": "Returns changes in block for given block height or hash over all transactions for all the types. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched",
+        "description": "[Deprecated] Returns changes in block for given block height or hash over all transactions for all the types. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched. Consider using block_effects instead",
         "operationId": "EXPERIMENTAL_changes_in_block",
         "requestBody": {
           "content": {
@@ -91,7 +91,7 @@
     },
     "/EXPERIMENTAL_genesis_config": {
       "post": {
-        "description": "Get initial state and parameters for the genesis block",
+        "description": "[Deprecated] Get initial state and parameters for the genesis block. Consider genesis_config instead.",
         "operationId": "EXPERIMENTAL_genesis_config",
         "requestBody": {
           "content": {
@@ -175,7 +175,7 @@
     },
     "/EXPERIMENTAL_maintenance_windows": {
       "post": {
-        "description": "Returns the future windows for maintenance in current epoch for the specified account. In the maintenance windows, the node will not be block producer or chunk producer",
+        "description": "[Deprecated] Returns the future windows for maintenance in current epoch for the specified account. In the maintenance windows, the node will not be block producer or chunk producer. Consider using maintenance_windows instead.",
         "operationId": "EXPERIMENTAL_maintenance_windows",
         "requestBody": {
           "content": {
@@ -369,9 +369,37 @@
         }
       }
     },
+    "/block_effects": {
+      "post": {
+        "description": "Returns changes in block for given block height or hash over all transactions for all the types. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched.",
+        "operationId": "block_effects",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_block_effects"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/broadcast_tx_async": {
       "post": {
-        "description": "[Deprecated] Sends a transaction and immediately returns transaction hash. Consider using send_tx instead",
+        "description": "[Deprecated] Sends a transaction and immediately returns transaction hash. Consider using send_tx instead.",
         "operationId": "broadcast_tx_async",
         "requestBody": {
           "content": {
@@ -399,7 +427,7 @@
     },
     "/broadcast_tx_commit": {
       "post": {
-        "description": "[Deprecated] Sends a transaction and waits until transaction is fully complete. (Has a 10 second timeout). Consider using send_tx instead",
+        "description": "[Deprecated] Sends a transaction and waits until transaction is fully complete. (Has a 10 second timeout). Consider using send_tx instead.",
         "operationId": "broadcast_tx_commit",
         "requestBody": {
           "content": {
@@ -427,7 +455,7 @@
     },
     "/changes": {
       "post": {
-        "description": "Returns changes in block for given block height or hash over all transactions for the current type. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched",
+        "description": "Returns changes for a given account, contract or contract code for given block height or hash.",
         "operationId": "changes",
         "requestBody": {
           "content": {
@@ -537,6 +565,34 @@
         }
       }
     },
+    "/genesis_config": {
+      "post": {
+        "description": "Get initial state and parameters for the genesis block",
+        "operationId": "genesis_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_genesis_config"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_GenesisConfig_and_RpcError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "post": {
         "description": "Returns the current health status of the RPC node the client connects to.",
@@ -586,6 +642,34 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/maintenance_windows": {
+      "post": {
+        "description": "Returns the future windows for maintenance in current epoch for the specified account. In the maintenance windows, the node will not be block producer or chunk producer.",
+        "operationId": "maintenance_windows",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_maintenance_windows"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError"
                 }
               }
             }
@@ -5286,8 +5370,6 @@
                 "shard_ids": [
                   0
                 ],
-                "shards_parent_map": null,
-                "shards_split_map": null,
                 "version": 0
               }
             },
@@ -6815,6 +6897,33 @@
         "title": "JsonRpcRequest_for_block",
         "type": "object"
       },
+      "JsonRpcRequest_for_block_effects": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "block_effects"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcStateChangesInBlockRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_block_effects",
+        "type": "object"
+      },
       "JsonRpcRequest_for_broadcast_tx_async": {
         "properties": {
           "id": {
@@ -6977,6 +7086,33 @@
         "title": "JsonRpcRequest_for_gas_price",
         "type": "object"
       },
+      "JsonRpcRequest_for_genesis_config": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "genesis_config"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/GenesisConfigRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_genesis_config",
+        "type": "object"
+      },
       "JsonRpcRequest_for_health": {
         "properties": {
           "id": {
@@ -7029,6 +7165,33 @@
           "method"
         ],
         "title": "JsonRpcRequest_for_light_client_proof",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_maintenance_windows": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "maintenance_windows"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcMaintenanceWindowsRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_maintenance_windows",
         "type": "object"
       },
       "JsonRpcRequest_for_network_info": {
