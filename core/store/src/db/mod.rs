@@ -1,3 +1,4 @@
+use crate::store::PendingWrites;
 use crate::{DBCol, deserialized_column};
 use near_fmt::{AbbrBytes, StorageKey};
 use std::collections::HashSet;
@@ -265,6 +266,10 @@ pub trait Database: Sync + Send {
 
     fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
         deserialized_column::Cache::disabled()
+    }
+
+    fn pending_writes(&self) -> Option<Arc<PendingWrites>> {
+        None
     }
 }
 
