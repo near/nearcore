@@ -390,13 +390,6 @@ impl ChunkValidationActorInner {
             )));
         }
 
-        // Save the witness if configured to do so
-        if self.save_latest_witnesses {
-            if let Err(err) = self.chain_store.save_latest_chunk_state_witness(&witness) {
-                tracing::error!(target: "chunk_validation", ?err, "Failed to save latest witness");
-            }
-        }
-
         let Some(signer) = self.validator_signer.get() else {
             return Err(Error::Other("No validator signer available".to_string()));
         };
