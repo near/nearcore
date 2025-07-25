@@ -18,9 +18,9 @@ pub fn update_shard_utilization(
     utilization: ShardUtilization,
     shard_left_boundary: Option<&AccountId>,
 ) -> Result<(), StorageError> {
-    // FIXME: Key prefixes are full-bytes only, so trie nodes lying at odd depth (counting nibbles)
-    //        will not be updated. This makes searching for boundary suboptimal.
     // FIXME: This implementation unnecessarily creates new nodes (extension are broken into branches)
+    //        It cannot be easily fixed, because `TrieUpdate` interface doesn't give any way to
+    //        analyze the trie structure and skip bytes belonging to an extension.
     for prefix in account_prefixes_within_shard(account_id, shard_left_boundary) {
         let trie_key = TrieKey::ShardUtilization { account_id_prefix: prefix.to_vec() };
         let mut account_utilization: ShardUtilization =
@@ -35,7 +35,7 @@ fn account_prefixes_within_shard<'a>(
     account_id: &'a AccountId,
     left_shard_boundary: Option<&'a AccountId>,
 ) -> impl Iterator<Item = &'a [u8]> {
-    (0..account_id.len()).filter_map(move |i| {
+    (0..=account_id.len()).filter_map(move |i| {
         let prefix = &account_id.as_str()[..i];
         match left_shard_boundary {
             Some(boundary) if prefix < boundary => None,
@@ -58,6 +58,7 @@ pub fn find_split_account(trie: &Trie) -> Result<Option<AccountId>, StorageError
     };
 
     // Convert the key to account ID by finding the longest prefix that is a valid ID
+    // This is done to mitigate cases where a key ending with a separator ('.', '_', '-') is found.
     for i in 0..key.len() {
         let prefix = std::str::from_utf8(&key[..(key.len() - i)]).expect("trie key is non-ASCII");
         if let Ok(account_id) = AccountId::from_str(prefix) {
@@ -86,11 +87,11 @@ where
         match trie_storage.get_node(current_node_ptr, AccessOptions::DEFAULT)? {
             GenericTrieNode::Empty => return Ok(None),
             GenericTrieNode::Leaf { extension, .. } => {
-                key_nibbles.extend(extension);
-                return Ok(Some(nibbles_to_bytes(&key_nibbles)));
+                append_extension_nibbles(&mut key_nibbles, &extension);
+                break;
             }
             GenericTrieNode::Extension { extension, child } => {
-                key_nibbles.extend(extension);
+                append_extension_nibbles(&mut key_nibbles, &extension);
                 current_node_ptr = child;
             }
             GenericTrieNode::Branch { children, .. } => {
@@ -101,21 +102,28 @@ where
                     *children,
                 )?
                 else {
-                    return Ok(Some(nibbles_to_bytes(&key_nibbles)));
+                    break;
                 };
                 key_nibbles.push(idx);
                 current_node_ptr = child;
             }
         }
     }
+    Ok(Some(nibbles_to_bytes(&key_nibbles)))
+}
+
+/// Append nibbles encoded in extension to the given vector
+#[inline]
+fn append_extension_nibbles(nibbles: &mut Vec<u8>, extension: &[u8]) {
+    let (nibble_slice, _) = NibbleSlice::from_encoded(extension);
+    nibbles.extend(nibble_slice.iter());
 }
 
 /// Convert nibbles to bytes, truncating the last nibble if the slice length is odd.
-fn nibbles_to_bytes(mut nibbles: &[u8]) -> Vec<u8> {
-    if nibbles.len() % 2 != 0 {
-        nibbles = &nibbles[..(nibbles.len() - 1)];
-    }
-    NibbleSlice::nibbles_to_bytes(&nibbles)
+/// The first two nibbles are skipped (because they contain a prefix).
+#[inline]
+fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
+    nibbles.chunks_exact(2).skip(1).map(|pair| (pair[0] << 4) | pair[1]).collect()
 }
 
 fn find_middle_child<NodePtr, ValueRef, TrieStorage>(
@@ -133,10 +141,10 @@ where
         let Some(child_utilization) = get_node_utilization(trie_storage, child_ptr)? else {
             continue;
         };
-        *left_utilization += child_utilization;
-        if *left_utilization > total_utilization / 2 {
+        if (*left_utilization + child_utilization) > total_utilization / 2 {
             return Ok(Some((i as u8, child_ptr)));
         }
+        *left_utilization += child_utilization;
     }
     Ok(None)
 }
@@ -200,12 +208,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::shard_utilization::{find_split_account, update_shard_utilization};
+    use super::*;
     use crate::test_utils::TestTriesBuilder;
     use crate::trie::update::TrieUpdateResult;
     use crate::{Trie, TrieUpdate};
+    use itertools::Itertools;
     use near_primitives::shard_utilization::ShardUtilization;
     use near_primitives::types::{AccountId, StateChangeCause};
+    use rand::SeedableRng;
+    use rand::distributions::Distribution;
+    use rand::distributions::Uniform;
+    use rand::rngs::StdRng;
 
     fn test_trie(
         account_utilization: impl IntoIterator<Item = (AccountId, ShardUtilization)>,
@@ -218,16 +231,30 @@ mod tests {
 
         // Add shard utilization per account
         let mut trie_update = TrieUpdate::new(trie);
-        for (account_id, utilization) in account_utilization.into_iter() {
+        for (account_id, utilization) in account_utilization {
             update_shard_utilization(&mut trie_update, &account_id, utilization, None).unwrap();
         }
         trie_update.commit(StateChangeCause::InitialState);
-        let TrieUpdateResult { trie, trie_changes, .. } = trie_update.finalize().unwrap();
+        let TrieUpdateResult { trie_changes, .. } = trie_update.finalize().unwrap();
         let mut store_update = shard_tries.store_update();
-        shard_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        let new_root = shard_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        shard_tries.apply_memtrie_changes(&trie_changes, shard_uid, 0);
         store_update.commit().unwrap();
 
-        trie
+        shard_tries.get_trie_for_shard(shard_uid, new_root)
+    }
+
+    #[test]
+    fn test_prefixes() {
+        let account_id: AccountId = "abcd".parse().unwrap();
+        let prefixes = account_prefixes_within_shard(&account_id, None).collect_vec();
+        let expected: Vec<&[u8]> = vec![b"", b"a", b"ab", b"abc", b"abcd"];
+        assert_eq!(prefixes, expected);
+
+        let boundary: AccountId = "ab".parse().unwrap();
+        let prefixes = account_prefixes_within_shard(&account_id, Some(&boundary)).collect_vec();
+        let expected: Vec<&[u8]> = vec![b"ab", b"abc", b"abcd"];
+        assert_eq!(prefixes, expected);
     }
 
     #[test]
@@ -240,11 +267,82 @@ mod tests {
     #[test]
     fn single_account() -> anyhow::Result<()> {
         let account_id: AccountId = "abcd".parse()?;
-        let utilization = ShardUtilization::V1(1.into());
+        let utilization = ShardUtilization::V1(100.into());
         let trie = test_trie(vec![(account_id.clone(), utilization)]);
-        assert_ne!(*trie.get_root(), Trie::EMPTY_ROOT);
         let result = find_split_account(&trie)?;
         assert_eq!(result, Some(account_id));
+        Ok(())
+    }
+
+    #[test]
+    fn two_accounts() -> anyhow::Result<()> {
+        let account1: AccountId = "abcd".parse()?;
+        let account2: AccountId = "abce".parse()?;
+        let utilization = ShardUtilization::V1(100.into());
+        let trie = test_trie(vec![(account1, utilization), (account2.clone(), utilization)]);
+        let result = find_split_account(&trie)?;
+        assert_eq!(result, Some(account2));
+        Ok(())
+    }
+
+    #[test]
+    fn account_updated_twice() -> anyhow::Result<()> {
+        let account1: AccountId = "aaa".parse()?;
+        let account2: AccountId = "bbb".parse()?;
+        let account3: AccountId = "ccc".parse()?;
+        let account4: AccountId = "ddd".parse()?;
+        let utilization = ShardUtilization::V1(100.into());
+        let trie = test_trie(vec![
+            (account1, utilization),
+            (account2, utilization),
+            (account3, utilization),
+            (account4.clone(), utilization),
+            (account4.clone(), utilization * 2),
+        ]);
+        let result = find_split_account(&trie)?;
+        // account4 has exactly half of the total utilization (100 + 200)
+        assert_eq!(result, Some(account4));
+        Ok(())
+    }
+
+    #[test]
+    fn big_random_trie() -> anyhow::Result<()> {
+        // Generate 100 random accounts of (random) length between 5 and 10
+        let num_accounts = 100;
+        let length_dist = Uniform::try_from(5..=10)?;
+        let chars = Uniform::try_from('a'..='z')?;
+        let mut rng = StdRng::seed_from_u64(12345);
+        let mut random_account = || -> AccountId {
+            let length = length_dist.sample(&mut rng);
+            let account_str: String = chars.sample_iter(&mut rng).take(length).collect();
+            account_str.parse().unwrap()
+        };
+        let mut accounts = (0..num_accounts).map(|_| random_account()).collect_vec();
+        accounts.sort();
+
+        // Assign random usage between 100 and 300 to each account
+        let utilization_dist = Uniform::try_from(100u64..=300)?;
+        let utilizations = utilization_dist.sample_iter(&mut rng).take(num_accounts).collect_vec();
+        let total_utilization: u64 = utilizations.iter().sum();
+
+        // Find the split account by naive algorithm
+        let mut split_account = None;
+        let mut left_utilization = 0;
+        for i in 0..num_accounts {
+            if left_utilization + utilizations[i] > total_utilization / 2 {
+                split_account = Some(accounts[i].clone());
+                break;
+            }
+            left_utilization += utilizations[i];
+        }
+
+        // Make sure the result is consistent
+        let trie = test_trie(std::iter::zip(
+            accounts.into_iter(),
+            utilizations.into_iter().map(|u| ShardUtilization::V1(u.into())),
+        ));
+        let result = find_split_account(&trie)?;
+        assert_eq!(result, split_account);
         Ok(())
     }
 }

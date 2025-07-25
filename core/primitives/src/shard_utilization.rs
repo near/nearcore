@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
-use std::ops::{Add, AddAssign, Div};
+use std::ops::{Add, AddAssign, Div, Mul};
 
 /// Measures the contribution of a sub-trie associated with a given key
 /// to the overall utilization of the shard to which it belongs.
@@ -62,6 +62,16 @@ impl Div<u64> for ShardUtilization {
     }
 }
 
+impl Mul<u64> for ShardUtilization {
+    type Output = Self;
+
+    fn mul(self, rhs: u64) -> Self::Output {
+        match self {
+            ShardUtilization::V1(lhs) => (lhs * rhs).into(),
+        }
+    }
+}
+
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -102,6 +112,14 @@ impl Div<u64> for ShardUtilizationV1 {
     type Output = Self;
     fn div(mut self, rhs: u64) -> Self::Output {
         self.gas_usage /= rhs;
+        self
+    }
+}
+
+impl Mul<u64> for ShardUtilizationV1 {
+    type Output = Self;
+    fn mul(mut self, rhs: u64) -> Self::Output {
+        self.gas_usage *= rhs;
         self
     }
 }
