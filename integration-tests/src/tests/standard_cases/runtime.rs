@@ -98,6 +98,12 @@ fn test_nonce_updated_when_tx_failed_runtime() {
 }
 
 #[test]
+fn test_regression_nonce_update_with_mixed_transactions_runtime() {
+    let node = create_runtime_node();
+    test_regression_nonce_update_with_mixed_transactions(node);
+}
+
+#[test]
 fn test_upload_contract_runtime() {
     let node = create_runtime_node();
     test_upload_contract(node);

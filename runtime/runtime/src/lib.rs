@@ -872,8 +872,8 @@ impl Runtime {
 
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
-            if let Some(ref mut account) = account {
-                match check_storage_stake(account, &apply_state.config) {
+            if let Some(ref account) = account {
+                match check_storage_stake(account, account.amount(), &apply_state.config) {
                     Ok(()) => {
                         set_account(state_update, account_id.clone(), account);
                     }

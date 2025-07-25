@@ -119,6 +119,30 @@ impl User for RpcUser {
         }
     }
 
+    fn commit_all_transactions(
+        &self,
+        signed_transactions: Vec<SignedTransaction>,
+    ) -> Result<Vec<Result<FinalExecutionOutcomeView, CommitError>>, ServerError> {
+        if let Some((last, signed_transactions)) = signed_transactions.split_last() {
+            for tx in signed_transactions {
+                self.add_transaction(tx.clone())?;
+            }
+            // This makes tests finish faster in case the the last transaction is invalid.
+            let last_result = self.commit_transaction(last.clone());
+            let mut result = signed_transactions
+                .into_iter()
+                .map(|t| {
+                    let e = super::CommitError::OutcomeNotFound;
+                    self.get_transaction_final_result(&t.get_hash()).ok_or(e)
+                })
+                .collect::<Vec<_>>();
+            result.push(last_result);
+            Ok(result)
+        } else {
+            Ok(vec![])
+        }
+    }
+
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
         let bytes = borsh::to_vec(&transaction).unwrap();
         let _ = self.actix(move |client| client.broadcast_tx_async(to_base64(&bytes))).map_err(

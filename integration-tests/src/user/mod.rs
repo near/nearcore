@@ -74,6 +74,11 @@ pub trait User {
         signed_transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, CommitError>;
 
+    fn commit_all_transactions(
+        &self,
+        signed_transaction: Vec<SignedTransaction>,
+    ) -> Result<Vec<Result<FinalExecutionOutcomeView, CommitError>>, ServerError>;
+
     fn add_receipts(
         &self,
         receipts: Vec<Receipt>,
