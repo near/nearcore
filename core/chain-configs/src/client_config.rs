@@ -523,12 +523,16 @@ pub fn default_log_summary_period() -> Duration {
     Duration::seconds(10)
 }
 
-pub fn default_view_client_throttle_period() -> Duration {
+pub fn default_state_request_actor_throttle_period() -> Duration {
     Duration::seconds(30)
 }
 
-pub fn default_view_client_num_state_requests_per_throttle_period() -> usize {
+pub fn default_state_request_actor_num_state_requests_per_throttle_period() -> usize {
     30
+}
+
+pub fn default_state_request_actor_threads() -> usize {
+    default_view_client_threads()
 }
 
 pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
@@ -700,9 +704,13 @@ pub struct ClientConfig {
     pub view_client_threads: usize,
     /// Throttling window for state requests (headers and parts).
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub view_client_throttle_period: Duration,
-    /// Maximum number of state requests served per `view_client_throttle_period`
-    pub view_client_num_state_requests_per_throttle_period: usize,
+    #[serde(alias = "view_client_throttle_period")]
+    pub state_request_actor_throttle_period: Duration,
+    /// Maximum number of state requests served per throttle period
+    #[serde(alias = "view_client_num_state_requests_per_throttle_period")]
+    pub state_request_actor_num_state_requests_per_throttle_period: usize,
+    /// Number of threads for StateRequestActor pool.
+    pub state_request_actor_threads: usize,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     pub trie_viewer_state_size_limit: Option<u64>,
     /// Max burnt gas per view method.  If present, overrides value stored in
@@ -825,8 +833,9 @@ impl ClientConfig {
             save_tx_outcomes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
-            view_client_throttle_period: Duration::seconds(1),
-            view_client_num_state_requests_per_throttle_period: 30,
+            state_request_actor_throttle_period: Duration::seconds(1),
+            state_request_actor_num_state_requests_per_throttle_period: 30,
+            state_request_actor_threads: 1,
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
             enable_statistics_export: true,

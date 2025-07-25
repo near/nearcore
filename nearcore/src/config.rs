@@ -23,13 +23,14 @@ use near_chain_configs::{
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    default_state_request_actor_num_state_requests_per_throttle_period,
+    default_state_request_actor_threads, default_state_request_actor_throttle_period,
     default_state_sync_enabled, default_state_sync_external_backoff,
     default_state_sync_external_timeout, default_state_sync_p2p_timeout,
     default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
     default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
     default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_num_state_requests_per_throttle_period, default_view_client_threads,
-    default_view_client_throttle_period, get_initial_supply,
+    default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -302,10 +303,15 @@ pub struct Config {
     #[serde(flatten)]
     pub gc: GCConfig,
     pub view_client_threads: usize,
+    /// Throttling window for state requests (headers and parts).
     #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub view_client_throttle_period: Duration,
-    /// Maximum number of state requests served per `view_client_throttle_period`
-    pub view_client_num_state_requests_per_throttle_period: usize,
+    #[serde(alias = "view_client_throttle_period")]
+    pub state_request_actor_throttle_period: Duration,
+    /// Maximum number of state requests served per throttle period
+    #[serde(alias = "view_client_num_state_requests_per_throttle_period")]
+    pub state_request_actor_num_state_requests_per_throttle_period: usize,
+    /// Number of threads for StateRequestActor pool.
+    pub state_request_actor_threads: usize,
     pub trie_viewer_state_size_limit: Option<u64>,
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -426,9 +432,10 @@ impl Default for Config {
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
             view_client_threads: default_view_client_threads(),
-            view_client_throttle_period: default_view_client_throttle_period(),
-            view_client_num_state_requests_per_throttle_period:
-                default_view_client_num_state_requests_per_throttle_period(),
+            state_request_actor_throttle_period: default_state_request_actor_throttle_period(),
+            state_request_actor_num_state_requests_per_throttle_period:
+                default_state_request_actor_num_state_requests_per_throttle_period(),
+            state_request_actor_threads: default_state_request_actor_threads(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
             store,
@@ -481,6 +488,10 @@ impl Config {
             .map_err(|_| ValidationError::ConfigFileError {
                 error_message: format!("Failed to strip comments from {}", path.display()),
             })?;
+
+        // Check for deprecated fields before deserialization to warn about them
+        Self::check_for_deprecated_fields(&json_str_without_comments);
+
         let config: Config = serde_ignored::deserialize(
             &mut serde_json::Deserializer::from_str(&json_str_without_comments),
             |field| unrecognized_fields.push(field.to_string()),
@@ -500,6 +511,27 @@ impl Config {
         }
 
         Ok(config)
+    }
+
+    /// Check for deprecated configuration fields and emit warnings
+    fn check_for_deprecated_fields(json_str: &str) {
+        // Parse as JSON value to check for deprecated fields
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(json_str) {
+            if let Some(object) = json_value.as_object() {
+                if object.contains_key("view_client_throttle_period") {
+                    warn!(
+                        target: "neard",
+                        "Deprecated config key 'view_client_throttle_period' detected—please migrate to 'state_request_actor_throttle_period'"
+                    );
+                }
+                if object.contains_key("view_client_num_state_requests_per_throttle_period") {
+                    warn!(
+                        target: "neard",
+                        "Deprecated config key 'view_client_num_state_requests_per_throttle_period' detected—please migrate to 'state_request_actor_num_state_requests_per_throttle_period'"
+                    );
+                }
+            }
+        }
     }
 
     fn validate(&self) -> Result<(), ValidationError> {
@@ -628,9 +660,10 @@ impl NearConfig {
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
-                view_client_throttle_period: config.view_client_throttle_period,
-                view_client_num_state_requests_per_throttle_period: config
-                    .view_client_num_state_requests_per_throttle_period,
+                state_request_actor_throttle_period: config.state_request_actor_throttle_period,
+                state_request_actor_num_state_requests_per_throttle_period: config
+                    .state_request_actor_num_state_requests_per_throttle_period,
+                state_request_actor_threads: config.state_request_actor_threads,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
