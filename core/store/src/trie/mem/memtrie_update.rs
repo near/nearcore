@@ -9,7 +9,7 @@ use crate::trie::ops::interface::{
     GenericNodeOrIndex, GenericTrieNode, GenericTrieNodeWithSize, GenericTrieUpdate,
     GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
-use crate::trie::trie_recording::TrieRecorder;
+use crate::trie::trie_recording::{RecordedNodeId, TrieRecorder};
 use crate::trie::{AccessOptions, Children, MemTrieChanges, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 
@@ -117,7 +117,7 @@ impl<'a> TrieChangesTracker<'a> {
         let raw_node_serialized = borsh::to_vec(&node.to_raw_trie_node_with_size()).unwrap();
         *self.refcount_deleted_hashes.entry(node_hash).or_default() += 1;
         if let Some(recorder) = self.recorder.as_mut() {
-            recorder.record(&node_hash, raw_node_serialized.into());
+            recorder.record(RecordedNodeId::Hash(node_hash), raw_node_serialized.into());
         }
     }
 

@@ -1,17 +1,24 @@
+use super::mem::node::MemTrieNodeId;
 use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
-use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
-use borsh::BorshDeserialize;
-use near_primitives::hash::CryptoHash;
+use crate::{NibbleSlice, PartialStorage};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::PartialState;
 use near_primitives::trie_key::col::ALL_COLUMNS_WITH_NAMES;
 use near_primitives::types::AccountId;
-use std::collections::{HashSet, VecDeque};
+use smallvec::SmallVec;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RecordedNodeId {
+    Hash(CryptoHash),
+    MemtrieId(MemTrieNodeId),
+    TriePath(SmallVec<[u8; 32]>),
+}
+
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
-    recorded: dashmap::DashMap<CryptoHash, TrieNodeWithRefcount>,
+    recorded: dashmap::DashMap<RecordedNodeId, TrieNodeWithRefcount>,
     size: crossbeam::utils::CachePadded<AtomicUsize>,
     /// Size of the recorded state proof plus some additional size added to cover removals and
     /// contract code.
@@ -90,13 +97,13 @@ impl TrieRecorder {
     /// This is used to bypass witness size checks in order to generate
     /// large witness for testing.
     #[cfg(feature = "test_features")]
-    pub fn record_unaccounted(&self, hash: &CryptoHash, node: Arc<[u8]>) {
-        self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
+    pub fn record_unaccounted(&self, id: RecordedNodeId, node: Arc<[u8]>) {
+        self.recorded.entry(id).or_insert_with(|| node.into()).increment();
     }
 
-    pub fn record(&self, hash: &CryptoHash, node: Arc<[u8]>) {
+    pub fn record(&self, id: RecordedNodeId, node: Arc<[u8]>) {
         let size = node.len();
-        let times_seen = self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
+        let times_seen = self.recorded.entry(id).or_insert_with(|| node.into()).increment();
 
         // Only do size accounting if this is the first time we see this value.
         if times_seen == 1 {
@@ -147,10 +154,15 @@ impl TrieRecorder {
         let mut refcounts = TrieRefcountDeltaMap::new();
         for shard in self.recorded.into_shards() {
             let map = shard.into_inner().into_inner();
-            for (key, node) in map {
+            for (node_id, node) in map {
                 let node = node.into_inner();
                 // FIXME(nagisa): lets not reallocate all the values
-                refcounts.add(key, node.0.to_vec(), node.1);
+                // TODO - avoid rehashing?
+                let node_hash = match node_id {
+                    RecordedNodeId::Hash(hash) => hash,
+                    _ => hash(&*node.0),
+                };
+                refcounts.add(node_hash, node.0.to_vec(), node.1);
             }
         }
         let (insertions, deletions) = refcounts.into_changes();
@@ -196,147 +208,149 @@ impl TrieRecorder {
     /// Get total size of all recorded nodes and values belonging to the subtree with the given key.
     fn get_subtree_size_by_key(
         &self,
-        trie_root: &CryptoHash,
-        subtree_key: NibbleSlice<'_>,
+        _trie_root: &CryptoHash,
+        _subtree_key: NibbleSlice<'_>,
     ) -> SubtreeSize {
-        self.get_subtree_root_by_key(trie_root, subtree_key)
-            .map(|subtree_root| self.get_subtree_size(&subtree_root))
-            .unwrap_or_default()
+        SubtreeSize { nodes_size: 0, values_size: 0 }
+
+        // self.get_subtree_root_by_key(trie_root, subtree_key)
+        //     .map(|subtree_root| self.get_subtree_size(&subtree_root))
+        //     .unwrap_or_default()
     }
 
-    /// Find the highest node whose trie key starts with `subtree_key`.
-    fn get_subtree_root_by_key(
-        &self,
-        trie_root: &CryptoHash,
-        mut subtree_key: NibbleSlice<'_>,
-    ) -> Option<CryptoHash> {
-        let mut cur_node_hash = *trie_root;
+    //     /// Find the highest node whose trie key starts with `subtree_key`.
+    //     fn get_subtree_root_by_key(
+    //         &self,
+    //         trie_root: &CryptoHash,
+    //         mut subtree_key: NibbleSlice<'_>,
+    //     ) -> Option<CryptoHash> {
+    //         let mut cur_node_hash = *trie_root;
 
-        while !subtree_key.is_empty() {
-            let node = self.recorded.get(&cur_node_hash);
-            let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = node.as_deref() else {
-                // This node wasn't recorded.
-                return None;
-            };
-            let raw_node = match RawTrieNodeWithSize::try_from_slice(&raw_node_bytes) {
-                Ok(raw_node_with_size) => raw_node_with_size.node,
-                Err(_) => {
-                    tracing::error!(
-                        "get_subtree_root_by_key: failed to decode node, this shouldn't happen!"
-                    );
-                    return None;
-                }
-            };
+    //         while !subtree_key.is_empty() {
+    //             let node = self.recorded.get(&cur_node_hash);
+    //             let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = node.as_deref() else {
+    //                 // This node wasn't recorded.
+    //                 return None;
+    //             };
+    //             let raw_node = match RawTrieNodeWithSize::try_from_slice(&raw_node_bytes) {
+    //                 Ok(raw_node_with_size) => raw_node_with_size.node,
+    //                 Err(_) => {
+    //                     tracing::error!(
+    //                         "get_subtree_root_by_key: failed to decode node, this shouldn't happen!"
+    //                     );
+    //                     return None;
+    //                 }
+    //             };
 
-            match raw_node {
-                RawTrieNode::Leaf(_, _) => {
-                    return None;
-                }
-                RawTrieNode::BranchNoValue(children)
-                | RawTrieNode::BranchWithValue(_, children) => {
-                    let child = children[subtree_key.at(0)];
-                    match child {
-                        Some(child) => {
-                            cur_node_hash = child;
-                            subtree_key = subtree_key.mid(1);
-                        }
-                        None => return None,
-                    }
-                }
-                RawTrieNode::Extension(existing_key, child) => {
-                    let existing_key = NibbleSlice::from_encoded(&existing_key).0;
-                    if subtree_key.starts_with(&existing_key) {
-                        cur_node_hash = child;
-                        subtree_key = subtree_key.mid(existing_key.len());
-                    } else if existing_key.starts_with(&subtree_key) {
-                        // The `subtree_key` ends in the middle of this extension, result is the extension's child.
-                        return Some(child);
-                    } else {
-                        // No match.
-                        return None;
-                    }
-                }
-            }
-        }
+    //             match raw_node {
+    //                 RawTrieNode::Leaf(_, _) => {
+    //                     return None;
+    //                 }
+    //                 RawTrieNode::BranchNoValue(children)
+    //                 | RawTrieNode::BranchWithValue(_, children) => {
+    //                     let child = children[subtree_key.at(0)];
+    //                     match child {
+    //                         Some(child) => {
+    //                             cur_node_hash = child;
+    //                             subtree_key = subtree_key.mid(1);
+    //                         }
+    //                         None => return None,
+    //                     }
+    //                 }
+    //                 RawTrieNode::Extension(existing_key, child) => {
+    //                     let existing_key = NibbleSlice::from_encoded(&existing_key).0;
+    //                     if subtree_key.starts_with(&existing_key) {
+    //                         cur_node_hash = child;
+    //                         subtree_key = subtree_key.mid(existing_key.len());
+    //                     } else if existing_key.starts_with(&subtree_key) {
+    //                         // The `subtree_key` ends in the middle of this extension, result is the extension's child.
+    //                         return Some(child);
+    //                     } else {
+    //                         // No match.
+    //                         return None;
+    //                     }
+    //                 }
+    //             }
+    //         }
 
-        Some(cur_node_hash)
-    }
+    //         Some(cur_node_hash)
+    //     }
 
-    /// Get size of all recorded nodes and values which are under `subtree_root` (including `subtree_root`).
-    fn get_subtree_size(&self, subtree_root: &CryptoHash) -> SubtreeSize {
-        let mut nodes_size: usize = 0;
-        let mut values_size: usize = 0;
+    //     /// Get size of all recorded nodes and values which are under `subtree_root` (including `subtree_root`).
+    //     fn get_subtree_size(&self, subtree_root: &CryptoHash) -> SubtreeSize {
+    //         let mut nodes_size: usize = 0;
+    //         let mut values_size: usize = 0;
 
-        // Non recursive approach to avoid any potential stack overflows.
-        let mut queue: VecDeque<CryptoHash> = VecDeque::new();
-        queue.push_back(*subtree_root);
+    //         // Non recursive approach to avoid any potential stack overflows.
+    //         let mut queue: VecDeque<CryptoHash> = VecDeque::new();
+    //         queue.push_back(*subtree_root);
 
-        let mut seen_items: HashSet<CryptoHash> = HashSet::new();
+    //         let mut seen_items: HashSet<CryptoHash> = HashSet::new();
 
-        while let Some(cur_node_hash) = queue.pop_front() {
-            if seen_items.contains(&cur_node_hash) {
-                // This node (or value with the same hash) has already been processed.
-                continue;
-            }
+    //         while let Some(cur_node_hash) = queue.pop_front() {
+    //             if seen_items.contains(&cur_node_hash) {
+    //                 // This node (or value with the same hash) has already been processed.
+    //                 continue;
+    //             }
 
-            let node = self.recorded.get(&cur_node_hash);
-            let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = node.as_deref() else {
-                // This node wasn't recorded.
-                continue;
-            };
-            nodes_size = nodes_size.saturating_add(raw_node_bytes.len());
-            seen_items.insert(cur_node_hash);
+    //             let node = self.recorded.get(&cur_node_hash);
+    //             let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = node.as_deref() else {
+    //                 // This node wasn't recorded.
+    //                 continue;
+    //             };
+    //             nodes_size = nodes_size.saturating_add(raw_node_bytes.len());
+    //             seen_items.insert(cur_node_hash);
 
-            let raw_node = match RawTrieNodeWithSize::try_from_slice(&raw_node_bytes) {
-                Ok(raw_node_with_size) => raw_node_with_size.node,
-                Err(_) => {
-                    tracing::error!(
-                        "get_subtree_size: failed to decode node, this shouldn't happen!"
-                    );
-                    continue;
-                }
-            };
+    //             let raw_node = match RawTrieNodeWithSize::try_from_slice(&raw_node_bytes) {
+    //                 Ok(raw_node_with_size) => raw_node_with_size.node,
+    //                 Err(_) => {
+    //                     tracing::error!(
+    //                         "get_subtree_size: failed to decode node, this shouldn't happen!"
+    //                     );
+    //                     continue;
+    //                 }
+    //             };
 
-            match raw_node {
-                RawTrieNode::Leaf(_key, value) => {
-                    let node = self.recorded.get(&value.hash);
-                    if let Some(TrieNodeWithRefcount(value_bytes, _)) = node.as_deref() {
-                        if !seen_items.contains(&value.hash) {
-                            values_size = values_size.saturating_add(value_bytes.len());
-                            seen_items.insert(value.hash);
-                        }
-                    }
-                }
-                RawTrieNode::BranchNoValue(children) => {
-                    for child_opt in children.0 {
-                        if let Some(child) = child_opt {
-                            queue.push_back(child);
-                        }
-                    }
-                }
-                RawTrieNode::BranchWithValue(value, children) => {
-                    for child_opt in children.0 {
-                        if let Some(child) = child_opt {
-                            queue.push_back(child);
-                        }
-                    }
+    //             match raw_node {
+    //                 RawTrieNode::Leaf(_key, value) => {
+    //                     let node = self.recorded.get(&value.hash);
+    //                     if let Some(TrieNodeWithRefcount(value_bytes, _)) = node.as_deref() {
+    //                         if !seen_items.contains(&value.hash) {
+    //                             values_size = values_size.saturating_add(value_bytes.len());
+    //                             seen_items.insert(value.hash);
+    //                         }
+    //                     }
+    //                 }
+    //                 RawTrieNode::BranchNoValue(children) => {
+    //                     for child_opt in children.0 {
+    //                         if let Some(child) = child_opt {
+    //                             queue.push_back(child);
+    //                         }
+    //                     }
+    //                 }
+    //                 RawTrieNode::BranchWithValue(value, children) => {
+    //                     for child_opt in children.0 {
+    //                         if let Some(child) = child_opt {
+    //                             queue.push_back(child);
+    //                         }
+    //                     }
 
-                    let node = self.recorded.get(&value.hash);
-                    if let Some(TrieNodeWithRefcount(value_bytes, _)) = node.as_deref() {
-                        if !seen_items.contains(&value.hash) {
-                            values_size = values_size.saturating_add(value_bytes.len());
-                            seen_items.insert(value.hash);
-                        }
-                    }
-                }
-                RawTrieNode::Extension(_key, child) => {
-                    queue.push_back(child);
-                }
-            };
-        }
+    //                     let node = self.recorded.get(&value.hash);
+    //                     if let Some(TrieNodeWithRefcount(value_bytes, _)) = node.as_deref() {
+    //                         if !seen_items.contains(&value.hash) {
+    //                             values_size = values_size.saturating_add(value_bytes.len());
+    //                             seen_items.insert(value.hash);
+    //                         }
+    //                     }
+    //                 }
+    //                 RawTrieNode::Extension(_key, child) => {
+    //                     queue.push_back(child);
+    //                 }
+    //             };
+    //         }
 
-        SubtreeSize { nodes_size, values_size }
-    }
+    //         SubtreeSize { nodes_size, values_size }
+    //     }
 }
 
 impl SubtreeSize {
@@ -375,6 +389,8 @@ mod trie_recording_tests {
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::num::NonZeroU32;
     use std::sync::Arc;
+
+    use super::RecordedNodeId;
 
     const NUM_ITERATIONS_PER_TEST: usize = 300;
 
@@ -565,17 +581,17 @@ mod trie_recording_tests {
         allow_insert: bool,
         mem_reads: Cell<u64>,
         db_reads: Cell<u64>,
-        cache: RefCell<BTreeMap<CryptoHash, Arc<[u8]>>>,
+        cache: RefCell<BTreeMap<RecordedNodeId, Arc<[u8]>>>,
     }
 
     impl AccessTracker for AccountingAccessTracker {
-        fn track_mem_lookup(&self, key: &CryptoHash) -> Option<std::sync::Arc<[u8]>> {
+        fn track_mem_lookup(&self, key: &RecordedNodeId) -> Option<std::sync::Arc<[u8]>> {
             let value = Arc::clone(self.cache.borrow().get(key)?);
             self.mem_reads.set(self.mem_reads.get() + 1);
             Some(value)
         }
 
-        fn track_disk_lookup(&self, key: CryptoHash, value: std::sync::Arc<[u8]>) {
+        fn track_disk_lookup(&self, key: RecordedNodeId, value: std::sync::Arc<[u8]>) {
             self.db_reads.set(self.db_reads.get() + 1);
             if self.allow_insert {
                 self.cache.borrow_mut().insert(key, value);

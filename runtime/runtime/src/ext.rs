@@ -9,7 +9,7 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfo
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
-use near_store::trie::{AccessOptions, AccessTracker};
+use near_store::trie::{AccessOptions, AccessTracker, RecordedNodeId};
 use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
@@ -570,7 +570,7 @@ struct AccountingAccessTracker {
 pub struct AccountingState {
     mem_reads: AtomicU64,
     db_reads: AtomicU64,
-    cache: Mutex<BTreeMap<CryptoHash, Arc<[u8]>>>,
+    cache: Mutex<BTreeMap<RecordedNodeId, Arc<[u8]>>>,
 }
 
 impl AccountingState {
@@ -621,13 +621,13 @@ impl Debug for AccountingAccessTracker {
 }
 
 impl AccessTracker for AccountingAccessTracker {
-    fn track_mem_lookup(&self, key: &CryptoHash) -> Option<Arc<[u8]>> {
+    fn track_mem_lookup(&self, key: &RecordedNodeId) -> Option<Arc<[u8]>> {
         let value = Arc::clone(self.state.cache.lock().get(key)?);
         self.state.mem_reads.fetch_add(1, Ordering::Relaxed);
         Some(value)
     }
 
-    fn track_disk_lookup(&self, key: CryptoHash, value: Arc<[u8]>) {
+    fn track_disk_lookup(&self, key: RecordedNodeId, value: Arc<[u8]>) {
         self.state.db_reads.fetch_add(1, Ordering::Relaxed);
         if self.allow_insert {
             self.state.cache.lock().insert(key, value);
