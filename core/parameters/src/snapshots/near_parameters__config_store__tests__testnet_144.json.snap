@@ -1,7 +1,6 @@
 ---
-source: core/parameters/src/view.rs
-assertion_line: 842
-expression: "&view"
+source: core/parameters/src/config_store.rs
+expression: config_view
 snapshot_kind: text
 ---
 {
@@ -102,8 +101,8 @@ snapshot_kind: text
       10
     ],
     "pessimistic_gas_price_inflation_ratio": [
-      103,
-      100
+      1,
+      1
     ]
   },
   "wasm_config": {
@@ -203,7 +202,7 @@ snapshot_kind: text
     "saturating_float_to_int": true,
     "global_contract_host_fns": true,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": false,
+    "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
     "limit_config": {
