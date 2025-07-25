@@ -350,7 +350,6 @@ pub enum PrepareTransactionsLimit {
     Size,
     Time,
     ReceiptCount,
-    StorageProofSize,
 }
 
 pub struct PrepareTransactionsBlockContext {
