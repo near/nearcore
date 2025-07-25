@@ -23,14 +23,13 @@ use near_chain_configs::{
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_request_actor_num_state_requests_per_throttle_period,
-    default_state_request_actor_threads, default_state_request_actor_throttle_period,
-    default_state_sync_enabled, default_state_sync_external_backoff,
-    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
-    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
-    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, get_initial_supply,
+    default_state_request_server_threads, default_state_request_throttle_period,
+    default_state_requests_per_throttle_period, default_state_sync_enabled,
+    default_state_sync_external_backoff, default_state_sync_external_timeout,
+    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
+    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -306,12 +305,12 @@ pub struct Config {
     /// Throttling window for state requests (headers and parts).
     #[serde(with = "near_async::time::serde_duration_as_std")]
     #[serde(alias = "view_client_throttle_period")]
-    pub state_request_actor_throttle_period: Duration,
+    pub state_request_throttle_period: Duration,
     /// Maximum number of state requests served per throttle period
     #[serde(alias = "view_client_num_state_requests_per_throttle_period")]
-    pub state_request_actor_num_state_requests_per_throttle_period: usize,
+    pub state_requests_per_throttle_period: usize,
     /// Number of threads for StateRequestActor pool.
-    pub state_request_actor_threads: usize,
+    pub state_request_server_threads: usize,
     pub trie_viewer_state_size_limit: Option<u64>,
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -432,10 +431,9 @@ impl Default for Config {
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
             view_client_threads: default_view_client_threads(),
-            state_request_actor_throttle_period: default_state_request_actor_throttle_period(),
-            state_request_actor_num_state_requests_per_throttle_period:
-                default_state_request_actor_num_state_requests_per_throttle_period(),
-            state_request_actor_threads: default_state_request_actor_threads(),
+            state_request_throttle_period: default_state_request_throttle_period(),
+            state_requests_per_throttle_period: default_state_requests_per_throttle_period(),
+            state_request_server_threads: default_state_request_server_threads(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
             store,
@@ -521,13 +519,13 @@ impl Config {
                 if object.contains_key("view_client_throttle_period") {
                     warn!(
                         target: "neard",
-                        "Deprecated config key 'view_client_throttle_period' detected—please migrate to 'state_request_actor_throttle_period'"
+                        "Deprecated config key 'view_client_throttle_period' detected—please migrate to 'state_request_throttle_period'"
                     );
                 }
                 if object.contains_key("view_client_num_state_requests_per_throttle_period") {
                     warn!(
                         target: "neard",
-                        "Deprecated config key 'view_client_num_state_requests_per_throttle_period' detected—please migrate to 'state_request_actor_num_state_requests_per_throttle_period'"
+                        "Deprecated config key 'view_client_num_state_requests_per_throttle_period' detected—please migrate to 'state_requests_per_throttle_period'"
                     );
                 }
             }
@@ -660,10 +658,9 @@ impl NearConfig {
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
-                state_request_actor_throttle_period: config.state_request_actor_throttle_period,
-                state_request_actor_num_state_requests_per_throttle_period: config
-                    .state_request_actor_num_state_requests_per_throttle_period,
-                state_request_actor_threads: config.state_request_actor_threads,
+                state_request_throttle_period: config.state_request_throttle_period,
+                state_requests_per_throttle_period: config.state_requests_per_throttle_period,
+                state_request_server_threads: config.state_request_server_threads,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,

@@ -9678,8 +9678,8 @@
             ],
             "description": "Version of the binary."
           },
-          "state_request_actor_num_state_requests_per_throttle_period": {
-            "description": "Maximum number of state requests served per throttle period",
+          "view_client_num_state_requests_per_throttle_period": {
+            "description": "Maximum number of state requests served per `view_client_throttle_period`",
             "format": "uint",
             "minimum": 0,
             "type": "integer"
@@ -9690,7 +9690,7 @@
             "minimum": 0,
             "type": "integer"
           },
-          "state_request_actor_throttle_period": {
+          "view_client_throttle_period": {
             "description": "Throttling window for state requests (headers and parts).",
             "items": {
               "format": "uint64",
@@ -9742,9 +9742,8 @@
           "save_trie_changes",
           "save_tx_outcomes",
           "view_client_threads",
-          "state_request_actor_throttle_period",
-          "state_request_actor_num_state_requests_per_throttle_period",
-          "state_request_actor_threads",
+          "view_client_throttle_period",
+          "view_client_num_state_requests_per_throttle_period",
           "enable_statistics_export",
           "client_background_migration_threads",
           "state_sync_enabled",

@@ -367,14 +367,14 @@ pub fn start_with_config_and_synchronization(
     let state_request_addr = {
         let runtime = runtime.clone();
         let epoch_manager = epoch_manager.clone();
-        spawn_sync_actix_actor(config.client_config.state_request_actor_threads, move || {
+        spawn_sync_actix_actor(config.client_config.state_request_server_threads, move || {
             StateRequestActor::new(
                 Clock::real(),
                 runtime.clone(),
                 epoch_manager.clone(),
                 genesis_id.hash,
-                config.client_config.state_request_actor_throttle_period,
-                config.client_config.state_request_actor_num_state_requests_per_throttle_period,
+                config.client_config.state_request_throttle_period,
+                config.client_config.state_requests_per_throttle_period,
             )
         })
     };
