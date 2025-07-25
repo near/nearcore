@@ -1,13 +1,16 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
+use near_async::messaging::Handler;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
 use near_chain::{Block, Provenance};
 use near_chain_configs::Genesis;
 use near_chain_configs::default_orphan_state_witness_max_size;
-use near_client::DistributeStateWitnessRequest;
-use near_client::HandleOrphanWitnessOutcome;
+use near_client::{
+    BlockNotificationMessage, ChunkValidationActorInner, HandleOrphanWitnessOutcome,
+};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
@@ -46,6 +49,7 @@ struct OrphanWitnessTestEnv {
     witness: ChunkStateWitness,
     excluded_validator: AccountId,
     excluded_validator_idx: usize,
+    chunk_validation_actor: ChunkValidationActorInner,
 }
 
 /// This function prepares a scenario in which an orphaned chunk witness will occur.
@@ -145,55 +149,67 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         env.process_shards_manager_responses(client_idx);
     }
 
+    // Propagate chunk state witnesses for block1
+    env.propagate_chunk_state_witnesses(false);
+    env.propagate_chunk_endorsements(false);
+
     // At this point chunk producer for the chunk belonging to block2 produces
     // the chunk and sends out a witness for it. Let's intercept the witness
     // and process it on all validators except for `excluded_validator`.
     // The witness isn't processed on `excluded_validator` to give users of
     // `setup_orphan_witness_test()` full control over the events.
-    let mut witness_opt = None;
-    let partial_witness_adapter =
-        env.partial_witness_adapters[env.get_client_index(&block2_chunk_producer)].clone();
-    while let Some(request) = partial_witness_adapter.pop_distribution_request() {
-        let DistributeStateWitnessRequest { state_witness, .. } = request;
-        let raw_witness_size = borsh::object_length(&state_witness).unwrap();
-        let key = state_witness.chunk_production_key();
-        let chunk_validators = env
-            .client(&block2_chunk_producer)
-            .epoch_manager
-            .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)
-            .unwrap()
-            .ordered_chunk_validators();
 
-        let mut witness_processing_done_waiters: Vec<ProcessingDoneWaiter> = Vec::new();
-        for account_id in chunk_validators.into_iter().filter(|acc| *acc != excluded_validator) {
-            let processing_done_tracker = ProcessingDoneTracker::new();
-            witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
-            let client = env.client(&account_id);
-            client
-                .process_chunk_state_witness(
-                    state_witness.clone(),
-                    raw_witness_size,
-                    Some(processing_done_tracker),
-                    client.validator_signer.get(),
-                )
-                .unwrap();
-        }
-        for waiter in witness_processing_done_waiters {
-            waiter.wait();
-        }
-        witness_opt = Some(state_witness);
-    }
-
-    env.propagate_chunk_endorsements(false);
-
-    tracing::info!(target:"test", "Producing block2 at height {}", tip.height + 2);
+    // Trigger chunk production for block2 by producing the block first
     let block2 = env.client(&block2_producer).produce_block(tip.height + 2).unwrap().unwrap();
+    tracing::info!(target:"test", "Producing block2 at height {}", tip.height + 2);
     assert_eq!(
         block2.chunks()[0].height_created(),
         block2.header().height(),
         "There should be no missing chunks."
     );
-    let witness = witness_opt.unwrap();
+
+    let chunk_producer_client = env.client(&block2_chunk_producer);
+    let chunk2 = chunk_producer_client.chain.get_chunk(&block2.chunks()[0].chunk_hash()).unwrap();
+    let witness = chunk_producer_client
+        .chain
+        .chain_store()
+        .create_state_witness(
+            chunk_producer_client.epoch_manager.as_ref(),
+            block2_chunk_producer.clone(),
+            block1.header(),
+            &block1.chunks()[0],
+            &chunk2,
+        )
+        .unwrap()
+        .state_witness;
+
+    // Process the manually created witness on all validators except for `excluded_validator`
+    let raw_witness_size = borsh::object_length(&witness).unwrap();
+    let key = witness.chunk_production_key();
+    let chunk_validators = env
+        .client(&block2_chunk_producer)
+        .epoch_manager
+        .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)
+        .unwrap()
+        .ordered_chunk_validators();
+
+    let mut witness_processing_done_waiters: Vec<ProcessingDoneWaiter> = Vec::new();
+    for account_id in chunk_validators.into_iter().filter(|acc| *acc != excluded_validator) {
+        let processing_done_tracker = ProcessingDoneTracker::new();
+        witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
+        let account_index = env.get_client_index(&account_id);
+        let witness_message = near_chain::chain::ChunkStateWitnessMessage {
+            witness: witness.clone(),
+            raw_witness_size,
+            processing_done_tracker: Some(processing_done_tracker),
+        };
+        env.chunk_validation_actors[account_index].handle(witness_message);
+    }
+    for waiter in witness_processing_done_waiters {
+        waiter.wait();
+    }
+
+    env.propagate_chunk_state_witnesses_and_endorsements(false);
     assert_eq!(witness.chunk_header().chunk_hash(), block2.chunks()[0].chunk_hash());
 
     for client_idx in clients_without_excluded {
@@ -208,6 +224,8 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         env.process_shards_manager_responses_and_finish_processing_blocks(client_idx);
     }
 
+    let chunk_validation_actor = env.chunk_validation_actors[excluded_validator_idx].clone();
+
     OrphanWitnessTestEnv {
         env,
         block1,
@@ -215,6 +233,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         witness,
         excluded_validator,
         excluded_validator_idx,
+        chunk_validation_actor,
     }
 }
 
@@ -236,16 +255,22 @@ fn test_orphan_witness_valid() {
     // `excluded_validator` receives witness for chunk belonging to `block2`, but it doesn't have `block1`.
     // The witness should become an orphaned witness and it should be saved to the orphan pool.
     let witness_size = borsh::object_length(&witness).unwrap();
-    let client = env.client(&excluded_validator);
-    client
-        .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
-        .unwrap();
+    let witness_message = near_chain::chain::ChunkStateWitnessMessage {
+        witness: witness,
+        raw_witness_size: witness_size,
+        processing_done_tracker: None,
+    };
+    env.chunk_validation_actors[excluded_validator_idx].handle(witness_message);
 
     let block_processed = env
         .client(&excluded_validator)
         .process_block_test(block1.clone().into(), Provenance::NONE)
         .unwrap();
     assert_eq!(block_processed, vec![*block1.hash()]);
+
+    // Trigger processing of ready orphan witnesses after block1 arrives
+    let block_notification = BlockNotificationMessage { block: block1 };
+    env.chunk_validation_actors[excluded_validator_idx].handle(block_notification);
 
     // After processing `block1`, `excluded_validator` should process the orphaned witness for the chunk belonging to `block2`
     // and it should send out an endorsement for this chunk. This happens asynchronously, so we have to wait for it.
@@ -257,17 +282,13 @@ fn test_orphan_witness_valid() {
 fn test_orphan_witness_too_large() {
     init_integration_logger();
 
-    let OrphanWitnessTestEnv { mut env, witness, excluded_validator, .. } =
+    let OrphanWitnessTestEnv { mut chunk_validation_actor, witness, .. } =
         setup_orphan_witness_test();
 
-    // The witness should not be saved too the pool, as it's too big
-    let outcome = env
-        .client(&excluded_validator)
-        .handle_orphan_state_witness(
-            witness,
-            default_orphan_state_witness_max_size().as_u64() as usize + 1,
-        )
-        .unwrap();
+    // Test with a witness that exceeds the max size limit
+    let oversized_witness_size = default_orphan_state_witness_max_size().as_u64() as usize + 1;
+    let outcome =
+        chunk_validation_actor.handle_orphan_witness(witness, oversized_witness_size).unwrap();
     assert!(matches!(outcome, HandleOrphanWitnessOutcome::TooBig(_)))
 }
 
@@ -276,7 +297,7 @@ fn test_orphan_witness_too_large() {
 fn test_orphan_witness_far_from_head() {
     init_integration_logger();
 
-    let OrphanWitnessTestEnv { mut env, mut witness, block1, excluded_validator, .. } =
+    let OrphanWitnessTestEnv { mut chunk_validation_actor, mut witness, block1, .. } =
         setup_orphan_witness_test();
 
     let bad_height = 10000;
@@ -288,8 +309,7 @@ fn test_orphan_witness_far_from_head() {
         ShardChunkHeaderInner::V5(inner) => inner.height_created = bad_height,
     });
 
-    let outcome =
-        env.client(&excluded_validator).handle_orphan_state_witness(witness, 2000).unwrap();
+    let outcome = chunk_validation_actor.handle_orphan_witness(witness, 2000).unwrap();
     assert_eq!(
         outcome,
         HandleOrphanWitnessOutcome::TooFarFromHead {
@@ -326,10 +346,15 @@ fn test_orphan_witness_not_fully_validated() {
     // There is no way to fully validate an orphan witness, so this is the correct behavior.
     // The witness will later be fully validated when the required block arrives.
     let witness_size = borsh::object_length(&witness).unwrap();
-    let client = env.client(&excluded_validator);
-    client
-        .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
-        .unwrap();
+    let witness_message = ChunkStateWitnessMessage {
+        witness,
+        raw_witness_size: witness_size,
+        processing_done_tracker: None,
+    };
+    let excluded_validator_idx = env.get_client_index(&excluded_validator);
+    let result = env.chunk_validation_actors[excluded_validator_idx]
+        .process_chunk_state_witness_message(witness_message);
+    assert!(result.is_ok(), "Orphan witness should be accepted");
 }
 
 fn modify_witness_header_inner(

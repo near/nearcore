@@ -32,9 +32,9 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
-    ClientActor, ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig,
-    StartClientResult, StateRequestActor, ViewClientActor, ViewClientActorInner,
-    spawn_rpc_handler_actor, start_client,
+    ChunkValidationSenderForPartialWitness, ClientActor, ConfigUpdater, PartialWitnessActor,
+    RpcHandlerActor, RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
+    ViewClientActorInner, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -437,6 +437,7 @@ pub fn start_with_config_and_synchronization(
         client_arbiter_handle,
         tx_pool,
         chunk_endorsement_tracker,
+        chunk_validation_actor,
     } = start_client(
         Clock::real(),
         config.client_config.clone(),
@@ -460,7 +461,9 @@ pub fn start_with_config_and_synchronization(
         resharding_sender.into_multi_sender(),
     );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
-    client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
+    client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
+        chunk_state_witness: chunk_validation_actor.with_auto_span_context().into_sender(),
+    });
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
         view_epoch_manager.clone(),

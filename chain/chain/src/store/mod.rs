@@ -262,10 +262,9 @@ pub fn filter_incoming_receipts_for_shard(
 }
 
 /// All chain-related database operations.
+#[derive(Clone)]
 pub struct ChainStore {
     store: ChainStoreAdapter,
-    // TODO(store): Use std::cell::OnceCell once OnceCell::get_or_try_init stabilizes.
-    latest_known: std::cell::Cell<Option<LatestKnown>>,
     /// save_trie_changes should be set to true iff
     /// - archive is false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
@@ -304,7 +303,6 @@ impl ChainStore {
     ) -> ChainStore {
         ChainStore {
             store: store.chain_store(),
-            latest_known: std::cell::Cell::new(None),
             save_trie_changes,
             save_tx_outcomes: true,
             transaction_validity_period,
@@ -557,15 +555,11 @@ impl ChainStore {
     /// Returns latest known height and time it was seen.
     /// TODO(store): What is this doing here? Cleanup
     pub fn get_latest_known(&self) -> Result<LatestKnown, Error> {
-        if let Some(latest_known) = self.latest_known.get() {
-            return Ok(latest_known);
-        }
         let latest_known: LatestKnown = option_to_not_found(
             self.store.store().caching_get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
             "LATEST_KNOWN_KEY",
         )
         .map(|v| *v)?;
-        self.latest_known.set(Some(latest_known));
         Ok(latest_known)
     }
 
@@ -574,7 +568,6 @@ impl ChainStore {
     pub fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
         let mut store_update = self.store.store().store_update();
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
-        self.latest_known.set(Some(latest_known));
         store_update.commit().map_err(|err| err.into())
     }
 

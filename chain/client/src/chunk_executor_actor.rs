@@ -494,7 +494,7 @@ impl ChunkExecutorActor {
     }
 
     fn distribute_witness(
-        &mut self,
+        &self,
         block: &Arc<Block>,
         my_signer: Arc<ValidatorSigner>,
         new_chunk_result: &NewChunkResult,

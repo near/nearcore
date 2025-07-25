@@ -16,6 +16,9 @@ use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_validation_actor::{
+    ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSyncActor,
+};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
 use crate::sync::state::chain_requests::{
@@ -33,11 +36,10 @@ use near_async::messaging::{
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSenderFrom};
+use near_chain::ApplyChunksSpawner;
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
-use near_chain::chain::{
-    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
-};
+use near_chain::chain::{ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse};
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -125,6 +127,7 @@ pub struct StartClientResult {
     pub client_arbiter_handle: actix::ArbiterHandle,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    pub chunk_validation_actor: actix::Addr<ChunkValidationSyncActor>,
 }
 
 /// Starts client in a separate Arbiter (thread).
@@ -159,6 +162,9 @@ pub fn start_client(
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
     let multi_spawner = AsyncComputationMultiSpawner::default();
+
+    let chunk_validation_adapter = LateBoundSender::<ChunkValidationSender>::new();
+
     // TODO(spice): Initialize CoreStatementsProcessor properly.
     let spice_core_processor = CoreStatementsProcessor::new(
         runtime.store().chain_store(),
@@ -185,6 +191,7 @@ pub fn start_client(
         state_sync_future_spawner,
         chain_sender_for_state_sync.as_multi_sender(),
         client_sender_for_client.as_multi_sender(),
+        chunk_validation_adapter.as_multi_sender(),
         protocol_upgrade_schedule,
         spice_core_processor,
     )
@@ -193,6 +200,32 @@ pub fn start_client(
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
     let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
     let sync_jobs_actor_addr = sync_jobs_actor.spawn_actix_actor();
+
+    // Create chunk validation actor
+    let genesis_block = client.chain.genesis_block();
+    let num_chunk_validation_threads = client.config.chunk_validation_threads;
+
+    let chunk_validation_actor_addr = ChunkValidationActorInner::spawn_actix_actors(
+        client.chain.chain_store().clone(),
+        genesis_block,
+        epoch_manager.clone(),
+        runtime.clone(),
+        network_adapter.clone().into_sender(),
+        client.validator_signer.clone(),
+        client.config.save_latest_witnesses,
+        client.config.save_invalid_witnesses,
+        {
+            // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit.
+            // This assumes that:
+            // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
+            // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
+            let max_num_shards = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+            ApplyChunksSpawner::Default.into_spawner(max_num_shards)
+        },
+        client.config.orphan_state_witness_pool_size,
+        client.config.orphan_state_witness_max_size.as_u64(),
+        num_chunk_validation_threads,
+    );
 
     let client_actor_inner = ClientActorInner::new(
         clock,
@@ -222,12 +255,15 @@ pub fn start_client(
     client_sender_for_client.bind(client_addr.clone().with_auto_span_context().into_multi_sender());
     chain_sender_for_state_sync
         .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
+    chunk_validation_adapter
+        .bind(chunk_validation_actor_addr.clone().with_auto_span_context().into_multi_sender());
 
     StartClientResult {
         client_actor: client_addr,
         client_arbiter_handle,
         tx_pool,
         chunk_endorsement_tracker,
+        chunk_validation_actor: chunk_validation_actor_addr,
     }
 }
 
@@ -239,11 +275,6 @@ pub struct ClientSenderForClient {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct SyncJobsSenderForClient {
     pub block_catch_up: Sender<BlockCatchUpRequest>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct ClientSenderForPartialWitness {
-    pub chunk_state_witness: Sender<SpanWrapped<ChunkStateWitnessMessage>>,
 }
 
 pub struct ClientActorInner {
@@ -1930,19 +1961,6 @@ impl Handler<SpanWrapped<GetClientConfig>> for ClientActorInner {
     ) -> Result<ClientConfig, GetClientConfigError> {
         debug!(target: "client", ?msg);
         Ok(self.client.config.clone())
-    }
-}
-
-impl Handler<SpanWrapped<ChunkStateWitnessMessage>> for ClientActorInner {
-    #[perf]
-    fn handle(&mut self, msg: SpanWrapped<ChunkStateWitnessMessage>) {
-        let msg = msg.span_unwrap();
-        let signer = self.client.validator_signer.get();
-        if let Err(err) =
-            self.client.process_chunk_state_witness(msg.witness, msg.raw_witness_size, None, signer)
-        {
-            error!(target: "client", ?err, "Error processing chunk state witness");
-        }
     }
 }
 

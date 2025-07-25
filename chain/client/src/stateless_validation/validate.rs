@@ -58,7 +58,7 @@ macro_rules! require_relevant {
 /// Function to validate the partial encoded state witness. In addition of ChunkProductionKey, we check the following:
 /// - part_ord is valid and within range of the number of expected parts for this chunk
 /// - partial_witness signature is valid and from the expected chunk_producer
-/// TODO(stateless_validation): Include checks from handle_orphan_state_witness in orphan_witness_handling.rs
+/// TODO(stateless_validation): Include checks from handle_orphan_witness in chunk_validation_actor.rs
 /// These include checks based on epoch_id validity, witness size, height_created, distance from chain head, etc.
 pub fn validate_partial_encoded_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
