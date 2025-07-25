@@ -73,12 +73,12 @@ To change TPS edit the `tx-generator-settings.json` file (without `.in` !) and r
 First, make sure all deltas in flat storage are applied and written:
 
 ```shell
-./neard --home .near view-state --read-write apply-range --shard-id 0 --storage flat sequential
+./neard --home .near view-state --read-write apply-range --storage flat sequential
 ```
 
 Then move flat head back 32 blocks to a height that had chunks with high load
 ```shell
-./neard --home .near flat-storage move-flat-head --shard-id 0 --version 0 back --blocks 32
+./neard --home .near flat-storage move-flat-head back --blocks 32
 ```
 
 ### Benchmarking chunk application
@@ -86,17 +86,17 @@ Then move flat head back 32 blocks to a height that had chunks with high load
 Run these commands to benchmark chunk application at the height to which the flat head was moved.
 
 ```shell
-./neard --home .near view-state apply-range --shard-id 0 --storage flat benchmark
+./neard --home .near view-state apply-range --storage flat benchmark
 ```
 
 or
 
 ```shell
-./neard --home .near view-state apply-range --shard-id 0 --storage memtrie benchmark
+./neard --home .near view-state apply-range --storage memtrie benchmark
 ```
 
 or
 
 ```shell
-./neard --home .near view-state apply-range --shard-id 0 --storage recorded benchmark
+./neard --home .near view-state apply-range --storage recorded benchmark
 ```

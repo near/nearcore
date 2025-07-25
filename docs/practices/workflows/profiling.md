@@ -273,14 +273,14 @@ achieve that today.
 First, make sure all deltas in flat storage are applied and written:
 
 ```
-neard view-state --read-write apply-range --shard-id $SHARD_ID --storage flat sequential
+neard view-state --read-write apply-range --storage flat sequential
 ```
 
 You will need to do this for all shards you're interested in profiling. Then pick a block or a
 range of blocks you want to re-apply and set the flat head to the specified height:
 
 ```
-neard flat-storage move-flat-head --shard-id 0 --version 0 back --blocks 17
+neard flat-storage move-flat-head back --blocks 17
 ```
 
 Finally the following commands will apply the block or blocks from the height in various different
@@ -290,15 +290,18 @@ forget to run these commands under the profiler :)
 ```
 # Apply blocks from current flat head to the highest known block height in sequence
 # using the memtrie storage (note that after this you will need to move the flat head again)
-neard view-state --read-write apply-range --shard-id 0 --storage memtrie sequential
+neard view-state --read-write apply-range --storage memtrie sequential
 # Same but with flat storage
-neard view-state --read-write apply-range --shard-id 0 --storage flat sequential
+neard view-state --read-write apply-range --storage flat sequential
 
 # Repeatedly apply a single block at the flat head using the memtrie storage.
 # Will not modify the storage on the disk.
-neard view-state apply-range --shard-id 0 --storage memtrie benchmark
+neard view-state apply-range --storage memtrie benchmark
 # Same but with flat storage
-neard view-state apply-range --shard-id 0 --storage flat benchmark
+neard view-state apply-range --storage flat benchmark
 # Same but with recorded storage
-neard view-state apply-range --shard-id 0 --storage recorded benchmark
+neard view-state apply-range --storage recorded benchmark
 ```
+
+Note that all of these commands operate on all shards at the same time. You can specify
+`--shard-id` argument to pick just one shard to operate with.

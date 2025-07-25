@@ -1,4 +1,5 @@
 use account::Account;
+use anyhow::Context as _;
 use near_async::messaging::AsyncSender;
 use near_client::{GetBlock, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
@@ -233,7 +234,8 @@ impl TxGenerator {
             view_client_sender,
             Arc::clone(&stats),
             block_rx,
-        )?;
+        )
+        .context("start transactions loop")?;
 
         Self::start_report_updates(Arc::clone(&stats));
 
@@ -296,7 +298,7 @@ impl TxGenerator {
             .await
         {
             Ok(rsp) => {
-                let rsp = rsp?;
+                let rsp = rsp.context("get latest block")?;
                 Ok((rsp.header.hash, rsp.header.height))
             }
             Err(err) => {
@@ -334,7 +336,8 @@ impl TxGenerator {
         accounts_path: &PathBuf,
         sender: ViewClientSender,
     ) -> anyhow::Result<tokio::sync::oneshot::Receiver<Arc<Vec<Account>>>> {
-        let mut accounts = account::accounts_from_path(accounts_path)?;
+        let mut accounts =
+            account::accounts_from_path(accounts_path).context("accounts from path")?;
         if accounts.is_empty() {
             anyhow::bail!("No active accounts available");
         }
@@ -532,7 +535,8 @@ impl TxGenerator {
         stats: Arc<Stats>,
         rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
     ) -> anyhow::Result<()> {
-        let rx_accounts = Self::prepare_accounts(&config.accounts_path, view_client_sender)?;
+        let rx_accounts = Self::prepare_accounts(&config.accounts_path, view_client_sender)
+            .context("prepare accounts")?;
 
         let schedule = config.schedule.clone();
 

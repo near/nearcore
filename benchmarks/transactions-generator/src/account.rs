@@ -58,7 +58,7 @@ pub fn accounts_from_path(path: &Path) -> anyhow::Result<Vec<Account>> {
 
     // Otherwise, proceed with the original directory reading logic
     let mut accounts = vec![];
-    for entry in fs::read_dir(path)? {
+    for entry in fs::read_dir(path).context(format!("read {path:?} dir"))? {
         let entry = entry?;
         let file_type = entry.file_type()?;
         if !file_type.is_file() {
