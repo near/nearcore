@@ -457,7 +457,6 @@ pub fn setup_client_with_runtime(
     // directly through propagate_chunk_state_witnesses method
     let chunk_validation_sender = ChunkValidationSender {
         chunk_state_witness: noop().into_sender(),
-        orphan_witness: noop().into_sender(),
         block_notification: noop().into_sender(),
     };
     let spice_core_processor = CoreStatementsProcessor::new(

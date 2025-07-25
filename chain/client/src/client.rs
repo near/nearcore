@@ -178,7 +178,7 @@ pub struct Client {
     /// Cached precomputed set of the chunk producers for current and next epochs.
     chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
     /// Reed-Solomon encoder for shadow chunk validation.
-    reed_solomon: OnceLock<Arc<ReedSolomon>>,
+    shadow_validation_reed_solomon: OnceLock<Arc<ReedSolomon>>,
 }
 
 impl AsRef<Client> for Client {
@@ -205,9 +205,9 @@ impl Client {
         self.validator_signer.update(signer)
     }
 
-    /// Returns the Reed-Solomon encoder, initializing it lazily if needed.
-    pub(crate) fn reed_solomon_encoder(&self) -> &Arc<ReedSolomon> {
-        self.reed_solomon.get_or_init(|| {
+    /// Returns the Reed-Solomon encoder for shadow validation, initializing it lazily if needed.
+    pub(crate) fn shadow_validation_reed_solomon_encoder(&self) -> &Arc<ReedSolomon> {
+        self.shadow_validation_reed_solomon.get_or_init(|| {
             let data_parts = self.epoch_manager.num_data_parts();
             let parity_parts = self.epoch_manager.num_total_parts() - data_parts;
             Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap())
@@ -410,7 +410,7 @@ impl Client {
             upgrade_schedule,
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
-            reed_solomon: OnceLock::new(),
+            shadow_validation_reed_solomon: OnceLock::new(),
         })
     }
 

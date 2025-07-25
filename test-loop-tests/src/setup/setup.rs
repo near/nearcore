@@ -422,7 +422,6 @@ pub fn setup_client(
 
     let chunk_validation_multi_sender = ChunkValidationSender {
         chunk_state_witness: chunk_validation_sender.clone().into_sender(),
-        orphan_witness: chunk_validation_sender.clone().into_sender(),
         block_notification: chunk_validation_sender.into_sender(),
     };
 

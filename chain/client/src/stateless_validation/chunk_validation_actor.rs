@@ -62,16 +62,7 @@ pub struct ChunkValidationSenderForPartialWitness {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ChunkValidationSender {
     pub chunk_state_witness: Sender<ChunkStateWitnessMessage>,
-    pub orphan_witness: Sender<OrphanWitnessMessage>,
     pub block_notification: Sender<BlockNotificationMessage>,
-}
-
-/// Message for handling orphan witnesses.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct OrphanWitnessMessage {
-    pub witness: ChunkStateWitness,
-    pub witness_size: ChunkStateWitnessSize,
 }
 
 /// Message to notify the chunk validation actor about new blocks
@@ -642,17 +633,6 @@ impl Handler<ChunkStateWitnessMessage> for ChunkValidationActorInner {
 
         // Error handling is done inside the called function
         let _ = self.process_chunk_state_witness_message(msg);
-    }
-}
-
-impl Handler<OrphanWitnessMessage> for ChunkValidationActorInner {
-    #[perf]
-    fn handle(&mut self, msg: OrphanWitnessMessage) {
-        let OrphanWitnessMessage { witness, witness_size } = msg;
-
-        if let Err(err) = self.handle_orphan_witness(witness, witness_size) {
-            tracing::error!(target: "chunk_validation", ?err, "Error handling orphan witness");
-        }
     }
 }
 
