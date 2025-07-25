@@ -282,7 +282,7 @@ impl ChunkValidationActorInner {
     }
 
     /// Processes orphan witnesses that are now ready because their previous block has arrived.
-    fn process_ready_orphan_witnesses(&mut self, new_block: &Block) {
+    fn process_ready_orphan_witnesses(&self, new_block: &Block) {
         let ready_witnesses = self
             .orphan_witness_pool
             .lock()
@@ -306,7 +306,7 @@ impl ChunkValidationActorInner {
     }
 
     /// Cleans old orphan witnesses and process ready ones when a new block arrives.
-    fn handle_block_notification(&mut self, new_block: &Block) {
+    fn handle_block_notification(&self, new_block: &Block) {
         if self.validator_signer.get().is_some() {
             self.process_ready_orphan_witnesses(new_block);
         }
@@ -368,7 +368,7 @@ impl ChunkValidationActorInner {
 
     /// Process a chunk state witness when we already have the previous block
     fn process_chunk_state_witness_with_prev_block(
-        &mut self,
+        &self,
         witness: ChunkStateWitness,
         prev_block: &Block,
     ) -> Result<(), Error> {

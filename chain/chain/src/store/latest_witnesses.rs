@@ -139,7 +139,7 @@ impl ChainStore {
     /// This function does a read-before-write. It can be called in parallel on the same database
     /// because operations are serialized by an internal lock.
     pub fn save_latest_chunk_state_witness(
-        &mut self,
+        &self,
         witness: &ChunkStateWitness,
     ) -> Result<(), std::io::Error> {
         // Static lock to serialize access and prevent race conditions when multiple threads
