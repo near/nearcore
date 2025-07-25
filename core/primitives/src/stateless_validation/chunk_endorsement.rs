@@ -1,7 +1,9 @@
 use std::fmt::Debug;
 
 use crate::sharding::{ChunkHash, ShardChunkHeader};
-use crate::types::{ChunkExecutionResult, EpochId, SignatureDifferentiator};
+use crate::types::{
+    ChunkExecutionResult, ChunkExecutionResultHash, EpochId, SignatureDifferentiator,
+};
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
@@ -64,38 +66,53 @@ impl ChunkEndorsement {
             height_created: chunk_header.height_created(),
         };
         let metadata_signature = signer.sign_bytes(&borsh::to_vec(&metadata).unwrap());
-        let inner = SpiceChunkEndorsementInnerV2::new(
-            block_hash,
-            chunk_header.chunk_hash().clone(),
-            Some(execution_result),
-        );
-        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        let inner = SpiceChunkEndorsementInnerV2::new(block_hash, execution_result);
+        let signed_inner = inner.to_signed_inner();
+        let signature = signer.sign_bytes(&borsh::to_vec(&signed_inner).unwrap());
         let endorsement =
             SpiceChunkEndorsementV3 { inner, signature, metadata, metadata_signature };
         ChunkEndorsement::V3(Box::new(endorsement))
+    }
+
+    pub fn spice_destructure(
+        self,
+    ) -> Option<(
+        ChunkProductionKey,
+        AccountId,
+        SpiceEndorsementSignedInner,
+        ChunkExecutionResult,
+        Signature,
+    )> {
+        match self {
+            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
+            ChunkEndorsement::V2(_) => None,
+            ChunkEndorsement::V3(v3) => Some((
+                ChunkProductionKey {
+                    shard_id: v3.metadata.shard_id,
+                    epoch_id: v3.metadata.epoch_id,
+                    height_created: v3.metadata.height_created,
+                },
+                v3.metadata.account_id,
+                v3.inner.to_signed_inner(),
+                v3.inner.execution_result,
+                v3.signature,
+            )),
+        }
     }
 
     pub fn execution_result(&self) -> Option<&ChunkExecutionResult> {
         match self {
             ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(_) => None,
-            ChunkEndorsement::V3(v3) => v3.inner.execution_result.as_ref(),
+            ChunkEndorsement::V3(v3) => Some(&v3.inner.execution_result),
         }
     }
 
-    pub fn take_execution_result(&mut self) -> Option<ChunkExecutionResult> {
+    pub fn block_hash(&self) -> Option<&CryptoHash> {
         match self {
             ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(_) => None,
-            ChunkEndorsement::V3(v3) => v3.inner.execution_result.take(),
-        }
-    }
-
-    pub fn block_hash(&self) -> Option<CryptoHash> {
-        match self {
-            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
-            ChunkEndorsement::V2(_) => None,
-            ChunkEndorsement::V3(v3) => Some(v3.inner.block_hash),
+            ChunkEndorsement::V3(v3) => Some(&v3.inner.block_hash),
         }
     }
 
@@ -127,7 +144,7 @@ impl ChunkEndorsement {
         match self {
             ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(v2) => v2.inner.chunk_hash.clone(),
-            ChunkEndorsement::V3(v3) => v3.inner.chunk_hash.clone(),
+            ChunkEndorsement::V3(_) => ChunkHash::default(),
         }
     }
 
@@ -219,9 +236,9 @@ impl ChunkEndorsementInnerV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct SpiceChunkEndorsementV3 {
-    // This is the part of the chunk endorsement that signed and included in the block header
+    // Part of the chunk endorsement from which signed part can be derived.
     inner: SpiceChunkEndorsementInnerV2,
-    // This is the signature of the inner field, to be included in the block header
+    // Signature of the signed inner derivable from inner.
     signature: Signature,
     // This consists of the metadata for chunk endorsement used in validation
     metadata: ChunkEndorsementMetadata,
@@ -231,9 +248,9 @@ pub struct SpiceChunkEndorsementV3 {
 
 impl SpiceChunkEndorsementV3 {
     fn verify(&self, public_key: &PublicKey) -> bool {
-        let inner = borsh::to_vec(&self.inner).unwrap();
+        let signed_inner = &self.inner.to_signed_inner();
         let metadata = borsh::to_vec(&self.metadata).unwrap();
-        self.signature.verify(&inner, public_key)
+        signed_inner.verify(public_key, &self.signature)
             && self.metadata_signature.verify(&metadata, public_key)
     }
 }
@@ -242,24 +259,32 @@ impl SpiceChunkEndorsementV3 {
 struct SpiceChunkEndorsementInnerV2 {
     // Hash of the block that contains the chunk with specified execution results.
     block_hash: CryptoHash,
-    chunk_hash: ChunkHash,
-    // For storage it's redundant to include the same execution result. However execution result is
-    // required in endorsements we send over the wire.
-    execution_result: Option<ChunkExecutionResult>,
-    signature_differentiator: SignatureDifferentiator,
+    execution_result: ChunkExecutionResult,
 }
 
 impl SpiceChunkEndorsementInnerV2 {
-    fn new(
-        block_hash: CryptoHash,
-        chunk_hash: ChunkHash,
-        execution_result: Option<ChunkExecutionResult>,
-    ) -> Self {
-        Self {
-            block_hash,
-            chunk_hash,
-            execution_result,
-            signature_differentiator: "ChunkEndorsement".to_owned(),
+    fn new(block_hash: CryptoHash, execution_result: ChunkExecutionResult) -> Self {
+        Self { block_hash, execution_result }
+    }
+
+    fn to_signed_inner(&self) -> SpiceEndorsementSignedInner {
+        SpiceEndorsementSignedInner {
+            block_hash: self.block_hash,
+            execution_result_hash: self.execution_result.compute_hash(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema, Hash)]
+pub struct SpiceEndorsementSignedInner {
+    // Hash of the block that contains the chunk with specified execution results.
+    pub block_hash: CryptoHash,
+    pub execution_result_hash: ChunkExecutionResultHash,
+}
+
+impl SpiceEndorsementSignedInner {
+    pub fn verify(&self, public_key: &PublicKey, signature: &Signature) -> bool {
+        let signed_inner = borsh::to_vec(&self).unwrap();
+        signature.verify(&signed_inner, public_key)
     }
 }

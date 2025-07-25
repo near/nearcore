@@ -14,6 +14,7 @@ use near_async::time::{Clock, Duration, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -26,7 +27,6 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
-use near_client::spice_core::CoreStatementsProcessor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, ClientActor, PartialWitnessActor,
     PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
@@ -438,11 +438,9 @@ pub fn setup_client_with_runtime(
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
         .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
-    let spice_core_processor = CoreStatementsProcessor::new(
+    let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
         runtime.store().chain_store(),
         epoch_manager.clone(),
-        noop().into_sender(),
-        noop().into_sender(),
     );
     let mut client = Client::new(
         clock,
@@ -487,6 +485,7 @@ pub fn setup_synchronous_shards_manager(
     // TODO(#8324): This should just be refactored so that we can construct Chain first
     // before anything else.
     let chunk_store = runtime.store().chunk_store();
+    let chain_store = runtime.store().chain_store();
     let chain = Chain::new(
         clock.clone(),
         epoch_manager.clone(),
@@ -507,6 +506,7 @@ pub fn setup_synchronous_shards_manager(
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        CoreStatementsProcessor::new_with_noop_senders(chain_store, epoch_manager.clone()),
     )
     .unwrap();
     let chain_head = chain.head().unwrap();

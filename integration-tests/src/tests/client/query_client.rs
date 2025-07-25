@@ -96,6 +96,7 @@ fn query_status_not_crash() {
                 Clock::real(),
                 None,
                 None,
+                vec![],
             );
             let timestamp = next_block.header().timestamp();
             next_block
