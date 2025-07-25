@@ -4,7 +4,6 @@ use borsh::{BorshDeserialize, BorshSerialize, to_vec};
 use near_crypto::PublicKey;
 use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
-use std::mem::size_of;
 
 pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
 // The use of `ACCESS_KEY` as a separator is a historical artefact.
@@ -69,9 +68,11 @@ pub mod col {
     /// If index is None, the value is of type `GasKey`; otherwise it is of type u64.
     pub const GAS_KEY: u8 = 19;
 
+    pub const SHARD_UTILIZATION: u8 = 20;
+
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
-    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 10] = [
+    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 11] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -82,9 +83,10 @@ pub mod col {
         (CONTRACT_DATA, "ContractData"),
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
         (GAS_KEY, "GasKey"),
+        (SHARD_UTILIZATION, "ShardUtilization"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 19] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 20] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -104,6 +106,7 @@ pub mod col {
         (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
         (GLOBAL_CONTRACT_CODE, "GlobalContractCode"),
         (GAS_KEY, "GasKey"),
+        (SHARD_UTILIZATION, "ShardUtilization"),
     ];
 }
 
@@ -121,7 +124,7 @@ impl GlobalContractCodeIdentifier {
             Self::CodeHash(hash) => hash.as_bytes().len(),
             Self::AccountId(account_id) => {
                 // Corresponds to String repr in borsh spec
-                size_of::<u32>() + account_id.len()
+                std::mem::size_of::<u32>() + account_id.len()
             }
         }
     }
@@ -251,6 +254,12 @@ pub enum TrieKey {
         public_key: PublicKey,
         index: Option<NonceIndex>,
     } = col::GAS_KEY,
+    /// Stores the total shard utilization of all accounts starting with
+    /// the given prefix (if the prefix is an account ID itself, it's included).
+    /// Empty prefix represents the total shard utilization.
+    ShardUtilization {
+        account_id_prefix: Vec<u8>,
+    },
 }
 
 /// Provides `len` function.
@@ -302,11 +311,11 @@ impl TrieKey {
             }
             TrieKey::DelayedReceiptIndices => col::DELAYED_RECEIPT_OR_INDICES.len(),
             TrieKey::DelayedReceipt { .. } => {
-                col::DELAYED_RECEIPT_OR_INDICES.len() + size_of::<u64>()
+                col::DELAYED_RECEIPT_OR_INDICES.len() + std::mem::size_of::<u64>()
             }
             TrieKey::PromiseYieldIndices => col::PROMISE_YIELD_INDICES.len(),
             TrieKey::PromiseYieldTimeout { .. } => {
-                col::PROMISE_YIELD_TIMEOUT.len() + size_of::<u64>()
+                col::PROMISE_YIELD_TIMEOUT.len() + std::mem::size_of::<u64>()
             }
             TrieKey::PromiseYieldReceipt { receiver_id, data_id } => {
                 col::PROMISE_YIELD_RECEIPT.len()
@@ -344,6 +353,9 @@ impl TrieKey {
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + public_key.len()
                     + borsh::object_length(index).unwrap()
+            }
+            TrieKey::ShardUtilization { account_id_prefix } => {
+                col::SHARD_UTILIZATION.len() + account_id_prefix.len()
             }
         }
     }
@@ -449,6 +461,10 @@ impl TrieKey {
                 buf.extend(borsh::to_vec(&public_key).unwrap());
                 buf.extend(borsh::to_vec(&index).unwrap());
             }
+            TrieKey::ShardUtilization { account_id_prefix } => {
+                buf.push(col::SHARD_UTILIZATION);
+                buf.extend(account_id_prefix);
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -480,10 +496,13 @@ impl TrieKey {
             TrieKey::BandwidthSchedulerState => None,
             TrieKey::BufferedReceiptGroupsQueueData { .. } => None,
             TrieKey::BufferedReceiptGroupsQueueItem { .. } => None,
-            // Even though global contract code might be deployed under account id, it doesn't
+            // Even though global contract code might be deployed under an account id, it doesn't
             // correspond to the data stored for that account id, so always returning None here.
             TrieKey::GlobalContractCode { .. } => None,
             TrieKey::GasKey { account_id, .. } => Some(account_id.clone()),
+            TrieKey::ShardUtilization { account_id_prefix } => {
+                std::str::from_utf8(&account_id_prefix).ok().and_then(|v| v.parse().ok())
+            }
         }
     }
 }
@@ -663,6 +682,13 @@ pub mod trie_key_parsers {
         parse_account_id_from_slice(account_id, "ContractCode")
     }
 
+    pub fn parse_account_id_from_shard_utilization_key(
+        raw_key: &[u8],
+    ) -> std::io::Result<AccountId> {
+        let account_id = parse_account_id_prefix(col::SHARD_UTILIZATION, raw_key)?;
+        parse_account_id_from_slice(account_id, "ShardUtilization")
+    }
+
     pub fn parse_trie_key_access_key_from_raw_key(
         raw_key: &[u8],
     ) -> Result<TrieKey, std::io::Error> {
@@ -689,6 +715,7 @@ pub mod trie_key_parsers {
                 col::ACCOUNT => parse_account_id_from_account_key(raw_key)?,
                 col::CONTRACT_CODE => parse_account_id_from_contract_code_key(raw_key)?,
                 col::ACCESS_KEY => parse_account_id_from_access_key_key(raw_key)?,
+                col::SHARD_UTILIZATION => parse_account_id_from_gas_key_key(raw_key)?,
                 _ => parse_account_id_from_trie_key_with_separator(col, raw_key, col_name)?,
             };
             return Ok(Some(account_id));
