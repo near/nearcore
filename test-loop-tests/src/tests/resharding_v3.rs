@@ -678,7 +678,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 }
 
 #[test]
-fn slow_test_resharding_v3() {
+fn slow_test_resharding_v3_simple() {
     test_resharding_v3_base(TestReshardingParametersBuilder::default().build());
 }
 

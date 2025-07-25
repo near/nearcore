@@ -195,6 +195,9 @@ pub enum DBCol {
     /// - *Column type*: refcount (u64)
     BlockRefCount,
     /// Changes to Trie that we recorded during given block/shard processing.
+    /// TrieChanges are used for two purposes:
+    /// * Garbage Collection - trie changes indicate nodes that can be removed
+    /// * Cold Storage - trie changes indicate nodes that can be copied to cold storage
     /// - *Rows*: BlockHash || ShardId
     /// - *Column type*: old root, new root, list of insertions, list of deletions (TrieChanges)
     TrieChanges,
