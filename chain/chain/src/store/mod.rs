@@ -2136,6 +2136,12 @@ impl<'a> ChainStoreUpdate<'a> {
         store_update.commit()?;
         Ok(())
     }
+
+    pub fn into_split_store_updates(mut self) -> Result<(StoreUpdate, StoreUpdate), Error> {
+        let store_update = self.finalize()?;
+        let (async_batch, sync_batch) = store_update.split_by_column(|col| col.is_async());
+        Ok((async_batch, sync_batch))
+    }
 }
 
 #[cfg(test)]

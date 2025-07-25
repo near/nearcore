@@ -26,6 +26,7 @@ use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHe
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::LightClientBlockView;
+use near_store::StoreUpdate;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -79,6 +80,10 @@ impl<'a> ChainUpdate<'a> {
     /// Commit changes to the chain into the database.
     pub fn commit(self) -> Result<(), Error> {
         self.chain_store_update.commit()
+    }
+
+    pub fn into_split_store_updates(self) -> Result<(StoreUpdate, StoreUpdate), Error> {
+        self.chain_store_update.into_split_store_updates()
     }
 
     pub fn apply_chunk_postprocessing(

@@ -589,6 +589,23 @@ impl DBCol {
         matches!(*self, DBCol::DbVersion | DBCol::BlockMisc) || self.is_cold()
     }
 
+    pub fn is_async(&self) -> bool {
+        match self {
+            DBCol::State
+            | DBCol::TrieChanges
+            // | DBCol::Transactions
+            // | DBCol::FlatState
+            // | DBCol::FlatStateChanges
+            | DBCol::Transactions
+            | DBCol::IncomingReceipts
+            | DBCol::OutgoingReceipts
+            | DBCol::StateChanges
+            | DBCol::StateTransitionData
+            | DBCol::ChunkApplyStats => true,
+            _ => false,
+        }
+    }
+
     /// Vector of DBKeyType s concatenation of which results in key for the column.
     pub fn key_type(&self) -> &'static [DBKeyType] {
         match self {
