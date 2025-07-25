@@ -299,7 +299,7 @@ impl ChunkValidationActorInner {
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
             );
 
-            if let Err(err) = self.process_chunk_state_witness_with_prev_block(witness, new_block) {
+            if let Err(err) = self.process_chunk_state_witness(witness, new_block, None) {
                 tracing::error!(target: "chunk_validation", ?err, "Error processing orphan chunk state witness");
             }
         }
@@ -364,37 +364,6 @@ impl ChunkValidationActorInner {
             self.save_invalid_witnesses,
             processing_done_tracker,
         )
-    }
-
-    /// Process a chunk state witness when we already have the previous block
-    fn process_chunk_state_witness_with_prev_block(
-        &self,
-        witness: ChunkStateWitness,
-        prev_block: &Block,
-    ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(
-            target: "chunk_validation",
-            "process_chunk_state_witness_with_prev_block",
-            chunk_hash = ?witness.chunk_header().chunk_hash(),
-            height = %witness.chunk_header().height_created(),
-            shard_id = %witness.chunk_header().shard_id(),
-        )
-        .entered();
-
-        // Validate that block hash matches
-        if witness.chunk_header().prev_block_hash() != prev_block.hash() {
-            return Err(Error::Other(format!(
-                "Previous block hash mismatch: witness={}, block={}",
-                witness.chunk_header().prev_block_hash(),
-                prev_block.hash()
-            )));
-        }
-
-        let Some(signer) = self.validator_signer.get() else {
-            return Err(Error::Other("No validator signer available".to_string()));
-        };
-
-        self.start_validating_chunk(witness, &signer, self.save_invalid_witnesses, None)
     }
 
     fn start_validating_chunk(
