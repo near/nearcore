@@ -1379,6 +1379,16 @@ impl ClientActorInner {
             }
             Err(e) => error!("Error while committing largest skipped height {:?}", e),
         };
+
+        if !skip_update {
+            // TODO: handle the error properly
+            self.client
+                .chain
+                .chain_store
+                .store()
+                .flush_pending()
+                .expect("Failed to flush pending store updates");
+        }
     }
 
     /// Produce block if we are block producer for given `next_height` height.
