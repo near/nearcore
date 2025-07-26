@@ -5027,7 +5027,6 @@ dependencies = [
  "expect-test",
  "insta",
  "near-account-id",
- "near-gas",
  "near-schema-checker-lib",
  "num-rational 0.3.2",
  "schemars 1.0.3",

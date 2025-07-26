@@ -27,7 +27,6 @@ schemars = { workspace = true, optional = true }
 
 near-account-id.workspace = true
 near-schema-checker-lib.workspace = true
-near-gas = { workspace = true, features = ["serde", "borsh", "schemars-v1"]}
 
 [dev-dependencies]
 serde_json.workspace = true
