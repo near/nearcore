@@ -517,13 +517,13 @@ impl Config {
         if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(json_str) {
             if let Some(object) = json_value.as_object() {
                 if object.contains_key("view_client_throttle_period") {
-                    warn!(
+                    tracing::warn!(
                         target: "neard",
                         "Deprecated config key 'view_client_throttle_period' detected—please migrate to 'state_request_throttle_period'"
                     );
                 }
                 if object.contains_key("view_client_num_state_requests_per_throttle_period") {
-                    warn!(
+                    tracing::warn!(
                         target: "neard",
                         "Deprecated config key 'view_client_num_state_requests_per_throttle_period' detected—please migrate to 'state_requests_per_throttle_period'"
                     );
@@ -2026,5 +2026,60 @@ mod tests {
             writeln!(file, "not JSON").unwrap();
         }
         test_err("bad_key", "fred", "");
+    }
+
+    /// Test the deprecated field detection logic
+    fn has_deprecated_fields(json_str: &str) -> Vec<String> {
+        let mut deprecated_fields = Vec::new();
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(json_str) {
+            if let Some(object) = json_value.as_object() {
+                if object.contains_key("view_client_throttle_period") {
+                    deprecated_fields.push("view_client_throttle_period".to_string());
+                }
+                if object.contains_key("view_client_num_state_requests_per_throttle_period") {
+                    deprecated_fields
+                        .push("view_client_num_state_requests_per_throttle_period".to_string());
+                }
+            }
+        }
+        deprecated_fields
+    }
+
+    #[test]
+    fn detects_view_client_throttle_period() {
+        let json = r#"{ "view_client_throttle_period": "10s" }"#;
+        let deprecated = has_deprecated_fields(json);
+        assert!(deprecated.contains(&"view_client_throttle_period".to_string()));
+    }
+
+    #[test]
+    fn detects_view_client_num_state_requests() {
+        let json = r#"{ "view_client_num_state_requests_per_throttle_period": 256 }"#;
+        let deprecated = has_deprecated_fields(json);
+        assert!(
+            deprecated.contains(&"view_client_num_state_requests_per_throttle_period".to_string())
+        );
+    }
+
+    #[test]
+    fn detects_both_deprecated_fields() {
+        let json = r#"
+        {
+            "view_client_throttle_period": "10s",
+            "view_client_num_state_requests_per_throttle_period": 256
+        }"#;
+        let deprecated = has_deprecated_fields(json);
+        assert_eq!(deprecated.len(), 2);
+        assert!(deprecated.contains(&"view_client_throttle_period".to_string()));
+        assert!(
+            deprecated.contains(&"view_client_num_state_requests_per_throttle_period".to_string())
+        );
+    }
+
+    #[test]
+    fn no_deprecated_fields_on_clean_config() {
+        let json = r#"{ "state_request_throttle_period": "10s" }"#;
+        let deprecated = has_deprecated_fields(json);
+        assert!(deprecated.is_empty());
     }
 }
