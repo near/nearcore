@@ -441,7 +441,7 @@ fn apply_block_from_range(
         outcome_root,
         apply_result.validator_proposals.clone(),
         apply_result.total_gas_burnt,
-        genesis.config.gas_limit,
+        genesis.config.gas_limit.as_gas(),
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
         apply_result.bandwidth_requests.clone(),

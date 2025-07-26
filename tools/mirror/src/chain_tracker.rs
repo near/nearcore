@@ -570,7 +570,7 @@ impl TxTracker {
                         log_message,
                         "-------- shard {} gas used: {} ---------\n",
                         s.shard_id,
-                        gas_pretty(c.header.gas_used)
+                        gas_pretty(c.header.gas_used.as_gas())
                     )
                     .unwrap();
                     for tx in &c.transactions {

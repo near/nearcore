@@ -11,6 +11,7 @@ use crate::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
+use near_gas::NearGas;
 #[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
 use near_parameters::{RuntimeConfig, RuntimeConfigView};
@@ -22,9 +23,7 @@ use near_primitives::{
     hash::CryptoHash,
     serialize::dec_format,
     state_record::StateRecord,
-    types::{
-        AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
-    },
+    types::{AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats},
     version::ProtocolVersion,
 };
 use num_rational::Rational32;
@@ -142,7 +141,7 @@ pub struct GenesisConfig {
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
-    pub gas_limit: Gas,
+    pub gas_limit: NearGas,
     /// Minimum gas price. It is also the initial gas price.
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
@@ -840,7 +839,7 @@ pub struct ProtocolConfigView {
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
-    pub gas_limit: Gas,
+    pub gas_limit: NearGas,
     /// Minimum gas price. It is also the initial gas price.
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]

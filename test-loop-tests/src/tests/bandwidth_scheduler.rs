@@ -27,6 +27,7 @@ use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shar
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{Client, RpcHandler};
 use near_crypto::Signer;
+use near_gas::NearGas;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::bandwidth_scheduler::{
@@ -751,7 +752,7 @@ fn make_send_receipt_transaction(
             actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: method_name.clone(),
                 args: Vec::new(),
-                gas: 0,
+                gas: NearGas::from_gas(0),
                 deposit: 0,
             }))],
         }),

@@ -5,6 +5,7 @@ use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_gas::NearGas;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, AccountContract, FunctionCallPermission};
@@ -78,7 +79,7 @@ fn run_chunk_validation_test(
         // this must still have the same length as the number of shards,
         // or else the genesis fails validation.
         num_block_producer_seats_per_shard: vec![8; num_shards],
-        gas_limit: 10u64.pow(15),
+        gas_limit: NearGas::from_gas(10u64.pow(15)),
         transaction_validity_period: 120,
         // Needed to completely avoid validator kickouts as we want to test
         // missing chunks functionality.

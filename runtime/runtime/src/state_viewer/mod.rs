@@ -4,6 +4,7 @@ use crate::ext::RuntimeExt;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use near_crypto::{KeyType, PublicKey};
+use near_gas::NearGas;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
@@ -61,7 +62,7 @@ impl Default for TrieViewer {
         let config_store = RuntimeConfigStore::new(None);
         let latest_runtime_config = config_store.get_config(PROTOCOL_VERSION);
         let max_gas_burnt = latest_runtime_config.wasm_config.limit_config.max_gas_burnt;
-        Self { state_size_limit: None, max_gas_burnt_view: max_gas_burnt }
+        Self { state_size_limit: None, max_gas_burnt_view: max_gas_burnt.as_gas() }
     }
 }
 
@@ -239,7 +240,7 @@ impl TrieViewer {
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
             args: args.to_vec(),
-            gas: self.max_gas_burnt_view,
+            gas: NearGas::from_gas(self.max_gas_burnt_view),
             deposit: 0,
         };
         let action_receipt = ActionReceipt {

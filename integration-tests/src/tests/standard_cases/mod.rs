@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 use crate::node::Node;
 use crate::user::{CommitError, User};
+use near_gas::NearGas;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils;
@@ -497,8 +498,9 @@ pub fn test_smart_contract_reward(node: impl Node) {
 
     let fee_helper = fee_helper(&node);
     let bob = node_user.view_account(&bob_account()).unwrap();
-    let gas_burnt_for_function_call = transaction_result.receipts_outcome[0].outcome.gas_burnt
-        - fee_helper.function_call_exec_gas(b"run_test".len() as u64);
+    let gas_burnt_for_function_call =
+        transaction_result.receipts_outcome[0].outcome.gas_burnt.as_gas()
+            - fee_helper.function_call_exec_gas(b"run_test".len() as u64);
     let reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
     assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + reward);
 }
@@ -1046,7 +1048,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         FinalExecutionStatus::SuccessValue(10i32.to_le_bytes().to_vec())
     );
     let gross_gas_refund =
-        prepaid_gas + exec_gas - transaction_result.receipts_outcome[0].outcome.gas_burnt;
+        prepaid_gas + exec_gas - transaction_result.receipts_outcome[0].outcome.gas_burnt.as_gas();
     let refund_penalty = fee_helper.cfg().gas_penalty_for_gas_refund(gross_gas_refund);
     let gas_refund = fee_helper.gas_to_balance(gross_gas_refund - refund_penalty);
 
@@ -1371,8 +1373,12 @@ pub fn test_smart_contract_free(node: impl Node) {
         transaction_result.receipts_outcome
     );
 
-    let total_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt
-        + transaction_result.receipts_outcome.iter().map(|t| t.outcome.gas_burnt).sum::<u64>();
+    let total_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt.as_gas()
+        + transaction_result
+            .receipts_outcome
+            .iter()
+            .map(|t| t.outcome.gas_burnt.as_gas())
+            .sum::<u64>();
     assert_eq!(total_gas_burnt, 0);
 
     let new_root = node_user.get_state_root();
@@ -1440,7 +1446,7 @@ fn make_write_key_value_action(key: Vec<u64>, value: Vec<u64>) -> Action {
     FunctionCallAction {
         method_name: "write_key_value".to_string(),
         args: test_utils::encode(&args),
-        gas: 10u64.pow(14),
+        gas: NearGas::from_gas(10u64.pow(14)),
         deposit: 0,
     }
     .into()
@@ -1601,7 +1607,7 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
                 FunctionCallAction {
                     args: test_utils::encode(&[1]),
                     method_name: "read_value".to_string(),
-                    gas: 10u64.pow(14),
+                    gas: NearGas::from_gas(10u64.pow(14)),
                     deposit: 0,
                 }
                 .into(),

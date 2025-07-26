@@ -4,6 +4,7 @@ use crate::logic::errors::{FunctionCallError, HostError, WasmTrap};
 use crate::logic::mocks::mock_external::{MockAction, MockedExternal};
 use crate::logic::types::ReturnData;
 use crate::runner::VMKindExt;
+use near_gas::NearGas;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::types::Balance;
 use std::mem::size_of;
@@ -251,7 +252,7 @@ fn attach_unspent_gas_but_use_all_gas() {
         context.prepaid_gas = 100 * 10u64.pow(12);
 
         let mut config = test_vm_config(Some(vm_kind));
-        config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+        config.limit_config.max_gas_burnt = NearGas::from_gas(context.prepaid_gas / 3);
         let config = Arc::new(config);
         let code = function_call_weight_contract();
         let mut external = MockedExternal::with_code(code);

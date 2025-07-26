@@ -80,7 +80,7 @@ pub(crate) fn execute_function_call(
         account_locked_balance: runtime_ext.account().locked(),
         storage_usage: runtime_ext.account().storage_usage(),
         attached_deposit: function_call.deposit,
-        prepaid_gas: function_call.gas,
+        prepaid_gas: function_call.gas.as_gas(),
         random_seed,
         view_config,
         output_data_receivers,
@@ -134,7 +134,7 @@ pub(crate) fn execute_function_call(
     };
 
     if !context.view_config.is_some() {
-        let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
+        let unused_gas = function_call.gas.as_gas().saturating_sub(outcome.used_gas);
         let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
         outcome.used_gas = safe_add_gas(outcome.used_gas, distributed)?;
     }
@@ -1117,6 +1117,7 @@ mod tests {
 
     use super::*;
     use crate::near_primitives::shard_layout::ShardUId;
+    use near_gas::NearGas;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
     use near_primitives::apply::ApplyChunkReason;
@@ -1342,7 +1343,7 @@ mod tests {
                             Box::new(FunctionCallAction {
                                  method_name: "ft_transfer".parse().unwrap(),
                                  args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
-                                 gas: 30000000000000,
+                                 gas: NearGas::from_gas(30000000000000),
                                  deposit: 1,
                             })
                         )
@@ -1746,7 +1747,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: NearGas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
@@ -1797,14 +1798,14 @@ mod tests {
             non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: NearGas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             }))),
             non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
                 method_name: "test_method".parse().unwrap(),
+                gas: NearGas::from_gas(300),
             }))),
         ];
 
@@ -1836,7 +1837,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 1,
-                gas: 300,
+                gas: NearGas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
 
@@ -1868,7 +1869,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: NearGas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
 
@@ -1903,7 +1904,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: NearGas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
 

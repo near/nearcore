@@ -227,7 +227,7 @@ impl ChainGenesis {
             time: Utc::from_unix_timestamp_nanos(to_timestamp(genesis_config.genesis_time) as i128)
                 .unwrap(),
             height: genesis_config.genesis_height,
-            gas_limit: genesis_config.gas_limit,
+            gas_limit: genesis_config.gas_limit.as_gas(),
             min_gas_price: genesis_config.min_gas_price,
             max_gas_price: genesis_config.max_gas_price,
             total_supply: genesis_config.total_supply,
