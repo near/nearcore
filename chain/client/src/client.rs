@@ -43,7 +43,7 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::logic::{create_partial_chunk, persist_chunk};
+use near_chunks::logic::{create_partial_chunk, persist_chunk, persist_chunk_async};
 use near_client_primitives::types::{Error, StateSyncStatus, SyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -1773,7 +1773,7 @@ impl Client {
         )?;
         let (shard_chunk, encoded_shard_chunk) = chunk.into_parts();
         let partial_chunk_arc = Arc::new(partial_chunk.clone());
-        persist_chunk(
+        persist_chunk_async(
             Arc::clone(&partial_chunk_arc),
             Some(shard_chunk),
             self.chain.mut_chain_store(),

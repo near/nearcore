@@ -197,3 +197,26 @@ pub fn persist_chunk(
     }
     update.commit().map_err(Error::from)
 }
+
+pub fn persist_chunk_async(
+    partial_chunk: Arc<PartialEncodedChunk>,
+    shard_chunk: Option<ShardChunk>,
+    store: &mut ChainStore,
+) -> Result<(), Error> {
+    let mut update = store.store_update();
+    if update.get_partial_chunk(&partial_chunk.chunk_hash()).is_err() {
+        update.save_partial_chunk(partial_chunk);
+    }
+    if let Some(shard_chunk) = shard_chunk {
+        if !update.chunk_exists(&shard_chunk.chunk_hash())? {
+            update.save_chunk(shard_chunk);
+        }
+    }
+    let (async_batch, sync_batch) = update.into_split_store_updates()?;
+    // XXX: For now just write everything asynchronously, until the columns of this write are
+    // analyzed and split into async and sync.
+    // sync_batch.commit()?;
+    sync_batch.write_pending()?;
+    async_batch.write_pending()?;
+    Ok(())
+}
