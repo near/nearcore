@@ -1,8 +1,6 @@
 ---
 source: integration-tests/src/tests/runtime/sanity_checks.rs
-assertion_line: 157
 expression: receipts_gas_profile
-snapshot_kind: text
 ---
 [
     [
@@ -439,8 +437,6 @@ snapshot_kind: text
     [],
     [],
     [],
-    [],
-    [],
     [
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -458,7 +454,6 @@ snapshot_kind: text
             gas_used: 0,
         },
     ],
-    [],
     [],
     [],
     [],
@@ -507,6 +502,5 @@ snapshot_kind: text
             gas_used: 2865522486,
         },
     ],
-    [],
     [],
 ]
