@@ -67,6 +67,12 @@ pub trait CanSend<M>: Send + Sync + 'static {
     fn send(&self, message: M);
 }
 
+// Added new trait for async messages
+// Eventually, I would like to get rid of MessageWithCallback in favor of this trait.
+pub trait CanSendAsync<M, R>: Send + Sync + 'static {
+    fn send_async(&self, message: M) -> BoxFuture<'static, R>;
+}
+
 /// Wraps a CanSend. This should be used to pass around an Arc<dyn CanSend<M>>, instead
 /// of spelling out that type. Using a wrapper struct allows us to define more flexible
 /// APIs.
