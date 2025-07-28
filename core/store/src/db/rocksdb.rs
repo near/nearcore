@@ -723,6 +723,17 @@ impl RocksDB {
         }
         Ok(())
     }
+
+    fn flush_pending(&mut self) {
+        let mut pending = self.pending.0.write().expect("poisoned");
+        if pending.batches.is_empty() {
+            return;
+        }
+        let batches = std::mem::take(&mut pending.batches);
+        for batch in batches {
+            self.write(batch).expect("failed to flush pending writes");
+        }
+    }
 }
 
 impl Drop for RocksDB {
@@ -733,6 +744,8 @@ impl Drop for RocksDB {
             let mut env = Env::new().unwrap();
             env.set_background_threads(4);
         }
+        // Flush pending writes before dropping the database.
+        self.flush_pending();
         self.db.cancel_all_background_work(true);
     }
 }
