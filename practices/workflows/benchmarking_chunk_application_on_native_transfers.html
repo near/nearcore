@@ -191,20 +191,20 @@ Sometimes running the workload fails because the database LOCK hasn't been freed
 <h3 id="preparing-state-for-chunk-application-benchmark"><a class="header" href="#preparing-state-for-chunk-application-benchmark">Preparing state for chunk application benchmark</a></h3>
 <p>(Taken from <a href="profiling.html">profiling docs</a>)</p>
 <p>First, make sure all deltas in flat storage are applied and written:</p>
-<pre><code class="language-shell">./neard --home .near view-state --read-write apply-range --shard-id 0 --storage flat sequential
+<pre><code class="language-shell">./neard --home .near view-state --read-write apply-range --storage flat sequential
 </code></pre>
 <p>Then move flat head back 32 blocks to a height that had chunks with high load</p>
-<pre><code class="language-shell">./neard --home .near flat-storage move-flat-head --shard-id 0 --version 0 back --blocks 32
+<pre><code class="language-shell">./neard --home .near flat-storage move-flat-head back --blocks 32
 </code></pre>
 <h3 id="benchmarking-chunk-application"><a class="header" href="#benchmarking-chunk-application">Benchmarking chunk application</a></h3>
 <p>Run these commands to benchmark chunk application at the height to which the flat head was moved.</p>
-<pre><code class="language-shell">./neard --home .near view-state apply-range --shard-id 0 --storage flat benchmark
+<pre><code class="language-shell">./neard --home .near view-state apply-range --storage flat benchmark
 </code></pre>
 <p>or</p>
-<pre><code class="language-shell">./neard --home .near view-state apply-range --shard-id 0 --storage memtrie benchmark
+<pre><code class="language-shell">./neard --home .near view-state apply-range --storage memtrie benchmark
 </code></pre>
 <p>or</p>
-<pre><code class="language-shell">./neard --home .near view-state apply-range --shard-id 0 --storage recorded benchmark
+<pre><code class="language-shell">./neard --home .near view-state apply-range --storage recorded benchmark
 </code></pre>
 
                     </main>
