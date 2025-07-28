@@ -18,9 +18,16 @@ impl<A> Clone for RuntimeHandle<A> {
     }
 }
 
-impl<A> RuntimeHandle<A> {
+impl<A> RuntimeHandle<A>
+where
+    A: 'static,
+{
     pub fn sender(&self) -> Box<MySender<A>> {
         Box::new(self.sender.clone())
+    }
+
+    pub fn future_spawner(&self) -> Box<dyn FutureSpawner> {
+        Box::new(self.clone())
     }
 }
 
