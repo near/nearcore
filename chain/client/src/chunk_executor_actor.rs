@@ -171,7 +171,7 @@ impl Handler<ProcessedBlock> for ChunkExecutorActor {
             Ok(TryApplyChunksOutcome::Scheduled) => {}
             Ok(TryApplyChunksOutcome::NotReady) => {
                 // We will retry applying it by looking at all next blocks after receiving
-                // additonal execution result endorsements or receipts.
+                // additional execution result endorsements or receipts.
                 tracing::debug!(target: "chunk_executor", %block_hash, "not yet ready for processing");
             }
             Ok(TryApplyChunksOutcome::BlockAlreadyAccepted) => {
