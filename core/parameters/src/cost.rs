@@ -475,17 +475,14 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::test(),
             burnt_gas_reward: Rational32::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational32::new(103, 100),
-            refund_gas_price_changes: !ProtocolFeature::reduced_gas_refunds_enabled(
-                PROTOCOL_VERSION,
-            ),
-            gas_refund_penalty: if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
+            gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
                 Rational32::new(5, 100)
             } else {
                 Rational32::new(0, 100)
             },
-            min_gas_refund_penalty: if ProtocolFeature::reduced_gas_refunds_enabled(
-                PROTOCOL_VERSION,
-            ) {
+            min_gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION)
+            {
                 1_000_000_000_000
             } else {
                 0
@@ -603,9 +600,7 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::free(),
             burnt_gas_reward: Rational32::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
-            refund_gas_price_changes: !ProtocolFeature::reduced_gas_refunds_enabled(
-                PROTOCOL_VERSION,
-            ),
+            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
             gas_refund_penalty: Rational32::from_integer(0),
             min_gas_refund_penalty: 0,
         }
