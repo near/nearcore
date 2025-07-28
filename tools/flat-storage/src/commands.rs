@@ -528,7 +528,7 @@ impl FlatStorageCommand {
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-                let chain_store = chain_store.clone();
+                let chain_store = (&*chain_store).clone();
                 let epoch_manager = epoch_manager.clone();
                 s.spawn(move || match cmd.mode {
                     MoveFlatHeadMode::Forward { new_flat_head_height } => {
