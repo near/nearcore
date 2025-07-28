@@ -1367,6 +1367,7 @@ impl ClientActorInner {
                 if self.client.is_validator(&head.epoch_id)
                     || self.client.is_validator(&head.next_epoch_id)
                 {
+                    let _span = tracing::debug_span!(target: "client", "send_block_approval", height = head.height, epoch_id = ?head.epoch_id, tag_block_production = true).entered();
                     for approval in approvals {
                         if let Err(e) = self
                             .client
