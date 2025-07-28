@@ -164,6 +164,7 @@ impl CoreStatementsTracker {
     fn record_uncertified_chunks(
         &mut self,
         block: &Block,
+        endorsements: &HashSet<(&ChunkProductionKey, &AccountId)>,
         block_execution_results: &HashMap<&ChunkProductionKey, ChunkExecutionResultHash>,
     ) -> Result<(), Error> {
         let prev_hash = block.header().prev_hash();
@@ -171,6 +172,15 @@ impl CoreStatementsTracker {
         uncertified_chunks.retain(|chunk_info| {
             !block_execution_results.contains_key(&chunk_info.chunk_production_key)
         });
+        for chunk_info in &mut uncertified_chunks {
+            chunk_info.missing_endorsements.retain(|account_id| {
+                !endorsements.contains(&(&chunk_info.chunk_production_key, account_id))
+            });
+            assert!(
+                !chunk_info.missing_endorsements.is_empty(),
+                "when there are no missing endorsements execution result should be present"
+            );
+        }
         let epoch_id = block.header().epoch_id();
         let chunks = block.chunks();
         uncertified_chunks.reserve_exact(chunks.len());
@@ -349,6 +359,7 @@ impl CoreStatementsProcessor {
         let mut tracker = self.write();
         let mut block_execution_results = HashMap::new();
         let mut execution_result_original_block = HashMap::new();
+        let mut endorsements = HashSet::new();
         for core_statement in block.spice_core_statements() {
             match core_statement {
                 SpiceCoreStatement::Endorsement {
@@ -363,6 +374,7 @@ impl CoreStatementsProcessor {
                         signed_inner.clone(),
                         signature.clone(),
                     );
+                    endorsements.insert((chunk_production_key, account_id));
                     execution_result_original_block
                         .insert(&signed_inner.execution_result_hash, signed_inner.block_hash);
                 }
@@ -393,7 +405,7 @@ impl CoreStatementsProcessor {
             }
         }
 
-        tracker.record_uncertified_chunks(block, &block_execution_results)
+        tracker.record_uncertified_chunks(block, &endorsements, &block_execution_results)
     }
 
     pub fn validate_core_statements_in_block(
