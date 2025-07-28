@@ -118,6 +118,12 @@ impl Handler<ChunkStateWitnessAckMessage> for PartialWitnessActor {
 
 impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessMessage) {
+        let _span = tracing::debug_span!(target: "client", "witness_actor_handle", 
+            height = msg.0.chunk_production_key().height_created,
+            shard_id = %msg.0.chunk_production_key().shard_id,
+            part_ord = msg.0.part_ord(),
+            tag_witness_distribution = true)
+        .entered();
         if let Err(err) = self.handle_partial_encoded_state_witness(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessMessage");
         }
@@ -433,6 +439,11 @@ impl PartialWitnessActor {
         let partial_witness_tracker = self.partial_witness_tracker.clone();
 
         self.partial_witness_spawner.spawn("handle_partial_encoded_state_witness", move || {
+            let _witness_spawn_closure = tracing::debug_span!(target: "client", "witness_spawn_closure", 
+                height = partial_witness.chunk_production_key().height_created,
+                shard_id = %partial_witness.chunk_production_key().shard_id,
+                part_ord = partial_witness.part_ord(),
+                tag_witness_distribution = true).entered();
             // Validate the partial encoded state witness and forward the part to all the chunk validators.
             match validate_partial_encoded_state_witness(
                 epoch_manager.as_ref(),
@@ -506,6 +517,11 @@ impl PartialWitnessActor {
         self.partial_witness_spawner.spawn(
             "handle_partial_encoded_state_witness_forward",
             move || {
+                let _witness_spawn_closure = tracing::debug_span!(target: "client", "witness_spawn_closure", 
+                    height = partial_witness.chunk_production_key().height_created,
+                    shard_id = %partial_witness.chunk_production_key().shard_id,
+                    part_ord = partial_witness.part_ord(),
+                    tag_witness_distribution = true).entered();
                 // Validate the partial encoded state witness and store the partial encoded state witness.
                 match validate_partial_encoded_state_witness(
                     epoch_manager.as_ref(),
