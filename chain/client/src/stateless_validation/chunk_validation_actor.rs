@@ -388,6 +388,8 @@ impl ChunkValidationActorInner {
         let chunk_production_key = state_witness.chunk_production_key();
         let shard_id = state_witness.chunk_header().shard_id();
         let chunk_header = state_witness.chunk_header().clone();
+        let chunk_producer_name =
+            self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
         let expected_epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
@@ -397,6 +399,26 @@ impl ChunkValidationActorInner {
                 chunk_production_key.epoch_id, prev_block_hash, expected_epoch_id
             )));
         }
+
+        let pre_validation_result = chunk_validation::pre_validate_chunk_state_witness(
+            &state_witness,
+            &self.chain_store,
+            self.genesis_block.clone(),
+            self.epoch_manager.as_ref(),
+        )
+        .map_err(|err| {
+            CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                .inc();
+            tracing::error!(
+                target: "chunk_validation",
+                ?err,
+                ?chunk_producer_name,
+                ?chunk_production_key,
+                "Failed to pre-validate chunk state witness"
+            );
+            err
+        })?;
 
         // If we have the chunk extra for the previous block, we can validate
         // the chunk without state witness.
@@ -408,8 +430,6 @@ impl ChunkValidationActorInner {
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &expected_epoch_id)?;
         let prev_block = self.chain_store.get_block(&prev_block_hash)?;
         let last_header = self.epoch_manager.get_prev_chunk_header(&prev_block, shard_id)?;
-        let chunk_producer_name =
-            self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
         if let Ok(prev_chunk_extra) = self.chain_store.get_chunk_extra(&prev_block_hash, &shard_uid)
         {
@@ -445,26 +465,6 @@ impl ChunkValidationActorInner {
                 }
             }
         }
-
-        let pre_validation_result = chunk_validation::pre_validate_chunk_state_witness(
-            &state_witness,
-            &self.chain_store,
-            self.genesis_block.clone(),
-            self.epoch_manager.as_ref(),
-        )
-        .map_err(|err| {
-            CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
-                .inc();
-            tracing::error!(
-                target: "chunk_validation",
-                ?err,
-                ?chunk_producer_name,
-                ?chunk_production_key,
-                "Failed to pre-validate chunk state witness"
-            );
-            err
-        })?;
 
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
