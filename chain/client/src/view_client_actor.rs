@@ -480,9 +480,9 @@ impl ViewClientActorInner {
                 .flat_map(|outcome| &outcome.outcome.receipt_ids),
         );
 
-        // hacky optimization for end-user TX latency: If the last outgoing
-        // receipt of an outcome is a refund receipt, we don't wait for that and
-        // consider the transaction executed or finalized a block earlier.
+        // Optimization for end-user TX latency: If the last outgoing receipt of
+        // an outcome is a refund receipt, we don't wait for that and consider
+        // the transaction executed or finalized a block earlier.
         let mut awaiting_non_refund_receipt_ids = awaiting_receipt_ids.clone();
         for outcome in &execution_outcome.receipts_outcome {
             let receipt_ids = outcome.outcome.receipt_ids.as_slice();
