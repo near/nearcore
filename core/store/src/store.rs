@@ -17,11 +17,11 @@ const STATE_FILE_END_MARK: u8 = 255;
 
 #[derive(Debug, Default)]
 pub struct PendingWritesInner {
-    batches: Vec<DBTransaction>,
+    pub batches: Vec<DBTransaction>,
 }
 
 #[derive(Default, Debug)]
-pub struct PendingWrites(RwLock<PendingWritesInner>);
+pub struct PendingWrites(pub RwLock<PendingWritesInner>);
 
 impl PendingWrites {
     pub fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<Vec<u8>> {
