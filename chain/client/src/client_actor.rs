@@ -516,12 +516,12 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
             }
             NetworkAdversarialMessage::AdvProduceChunks(adv_produce_chunks) => {
                 info!(target: "adversary", mode=?adv_produce_chunks, "setting adversary produce chunks");
-                self.client.chunk_producer.adv_produce_chunks = Some(adv_produce_chunks);
+                self.client.chunk_producer.adversarial.produce_mode = Some(adv_produce_chunks);
                 None
             }
             NetworkAdversarialMessage::AdvInsertInvalidTransactions(on) => {
                 info!(target: "adversary", on, "invalid transactions");
-                self.client.chunk_producer.produce_invalid_tx_in_chunks = on;
+                self.client.chunk_producer.adversarial.produce_invalid_tx_in_chunks = on;
                 None
             }
         }
