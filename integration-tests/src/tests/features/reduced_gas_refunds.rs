@@ -20,7 +20,7 @@ fn test_burn_all_gas() {
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
 
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(refunds, vec![], "new version should have no refunds");
     } else {
         assert_eq!(refunds.len(), 1, "old version should have pessimistic gas price refund");
@@ -35,7 +35,7 @@ fn test_deposit_refund() {
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
 
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(refunds.len(), 1, "new version should only refund deposit");
     } else {
         assert_eq!(refunds.len(), 2, "old version should refund gas and deposit");
@@ -61,7 +61,7 @@ fn test_small_gas_refund() {
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
 
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         // Note: If we had a gas refund penalty, this refund should not exist.
         // But for now, the penalty is 0, hence we still see the refund.
         assert_eq!(refunds.len(), 1, "new version should still refund small amounts");
@@ -134,7 +134,7 @@ fn generated_refunds_after_fn_call(
     // Do a general check on the gas penalty.
     // Since gas price didn't change, the only difference must be the gas refund penalty.
     let penalty = total_cost - expected_cost;
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         let unspent_gas = attached_gas - actual_fn_call_gas_burnt;
         let max_gas_penalty = unspent_gas.max(
             unspent_gas * (*fee_helper.cfg().gas_refund_penalty.numer() as u64)
