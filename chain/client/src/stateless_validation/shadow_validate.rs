@@ -8,7 +8,7 @@ use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 impl Client {
     // Temporary feature to make node produce state witness for every chunk in every processed block
     // and then self-validate it.
-    pub(crate) fn shadow_validate_block_chunks(&mut self, block: &Block) -> Result<(), Error> {
+    pub(crate) fn shadow_validate_block_chunks(&self, block: &Block) -> Result<(), Error> {
         if !cfg!(feature = "shadow_chunk_validation") {
             return Ok(());
         }
@@ -38,7 +38,7 @@ impl Client {
     }
 
     fn shadow_validate_chunk(
-        &mut self,
+        &self,
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
@@ -55,11 +55,12 @@ impl Client {
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
+        let rs = self.shadow_validation_reed_solomon_encoder().clone();
         self.chain.shadow_validate_state_witness(
             state_witness,
             self.epoch_manager.as_ref(),
             None,
-            self.chunk_validator.rs(),
+            rs,
         )?;
         Ok(())
     }

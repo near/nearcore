@@ -518,6 +518,7 @@ mod tests {
     use crate::trie::mem::memtries::MemTries;
     use crate::trie::{AccessOptions, MemTrieChanges};
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
+    use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::{FlatStateValue, ValueRef};
@@ -1006,5 +1007,40 @@ mod tests {
         memtrie.delete_until_height(2);
         assert_eq!(memtrie.arena.num_active_allocs(), frozen_arena.num_active_allocs());
         assert_eq!(memtrie.arena.active_allocs_bytes(), frozen_arena.active_allocs_bytes());
+    }
+
+    #[test]
+    fn test_memtrie_snapshot() {
+        // insert some values into memtrie
+        let mut memtrie = MemTries::new(ShardUId::single_shard());
+        let state_root = StateRoot::default();
+        let state_root = insert_changes_to_memtrie(&mut memtrie, state_root, 0, "ff00 = 0000");
+        let state_root = insert_changes_to_memtrie(&mut memtrie, state_root, 1, "ff01 = 0100");
+        let state_root2 = insert_changes_to_memtrie(&mut memtrie, state_root, 2, "ff0101 = 0101");
+
+        // get the root hash for state_root and state_root2
+        let hash = memtrie.get_root(&state_root).unwrap().view().node_hash().to_string();
+        assert_eq!(hash, "8utD1no12bD972DPzij3ydnaNGkLBRzuxGTKhbqrx39Q");
+        let hash = memtrie.get_root(&state_root2).unwrap().view().node_hash().to_string();
+        assert_eq!(hash, "87gK6ZaJBgtuBLL3MZ5GB1rVKJmpJ1gYBLusRbTHyZuu");
+
+        // create snapshot, gc all other entries
+        memtrie.snapshot(&state_root2).unwrap();
+        memtrie.delete_until_height(10);
+
+        // state_root2 should still exist in snapshot, however state_root should be gone
+        assert!(matches!(
+            memtrie.get_root(&state_root),
+            Err(StorageError::StorageInconsistentState { .. })
+        ));
+        let hash = memtrie.get_root(&state_root2).unwrap().view().node_hash().to_string();
+        assert_eq!(hash, "87gK6ZaJBgtuBLL3MZ5GB1rVKJmpJ1gYBLusRbTHyZuu");
+
+        // delete snapshot, state_root2 should be gone
+        memtrie.delete_snapshot();
+        assert!(matches!(
+            memtrie.get_root(&state_root2),
+            Err(StorageError::StorageInconsistentState { .. })
+        ));
     }
 }

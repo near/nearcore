@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use itertools::Itertools;
@@ -189,16 +191,12 @@ impl Chain {
     }
 
     pub fn genesis_chunk_extra(
-        &self,
+        genesis: Arc<Block>,
+        chain_store: &ChainStore,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
     ) -> Result<ChunkExtra, Error> {
-        Self::build_genesis_chunk_extra(
-            &self.chain_store().store(),
-            shard_layout,
-            shard_id,
-            &self.genesis,
-        )
+        Self::build_genesis_chunk_extra(&chain_store.store(), shard_layout, shard_id, &genesis)
     }
 
     pub fn build_genesis_chunk_extra(

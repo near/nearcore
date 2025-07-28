@@ -146,7 +146,7 @@ impl Handler<SpanWrapped<ChunkStateWitnessMessage>> for SpiceChunkValidatorActor
     #[perf]
     fn handle(&mut self, msg: SpanWrapped<ChunkStateWitnessMessage>) {
         let msg = msg.span_unwrap();
-        let ChunkStateWitnessMessage { witness, raw_witness_size } = msg;
+        let ChunkStateWitnessMessage { witness, raw_witness_size, .. } = msg;
         let Some(signer) = self.validator_signer.get() else {
             tracing::error!(target: "spice_chunk_validator", ?witness, "Received a chunk state witness but this is not a validator node.");
             return;
