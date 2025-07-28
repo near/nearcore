@@ -12,6 +12,8 @@ use std::str::FromStr;
 /// Add the given shard utilization to the total amount stored for
 /// the given account ID and all its prefixes belonging to the same shard.
 /// `shard_left_boundary` is inclusive (it belongs to the shard).
+///
+/// **NOTE: This is test-only**
 pub fn update_shard_utilization(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
@@ -43,6 +45,9 @@ fn account_prefixes_within_shard<'a>(
         }
     })
 }
+
+// Two nibbles per byte, and the first two nibbles are discarded
+const MIN_NIBBLES_VALID_KEY: usize = AccountId::MIN_LEN * 2 + 2;
 
 /// Find an account ID that splits the shard into two possibly equal parts, according
 /// to the shard size utilization.
@@ -84,7 +89,15 @@ where
     let mut left_utilization = ShardUtilization::default();
     let mut key_nibbles = Vec::with_capacity(AccountId::MAX_LEN * 2); // x2 because nibbles are half-bytes
     loop {
-        match trie_storage.get_node(current_node_ptr, AccessOptions::DEFAULT)? {
+        let node = trie_storage.get_node(current_node_ptr, AccessOptions::DEFAULT)?;
+        // The current node provides a proper split, no need to check children
+        if (left_utilization >= total_utilization / 2)
+            && (key_nibbles.len() >= MIN_NIBBLES_VALID_KEY)
+        {
+            break;
+        }
+
+        match node {
             GenericTrieNode::Empty => return Ok(None),
             GenericTrieNode::Leaf { extension, .. } => {
                 append_extension_nibbles(&mut key_nibbles, &extension);
@@ -220,8 +233,9 @@ mod tests {
     use rand::distributions::Uniform;
     use rand::rngs::StdRng;
 
-    fn test_trie(
+    fn test_trie_inner(
         account_utilization: impl IntoIterator<Item = (AccountId, ShardUtilization)>,
+        shard_left_boundary: Option<&AccountId>,
     ) -> Trie {
         // Create a new test trie
         let (shard_tries, layout) =
@@ -232,7 +246,13 @@ mod tests {
         // Add shard utilization per account
         let mut trie_update = TrieUpdate::new(trie);
         for (account_id, utilization) in account_utilization {
-            update_shard_utilization(&mut trie_update, &account_id, utilization, None).unwrap();
+            update_shard_utilization(
+                &mut trie_update,
+                &account_id,
+                utilization,
+                shard_left_boundary,
+            )
+            .unwrap();
         }
         trie_update.commit(StateChangeCause::InitialState);
         let TrieUpdateResult { trie_changes, .. } = trie_update.finalize().unwrap();
@@ -242,6 +262,19 @@ mod tests {
         store_update.commit().unwrap();
 
         shard_tries.get_trie_for_shard(shard_uid, new_root)
+    }
+
+    fn test_trie(
+        account_utilization: impl IntoIterator<Item = (AccountId, ShardUtilization)>,
+    ) -> Trie {
+        test_trie_inner(account_utilization, None)
+    }
+
+    fn test_trie_custom_shard(
+        account_utilization: impl IntoIterator<Item = (AccountId, ShardUtilization)>,
+        shard_left_boundary: &AccountId,
+    ) -> Trie {
+        test_trie_inner(account_utilization, Some(&shard_left_boundary))
     }
 
     #[test]
@@ -265,6 +298,17 @@ mod tests {
     }
 
     #[test]
+    fn account_outside_shard() {
+        let account_id: AccountId = "abcd".parse().unwrap();
+        let shard_left_boundary: AccountId = "bbb".parse().unwrap();
+        let utilization = ShardUtilization::V1(100.into());
+        let trie = test_trie_custom_shard(vec![(account_id, utilization)], &shard_left_boundary);
+        let result = find_split_account(&trie).unwrap();
+        // account lies outside the shard
+        assert!(result.is_none());
+    }
+
+    #[test]
     fn single_account() -> anyhow::Result<()> {
         let account_id: AccountId = "abcd".parse()?;
         let utilization = ShardUtilization::V1(100.into());
@@ -275,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn two_accounts() -> anyhow::Result<()> {
+    fn two_accounts_common_prefix() -> anyhow::Result<()> {
         let account1: AccountId = "abcd".parse()?;
         let account2: AccountId = "abce".parse()?;
         let utilization = ShardUtilization::V1(100.into());
@@ -286,11 +330,42 @@ mod tests {
     }
 
     #[test]
+    fn two_accounts_no_common_prefix() -> anyhow::Result<()> {
+        let account1: AccountId = "aaaa".parse()?;
+        let account2: AccountId = "bbbb".parse()?;
+        let utilization = ShardUtilization::V1(100.into());
+        let trie = test_trie(vec![(account1, utilization), (account2, utilization)]);
+        let result = find_split_account(&trie)?;
+        // "bb" is the shortest prefix of account 2 that is a valid account ID
+        let split_account: AccountId = "bb".parse()?;
+        assert_eq!(result, Some(split_account));
+        Ok(())
+    }
+
+    #[test]
+    fn accounts_as_prefixes() -> anyhow::Result<()> {
+        let account1: AccountId = "aa".parse()?;
+        let account2: AccountId = "aaaaa".parse()?;
+        let account3: AccountId = "bb".parse()?;
+        let account4: AccountId = "bbbbb".parse()?;
+        let utilization = ShardUtilization::V1(100.into());
+        let trie = test_trie(vec![
+            (account1, utilization),
+            (account2, utilization),
+            (account3.clone(), utilization),
+            (account4, utilization),
+        ]);
+        let result = find_split_account(&trie)?;
+        assert_eq!(result, Some(account3));
+        Ok(())
+    }
+
+    #[test]
     fn account_updated_twice() -> anyhow::Result<()> {
-        let account1: AccountId = "aaa".parse()?;
-        let account2: AccountId = "bbb".parse()?;
-        let account3: AccountId = "ccc".parse()?;
-        let account4: AccountId = "ddd".parse()?;
+        let account1: AccountId = "aa".parse()?;
+        let account2: AccountId = "bb".parse()?;
+        let account3: AccountId = "cc".parse()?;
+        let account4: AccountId = "dd".parse()?;
         let utilization = ShardUtilization::V1(100.into());
         let trie = test_trie(vec![
             (account1, utilization),

@@ -257,6 +257,8 @@ pub enum TrieKey {
     /// Stores the total shard utilization of all accounts starting with
     /// the given prefix (if the prefix is an account ID itself, it's included).
     /// Empty prefix represents the total shard utilization.
+    ///
+    /// **NOTE: This is test-only**
     ShardUtilization {
         account_id_prefix: Vec<u8>,
     },
