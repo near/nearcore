@@ -398,6 +398,13 @@ impl ChunkValidationActorInner {
             )));
         }
 
+        // If we have the chunk extra for the previous block, we can validate
+        // the chunk without state witness.
+        // This usually happens because we are a chunk producer and
+        // therefore have the chunk extra for the previous block saved on disk.
+        // We can also skip validating the chunk state witness in this case.
+        // We don't need to switch to parent shard uid, because resharding
+        // creates chunk extra for new shard uid.
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &expected_epoch_id)?;
         let prev_block = self.chain_store.get_block(&prev_block_hash)?;
         let last_header = self.epoch_manager.get_prev_chunk_header(&prev_block, shard_id)?;
