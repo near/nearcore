@@ -480,14 +480,25 @@ impl ViewClientActorInner {
                 .flat_map(|outcome| &outcome.outcome.receipt_ids),
         );
 
-        // refund receipt == last receipt in outcome.receipt_ids
-        let mut awaiting_non_refund_receipt_ids: HashSet<&CryptoHash> =
-            HashSet::from_iter(&execution_outcome.transaction_outcome.outcome.receipt_ids);
-        awaiting_non_refund_receipt_ids.extend(execution_outcome.receipts_outcome.iter().flat_map(
-            |outcome| {
-                outcome.outcome.receipt_ids.split_last().map(|(_, ids)| ids).unwrap_or_else(|| &[])
-            },
-        ));
+        // hacky optimization for end-user TX latency: If the last outgoing
+        // receipt of an outcome is a refund receipt, we don't wait for that and
+        // consider the transaction executed or finalized a block earlier.
+        let mut awaiting_non_refund_receipt_ids = awaiting_receipt_ids.clone();
+        for outcome in &execution_outcome.receipts_outcome {
+            let receipt_ids = outcome.outcome.receipt_ids.as_slice();
+            let Some(last_receipt_id) = receipt_ids.last() else {
+                continue;
+            };
+            // need the full receipt to determine if this is a refund or not
+            let Ok(Some(last_receipt)) = self.chain.chain_store.get_receipt(last_receipt_id) else {
+                // if we can't fetch the receipt, be conservative and assume we have to wait
+                continue;
+            };
+            // predecessor_id == "system" means this is a refund receipt
+            if last_receipt.predecessor_id().is_system() {
+                awaiting_non_refund_receipt_ids.remove(last_receipt_id);
+            }
+        }
 
         let executed_receipt_ids: HashSet<&CryptoHash> = execution_outcome
             .receipts_outcome
