@@ -8,10 +8,10 @@ use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
-use near_primitives::shard_layout::ShardVersion;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::flat::{
     FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,
@@ -124,9 +124,7 @@ pub enum MoveFlatHeadMode {
 #[derive(Parser)]
 pub struct MoveFlatHeadCmd {
     #[clap(long)]
-    shard_id: ShardId,
-    #[clap(long)]
-    version: ShardVersion,
+    shard_uid: Vec<ShardUId>,
     #[clap(subcommand)]
     mode: MoveFlatHeadMode,
 }
@@ -381,7 +379,7 @@ impl FlatStorageCommand {
         &self,
         epoch_manager: &dyn EpochManagerAdapter,
         runtime: &dyn RuntimeAdapter,
-        chain_store: ChainStore,
+        chain_store: ChainStoreAdapter,
         mut shard_uid: ShardUId,
         blocks: usize,
     ) -> anyhow::Result<()> {
@@ -495,7 +493,7 @@ impl FlatStorageCommand {
             store_update.commit()?;
 
             height = prev_height;
-            println!("moved to {height}");
+            println!("moved to {height} on {shard_uid}");
         }
         Ok(())
     }
@@ -509,31 +507,56 @@ impl FlatStorageCommand {
     ) -> anyhow::Result<()> {
         let (_, epoch_manager, runtime, chain_store, _) =
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting);
+        let shard_uids = if cmd.shard_uid.is_empty() {
+            let tip = chain_store.final_head().unwrap();
+            let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+            shard_layout
+                .shard_ids()
+                .map(|sid| {
+                    shard_id_to_uid(epoch_manager.as_ref(), sid, &tip.epoch_id)
+                        .expect("generate shard uid")
+                })
+                .collect::<Vec<_>>()
+        } else {
+            cmd.shard_uid.clone()
+        };
 
-        let shard_uid = ShardUId::new(cmd.version, cmd.shard_id);
-        let flat_storage_manager = runtime.get_flat_storage_manager();
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-
-        match cmd.mode {
-            MoveFlatHeadMode::Forward { new_flat_head_height } => {
-                let header = chain_store.get_block_header_by_height(new_flat_head_height)?;
-                println!("Moving flat head for shard {shard_uid} forward to header: {header:?}");
-                flat_storage.update_flat_head(header.hash())?;
+        std::thread::scope(move |s| {
+            for shard_uid in shard_uids {
+                let runtime = runtime.clone();
+                let flat_storage_manager = runtime.get_flat_storage_manager();
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
+                let flat_storage =
+                    flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
+                let chain_store = (&*chain_store).clone();
+                let epoch_manager = epoch_manager.clone();
+                s.spawn(move || match cmd.mode {
+                    MoveFlatHeadMode::Forward { new_flat_head_height } => {
+                        let header = chain_store
+                            .get_block_header_by_height(new_flat_head_height)
+                            .expect("get block header by height");
+                        println!(
+                            "Moving flat head for shard {shard_uid} forward to header: {header:?}"
+                        );
+                        flat_storage
+                            .update_flat_head(header.hash())
+                            .expect("move flat head forward");
+                    }
+                    MoveFlatHeadMode::Back { blocks } => {
+                        println!("Moving flat head for shard {shard_uid} back by {blocks} blocks");
+                        self.move_flat_head_back(
+                            epoch_manager.as_ref(),
+                            runtime.as_ref(),
+                            chain_store,
+                            shard_uid,
+                            blocks,
+                        )
+                        .expect("move flat head back");
+                    }
+                });
             }
-            MoveFlatHeadMode::Back { blocks } => {
-                println!("Moving flat head for shard {shard_uid} back by {blocks} blocks");
-                self.move_flat_head_back(
-                    epoch_manager.as_ref(),
-                    runtime.as_ref(),
-                    chain_store,
-                    shard_uid,
-                    blocks,
-                )?;
-            }
-        }
-
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn run(
