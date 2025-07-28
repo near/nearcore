@@ -34,7 +34,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
 use near_primitives::chains::MAINNET;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{self, EpochConfigStore};
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
@@ -281,31 +281,52 @@ pub(crate) fn apply_range(
 
     let genesis = &near_config.genesis;
     let write_store_clone = write_store.clone();
-    std::thread::scope(move |s| {
+    if let Some(csv_file) = &mut csv_file {
+        println!("NOTE: applying chunks in parallel is not available with CSV file output");
         for shard_id in shard_ids {
-            let read_store = read_store.clone();
-            let write_store = write_store.clone();
-            let epoch_manager = epoch_manager.clone();
-            let runtime = runtime.clone();
-            s.spawn(move || {
-                apply_chain_range(
-                    mode,
-                    read_store,
-                    write_store,
-                    genesis,
-                    start_index,
-                    end_index,
-                    shard_id,
-                    epoch_manager.as_ref(),
-                    runtime.clone(),
-                    verbose_output,
-                    None, // csv_file.as_mut(),
-                    only_contracts,
-                    storage,
-                )
-            });
+            apply_chain_range(
+                mode,
+                read_store.clone(),
+                write_store.clone(),
+                genesis,
+                start_index,
+                end_index,
+                shard_id,
+                epoch_manager.as_ref(),
+                runtime.clone(),
+                verbose_output,
+                Some(csv_file),
+                only_contracts,
+                storage,
+            )
         }
-    });
+    } else {
+        std::thread::scope(move |s| {
+            for shard_id in shard_ids {
+                let read_store = read_store.clone();
+                let write_store = write_store.clone();
+                let epoch_manager = epoch_manager.clone();
+                let runtime = runtime.clone();
+                s.spawn(move || {
+                    apply_chain_range(
+                        mode,
+                        read_store,
+                        write_store,
+                        genesis,
+                        start_index,
+                        end_index,
+                        shard_id,
+                        epoch_manager.as_ref(),
+                        runtime.clone(),
+                        verbose_output,
+                        None,
+                        only_contracts,
+                        storage,
+                    )
+                });
+            }
+        });
+    }
     maybe_print_db_stats(write_store_clone);
 }
 
