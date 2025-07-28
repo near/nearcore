@@ -1,5 +1,5 @@
 use crate::messaging::{Actor, CanSend, CanSendAsync};
-use crate::tokio::sender::MySender;
+use crate::tokio::sender::TokioSender;
 use crate::tokio::traits::Handler;
 
 // Sync message
@@ -43,7 +43,7 @@ pub trait CanSendMessagesTrait:
 // This is the equivalent for type PartialWitnessSenderForNetwork etc.
 pub type MyAdapter = Box<dyn CanSendMessagesTrait>;
 
-impl CanSendMessagesTrait for MySender<MyActor> {}
+impl CanSendMessagesTrait for TokioSender<MyActor> {}
 
 #[cfg(test)]
 mod test {

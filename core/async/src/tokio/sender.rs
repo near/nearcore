@@ -8,10 +8,10 @@ use crate::tokio::traits::{Handler, HandlerWithContext};
 
 // This is what we would use to send the messages to the actors.
 // Note that right now this has the parameter DelayedActionRunner, which we would eventually like to get rid of.
-pub type MySender<A> =
+pub type TokioSender<A> =
     mpsc::UnboundedSender<Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send>>;
 
-impl<A, M> CanSend<M> for MySender<A>
+impl<A, M> CanSend<M> for TokioSender<A>
 where
     A: HandlerWithContext<M> + 'static,
     M: Send + 'static,
@@ -24,7 +24,7 @@ where
     }
 }
 
-impl<A, M, R> CanSendAsync<M, R> for MySender<A>
+impl<A, M, R> CanSendAsync<M, R> for TokioSender<A>
 where
     A: HandlerWithContext<M, R> + 'static,
     M: Send + 'static,
@@ -48,9 +48,9 @@ where
 /// ********************************************************************************
 /// Future implementation without DelayedActionRunner
 /// ********************************************************************************
-pub type MySender2<A> = mpsc::UnboundedSender<Box<dyn FnOnce(&mut A) + Send>>;
+pub type TokioSender2<A> = mpsc::UnboundedSender<Box<dyn FnOnce(&mut A) + Send>>;
 
-impl<A, M> CanSend<M> for MySender2<A>
+impl<A, M> CanSend<M> for TokioSender2<A>
 where
     A: Handler<M> + 'static,
     M: Send + 'static,
@@ -62,7 +62,7 @@ where
     }
 }
 
-impl<A, M, R> CanSendAsync<M, R> for MySender2<A>
+impl<A, M, R> CanSendAsync<M, R> for TokioSender2<A>
 where
     A: Handler<M, R> + 'static,
     M: Send + 'static,

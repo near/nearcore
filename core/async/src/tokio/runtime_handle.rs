@@ -4,25 +4,25 @@ use tokio::sync::mpsc;
 
 use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::messaging::Actor;
-use crate::tokio::sender::MySender;
+use crate::tokio::sender::TokioSender;
 
-pub struct RuntimeHandle<A> {
-    sender: MySender<A>,
+pub struct TokioRuntimeHandle<A> {
+    sender: TokioSender<A>,
     runtime: Arc<tokio::runtime::Runtime>,
     // TODO: Add cancellation logic
 }
 
-impl<A> Clone for RuntimeHandle<A> {
+impl<A> Clone for TokioRuntimeHandle<A> {
     fn clone(&self) -> Self {
         Self { sender: self.sender.clone(), runtime: self.runtime.clone() }
     }
 }
 
-impl<A> RuntimeHandle<A>
+impl<A> TokioRuntimeHandle<A>
 where
     A: 'static,
 {
-    pub fn sender(&self) -> Box<MySender<A>> {
+    pub fn sender(&self) -> Box<TokioSender<A>> {
         Box::new(self.sender.clone())
     }
 
@@ -31,13 +31,13 @@ where
     }
 }
 
-impl<A> FutureSpawner for RuntimeHandle<A> {
+impl<A> FutureSpawner for TokioRuntimeHandle<A> {
     fn spawn_boxed(&self, _description: &'static str, f: futures::future::BoxFuture<'static, ()>) {
         self.runtime.spawn(f);
     }
 }
 
-impl<A> DelayedActionRunner<A> for RuntimeHandle<A>
+impl<A> DelayedActionRunner<A> for TokioRuntimeHandle<A>
 where
     A: 'static,
 {
@@ -56,7 +56,7 @@ where
     }
 }
 
-pub fn construct_actor_with_tokio_runtime<A>(mut actor: A) -> RuntimeHandle<A>
+pub fn construct_actor_with_tokio_runtime<A>(mut actor: A) -> TokioRuntimeHandle<A>
 where
     A: Actor + Send + Sized + 'static,
 {
@@ -70,7 +70,7 @@ where
         Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send>,
     >();
 
-    let runtime_handle = RuntimeHandle { sender, runtime: Arc::new(runtime) };
+    let runtime_handle = TokioRuntimeHandle { sender, runtime: Arc::new(runtime) };
 
     // Spawn the actor in the runtime
     let runtime = runtime_handle.runtime.clone();
