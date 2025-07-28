@@ -1015,7 +1015,6 @@ pub(crate) struct ChainStoreCacheUpdate {
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, Arc<ArcedShardChunk>>,
     partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
-    block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     pub(crate) height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
@@ -1804,9 +1803,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     &index_to_bytes(block.header().height()),
                     &map,
                 )?;
-                self.chain_store_cache_update
-                    .block_hash_per_height
-                    .insert(block.header().height(), map);
                 store_update.insert_ser(DBCol::Block, block.hash().as_ref(), block)?;
             }
             // This is a BTreeMap because the update_sync_hashes() calls below must be done in order of height
