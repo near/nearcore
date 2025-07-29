@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use crate::messaging::{Actor, CanSend, CanSendAsync};
-use crate::tokio::sender::TokioSender;
+use crate::tokio::runtime_handle::TokioRuntimeHandle;
 use crate::tokio::traits::Handler;
 
 // Sync message
@@ -41,9 +43,9 @@ pub trait CanSendMessagesTrait:
 }
 
 // This is the equivalent for type PartialWitnessSenderForNetwork etc.
-pub type MyAdapter = Box<dyn CanSendMessagesTrait>;
+pub type MyAdapter = Arc<dyn CanSendMessagesTrait>;
 
-impl CanSendMessagesTrait for TokioSender<MyActor> {}
+impl CanSendMessagesTrait for TokioRuntimeHandle<MyActor> {}
 
 #[cfg(test)]
 mod test {
@@ -53,12 +55,14 @@ mod test {
     #[test]
     fn test_fn() {
         let actor = MyActor {};
-        let executor_handle = construct_actor_with_tokio_runtime(actor);
+        let (runtime, executor_handle) = construct_actor_with_tokio_runtime(actor);
         let sender: MyAdapter = executor_handle.sender();
+        let sender = sender.clone();
         sender.send(MySyncMessage { value: 42 });
         let future = sender.send_async(MyAsyncMessage { value: 42 });
         let response = futures::executor::block_on(future);
         assert_eq!(response.response, "Async response");
         // TODO: Figure out shutdown logic for the runtime and executor_handle
+        runtime.shutdown_background();
     }
 }
