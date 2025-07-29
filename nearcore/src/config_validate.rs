@@ -31,7 +31,8 @@ impl<'a> ConfigValidator<'a> {
 
     /// this function would check all conditions, and add all error messages to ConfigValidator.errors
     fn validate_all_conditions(&mut self) {
-        self.validate_archival_config();
+        self.validate_cold_store_config();
+        self.validate_cloud_archival_config();
 
         if self.config.consensus.min_block_production_delay
             > self.config.consensus.max_block_production_delay
@@ -177,7 +178,7 @@ impl<'a> ConfigValidator<'a> {
         self.validate_tracked_shards_config();
     }
 
-    fn validate_archival_config(&mut self) {
+    fn validate_cold_store_config(&mut self) {
         // Checking that if cold storage is configured, trie changes are definitely saved.
         // Unlike in the previous case, None is not a valid option here.
         if self.config.cold_store.is_some() && self.config.save_trie_changes != Some(true) {
@@ -203,16 +204,16 @@ impl<'a> ConfigValidator<'a> {
                     "`archive` is false, but `split_storage` is configured.".to_string();
                 self.validation_errors.push_config_semantics_error(error_message);
             }
-            if self.config.cloud_storage.is_some() {
-                let error_message =
-                    "`archive` is false, but `cloud_storage` is configured.".to_string();
-                self.validation_errors.push_config_semantics_error(error_message);
-            }
-            return;
         }
-        // From now on, we assume `archive` is true.
+    }
 
-        // TODO(archival_v2) Allow for cloud storage independently of cold store.
+    fn validate_cloud_archival_config(&mut self) {
+        if !self.config.archive && self.config.cloud_storage.is_some() {
+            let error_message =
+                "`archive` is false, but `cloud_storage` is configured.".to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+        // TODO(cloud_archival) Allow for cloud storage independently of cold store.
         if self.config.cloud_storage.is_some() && self.config.cold_store.is_none() {
             let error_message =
                 "`cloud_storage` is configured but `cold_store` is not.".to_string();

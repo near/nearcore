@@ -437,7 +437,7 @@ pub struct CloudStorageConfig {
     pub storage: CloudStorageLocation,
 }
 
-// TODO(archival_v2) Implement these options. Consider replacing this with `ExternalStorageLocation`.
+// TODO(cloud_archival) Implement these options. Consider replacing this with `ExternalStorageLocation`.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum CloudStorageLocation {
     /// Archival data is persisted in the filesystem.

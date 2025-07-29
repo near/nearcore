@@ -1854,7 +1854,7 @@ mod tests {
         // Validators will track 2 shards and non-validators will track all shards.
         let _tracked_shards =
             [ShardUId::new(0, ShardId::new(1)), ShardUId::new(0, ShardId::new(3))];
-        // TODO(archival_v2): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
+        // TODO(cloud_archival): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
         let tracked_shards_config = TrackedShardsConfig::AllShards;
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =

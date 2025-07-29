@@ -117,7 +117,7 @@ impl Indexer {
             nearcore::config::load_config(&indexer_config.home_dir, genesis_validation_mode)
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        // TODO(archival_v2): When`TrackedShardsConfig::Shards` is added, ensure it is supported by indexer nodes and update the check below accordingly.
+        // TODO(cloud_archival): When`TrackedShardsConfig::Shards` is added, ensure it is supported by indexer nodes and update the check below accordingly.
         assert!(
             near_config.client_config.tracked_shards_config.tracks_all_shards() || near_config.client_config.tracked_shards_config.tracks_any_account(),
             "Indexer should either track at least one shard or track at least one account. \n\

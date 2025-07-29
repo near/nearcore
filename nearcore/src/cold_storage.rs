@@ -461,6 +461,7 @@ pub fn spawn_cold_store_loop(
             return Ok(None);
         }
     };
+    // TODO(cloud_archival) Move this to a separate cloud storage loop.
     let cloud_storage = storage.get_cloud_storage().cloned();
 
     let genesis_height = config.genesis.config.genesis_height;

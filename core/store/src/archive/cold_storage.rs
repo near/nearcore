@@ -465,7 +465,7 @@ fn get_keys_from_store(
     let block: Block = store.get_ser_or_err_for_cold(DBCol::Block, &block_hash_key)?;
     let mut chunk_hashes = vec![];
     let mut chunks = vec![];
-    // TODO(archival_v2): Maybe iterate over only new chunks?
+    // TODO(cloud_archival): Maybe iterate over only new chunks?
     for chunk_header in block.chunks().iter() {
         let chunk_hash = chunk_header.chunk_hash();
         chunk_hashes.push(chunk_hash.clone());
@@ -473,7 +473,7 @@ fn get_keys_from_store(
             store.get_ser_for_cold(DBCol::Chunks, chunk_hash.as_bytes())?;
         let shard_id = chunk_header.shard_id();
         let Some(chunk) = chunk else {
-            // TODO(archival_v2): Uncomment the check below and cover it with test
+            // TODO(cloud_archival): Uncomment the check below and cover it with test
             // if chunk_header.height_included() == block.header().height()
             //     && tracked_shards.contains(&shard_id)
             // {
