@@ -325,6 +325,10 @@ impl Store {
         let Some(pending) = self.pending.as_ref() else {
             return Ok(()); // Nothing to flush if there are no pending writes.
         };
+        // Just return if there is nothing scheduled to flush already.
+        if pending.0.read().expect("poisoned").batches.is_empty() {
+            return Ok(());
+        }
         // Avoid blocking current thread
         let storage = self.storage.clone();
         let pending = pending.clone();
