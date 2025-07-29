@@ -152,7 +152,8 @@ impl StateViewerSubCommand {
         let store_opener = NodeStorage::opener(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
+            near_config.config.cloud_storage.as_ref(),
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();
@@ -301,8 +302,6 @@ impl ApplyChunkCmd {
 #[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ApplyRangeMode {
     /// Applies chunks one after another in order of increasing heights.
-    ///
-    /// Great for profiling.
     Sequential {
         /// If true, saves state transitions for state witness generation.
         #[clap(long)]
@@ -323,8 +322,9 @@ pub struct ApplyRangeCmd {
     start_index: Option<BlockHeight>,
     #[clap(long)]
     end_index: Option<BlockHeight>,
-    #[clap(long, default_value = "0")]
-    shard_id: ShardId,
+    /// All shards by default (if not specified.) Can be provided multiple times.
+    #[clap(long)]
+    shard_id: Vec<ShardId>,
     #[clap(long)]
     verbose_output: bool,
     #[clap(long, value_parser)]

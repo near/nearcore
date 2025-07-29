@@ -47,8 +47,8 @@ use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
 
-use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
+use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
     ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
@@ -172,7 +172,7 @@ impl PartialWitnessActor {
     pub fn new(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
-        client_sender: ClientSenderForPartialWitness,
+        chunk_validation_sender: ChunkValidationSenderForPartialWitness,
         my_signer: MutableValidatorSigner,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
@@ -180,8 +180,10 @@ impl PartialWitnessActor {
         partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
         witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
-        let partial_witness_tracker =
-            Arc::new(PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone()));
+        let partial_witness_tracker = Arc::new(PartialEncodedStateWitnessTracker::new(
+            chunk_validation_sender,
+            epoch_manager.clone(),
+        ));
         Self {
             network_adapter,
             my_signer,

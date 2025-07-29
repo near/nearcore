@@ -17,6 +17,7 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
     MutableValidatorSigner, ReshardingConfig, ReshardingHandle, TrackedShardsConfig,
@@ -28,7 +29,8 @@ use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
 use near_client::spice_core::CoreStatementsProcessor;
 use near_client::{
-    AsyncComputationMultiSpawner, Client, ClientActor, PartialWitnessActor,
+    AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
+    ChunkValidationSenderForPartialWitness, Client, ClientActor, PartialWitnessActor,
     PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
     ViewClientActor, ViewClientActorInner, start_client,
 };
@@ -181,6 +183,10 @@ fn setup(
     ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 
+    let partial_witness_sender_for_client = PartialWitnessSenderForClient {
+        distribute_chunk_state_witness: partial_witness_adapter.clone().into_sender(),
+    };
+
     let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
         epoch_manager.clone(),
         runtime.clone(),
@@ -190,7 +196,13 @@ fn setup(
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
-    let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
+    let StartClientResult {
+        client_actor,
+        tx_pool,
+        chunk_endorsement_tracker,
+        chunk_validation_actor,
+        ..
+    } = start_client(
         clock,
         config.clone(),
         chain_genesis,
@@ -207,7 +219,7 @@ fn setup(
         None,
         adv,
         None,
-        partial_witness_adapter.clone().into_multi_sender(),
+        partial_witness_sender_for_client,
         enable_doomslug,
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
@@ -245,7 +257,9 @@ fn setup(
     let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
-    client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
+    client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
+        chunk_state_witness: chunk_validation_actor.with_auto_span_context().into_sender(),
+    });
 
     (
         client_actor,
@@ -431,7 +445,7 @@ pub fn setup_client_with_runtime(
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: MutableValidatorSigner,
     resharding_sender: ReshardingSender,
-) -> Client {
+) -> (Client, ChunkValidationActorInner) {
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.save_tx_outcomes = save_tx_outcomes;
@@ -439,6 +453,13 @@ pub fn setup_client_with_runtime(
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
         .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool 
+
+    // TestEnv bypasses chunk validation actors and handles chunk validation
+    // directly through propagate_chunk_state_witnesses method
+    let chunk_validation_sender = ChunkValidationSender {
+        chunk_state_witness: noop().into_sender(),
+        block_notification: noop().into_sender(),
+    };
     let spice_core_processor = CoreStatementsProcessor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
@@ -449,12 +470,12 @@ pub fn setup_client_with_runtime(
         clock,
         config,
         chain_genesis,
-        epoch_manager,
+        epoch_manager.clone(),
         shard_tracker,
-        runtime,
-        network_adapter,
+        runtime.clone(),
+        network_adapter.clone(),
         shards_manager_adapter.into_sender(),
-        validator_signer,
+        validator_signer.clone(),
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
@@ -464,12 +485,31 @@ pub fn setup_client_with_runtime(
         Arc::new(ActixFutureSpawner),
         noop().into_multi_sender(), // state sync ignored for these tests
         noop().into_multi_sender(), // apply chunks ping not necessary for these tests
+        chunk_validation_sender,
         protocol_upgrade_schedule,
         spice_core_processor,
     )
     .unwrap();
     client.sync_handler.sync_status = SyncStatus::NoSync;
-    client
+
+    // Create chunk validation actor to use it later for SW validation
+    let chain_store = client.chain.chain_store().clone();
+    let genesis_block = client.chain.genesis_block();
+    let chunk_validation_inner = ChunkValidationActorInner::new(
+        chain_store,
+        genesis_block,
+        epoch_manager,
+        runtime,
+        network_adapter.into_sender(),
+        validator_signer,
+        false,
+        false,
+        Arc::new(RayonAsyncComputationSpawner),
+        near_chain_configs::default_orphan_state_witness_pool_size(),
+        near_chain_configs::default_orphan_state_witness_max_size().as_u64(),
+    );
+
+    (client, chunk_validation_inner)
 }
 
 pub fn setup_synchronous_shards_manager(

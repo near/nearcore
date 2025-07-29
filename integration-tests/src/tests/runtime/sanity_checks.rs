@@ -61,7 +61,7 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
         .unwrap();
     assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     let num_expected_receipts =
-        if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
     assert_eq!(tx_result.receipts_outcome.len(), num_expected_receipts);
 
     let tx_result =

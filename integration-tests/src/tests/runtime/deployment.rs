@@ -52,7 +52,7 @@ fn test_deploy_max_size_contract() {
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     let num_expected_receipts =
-        if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
     assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
 
     // Deploy contract

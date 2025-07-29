@@ -372,7 +372,7 @@ impl ShardTries {
 
         let store_config = StoreConfig::default();
 
-        let opener = NodeStorage::opener(&snapshot_path, &store_config, None);
+        let opener = NodeStorage::opener(&snapshot_path, &store_config, None, None);
         let storage = opener.open_in_mode(Mode::ReadOnly)?;
         let store = storage.get_hot_store().trie_store();
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());

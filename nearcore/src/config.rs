@@ -17,8 +17,8 @@ use near_chain_configs::{
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ReshardingConfig, StateSyncConfig,
-    TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig, default_chunk_wait_mult,
-    default_enable_multiline_logging, default_epoch_sync,
+    TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig, default_chunk_validation_threads,
+    default_chunk_wait_mult, default_enable_multiline_logging, default_epoch_sync,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
@@ -54,7 +54,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::{
-    ArchivalConfig, ArchivalStoreConfig, STATE_SNAPSHOT_DIR, SplitStorageConfig, StateSnapshotType,
+    CloudStorageConfig, STATE_SNAPSHOT_DIR, SplitStorageConfig, StateSnapshotType,
 };
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
@@ -302,6 +302,8 @@ pub struct Config {
     #[serde(flatten)]
     pub gc: GCConfig,
     pub view_client_threads: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_validation_threads: Option<usize>,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub view_client_throttle_period: Duration,
     /// Maximum number of state requests served per `view_client_throttle_period`
@@ -320,7 +322,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub archival_storage: Option<ArchivalStoreConfig>,
+    pub cloud_storage: Option<CloudStorageConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -426,6 +428,7 @@ impl Default for Config {
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
             view_client_threads: default_view_client_threads(),
+            chunk_validation_threads: None,
             view_client_throttle_period: default_view_client_throttle_period(),
             view_client_num_state_requests_per_throttle_period:
                 default_view_client_num_state_requests_per_throttle_period(),
@@ -434,7 +437,7 @@ impl Default for Config {
             store,
             cold_store: None,
             split_storage: None,
-            archival_storage: None,
+            cloud_storage: None,
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
@@ -525,16 +528,6 @@ impl Config {
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
         }
-    }
-
-    /// Returns `ArchivalConfig` which contains references to the archival-related configs if the config is for an archival node; otherwise returns `None`.
-    pub fn archival_config(&self) -> Option<ArchivalConfig> {
-        ArchivalConfig::new(
-            self.archive,
-            self.archival_storage.as_ref(),
-            self.cold_store.as_ref(),
-            self.split_storage.as_ref(),
-        )
     }
 
     pub fn tracked_shards_config(&self) -> TrackedShardsConfig {
@@ -628,6 +621,9 @@ impl NearConfig {
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
+                chunk_validation_threads: config
+                    .chunk_validation_threads
+                    .unwrap_or_else(default_chunk_validation_threads),
                 view_client_throttle_period: config.view_client_throttle_period,
                 view_client_num_state_requests_per_throttle_period: config
                     .view_client_num_state_requests_per_throttle_period,
@@ -1866,7 +1862,7 @@ mod tests {
         // Validators will track 2 shards and non-validators will track all shards.
         let _tracked_shards =
             [ShardUId::new(0, ShardId::new(1)), ShardUId::new(0, ShardId::new(3))];
-        // TODO(archival_v2): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
+        // TODO(cloud_archival): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
         let tracked_shards_config = TrackedShardsConfig::AllShards;
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
