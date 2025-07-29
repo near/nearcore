@@ -514,15 +514,9 @@ impl CoreStatementsProcessor {
                 // and it's ancestry may not yet contain enough signatures for certification of
                 // chunk.
                 if !waiting_on_endorsements.contains(&(chunk_production_key, account_id)) {
-                    // We should always have endorsement if we aren't waiting for it on this block.
-                    let Some((signed_inner, signature)) = known_endorsements.get(account_id) else {
-                        return Err(NoAncestryEndorsement {
-                            epoch_id: chunk_production_key.epoch_id,
-                            shard_id: chunk_production_key.shard_id,
-                            height_created: chunk_production_key.height_created,
-                            account_id: account_id.clone(),
-                        });
-                    };
+                    let (signed_inner, signature) = known_endorsements.get(account_id).expect(
+                        "if we aren't waiting for endorsement in this block it should be in ancestry and known"
+                    );
                     on_chain_endorsements
                         .entry(signed_inner)
                         .or_default()

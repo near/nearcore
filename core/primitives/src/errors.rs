@@ -1367,13 +1367,6 @@ pub enum InvalidSpiceCoreStatementsError {
         height_created: BlockHeight,
         error: EpochError,
     },
-    /// Could not find endorsements that should be available in block ancestors.
-    NoAncestryEndorsement {
-        shard_id: ShardId,
-        epoch_id: EpochId,
-        height_created: BlockHeight,
-        account_id: AccountId,
-    },
     /// Execution results for endorsed chunk are missing from block.
     NoExecutionResultForEndorsedChunk {
         shard_id: ShardId,
