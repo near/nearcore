@@ -390,6 +390,17 @@ impl ChainStoreAdapter {
             .unwrap_or_default())
     }
 
+    /// Returns a vector of all known processed next block hashes.
+    pub fn get_all_next_block_hashes(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Vec<CryptoHash>, Error> {
+        Ok(self
+            .store
+            .get_ser(DBCol::all_next_block_hashes(), block_hash.as_ref())?
+            .unwrap_or_default())
+    }
+
     pub fn get_state_header(
         &self,
         shard_id: ShardId,
