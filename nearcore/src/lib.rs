@@ -364,18 +364,18 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer.clone(),
     );
 
-    // TODO(darioush): For now this is using the same number of threads as the view client.
+    // Use dedicated thread pool for StateRequestActor
     let state_request_addr = {
         let runtime = runtime.clone();
         let epoch_manager = epoch_manager.clone();
-        spawn_sync_actix_actor(config.client_config.view_client_threads, move || {
+        spawn_sync_actix_actor(config.client_config.state_request_server_threads, move || {
             StateRequestActor::new(
                 Clock::real(),
                 runtime.clone(),
                 epoch_manager.clone(),
                 genesis_id.hash,
-                config.client_config.view_client_throttle_period,
-                config.client_config.view_client_num_state_requests_per_throttle_period,
+                config.client_config.state_request_throttle_period,
+                config.client_config.state_requests_per_throttle_period,
             )
         })
     };

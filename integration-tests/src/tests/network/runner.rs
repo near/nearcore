@@ -138,8 +138,8 @@ fn setup_network_node(
         runtime.clone(),
         epoch_manager.clone(),
         genesis_id.hash,
-        client_config.view_client_throttle_period, // TODO(darioush): Make separate config for state requests.
-        client_config.view_client_num_state_requests_per_throttle_period,
+        client_config.state_request_throttle_period,
+        client_config.state_requests_per_throttle_period,
     ));
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: client_config.transaction_request_handler_threads,

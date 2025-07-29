@@ -26,8 +26,8 @@ def get_state_sync_config_p2p(tracked_shards_config):
 
     config = {
         # Throttle view clients aggressively so that some p2p requests will fail.
-        "view_client_num_state_requests_per_throttle_period": 1,
-        "view_client_throttle_period": {
+        "state_requests_per_throttle_period": 1,
+        "state_request_throttle_period": {
             "secs": 2,
             "nanos": 0
         },

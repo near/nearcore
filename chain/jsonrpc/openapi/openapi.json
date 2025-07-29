@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.1.0"
+    "version": "1.1.1"
   },
   "paths": {
     "/EXPERIMENTAL_changes": {
@@ -9319,6 +9319,12 @@
             "minItems": 2,
             "type": "array"
           },
+          "chunk_validation_threads": {
+            "description": "Number of threads for ChunkValidationActor pool.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
           "chunk_wait_mult": {
             "description": "Multiplier for the wait time for all chunks to be received.",
             "items": {
@@ -9541,6 +9547,29 @@
             "description": "Skip waiting for sync (for testing or single node testnet).",
             "type": "boolean"
           },
+          "state_request_server_threads": {
+            "description": "Number of threads for StateRequestActor pool.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state_request_throttle_period": {
+            "description": "Number of seconds between state requests for view client.\nThrottling window for state requests (headers and parts).",
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "state_requests_per_throttle_period": {
+            "description": "Maximum number of state requests served per throttle period",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
           "state_sync": {
             "allOf": [
               {
@@ -9678,28 +9707,11 @@
             ],
             "description": "Version of the binary."
           },
-          "view_client_num_state_requests_per_throttle_period": {
-            "description": "Maximum number of state requests served per `view_client_throttle_period`",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
           "view_client_threads": {
             "description": "Number of threads for ViewClientActor pool.",
             "format": "uint",
             "minimum": 0,
             "type": "integer"
-          },
-          "view_client_throttle_period": {
-            "description": "Throttling window for state requests (headers and parts).",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
           }
         },
         "required": [
@@ -9742,8 +9754,10 @@
           "save_trie_changes",
           "save_tx_outcomes",
           "view_client_threads",
-          "view_client_throttle_period",
-          "view_client_num_state_requests_per_throttle_period",
+          "chunk_validation_threads",
+          "state_request_throttle_period",
+          "state_requests_per_throttle_period",
+          "state_request_server_threads",
           "enable_statistics_export",
           "client_background_migration_threads",
           "state_sync_enabled",
