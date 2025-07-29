@@ -174,7 +174,7 @@ fn new_part_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StateRes
     StateResponse(Box::new(info))
 }
 
-impl Handler<StateRequestHeader> for StateRequestActor {
+impl Handler<StateRequestHeader, Option<StateResponse>> for StateRequestActor {
     #[perf]
     fn handle(&mut self, msg: StateRequestHeader) -> Option<StateResponse> {
         let StateRequestHeader { shard_id, sync_hash } = msg;
@@ -222,7 +222,7 @@ impl Handler<StateRequestHeader> for StateRequestActor {
     }
 }
 
-impl Handler<StateRequestPart> for StateRequestActor {
+impl Handler<StateRequestPart, Option<StateResponse>> for StateRequestActor {
     #[perf]
     fn handle(&mut self, msg: StateRequestPart) -> Option<StateResponse> {
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;

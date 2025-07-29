@@ -171,7 +171,7 @@ impl BlockProductionTracker {
     }
 }
 
-impl Handler<DebugStatus> for ClientActorInner {
+impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {

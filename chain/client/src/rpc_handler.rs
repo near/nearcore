@@ -36,6 +36,12 @@ use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 pub type RpcHandlerActor = SyncActixWrapper<RpcHandler>;
 
 impl Handler<ProcessTxRequest> for RpcHandler {
+    fn handle(&mut self, msg: ProcessTxRequest) {
+        Handler::<ProcessTxRequest, ProcessTxResponse>::handle(self, msg);
+    }
+}
+
+impl Handler<ProcessTxRequest, ProcessTxResponse> for RpcHandler {
     fn handle(&mut self, msg: ProcessTxRequest) -> ProcessTxResponse {
         let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
         self.process_tx(transaction, is_forwarded, check_only)
