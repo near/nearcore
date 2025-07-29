@@ -333,13 +333,21 @@ impl Store {
         let storage = self.storage.clone();
         let pending = pending.clone();
         let _ = std::thread::spawn(move || -> io::Result<()> {
-            let mut pending = pending.0.write().expect("poisoned");
-            if pending.batches.is_empty() {
-                return Ok(());
-            }
-            let batches = std::mem::take(&mut pending.batches);
-            for batch in batches {
-                storage.write(batch)?;
+            // First write pending batches, but don't block readers.
+            let num_batches = {
+                let pending = pending.0.read().expect("poisoned");
+                if pending.batches.is_empty() {
+                    return Ok(());
+                }
+                for batch in &pending.batches {
+                    storage.write(batch.clone())?;
+                }
+                pending.batches.len()
+            };
+            // Clear the pending writes after flushing.
+            {
+                let mut pending = pending.0.write().expect("poisoned");
+                pending.batches.drain(..num_batches);
             }
             Ok(())
         });

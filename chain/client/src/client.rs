@@ -1067,7 +1067,9 @@ impl Client {
 
     /// Check optimistic block and start processing if is valid.
     pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: &PeerId) {
-        let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
+        let _span =
+            debug_span!(target: "client", "receive_optimistic_block", height = block.height(), tag_block_production = true)
+                .entered();
         debug!(target: "client", ?block, ?peer_id, "Received optimistic block");
 
         // Pre-validate the optimistic block.
