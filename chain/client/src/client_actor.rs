@@ -1332,24 +1332,22 @@ impl ClientActorInner {
     fn try_doomslug_timer(&mut self) {
         let _span = tracing::debug_span!(target: "client", "try_doomslug_timer").entered();
         let _ = self.client.check_and_update_doomslug_tip();
+        let doomslug_target_height = self.client.doomslug.get_largest_target_height();
+
+        if let Some(last_saved_largest_target_height) = self.last_saved_largest_target_height {
+            if doomslug_target_height == last_saved_largest_target_height {
+                // No need to update the largest target height, it is already saved.
+                return;
+            }
+        }
+
         let signer = self.client.validator_signer.get();
         let approvals = self.client.doomslug.process_timer(&signer);
 
         // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_chain_store().store_update();
-        let doomslug_target_height = self.client.doomslug.get_largest_target_height();
-
-        let skip_update = match self.last_saved_largest_target_height {
-            Some(last_saved_largest_target_height) => {
-                last_saved_largest_target_height == doomslug_target_height
-            }
-            None => false,
-        };
-        if !skip_update {
-            chain_store_update.save_largest_target_height(doomslug_target_height);
-        }
-
+        chain_store_update.save_largest_target_height(doomslug_target_height);
         match chain_store_update.commit() {
             Ok(_) => {
                 self.last_saved_largest_target_height = Some(doomslug_target_height);
