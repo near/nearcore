@@ -9,6 +9,7 @@ use near_primitives::types::BlockHeight;
 use parking_lot::RwLock;
 use tracing::{debug, warn};
 
+use crate::StoreUpdate;
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use crate::flat::BlockInfo;
 use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
@@ -426,7 +427,9 @@ impl FlatStorage {
                 guard.deltas.remove(&hash);
             }
 
-            store_update.commit().unwrap();
+            let store_update: StoreUpdate = store_update.into();
+            store_update.write_pending().unwrap();
+            //store_update.commit().unwrap();
             debug!(target: "store", %shard_id, %block_hash, %block_height, "Moved flat storage head");
         }
         guard.update_delta_metrics();
