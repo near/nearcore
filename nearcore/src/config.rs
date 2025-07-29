@@ -545,10 +545,12 @@ impl Config {
 
     /// Check for deprecated configuration fields and emit warnings
     fn check_for_deprecated_fields(json_str: &str) {
-        for (old, new_) in Self::deprecated_fields_in_json(json_str) {
+        for (deprecated_key, new_key) in Self::deprecated_fields_in_json(json_str) {
             tracing::warn!(
                 target: "neard",
-                "Deprecated config key '{old}' detected — please migrate to '{new_}'"
+                deprecated_key = %deprecated_key,
+                new_key        = %new_key,
+                "Deprecated config key detected – please migrate",
             );
         }
     }
