@@ -7,7 +7,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
 use near_chain_configs::{Genesis, GenesisConfig, MutableConfigValue, TrackedShardsConfig};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_client::Client;
+use near_client::{ChunkValidationActorInner, Client};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -509,7 +509,8 @@ impl TestEnvBuilder {
                 )
             })
             .collect_vec();
-        let clients: Vec<Client> = (0..num_clients)
+        let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActorInner>) =
+            (0..num_clients)
                 .map(|i| {
                     let account_id = client_accounts[i].clone();
                     let network_adapter = network_adapters[i].clone();
@@ -563,7 +564,7 @@ impl TestEnvBuilder {
                         noop().into_multi_sender(),
                     )
                 })
-                .collect();
+                .unzip();
 
         let tx_request_handlers = (0..num_clients)
             .map(|i| {
@@ -587,6 +588,7 @@ impl TestEnvBuilder {
             partial_witness_adapters,
             shards_manager_adapters,
             clients,
+            chunk_validation_actors,
             rpc_handlers: tx_request_handlers,
             account_indices: AccountIndices(
                 self.clients

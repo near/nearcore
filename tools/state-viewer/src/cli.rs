@@ -217,6 +217,9 @@ pub enum StorageSource {
     FlatStorage,
     /// Implies flat storage and loads the memtries as well.
     Memtrie,
+    /// Recorded storage, as used during chunk validation.
+    /// Only available in "benchmark" mode.
+    Recorded,
 }
 
 impl StorageSource {
@@ -228,6 +231,11 @@ impl StorageSource {
             // This is the same as FlatStorage handling. That's because memtrie initialization
             // happens as part of `ShardTries::load_memtrie` function call.
             StorageSource::Memtrie => RuntimeStorageConfig::new(state_root, true),
+            StorageSource::Recorded => {
+                panic!(
+                    "For recorded storage the RuntimeStorageConfig has to be created from storage proof"
+                );
+            }
         }
     }
 }
@@ -294,8 +302,6 @@ impl ApplyChunkCmd {
 #[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ApplyRangeMode {
     /// Applies chunks one after another in order of increasing heights.
-    ///
-    /// Great for profiling.
     Sequential {
         /// If true, saves state transitions for state witness generation.
         #[clap(long)]
@@ -316,8 +322,9 @@ pub struct ApplyRangeCmd {
     start_index: Option<BlockHeight>,
     #[clap(long)]
     end_index: Option<BlockHeight>,
-    #[clap(long, default_value = "0")]
-    shard_id: ShardId,
+    /// All shards by default (if not specified.) Can be provided multiple times.
+    #[clap(long)]
+    shard_id: Vec<ShardId>,
     #[clap(long)]
     verbose_output: bool,
     #[clap(long, value_parser)]

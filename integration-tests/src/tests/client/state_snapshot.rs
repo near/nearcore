@@ -10,7 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
 use near_store::adapter::StoreAdapter;
-use near_store::config::StateSnapshotType;
+use near_store::config::{STATE_SNAPSHOT_DIR, StateSnapshotType};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::state_snapshots_dir;
 use near_store::{
@@ -61,7 +61,7 @@ fn set_up_test_env_for_state_snapshots(
 ) -> StateSnapshotTestEnv {
     let home_dir =
         tempfile::Builder::new().prefix("storage").tempdir().unwrap().path().to_path_buf();
-    let state_snapshots_dir = state_snapshots_dir(&home_dir, "data", "state_snapshot");
+    let state_snapshots_dir = state_snapshots_dir(&home_dir, "data", STATE_SNAPSHOT_DIR);
     let state_snapshot_config = match snapshot_type {
         StateSnapshotType::Enabled => {
             StateSnapshotConfig::Enabled { state_snapshots_dir: state_snapshots_dir.clone() }

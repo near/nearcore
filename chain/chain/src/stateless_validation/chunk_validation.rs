@@ -10,8 +10,11 @@ use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::store::latest_witnesses::save_invalid_chunk_state_witness;
 use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource};
-use crate::validate::validate_chunk_with_chunk_extra_and_receipts_root;
+use crate::validate::{
+    validate_chunk_with_chunk_extra_and_receipts_root, validate_chunk_with_encoded_merkle_root,
+};
 use crate::{Chain, ChainStore, ChainStoreAccess};
+use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_chain_primitives::Error;
@@ -37,6 +40,7 @@ use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Store, Trie};
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -296,11 +300,10 @@ fn get_resharding_transition(
 /// validation thread.
 pub fn pre_validate_chunk_state_witness(
     state_witness: &ChunkStateWitness,
-    chain: &Chain,
+    store: &ChainStore,
+    genesis: Arc<Block>,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<PreValidationOutput, Error> {
-    let store = chain.chain_store();
-
     // Ensure that the chunk header version is supported in this protocol version
     let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
     let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
@@ -351,15 +354,26 @@ pub fn pre_validate_chunk_state_witness(
         } else {
             let prev_block_header =
                 store.get_block_header(last_chunk_block.header().prev_hash())?;
-            let check = chain.transaction_validity_check(BlockHeader::clone(&prev_block_header));
-            state_witness.transactions().iter().map(|t| check(t)).collect::<Vec<_>>()
+            state_witness
+                .transactions()
+                .iter()
+                .map(|t| {
+                    store
+                        .check_transaction_validity_period(
+                            &prev_block_header,
+                            t.transaction.block_hash(),
+                        )
+                        .is_ok()
+                })
+                .collect_vec()
         }
     };
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
         let epoch_id = last_chunk_block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        let chunk_extra = chain.genesis_chunk_extra(&shard_layout, last_chunk_shard_id)?;
+        let chunk_extra =
+            Chain::genesis_chunk_extra(genesis, store, &shard_layout, last_chunk_shard_id)?;
         MainTransition::Genesis {
             chunk_extra,
             block_hash: *last_chunk_block.hash(),
@@ -521,6 +535,7 @@ pub fn validate_chunk_state_witness_impl(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
     main_state_transition_cache: &MainStateTransitionCache,
+    rs: Arc<ReedSolomon>,
 ) -> Result<ChunkExecutionResult, Error> {
     let ChunkProductionKey { shard_id: witness_chunk_shard_id, epoch_id, height_created } =
         state_witness.chunk_production_key();
@@ -603,7 +618,7 @@ pub fn validate_chunk_state_witness_impl(
             block_hash,
             ChunkStateWitnessValidationResult {
                 chunk_extra: chunk_extra.clone(),
-                outgoing_receipts,
+                outgoing_receipts: outgoing_receipts.clone(),
             },
         );
     }
@@ -704,6 +719,21 @@ pub fn validate_chunk_state_witness_impl(
             &state_witness.chunk_header(),
             &outgoing_receipts_root,
         )?;
+
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
+            let (tx_root, _) = merklize(&state_witness.new_transactions());
+            if tx_root != *state_witness.chunk_header().tx_root() {
+                return Err(Error::InvalidTxRoot);
+            }
+            validate_chunk_with_encoded_merkle_root(
+                &state_witness.chunk_header(),
+                outgoing_receipts,
+                state_witness.new_transactions().clone(),
+                rs.as_ref(),
+                shard_id,
+            )?;
+        }
     }
 
     Ok(ChunkExecutionResult { chunk_extra, outgoing_receipts_root })
@@ -717,6 +747,7 @@ pub fn validate_chunk_state_witness(
     main_state_transition_cache: &MainStateTransitionCache,
     store: Store,
     save_witness_if_invalid: bool,
+    rs: Arc<ReedSolomon>,
 ) -> Result<ChunkExecutionResult, Error> {
     // Avoid cloning the witness if possible
     if !save_witness_if_invalid {
@@ -726,6 +757,7 @@ pub fn validate_chunk_state_witness(
             epoch_manager,
             runtime_adapter,
             main_state_transition_cache,
+            rs,
         );
     }
 
@@ -735,6 +767,7 @@ pub fn validate_chunk_state_witness(
         epoch_manager,
         runtime_adapter,
         main_state_transition_cache,
+        rs,
     );
     if result.is_err() {
         if let Err(storage_err) = save_invalid_chunk_state_witness(store, &state_witness) {
@@ -771,6 +804,7 @@ impl Chain {
         witness: ChunkStateWitness,
         epoch_manager: &dyn EpochManagerAdapter,
         processing_done_tracker: Option<ProcessingDoneTracker>,
+        rs: Arc<ReedSolomon>,
     ) -> Result<(), Error> {
         let shard_id = witness.chunk_header().shard_id();
         let height_created = witness.chunk_header().height_created();
@@ -807,8 +841,12 @@ impl Chain {
             (encoded_witness, raw_witness_size)
         };
         let pre_validation_start = Instant::now();
-        let pre_validation_result =
-            pre_validate_chunk_state_witness(&witness, &self, epoch_manager)?;
+        let pre_validation_result = pre_validate_chunk_state_witness(
+            &witness,
+            self.chain_store(),
+            self.genesis_block(),
+            epoch_manager,
+        )?;
         tracing::debug!(
             parent: &parent_span,
             %shard_id,
@@ -836,6 +874,7 @@ impl Chain {
                 &MainStateTransitionCache::default(),
                 store,
                 false,
+                rs,
             ) {
                 Ok(_) => {
                     tracing::debug!(

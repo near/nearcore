@@ -1,6 +1,5 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
-pub use apply_chunks_thread_pool::ApplyChunksSpawner;
 pub use block_processing_utils::BlockProcessingArtifact;
 pub use chain::{Chain, check_known, collect_receipts};
 pub use chain_update::ChainUpdate;
@@ -10,6 +9,9 @@ pub use doomslug::{
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
 pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;
+pub use soft_realtime_thread_pool::{
+    ApplyChunksSpawner, PartialWitnessValidationThreadPool, WitnessCreationThreadPool,
+};
 pub use store::utils::{
     check_transaction_validity_period, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard, retrieve_headers,
@@ -21,7 +23,6 @@ pub use store::{
 pub use store_validator::{ErrorMessage, StoreValidator};
 pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, LatestKnown, Provenance};
 
-mod apply_chunks_thread_pool;
 mod approval_verification;
 mod block_processing_utils;
 pub mod blocks_delay_tracker;
@@ -42,6 +43,7 @@ pub mod resharding;
 pub mod runtime;
 pub mod sharding;
 pub mod signature_verification;
+mod soft_realtime_thread_pool;
 pub mod state_snapshot_actor;
 pub mod state_sync;
 pub mod stateless_validation;

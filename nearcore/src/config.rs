@@ -17,8 +17,8 @@ use near_chain_configs::{
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ReshardingConfig, StateSyncConfig,
-    TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig, default_chunk_wait_mult,
-    default_enable_multiline_logging, default_epoch_sync,
+    TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig, default_chunk_validation_threads,
+    default_chunk_wait_mult, default_enable_multiline_logging, default_epoch_sync,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
@@ -53,7 +53,9 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{CloudStorageConfig, SplitStorageConfig, StateSnapshotType};
+use near_store::config::{
+    CloudStorageConfig, STATE_SNAPSHOT_DIR, SplitStorageConfig, StateSnapshotType,
+};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -300,6 +302,8 @@ pub struct Config {
     #[serde(flatten)]
     pub gc: GCConfig,
     pub view_client_threads: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_validation_threads: Option<usize>,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub view_client_throttle_period: Duration,
     /// Maximum number of state requests served per `view_client_throttle_period`
@@ -424,6 +428,7 @@ impl Default for Config {
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
             view_client_threads: default_view_client_threads(),
+            chunk_validation_threads: None,
             view_client_throttle_period: default_view_client_throttle_period(),
             view_client_num_state_requests_per_throttle_period:
                 default_view_client_num_state_requests_per_throttle_period(),
@@ -616,6 +621,9 @@ impl NearConfig {
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
+                chunk_validation_threads: config
+                    .chunk_validation_threads
+                    .unwrap_or_else(default_chunk_validation_threads),
                 view_client_throttle_period: config.view_client_throttle_period,
                 view_client_num_state_requests_per_throttle_period: config
                     .view_client_num_state_requests_per_throttle_period,
@@ -711,7 +719,7 @@ impl NightshadeRuntime {
                 StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
                     home_dir,
                     config.config.store.path.as_ref().unwrap_or(&"data".into()),
-                    "state_snapshot",
+                    STATE_SNAPSHOT_DIR,
                 ),
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };

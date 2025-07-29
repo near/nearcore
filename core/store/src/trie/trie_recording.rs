@@ -12,24 +12,24 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
     recorded: dashmap::DashMap<CryptoHash, TrieNodeWithRefcount>,
-    size: AtomicUsize,
+    size: crossbeam::utils::CachePadded<AtomicUsize>,
     /// Size of the recorded state proof plus some additional size added to cover removals and
     /// contract code.
     ///
     /// An upper-bound estimation of the true recorded size after finalization. See
     /// https://github.com/near/nearcore/issues/10890 and
     /// https://github.com/near/nearcore/pull/11000 for details.
-    upper_bound_size: AtomicUsize,
+    upper_bound_size: crossbeam::utils::CachePadded<AtomicUsize>,
+    /// Counts removals performed while recording.
+    ///
+    /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
+    removal_counter: crossbeam::utils::CachePadded<AtomicUsize>,
+    /// Counts the total size of the contract codes read while recording.
+    code_len_counter: crossbeam::utils::CachePadded<AtomicUsize>,
     /// Limit on the maximum size of the state proof that can be recorded.
     ///
     /// This may get set to u64::MAX to effectively impose no useful limit.
     proof_size_limit: u64,
-    /// Counts removals performed while recording.
-    ///
-    /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
-    removal_counter: AtomicUsize,
-    /// Counts the total size of the contract codes read while recording.
-    code_len_counter: AtomicUsize,
     /// Account IDs for which the code should be recorded.
     pub codes_to_record: dashmap::DashSet<AccountId>,
 }
@@ -78,10 +78,10 @@ impl TrieRecorder {
         Self {
             recorded: Default::default(),
             proof_size_limit: proof_size_limit.unwrap_or(u64::MAX),
-            size: 0.into(),
-            upper_bound_size: 0.into(),
-            removal_counter: 0.into(),
-            code_len_counter: 0.into(),
+            size: Default::default(),
+            upper_bound_size: Default::default(),
+            removal_counter: Default::default(),
+            code_len_counter: Default::default(),
             codes_to_record: Default::default(),
         }
     }

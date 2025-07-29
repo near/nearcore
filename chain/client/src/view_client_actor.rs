@@ -65,7 +65,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::warn;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -1186,15 +1186,15 @@ impl Handler<NetworkAdversarialMessage> for ViewClientActorInner {
             .start_timer();
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
-                info!(target: "adversary", "Turning Doomslug off");
+                tracing::info!(target: "adversary", "Turning Doomslug off");
                 self.adv.set_disable_doomslug(true);
             }
             NetworkAdversarialMessage::AdvDisableHeaderSync => {
-                info!(target: "adversary", "Blocking header sync");
+                tracing::info!(target: "adversary", "Blocking header sync");
                 self.adv.set_disable_header_sync(true);
             }
             NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
-                info!(target: "adversary", "Switching to height");
+                tracing::info!(target: "adversary", "Switching to height");
                 let mut chain_store_update = self.chain.mut_chain_store().store_update();
                 chain_store_update.save_largest_target_height(height);
                 chain_store_update
