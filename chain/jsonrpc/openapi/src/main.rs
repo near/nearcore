@@ -586,17 +586,29 @@ fn main() {
         "block".to_string(),
         "Returns block details for given height or hash".to_string(),
     );
+    add_spec_for_path::<RpcStateChangesInBlockRequest, RpcStateChangesInBlockByTypeResponse>(
+        &mut all_schemas,
+        &mut all_paths,
+        "block_effects".to_string(),
+        "Returns changes in block for given block height or hash over all transactions for all the types. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched.".to_string(),
+    );
     add_spec_for_path::<RpcSendTransactionRequest, CryptoHash>(
         &mut all_schemas,
         &mut all_paths,
         "broadcast_tx_async".to_string(),
-        "[Deprecated] Sends a transaction and immediately returns transaction hash. Consider using send_tx instead".to_string(),
+        "[Deprecated] Sends a transaction and immediately returns transaction hash. Consider using send_tx instead.".to_string(),
     );
     add_spec_for_path::<RpcSendTransactionRequest, RpcTransactionResponse>(
         &mut all_schemas,
         &mut all_paths,
         "broadcast_tx_commit".to_string(),
-        "[Deprecated] Sends a transaction and waits until transaction is fully complete. (Has a 10 second timeout). Consider using send_tx instead".to_string(),
+        "[Deprecated] Sends a transaction and waits until transaction is fully complete. (Has a 10 second timeout). Consider using send_tx instead.".to_string(),
+    );
+    add_spec_for_path::<RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockResponse>(
+        &mut all_schemas,
+        &mut all_paths,
+        "changes".to_string(),
+        "Returns changes for a given account, contract or contract code for given block height or hash.".to_string(),
     );
     add_spec_for_path::<RpcChunkRequest, RpcChunkResponse>(
         &mut all_schemas,
@@ -610,6 +622,12 @@ fn main() {
         "gas_price".to_string(),
         "Returns gas price for a specific block_height or block_hash. Using [null] will return the most recent block's gas price.".to_string(),
     );
+    add_spec_for_path::<GenesisConfigRequest, GenesisConfig>(
+        &mut all_schemas,
+        &mut all_paths,
+        "genesis_config".to_string(),
+        "Get initial state and parameters for the genesis block".to_string(),
+    );
     add_spec_for_path::<RpcHealthRequest, Option<RpcHealthResponse>>(
         &mut all_schemas,
         &mut all_paths,
@@ -621,6 +639,12 @@ fn main() {
         &mut all_paths,
         "light_client_proof".to_string(),
         "Returns the proofs for a transaction execution.".to_string(),
+    );
+    add_spec_for_path::<RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse>(
+        &mut all_schemas,
+        &mut all_paths,
+        "maintenance_windows".to_string(),
+        "Returns the future windows for maintenance in current epoch for the specified account. In the maintenance windows, the node will not be block producer or chunk producer.".to_string(),
     );
     add_spec_for_path::<RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse>(
         &mut all_schemas,
@@ -669,19 +693,13 @@ fn main() {
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_changes".to_string(),
-        "Returns changes in block for given block height or hash over all transactions for the current type. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched".to_string(),
-    );
-    add_spec_for_path::<RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockResponse>(
-        &mut all_schemas,
-        &mut all_paths,
-        "changes".to_string(),
-        "Returns changes in block for given block height or hash over all transactions for the current type. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched".to_string(),
+        "[Deprecated] Returns changes for a given account, contract or contract code for given block height or hash. Consider using changes instead.".to_string(),
     );
     add_spec_for_path::<RpcStateChangesInBlockRequest, RpcStateChangesInBlockByTypeResponse>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_changes_in_block".to_string(),
-        "Returns changes in block for given block height or hash over all transactions for all the types. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched".to_string(),
+        "[Deprecated] Returns changes in block for given block height or hash over all transactions for all the types. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched. Consider using block_effects instead".to_string(),
     );
     add_spec_for_path::<RpcCongestionLevelRequest, RpcCongestionLevelResponse>(
         &mut all_schemas,
@@ -693,7 +711,7 @@ fn main() {
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_genesis_config".to_string(),
-        "Get initial state and parameters for the genesis block".to_string(),
+        "[Deprecated] Get initial state and parameters for the genesis block. Consider genesis_config instead.".to_string(),
     );
     add_spec_for_path::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse>(
         &mut all_schemas,
@@ -735,7 +753,7 @@ fn main() {
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_maintenance_windows".to_string(),
-        "Returns the future windows for maintenance in current epoch for the specified account. In the maintenance windows, the node will not be block producer or chunk producer".to_string(),
+        "[Deprecated] Returns the future windows for maintenance in current epoch for the specified account. In the maintenance windows, the node will not be block producer or chunk producer. Consider using maintenance_windows instead.".to_string(),
     );
     add_spec_for_path::<RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse>(
         &mut all_schemas,
