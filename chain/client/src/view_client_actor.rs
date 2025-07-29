@@ -567,7 +567,7 @@ impl ViewClientActorInner {
     fn outgoing_receipts_for_outcome(
         &self,
         outcome: &ExecutionOutcomeWithIdView,
-    ) -> Result<Vec<Receipt>, TxStatusError> {
+    ) -> Result<Arc<Vec<Receipt>>, TxStatusError> {
         let epoch_id = &self.epoch_manager.get_epoch_id(&outcome.block_hash).into_chain_error()?;
         let shard_id = account_id_to_shard_id(
             self.epoch_manager.as_ref(),
@@ -575,12 +575,8 @@ impl ViewClientActorInner {
             epoch_id,
         )
         .into_chain_error()?;
-        let block = self.chain.get_block(&outcome.block_hash)?;
-        let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
-            outcome.block_hash,
-            shard_id,
-            block.header().height(),
-        )?;
+        let outgoing_receipts =
+            self.chain.chain_store().get_outgoing_receipts(&outcome.block_hash, shard_id)?;
         Ok(outgoing_receipts)
     }
 
