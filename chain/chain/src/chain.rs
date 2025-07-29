@@ -1799,7 +1799,6 @@ impl Chain {
         if reprocessing {
             async_batch.commit()?; // Just need to write the async batch, as sync batch was already written.
         } else {
-            self.chain_store().store().flush_pending()?; // XXX: Shouldn't have to flush pending writes here, but just in case.
             async_batch.write_pending()?;
             sync_batch.commit()?;
         }
