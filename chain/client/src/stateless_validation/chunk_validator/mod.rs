@@ -8,7 +8,7 @@ use near_async::messaging::{CanSend, Sender};
 use near_chain::stateless_validation::chunk_validation;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::types::RuntimeAdapter;
-use near_chain::validate::validate_chunk_with_chunk_extra;
+use near_chain::validate::validate_chunk_with_chunk_extra_and_roots;
 use near_chain::{Block, Chain};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -126,13 +126,15 @@ impl ChunkValidator {
             epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(&prev_block_hash, &shard_uid) {
-            match validate_chunk_with_chunk_extra(
+            match validate_chunk_with_chunk_extra_and_roots(
                 chain.chain_store(),
                 self.epoch_manager.as_ref(),
                 &prev_block_hash,
                 &prev_chunk_extra,
                 last_header.height_included(),
                 &chunk_header,
+                state_witness.new_transactions(),
+                self.rs.as_ref(),
             ) {
                 Ok(()) => {
                     send_chunk_endorsement_to_block_producers(
