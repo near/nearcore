@@ -217,8 +217,8 @@ pub fn setup_client(
         runtime_adapter.clone(),
         epoch_manager.clone(),
         *view_client_actor.chain.genesis().hash(),
-        client_config.view_client_throttle_period,
-        client_config.view_client_num_state_requests_per_throttle_period,
+        client_config.state_request_throttle_period,
+        client_config.state_requests_per_throttle_period,
     );
 
     let head = client.chain.head().unwrap();
