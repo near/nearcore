@@ -3,6 +3,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::messaging::{Actor, CanSend, CanSendAsync};
@@ -11,12 +12,16 @@ use crate::tokio::traits::HandlerWithContext;
 pub struct TokioRuntimeHandle<A> {
     sender: mpsc::UnboundedSender<Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send>>,
     runtime: tokio::runtime::Handle,
-    // TODO: Add cancellation logic
+    cancel: CancellationToken,
 }
 
 impl<A> Clone for TokioRuntimeHandle<A> {
     fn clone(&self) -> Self {
-        Self { sender: self.sender.clone(), runtime: self.runtime.clone() }
+        Self {
+            sender: self.sender.clone(),
+            runtime: self.runtime.clone(),
+            cancel: self.cancel.clone(),
+        }
     }
 }
 
@@ -30,6 +35,10 @@ where
 
     pub fn future_spawner(&self) -> Box<dyn FutureSpawner> {
         Box::new(self.clone())
+    }
+
+    pub fn cancel(&self) {
+        self.cancel.cancel();
     }
 }
 
@@ -108,19 +117,20 @@ where
         Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send>,
     >();
 
-    let runtime_handle = TokioRuntimeHandle { sender, runtime: runtime.handle().clone() };
+    let cancel = CancellationToken::new();
+    let runtime_handle =
+        TokioRuntimeHandle { sender, runtime: runtime.handle().clone(), cancel: cancel.clone() };
 
     // Spawn the actor in the runtime
     let mut runtime_handle_clone = runtime_handle.clone();
     runtime.spawn(async move {
-        // TODO: Handle cancellation logic
         actor.start_actor(&mut runtime_handle_clone);
         loop {
             tokio::select! {
                 Some(function) = receiver.recv() => {
                     function(&mut actor, &mut runtime_handle_clone);
                 },
-                else => break,
+                _ = cancel.cancelled() => break,
             }
         }
     });
