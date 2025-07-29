@@ -363,6 +363,10 @@ impl SignedTransaction {
         self.hash
     }
 
+    pub fn hash(&self) -> &CryptoHash {
+        &self.hash
+    }
+
     pub fn get_size(&self) -> u64 {
         self.size
     }

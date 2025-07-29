@@ -26,7 +26,7 @@ thiserror.workspace = true
 tracing.workspace = true
 bytesize.workspace = true
 rand_chacha.workspace = true
-cpu-time = "1.0"
+dashmap.workspace = true
 
 near-crypto.workspace = true
 near-o11y.workspace = true

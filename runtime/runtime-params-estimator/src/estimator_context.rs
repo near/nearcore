@@ -465,7 +465,7 @@ impl Testbed<'_> {
             &self.apply_state.config,
             &mut signer,
             &mut access_key,
-            &validated_tx,
+            validated_tx.to_signed_tx(),
             &cost,
             block_height,
         )
