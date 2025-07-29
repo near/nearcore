@@ -155,7 +155,7 @@ pub fn verify_and_charge_tx_ephemeral(
     config: &RuntimeConfig,
     signer: &mut Account,
     access_key: &mut AccessKey,
-    validated_tx: &ValidatedTransaction,
+    validated_tx: &SignedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
 ) -> Result<VerificationResult, InvalidTxError> {
@@ -164,8 +164,8 @@ pub fn verify_and_charge_tx_ephemeral(
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
 
-    let signer_id = validated_tx.signer_id();
-    let tx = validated_tx.to_tx();
+    let tx = &validated_tx.transaction;
+    let signer_id = tx.signer_id();
     if tx.nonce() <= access_key.nonce {
         let err = InvalidTxError::InvalidNonce { tx_nonce: tx.nonce(), ak_nonce: access_key.nonce };
         return Err(err.into());
@@ -745,7 +745,7 @@ mod tests {
             config,
             &mut signer,
             &mut access_key,
-            &validated_tx,
+            validated_tx.to_signed_tx(),
             &cost,
             None,
         )
@@ -773,7 +773,7 @@ mod tests {
             config,
             &mut signer,
             &mut access_key,
-            &validated_tx,
+            validated_tx.to_signed_tx(),
             &transaction_cost,
             block_height,
         )?;
