@@ -8,10 +8,14 @@ import cluster
 from utils import load_test_contract
 import transaction
 
+GOOD_FINAL_EXECUTION_STATUS = ['FINAL', 'EXECUTED', 'EXECUTED_OPTIMISTIC']
+
 
 def submit_tx_and_check(nodes, node_index, tx):
     node = nodes[node_index]
-    res = node.send_tx_and_wait(tx, timeout=20)
+    res = node.send_tx_and_wait_until(tx,
+                                      wait_until="EXECUTED_OPTIMISTIC",
+                                      timeout=20)
     assert 'error' not in res, res
 
     tx_hash = res['result']['transaction']['hash']
@@ -33,6 +37,14 @@ def submit_tx_and_check(nodes, node_index, tx):
         f'receipt id from outcomes {receipt_id_from_outcomes}, '
         f'receipt id from receipts {receipt_id_from_receipts}')
 
+    status = query_res['result']['status']
+    final_execution_status = query_res['result']['final_execution_status']
+
+    assert final_execution_status in GOOD_FINAL_EXECUTION_STATUS, query_res
+    assert 'SuccessValue' in status, query_res
+
+    return query_res
+
 
 def test_tx_status(nodes, *, nonce_offset: int = 0):
     signer_key = nodes[0].signer_key
@@ -51,6 +63,35 @@ def test_tx_status(nodes, *, nonce_offset: int = 0):
         struct.pack('<QQ', 42, 24), 300000000000000, 0, nonce_offset + 3,
         encoded_block_hash)
     submit_tx_and_check(nodes, 0, function_call_tx)
+
+    # Regression test for https://github.com/near/nearcore/issues/13872
+    # A cross contract call with "EXECUTED_OPTIMISTIC" RPC semantics should
+    # always include the receipts for all function calls.
+    #
+    # This calls `generate_large_receipt` which in turn calls `ext_sha256` as a
+    # cross-contract call. The result must contain the receipt for the cross
+    # function call. It may also include the refund receipt.
+    args = f'{{"account_id": "{signer_key.account_id}", "method_name": "ext_sha256",  "total_args_size": 1}}'
+    ccc_function_call_tx = transaction.sign_function_call_tx(
+        signer_key, signer_key.account_id, 'generate_large_receipt',
+        bytes(args, 'utf-8'), 300000000000000, 0, nonce_offset + 4,
+        encoded_block_hash)
+    res = submit_tx_and_check(nodes, 0, ccc_function_call_tx)
+    function_call_receipts = [
+        r for r in res['result']['receipts']
+        if 'Action' in r['receipt'] and any(
+            'FunctionCall' in action
+            for action in r['receipt']['Action']['actions'])
+    ]
+    assert len(function_call_receipts) == 1, function_call_receipts
+    assert function_call_receipts[0]['receipt']['Action']['actions'][0][
+        'FunctionCall']['method_name'] == 'ext_sha256', function_call_receipts
+    # Also check the outcome for the receipt is included and was successful
+    receipt_id = function_call_receipts[0]['receipt_id']
+    outcome = next(outcome['outcome']
+                   for outcome in res['result']['receipts_outcome']
+                   if outcome['id'] == receipt_id)
+    assert "SuccessValue" in outcome['status']
 
 
 def start_cluster(*, archive: bool = False):
