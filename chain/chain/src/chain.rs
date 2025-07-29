@@ -2374,6 +2374,12 @@ impl Chain {
             self.spice_core_processor
                 .validate_core_statements_in_block(&block)
                 .map_err(Box::new)?;
+        } else {
+            if block.is_spice_block() {
+                return Err(Error::Other(
+                    "encountered spice block without spice feature enabled".to_string(),
+                ));
+            }
         }
 
         let apply_chunk_work = self.apply_chunks_preprocessing(

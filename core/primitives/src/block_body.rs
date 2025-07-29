@@ -158,6 +158,14 @@ impl BlockBody {
         }
     }
 
+    #[inline]
+    pub fn is_spice_block(&self) -> bool {
+        match self {
+            BlockBody::V1(_) | BlockBody::V2(_) => false,
+            BlockBody::V3(_) => true,
+        }
+    }
+
     pub fn compute_hash(&self) -> CryptoHash {
         // From BlockBodyV2 onwards, we hash the entire body including version.
         match self {

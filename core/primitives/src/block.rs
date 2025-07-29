@@ -391,6 +391,14 @@ impl Block {
         }
     }
 
+    #[inline]
+    pub fn is_spice_block(&self) -> bool {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => false,
+            Block::BlockV4(block) => block.body.is_spice_block(),
+        }
+    }
+
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
         self.chunks().block_congestion_info()
     }
