@@ -284,10 +284,13 @@ mod tests {
             );
 
             // Check that the accessed nodes are consistent with those from disk.
-            for (node_hash, serialized_node) in nodes_accessed {
+            for node_view in nodes_accessed {
+                let node_hash = node_view.node_hash();
+                let serialized_node =
+                    borsh::to_vec(&node_view.to_raw_trie_node_with_size()).unwrap();
                 let expected_serialized_node =
                     trie.internal_retrieve_trie_node(&node_hash, false, opts).unwrap();
-                assert_eq!(expected_serialized_node, serialized_node);
+                assert_eq!(&*expected_serialized_node, &serialized_node);
             }
         }
     }
