@@ -68,7 +68,7 @@ pub fn start_all_with_validity_period(
         Arc::new(DummyEntityDebugHandler {}),
     );
     // setup_no_network_with_validity_period should use runtime_tempdir together with real runtime.
-    (actor_handles.view_client_actor, addr, actor_handles.runtime_tempdir.unwrap())
+    (actor_handles.view_client_actor.clone(), addr, actor_handles.runtime_tempdir.clone().unwrap())
 }
 
 #[macro_export]
