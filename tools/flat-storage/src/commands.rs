@@ -364,7 +364,7 @@ impl FlatStorageCommand {
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting);
 
         let write_opener =
-            NodeStorage::opener(&cmd.write_store_path, &near_config.config.store, None);
+            NodeStorage::opener(&cmd.write_store_path, &near_config.config.store, None, None);
         let write_node_storage = write_opener.open_in_mode(Mode::Create)?;
         let write_store = write_node_storage.get_hot_store();
 
@@ -568,7 +568,8 @@ impl FlatStorageCommand {
         let opener = NodeStorage::opener(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
+            near_config.config.cloud_storage.as_ref(),
         );
 
         match &self.subcmd {

@@ -432,29 +432,16 @@ pub struct PrefetchConfig {
     pub method_name: String,
 }
 
-/// Configures the archival storage used by the archival nodes.
-///
-/// If the archival storage is ColdDB, this config is complemented by the other parts of the Near node config,
-/// for example, the `StoreConfig` stored in the `Config.cold_store` field is used to configure the cold RocksDB
-/// and the `SplitStorageConfig` stored in the `Config.split_storage` field is used to configure the process
-/// that copies database entries from hot to cold DB.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct ArchivalStoreConfig {
-    /// The storage to persist the archival data (by default ColdDB).
-    pub storage: ArchivalStorageLocation,
+/// Configures the external storage used by the archival nodes.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CloudStorageConfig {
+    /// The storage to persist the archival data.
+    pub storage: CloudStorageLocation,
 }
 
-/// Similar to External
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub enum ArchivalStorageLocation {
-    /// Archival data is persisted in the ColdDB.
-    /// In this case, the ColdDB is configured by the `Config.cold_store`
-    /// (which contain a [`StoreConfig`] that configures for the cold RocksDB),
-    /// and `Config.split_storage` (which contains a [`SplitStorageConfig`] that
-    /// configures the hot-to-cold copy process).
-    #[default]
-    ColdDB,
+// TODO(cloud_archival) Implement these options. Consider replacing this with `ExternalStorageLocation`.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum CloudStorageLocation {
     /// Archival data is persisted in the filesystem.
     /// NOTE: This option not implemented yet.
     Filesystem {
@@ -463,64 +450,8 @@ pub enum ArchivalStorageLocation {
     },
     /// Archival data is persisted in the Google Cloud Storage.
     /// NOTE: This option not implemented yet.
-    GCloud {
+    GCS {
         /// GCS bucket containing the archival storage objects.
         _bucket: String,
     },
-}
-
-/// Contains references to the sub-configs from the Near node config that are related to archival storage.
-pub struct ArchivalConfig<'a> {
-    pub archival_store_config: Option<&'a ArchivalStoreConfig>,
-    pub cold_store_config: Option<&'a StoreConfig>,
-    pub split_storage_config: Option<&'a SplitStorageConfig>,
-}
-
-impl<'a> ArchivalConfig<'a> {
-    /// Returns `Some(ArchivalConfig)` if the node is an archival node (ie. `archive` is true), otherwise returns None.
-    /// In the former case, the `ArchivalConfig` contains references to the archival related sub-configs provided in the params.
-    /// Also validates the config, for example, panics if `archive` is true and no archival storage configuration is provided or
-    /// `archive` is false but cold-storage or archival-store configuration is provided.
-    pub fn new(
-        archive: bool,
-        archival_store_config: Option<&'a ArchivalStoreConfig>,
-        cold_store_config: Option<&'a StoreConfig>,
-        split_storage_config: Option<&'a SplitStorageConfig>,
-    ) -> Option<Self> {
-        Self::validate_configs(
-            archive,
-            archival_store_config,
-            cold_store_config,
-            split_storage_config,
-        );
-        archive.then_some(Self { archival_store_config, cold_store_config, split_storage_config })
-    }
-
-    fn validate_configs(
-        archive: bool,
-        archival_store_config: Option<&'a ArchivalStoreConfig>,
-        cold_store_config: Option<&'a StoreConfig>,
-        split_storage_config: Option<&'a SplitStorageConfig>,
-    ) {
-        if archive {
-            // Since only ColdDB storage is supported for now, assert that cold storage is configured.
-            // TODO: Change this condition after supporting other archival storage options such as GCS.
-            assert!(
-                cold_store_config.is_some()
-                    && (archival_store_config.is_none()
-                        || matches!(
-                            archival_store_config.unwrap().storage,
-                            ArchivalStorageLocation::ColdDB
-                        )),
-                "Archival storage must be ColdDB and it must be configured with a valid StoreConfig"
-            );
-        } else {
-            assert!(
-                cold_store_config.is_none()
-                    && archival_store_config.is_none()
-                    && split_storage_config.is_none(),
-                "Cold-store config and archival config must not be set for non-archival nodes"
-            );
-        }
-    }
 }
