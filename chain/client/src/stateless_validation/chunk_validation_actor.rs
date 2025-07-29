@@ -18,7 +18,7 @@ use near_chain::stateless_validation::chunk_validation::{self, MainStateTransiti
 use near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::types::RuntimeAdapter;
-use near_chain::validate::validate_chunk_with_chunk_extra;
+use near_chain::validate::validate_chunk_with_chunk_extra_and_roots;
 use near_chain::{ChainStore, ChainStoreAccess, Error};
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
@@ -433,13 +433,15 @@ impl ChunkValidationActorInner {
 
         if let Ok(prev_chunk_extra) = self.chain_store.get_chunk_extra(&prev_block_hash, &shard_uid)
         {
-            match validate_chunk_with_chunk_extra(
+            match validate_chunk_with_chunk_extra_and_roots(
                 &self.chain_store,
                 self.epoch_manager.as_ref(),
                 &prev_block_hash,
                 &prev_chunk_extra,
                 last_header.height_included(),
                 &chunk_header,
+                state_witness.new_transactions(),
+                self.rs.as_ref(),
             ) {
                 Ok(()) => {
                     send_chunk_endorsement_to_block_producers(
