@@ -1345,21 +1345,17 @@ impl ClientActorInner {
         let signer = self.client.validator_signer.get();
         let approvals = self.client.doomslug.process_timer(&signer);
 
+        let doomslug_target_height = self.client.doomslug.get_largest_target_height();
+        if let Some(last_saved_largest_target_height) = self.last_saved_largest_target_height {
+            if last_saved_largest_target_height == doomslug_target_height {
+                return;
+            }
+        }
+
         // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_chain_store().store_update();
-        let doomslug_target_height = self.client.doomslug.get_largest_target_height();
-
-        let skip_update = match self.last_saved_largest_target_height {
-            Some(last_saved_largest_target_height) => {
-                last_saved_largest_target_height == doomslug_target_height
-            }
-            None => false,
-        };
-        if !skip_update {
-            chain_store_update.save_largest_target_height(doomslug_target_height);
-        }
-
+        chain_store_update.save_largest_target_height(doomslug_target_height);
         match chain_store_update.commit() {
             Ok(_) => {
                 self.last_saved_largest_target_height = Some(doomslug_target_height);
@@ -1381,15 +1377,13 @@ impl ClientActorInner {
             Err(e) => error!("Error while committing largest skipped height {:?}", e),
         };
 
-        if !skip_update {
-            // TODO: handle the error properly
-            self.client
-                .chain
-                .chain_store
-                .store()
-                .flush_pending()
-                .expect("Failed to flush pending store updates");
-        }
+        // TODO: handle the error properly
+        self.client
+            .chain
+            .chain_store
+            .store()
+            .flush_pending()
+            .expect("Failed to flush pending store updates");
     }
 
     /// Produce block if we are block producer for given `next_height` height.
