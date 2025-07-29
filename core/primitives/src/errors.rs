@@ -1360,6 +1360,8 @@ pub enum InvalidSpiceCoreStatementsError {
     NoShardIdsForEpochId { index: usize, error: EpochError },
     /// Spice core statement is invalid.
     InvalidCoreStatement { index: usize, reason: &'static str },
+    /// Spice core statements skipped over execution result for chunk.
+    SkippedExecutionResult { shard_id: ShardId, epoch_id: EpochId, height_created: BlockHeight },
     /// Could not find validator assignment for chunk.
     NoValidatorAssignments {
         shard_id: ShardId,

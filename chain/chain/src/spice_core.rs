@@ -436,6 +436,7 @@ impl CoreStatementsProcessor {
             HashMap<&SpiceEndorsementSignedInner, HashMap<&AccountId, Signature>>,
         > = HashMap::new();
         let mut block_execution_results = HashMap::new();
+        let mut max_endorsed_height_created = HashMap::new();
 
         for (index, core_statement) in block.spice_core_statements().iter().enumerate() {
             match core_statement {
@@ -489,8 +490,35 @@ impl CoreStatementsProcessor {
                             reason: "duplicate execution_result",
                         });
                     }
+
+                    let max_endorsed_height = max_endorsed_height_created
+                        .entry(chunk_production_key.shard_id)
+                        .or_insert(chunk_production_key.height_created);
+                    *max_endorsed_height =
+                        chunk_production_key.height_created.max(*max_endorsed_height);
                 }
             };
+        }
+
+        for (chunk_production_key, _) in &waiting_on_endorsements {
+            if block_execution_results.contains_key(chunk_production_key) {
+                continue;
+            }
+            let Some(max_endorsed_height_created) =
+                max_endorsed_height_created.get(&chunk_production_key.shard_id)
+            else {
+                continue;
+            };
+            if chunk_production_key.height_created < *max_endorsed_height_created {
+                // We cannot be waiting on an endorsement for chunk created at height that is less
+                // than maximum endorsed height for the chunk as that would mean that child is
+                // endorsed before parent.
+                return Err(SkippedExecutionResult {
+                    epoch_id: chunk_production_key.epoch_id,
+                    shard_id: chunk_production_key.shard_id,
+                    height_created: chunk_production_key.height_created,
+                });
+            }
         }
 
         for (chunk_production_key, mut on_chain_endorsements) in in_block_endorsements {
