@@ -5,6 +5,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
+use near_store::archive::cloud_storage::{CloudStorage, update_cloud_storage};
 use near_store::config::SplitStorageConfig;
 use near_store::db::metadata::DbKind;
 use near_store::{
@@ -95,6 +96,7 @@ impl From<EpochError> for ColdStoreError {
 fn cold_store_copy(
     hot_store: &Store,
     cold_db: &ColdDB,
+    cloud_storage: Option<&Arc<CloudStorage>>,
     genesis_height: BlockHeight,
     epoch_manager: &EpochManagerHandle,
     num_threads: usize,
@@ -156,6 +158,9 @@ fn cold_store_copy(
         is_resharding_boundary,
         num_threads,
     )?;
+    if let Some(cloud_storage) = cloud_storage {
+        update_cloud_storage(cloud_storage, hot_store, &next_height)?;
+    }
     update_cold_head(cold_db, hot_store, &next_height)?;
 
     let result = if next_height >= hot_final_head_height {
@@ -369,13 +374,12 @@ fn cold_store_migration_loop(
 // It will try to copy blocks as fast as possible up until cold head = final head.
 // Once the cold head reaches the final head it will sleep for one second before
 // trying to copy data at the next height.
-// TODO clean up the interface, currently we need to pass hot store, cold store and
-// cold_db which is redundant.
 fn cold_store_loop(
     split_storage_config: &SplitStorageConfig,
     keep_going: &Arc<AtomicBool>,
     hot_store: Store,
     cold_db: Arc<ColdDB>,
+    cloud_storage: Option<Arc<CloudStorage>>,
     genesis_height: BlockHeight,
     epoch_manager: &EpochManagerHandle,
     shard_tracker: ShardTracker,
@@ -392,6 +396,7 @@ fn cold_store_loop(
         let result = cold_store_copy(
             &hot_store,
             cold_db.as_ref(),
+            cloud_storage.as_ref(),
             genesis_height,
             epoch_manager,
             split_storage_config.num_cold_store_read_threads,
@@ -456,6 +461,8 @@ pub fn spawn_cold_store_loop(
             return Ok(None);
         }
     };
+    // TODO(cloud_archival) Move this to a separate cloud storage loop.
+    let cloud_storage = storage.get_cloud_storage().cloned();
 
     let genesis_height = config.genesis.config.genesis_height;
     let keep_going = Arc::new(AtomicBool::new(true));
@@ -484,6 +491,7 @@ pub fn spawn_cold_store_loop(
                 &keep_going_clone,
                 hot_store,
                 cold_db,
+                cloud_storage,
                 genesis_height,
                 epoch_manager.as_ref(),
                 shard_tracker,
