@@ -1,4 +1,3 @@
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
@@ -367,7 +366,6 @@ pub fn setup_client(
         runtime_adapter.clone(),
         epoch_manager.clone(),
         network_adapter.as_multi_sender(),
-        NonZeroUsize::new(1000).unwrap(),
         validator_signer.clone(),
         spice_core_processor,
         client_actor.client.chunk_endorsement_tracker.clone(),

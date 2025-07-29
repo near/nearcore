@@ -71,10 +71,6 @@ pub struct ChunkExecutorActor {
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     myself_sender: Sender<ExecutorApplyChunksDone>,
 
-    /// Next block hashes keyed by block hash.
-    /// TODO(spice): test that this map is properly maintained or
-    /// replace it with DB
-    pending_next_blocks: HashMap<CryptoHash, HashSet<CryptoHash>>,
     blocks_in_execution: HashSet<CryptoHash>,
 
     // Hash of the genesis block.
@@ -110,7 +106,6 @@ impl ChunkExecutorActor {
             network_adapter,
             apply_chunks_spawner,
             myself_sender,
-            pending_next_blocks: HashMap::new(),
             blocks_in_execution: HashSet::new(),
             genesis_hash,
             validator_signer,
@@ -175,9 +170,9 @@ impl Handler<ProcessedBlock> for ChunkExecutorActor {
         match self.try_apply_chunks(&block_hash) {
             Ok(TryApplyChunksOutcome::Scheduled) => {}
             Ok(TryApplyChunksOutcome::NotReady) => {
-                if let Err(err) = self.add_pending_block(block_hash) {
-                    tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to add pending block");
-                }
+                // We will retry applying it by looking at all next blocks after receiving
+                // additional execution result endorsements or receipts.
+                tracing::debug!(target: "chunk_executor", %block_hash, "not yet ready for processing");
             }
             Ok(TryApplyChunksOutcome::BlockAlreadyAccepted) => {
                 tracing::warn!(
@@ -310,41 +305,21 @@ impl ChunkExecutorActor {
         Ok(TryApplyChunksOutcome::Scheduled)
     }
 
-    fn add_pending_block(&mut self, block_hash: CryptoHash) -> Result<(), Error> {
-        let block = self.chain_store.get_block(&block_hash)?;
-        let prev_block_hash = block.header().prev_hash();
-        self.pending_next_blocks.entry(*prev_block_hash).or_default().insert(block_hash);
-        Ok(())
-    }
-
     fn try_process_next_blocks(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let Some(next_block_hashes) = self.pending_next_blocks.get(block_hash) else {
+        let next_block_hashes = self.chain_store.get_all_next_block_hashes(block_hash)?;
+        if next_block_hashes.is_empty() {
             // Next block wasn't received yet.
             tracing::debug!(target: "chunk_executor", %block_hash, "no next block hash is available");
             return Ok(());
-        };
-        let mut processed_blocks = HashSet::new();
-        for next_block_hash in next_block_hashes.clone() {
-            match self.try_apply_chunks(&next_block_hash)? {
-                TryApplyChunksOutcome::Scheduled => {
-                    processed_blocks.insert(next_block_hash);
-                }
-                TryApplyChunksOutcome::NotReady => {}
-                TryApplyChunksOutcome::BlockAlreadyAccepted => {
-                    tracing::warn!(
-                        target: "chunk_executor",
-                        ?block_hash,
-                        "not expected already executed block to be in the pending blocks"
-                    );
-                    // Still consider that block as processed to clean the state
-                    processed_blocks.insert(next_block_hash);
-                }
-            }
         }
-        let remaining_blocks = self.pending_next_blocks.get_mut(block_hash).unwrap();
-        remaining_blocks.retain(|hash| !processed_blocks.contains(hash));
-        if remaining_blocks.is_empty() {
-            self.pending_next_blocks.remove(&block_hash);
+        for next_block_hash in next_block_hashes {
+            match self.try_apply_chunks(&next_block_hash)? {
+                TryApplyChunksOutcome::Scheduled => {}
+                TryApplyChunksOutcome::NotReady => {
+                    tracing::debug!(target: "chunk_executor", %next_block_hash, "not yet ready for processing");
+                }
+                TryApplyChunksOutcome::BlockAlreadyAccepted => {}
+            }
         }
         Ok(())
     }

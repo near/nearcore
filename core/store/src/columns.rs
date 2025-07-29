@@ -337,6 +337,11 @@ pub enum DBCol {
     /// - *Content type*: `near_primitives::sharding::ReceiptProof`
     #[cfg(feature = "protocol_feature_spice")]
     ReceiptProofs,
+    /// All known processed next block hashes regardless of canonical chain.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: next block: Vec<BlockHash (CryptoHash)>
+    #[cfg(feature = "protocol_feature_spice")]
+    AllNextBlockHashes,
 }
 
 /// Defines different logical parts of a db key.
@@ -486,6 +491,8 @@ impl DBCol {
             | DBCol::ChunkApplyStats => true,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ReceiptProofs => true,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::AllNextBlockHashes => false,
 
             // TODO
             DBCol::ChallengedBlocks => false,
@@ -629,12 +636,21 @@ impl DBCol {
             DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::AllNextBlockHashes => &[DBKeyType::BlockHash],
         }
     }
 
     pub fn receipt_proofs() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::ReceiptProofs;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn all_next_block_hashes() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::AllNextBlockHashes;
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }
