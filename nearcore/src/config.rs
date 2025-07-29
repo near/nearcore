@@ -23,13 +23,13 @@ use near_chain_configs::{
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync_enabled, default_state_sync_external_backoff,
-    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
-    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
-    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_num_state_requests_per_throttle_period, default_view_client_threads,
-    default_view_client_throttle_period, get_initial_supply,
+    default_state_request_server_threads, default_state_request_throttle_period,
+    default_state_requests_per_throttle_period, default_state_sync_enabled,
+    default_state_sync_external_backoff, default_state_sync_external_timeout,
+    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
+    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -304,10 +304,15 @@ pub struct Config {
     pub view_client_threads: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chunk_validation_threads: Option<usize>,
+    /// Throttling window for state requests (headers and parts).
     #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub view_client_throttle_period: Duration,
-    /// Maximum number of state requests served per `view_client_throttle_period`
-    pub view_client_num_state_requests_per_throttle_period: usize,
+    #[serde(alias = "view_client_throttle_period")]
+    pub state_request_throttle_period: Duration,
+    /// Maximum number of state requests served per throttle period
+    #[serde(alias = "view_client_num_state_requests_per_throttle_period")]
+    pub state_requests_per_throttle_period: usize,
+    /// Number of threads for StateRequestActor pool.
+    pub state_request_server_threads: usize,
     pub trie_viewer_state_size_limit: Option<u64>,
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -429,9 +434,9 @@ impl Default for Config {
             gc: GCConfig::default(),
             view_client_threads: default_view_client_threads(),
             chunk_validation_threads: None,
-            view_client_throttle_period: default_view_client_throttle_period(),
-            view_client_num_state_requests_per_throttle_period:
-                default_view_client_num_state_requests_per_throttle_period(),
+            state_request_throttle_period: default_state_request_throttle_period(),
+            state_requests_per_throttle_period: default_state_requests_per_throttle_period(),
+            state_request_server_threads: default_state_request_server_threads(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
             store,
@@ -484,6 +489,10 @@ impl Config {
             .map_err(|_| ValidationError::ConfigFileError {
                 error_message: format!("Failed to strip comments from {}", path.display()),
             })?;
+
+        // Check for deprecated fields before deserialization to warn about them
+        Self::check_for_deprecated_fields(&json_str_without_comments);
+
         let config: Config = serde_ignored::deserialize(
             &mut serde_json::Deserializer::from_str(&json_str_without_comments),
             |field| unrecognized_fields.push(field.to_string()),
@@ -503,6 +512,47 @@ impl Config {
         }
 
         Ok(config)
+    }
+
+    /// Return each deprecated key together with the preferred replacement.
+    ///
+    /// Empty `Vec` ⇒ no deprecated keys detected.
+    /// NOTE: Keys are `'static` so the function itself does **zero** heap allocations
+    /// beyond the output `Vec`.
+    pub(crate) fn deprecated_fields_in_json(json_str: &str) -> Vec<(&'static str, &'static str)> {
+        // Static table keeps the mapping in one obvious place
+        const MAPPING: &[(&str, &str)] = &[
+            ("view_client_throttle_period", "state_request_throttle_period"),
+            (
+                "view_client_num_state_requests_per_throttle_period",
+                "state_requests_per_throttle_period",
+            ),
+        ];
+
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) else {
+            return Vec::new(); // malformed JSON ⇒ nothing to warn about here
+        };
+        let Some(obj) = value.as_object() else {
+            return Vec::new(); // not an object ⇒ nothing to match
+        };
+
+        MAPPING
+            .iter()
+            .filter(|(old, _)| obj.contains_key(*old))
+            .map(|(old, new)| (*old, *new))
+            .collect()
+    }
+
+    /// Check for deprecated configuration fields and emit warnings
+    fn check_for_deprecated_fields(json_str: &str) {
+        for (deprecated_key, new_key) in Self::deprecated_fields_in_json(json_str) {
+            tracing::warn!(
+                target: "neard",
+                deprecated_key = %deprecated_key,
+                new_key        = %new_key,
+                "Deprecated config key detected – please migrate",
+            );
+        }
     }
 
     fn validate(&self) -> Result<(), ValidationError> {
@@ -624,9 +674,9 @@ impl NearConfig {
                 chunk_validation_threads: config
                     .chunk_validation_threads
                     .unwrap_or_else(default_chunk_validation_threads),
-                view_client_throttle_period: config.view_client_throttle_period,
-                view_client_num_state_requests_per_throttle_period: config
-                    .view_client_num_state_requests_per_throttle_period,
+                state_request_throttle_period: config.state_request_throttle_period,
+                state_requests_per_throttle_period: config.state_requests_per_throttle_period,
+                state_request_server_threads: config.state_request_server_threads,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
@@ -1992,5 +2042,56 @@ mod tests {
             writeln!(file, "not JSON").unwrap();
         }
         test_err("bad_key", "fred", "");
+    }
+
+    #[test]
+    fn detects_view_client_throttle_period() {
+        let json = r#"{ "view_client_throttle_period": "10s" }"#;
+        let deprecated = Config::deprecated_fields_in_json(json);
+        assert_eq!(
+            deprecated,
+            vec![("view_client_throttle_period", "state_request_throttle_period")]
+        );
+    }
+
+    #[test]
+    fn detects_view_client_num_state_requests() {
+        let json = r#"{ "view_client_num_state_requests_per_throttle_period": 256 }"#;
+        let deprecated = Config::deprecated_fields_in_json(json);
+        assert_eq!(
+            deprecated,
+            vec![(
+                "view_client_num_state_requests_per_throttle_period",
+                "state_requests_per_throttle_period"
+            )]
+        );
+    }
+
+    #[test]
+    fn detects_both_deprecated_fields() {
+        let json = r#"
+        {
+            "view_client_throttle_period": "10s",
+            "view_client_num_state_requests_per_throttle_period": 256
+        }
+        "#;
+        let mut deprecated = Config::deprecated_fields_in_json(json);
+        deprecated.sort(); // order is implementation detail
+        assert_eq!(
+            deprecated,
+            vec![
+                (
+                    "view_client_num_state_requests_per_throttle_period",
+                    "state_requests_per_throttle_period"
+                ),
+                ("view_client_throttle_period", "state_request_throttle_period"),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_deprecated_fields_on_clean_config() {
+        let json = r#"{ "state_request_throttle_period": "10s" }"#;
+        assert!(Config::deprecated_fields_in_json(json).is_empty());
     }
 }
