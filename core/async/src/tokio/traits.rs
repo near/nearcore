@@ -18,3 +18,14 @@ where
         Handler::<M, R>::handle(self, msg)
     }
 }
+
+impl<M, A> Handler<M> for A
+where
+    A: crate::messaging::Handler<M>,
+    M: actix::Message,
+    M::Result: Send,
+{
+    fn handle(&mut self, msg: M) {
+        self.handle(msg);
+    }
+}

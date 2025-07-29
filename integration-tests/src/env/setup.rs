@@ -11,6 +11,7 @@ use near_async::messaging::{
     IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
 };
 use near_async::time::{Clock, Duration, Utc};
+use near_async::tokio::runtime_handle::construct_actor_with_tokio_runtime;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
@@ -169,23 +170,19 @@ fn setup(
         signer.clone(),
     );
 
-    let client_adapter_for_partial_witness_actor = LateBoundSender::new();
-    let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
-        clock.clone(),
-        network_adapter.clone(),
-        client_adapter_for_partial_witness_actor.as_multi_sender(),
-        signer.clone(),
-        epoch_manager.clone(),
-        runtime.clone(),
-        Arc::new(RayonAsyncComputationSpawner),
-        Arc::new(RayonAsyncComputationSpawner),
-        Arc::new(RayonAsyncComputationSpawner),
-    ));
-    let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
-
-    let partial_witness_sender_for_client = PartialWitnessSenderForClient {
-        distribute_chunk_state_witness: partial_witness_adapter.clone().into_sender(),
-    };
+    let client_adapter_for_partial_witness_adapter = LateBoundSender::new();
+    let (_partial_witness_actor_runtime, partial_witness_adapter) =
+        construct_actor_with_tokio_runtime(PartialWitnessActor::new(
+            clock.clone(),
+            network_adapter.clone(),
+            client_adapter_for_partial_witness_adapter.as_multi_sender(),
+            signer.clone(),
+            epoch_manager.clone(),
+            runtime.clone(),
+            Arc::new(RayonAsyncComputationSpawner),
+            Arc::new(RayonAsyncComputationSpawner),
+            Arc::new(RayonAsyncComputationSpawner),
+        ));
 
     let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
         epoch_manager.clone(),
@@ -219,7 +216,7 @@ fn setup(
         None,
         adv,
         None,
-        partial_witness_sender_for_client,
+        partial_witness_adapter.sender(),
         enable_doomslug,
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
@@ -257,7 +254,7 @@ fn setup(
     let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
-    client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
+    client_adapter_for_partial_witness_adapter.bind(ChunkValidationSenderForPartialWitness {
         chunk_state_witness: chunk_validation_actor.with_auto_span_context().into_sender(),
     });
 

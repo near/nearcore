@@ -17,6 +17,7 @@ use near_async::actix_wrapper::{
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
+use near_async::tokio::runtime_handle::construct_actor_with_tokio_runtime;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
@@ -226,6 +227,7 @@ pub struct NearNode {
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
     pub arbiters: Vec<ArbiterHandle>,
+    pub tokio_runtimes: Vec<tokio::runtime::Runtime>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to a background thread that copies data from the hot store to the cold store.
@@ -397,8 +399,8 @@ pub fn start_with_config_and_synchronization(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (partial_witness_actor, partial_witness_arbiter) =
-        spawn_actix_actor(PartialWitnessActor::new(
+    let (partial_witness_actor_runtime, partial_witness_actor) =
+        construct_actor_with_tokio_runtime(PartialWitnessActor::new(
             Clock::real(),
             network_adapter.as_multi_sender(),
             client_adapter_for_partial_witness_actor.as_multi_sender(),
@@ -455,7 +457,7 @@ pub fn start_with_config_and_synchronization(
         shutdown_signal,
         adv,
         config_updater,
-        partial_witness_actor.clone().with_auto_span_context().into_multi_sender(),
+        partial_witness_actor.sender(),
         true,
         None,
         resharding_sender.into_multi_sender(),
@@ -522,7 +524,7 @@ pub fn start_with_config_and_synchronization(
         state_request_addr.clone().with_auto_span_context().into_multi_sender(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
-        partial_witness_actor.with_auto_span_context().into_multi_sender(),
+        partial_witness_actor.into_multi_sender(),
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
@@ -573,7 +575,7 @@ pub fn start_with_config_and_synchronization(
         trie_metrics_arbiter,
         state_snapshot_arbiter,
         gc_arbiter,
-        partial_witness_arbiter,
+        // partial_witness_arbiter,
     ];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
@@ -586,6 +588,8 @@ pub fn start_with_config_and_synchronization(
         view_client_addr.clone().with_auto_span_context().into_multi_sender(),
     );
 
+    let tokio_runtimes = vec![partial_witness_actor_runtime];
+
     Ok(NearNode {
         client: client_actor,
         view_client: view_client_addr,
@@ -595,6 +599,7 @@ pub fn start_with_config_and_synchronization(
         tx_generator,
         rpc_servers,
         arbiters,
+        tokio_runtimes,
         cold_store_loop_handle,
         state_sync_dumper,
         resharding_handle,

@@ -251,12 +251,16 @@ impl<M> CanSend<M> for Noop {
     fn send(&self, _message: M) {}
 }
 
+impl<M> CanSend<M> for Arc<Noop> {
+    fn send(&self, _message: M) {}
+}
+
 /// Creates a no-op sender that does nothing with the message.
 ///
 /// Returns a type that can be converted to any type of sender,
 /// sync or async, including multi-senders.
-pub fn noop() -> Noop {
-    Noop
+pub fn noop() -> Arc<Noop> {
+    Arc::new(Noop)
 }
 
 /// A trait for converting something that implements individual senders into

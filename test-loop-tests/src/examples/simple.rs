@@ -109,7 +109,7 @@ fn test_client_with_simple_test_loop() {
         [0; 32],
         None,
         multi_spawner,
-        noop().into_multi_sender(),
+        noop(),
         noop().into_multi_sender(),
         Arc::new(test_loop.future_spawner("node0")),
         noop().into_multi_sender(),

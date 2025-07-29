@@ -1,7 +1,7 @@
 use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
 use crate::Client;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use near_async::messaging::{CanSend, IntoSender};
+use near_async::messaging::IntoSender;
 use near_chain::BlockHeader;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
 use near_chain_primitives::Error;

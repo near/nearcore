@@ -161,7 +161,7 @@ pub fn setup_client(
         [0; 32],
         Some(snapshot_callbacks),
         multi_spawner,
-        partial_witness_adapter.as_multi_sender(),
+        partial_witness_adapter.clone(),
         resharding_sender.as_multi_sender(),
         Arc::new(test_loop.future_spawner(identifier)),
         client_adapter.as_multi_sender(),

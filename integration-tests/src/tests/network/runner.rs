@@ -117,7 +117,7 @@ fn setup_network_node(
         None,
         adv.clone(),
         None,
-        noop().into_multi_sender(),
+        noop(),
         true,
         None,
         noop().into_multi_sender(),
