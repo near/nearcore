@@ -90,6 +90,7 @@ fn setup(
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
     tempfile::TempDir,
+    Vec<tokio::runtime::Runtime>,
 ) {
     let store = create_test_store();
 
@@ -171,7 +172,7 @@ fn setup(
     );
 
     let client_adapter_for_partial_witness_adapter = LateBoundSender::new();
-    let (_partial_witness_actor_runtime, partial_witness_adapter) =
+    let (partial_witness_actor_runtime, partial_witness_adapter) =
         construct_actor_with_tokio_runtime(PartialWitnessActor::new(
             clock.clone(),
             network_adapter.clone(),
@@ -265,6 +266,7 @@ fn setup(
         shards_manager_adapter.into_multi_sender(),
         partial_witness_adapter.into_multi_sender(),
         tempdir,
+        vec![partial_witness_actor_runtime],
     )
 }
 
@@ -319,6 +321,7 @@ pub fn setup_mock_with_validity_period(
         shards_manager_adapter,
         partial_witness_sender,
         runtime_tempdir,
+        tokio_runtimes,
     ) = setup(
         clock.clone(),
         validators,
@@ -352,10 +355,10 @@ pub fn setup_mock_with_validity_period(
         shards_manager_adapter,
         partial_witness_sender,
         runtime_tempdir: Some(runtime_tempdir.into()),
+        tokio_runtimes,
     }
 }
 
-#[derive(Clone)]
 pub struct ActorHandlesForTesting {
     pub client_actor: Addr<ClientActor>,
     pub view_client_actor: Addr<ViewClientActor>,
@@ -366,6 +369,15 @@ pub struct ActorHandlesForTesting {
     // this TempDir isn't dropped before test finishes, but is dropped after to avoid leaking temp
     // dirs.
     pub runtime_tempdir: Option<Arc<tempfile::TempDir>>,
+    pub tokio_runtimes: Vec<tokio::runtime::Runtime>,
+}
+
+impl Drop for ActorHandlesForTesting {
+    fn drop(&mut self) {
+        for runtime in self.tokio_runtimes.drain(..) {
+            runtime.shutdown_background();
+        }
+    }
 }
 
 /// Sets up ClientActor and ViewClientActor without network.
