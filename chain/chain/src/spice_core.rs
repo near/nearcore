@@ -453,39 +453,12 @@ impl CoreStatementsProcessor {
                     if !signed_inner.verify(validator_info.public_key(), signature) {
                         return Err(InvalidCoreStatement { index, reason: "invalid signature" });
                     }
+                    // Checking that waiting_on_endorsements contains chunk_production_key makes
+                    // sure that chunk_production_key is valid.
                     if !waiting_on_endorsements.contains(&(chunk_production_key, account_id)) {
                         return Err(InvalidCoreStatement {
                             index,
                             reason: "endorsement already included in one of the previous blocks",
-                        });
-                    }
-                    if chunk_production_key.height_created >= block.header().height() {
-                        return Err(InvalidCoreStatement {
-                            index,
-                            reason: "chunk_production_key height_created is invalid",
-                        });
-                    }
-                    let epoch_id = block.header().epoch_id();
-                    let prev_epoch_id = tracker
-                        .epoch_manager
-                        .get_prev_epoch_id_from_prev_block(block.header().prev_hash())
-                        .map_err(|error| NoPrevEpochId { index, error })?;
-                    if &chunk_production_key.epoch_id != epoch_id
-                        && chunk_production_key.epoch_id != prev_epoch_id
-                    {
-                        return Err(InvalidCoreStatement {
-                            index,
-                            reason: "chunk_production_key epoch_id is invalid",
-                        });
-                    }
-                    let shard_ids = tracker
-                        .epoch_manager
-                        .shard_ids(&chunk_production_key.epoch_id)
-                        .map_err(|error| NoShardIdsForEpochId { index, error })?;
-                    if !shard_ids.contains(&chunk_production_key.shard_id) {
-                        return Err(InvalidCoreStatement {
-                            index,
-                            reason: "chunk_production_key shard_id is invalid",
                         });
                     }
 

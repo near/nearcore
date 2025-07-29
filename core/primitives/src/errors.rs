@@ -1354,11 +1354,9 @@ impl std::error::Error for ChunkAccessError {}
 pub enum InvalidSpiceCoreStatementsError {
     /// Information about uncertified chunks for previous block is missing.
     NoPrevUncertifiedChunks,
-    /// Count not find validator for account_id from endorsement.
+    /// Could not find validator for account_id from endorsement.
     NoValidatorForAccountId { index: usize, error: EpochError },
-    /// Count not find previous epoch id for block.
-    NoPrevEpochId { index: usize, error: EpochError },
-    /// Count not find shard_ids for endorsement epoch.
+    /// Could not find shard_ids for endorsement epoch.
     NoShardIdsForEpochId { index: usize, error: EpochError },
     /// Spice core statement is invalid.
     InvalidCoreStatement { index: usize, reason: &'static str },
