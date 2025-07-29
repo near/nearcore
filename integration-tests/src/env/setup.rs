@@ -172,18 +172,17 @@ fn setup(
     );
 
     let client_adapter_for_partial_witness_adapter = LateBoundSender::new();
-    let (partial_witness_actor_runtime, partial_witness_adapter) =
-        construct_actor_with_tokio_runtime(PartialWitnessActor::new(
-            clock.clone(),
-            network_adapter.clone(),
-            client_adapter_for_partial_witness_adapter.as_multi_sender(),
-            signer.clone(),
-            epoch_manager.clone(),
-            runtime.clone(),
-            Arc::new(RayonAsyncComputationSpawner),
-            Arc::new(RayonAsyncComputationSpawner),
-            Arc::new(RayonAsyncComputationSpawner),
-        ));
+    let partial_witness_adapter = construct_actor_with_tokio_runtime(PartialWitnessActor::new(
+        clock.clone(),
+        network_adapter.clone(),
+        client_adapter_for_partial_witness_adapter.as_multi_sender(),
+        signer.clone(),
+        epoch_manager.clone(),
+        runtime.clone(),
+        Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
+    ));
 
     let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
         epoch_manager.clone(),
@@ -266,7 +265,7 @@ fn setup(
         shards_manager_adapter.into_multi_sender(),
         partial_witness_adapter.into_multi_sender(),
         tempdir,
-        vec![partial_witness_actor_runtime],
+        vec![],
     )
 }
 

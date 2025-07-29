@@ -11,7 +11,7 @@ use crate::tokio::traits::HandlerWithContext;
 
 pub struct TokioRuntimeHandle<A> {
     sender: mpsc::UnboundedSender<Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send>>,
-    runtime: tokio::runtime::Handle,
+    runtime: Arc<tokio::runtime::Runtime>,
     cancel: CancellationToken,
 }
 
@@ -101,9 +101,7 @@ where
     }
 }
 
-pub fn construct_actor_with_tokio_runtime<A>(
-    mut actor: A,
-) -> (tokio::runtime::Runtime, TokioRuntimeHandle<A>)
+pub fn construct_actor_with_tokio_runtime<A>(mut actor: A) -> TokioRuntimeHandle<A>
 where
     A: Actor + Send + Sized + 'static,
 {
@@ -119,11 +117,11 @@ where
 
     let cancel = CancellationToken::new();
     let runtime_handle =
-        TokioRuntimeHandle { sender, runtime: runtime.handle().clone(), cancel: cancel.clone() };
+        TokioRuntimeHandle { sender, runtime: Arc::new(runtime), cancel: cancel.clone() };
 
     // Spawn the actor in the runtime
     let mut runtime_handle_clone = runtime_handle.clone();
-    runtime.spawn(async move {
+    runtime_handle.runtime.spawn(async move {
         actor.start_actor(&mut runtime_handle_clone);
         loop {
             tokio::select! {
@@ -135,5 +133,5 @@ where
         }
     });
 
-    (runtime, runtime_handle)
+    runtime_handle
 }

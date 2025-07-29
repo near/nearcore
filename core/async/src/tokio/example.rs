@@ -55,7 +55,7 @@ mod test {
     #[test]
     fn test_fn() {
         let actor = MyActor {};
-        let (runtime, executor_handle) = construct_actor_with_tokio_runtime(actor);
+        let executor_handle = construct_actor_with_tokio_runtime(actor);
         let sender: MyAdapter = executor_handle.sender();
         let sender = sender.clone();
         sender.send(MySyncMessage { value: 42 });
@@ -63,6 +63,6 @@ mod test {
         let response = futures::executor::block_on(future);
         assert_eq!(response.response, "Async response");
         // TODO: Figure out shutdown logic for the runtime and executor_handle
-        runtime.shutdown_background();
+        // runtime.shutdown_background();
     }
 }

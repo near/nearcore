@@ -399,18 +399,17 @@ pub fn start_with_config_and_synchronization(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (partial_witness_actor_runtime, partial_witness_actor) =
-        construct_actor_with_tokio_runtime(PartialWitnessActor::new(
-            Clock::real(),
-            network_adapter.as_multi_sender(),
-            client_adapter_for_partial_witness_actor.as_multi_sender(),
-            config.validator_signer.clone(),
-            epoch_manager.clone(),
-            runtime.clone(),
-            Arc::new(RayonAsyncComputationSpawner),
-            Arc::new(PartialWitnessValidationThreadPool::new()),
-            Arc::new(WitnessCreationThreadPool::new()),
-        ));
+    let partial_witness_actor = construct_actor_with_tokio_runtime(PartialWitnessActor::new(
+        Clock::real(),
+        network_adapter.as_multi_sender(),
+        client_adapter_for_partial_witness_actor.as_multi_sender(),
+        config.validator_signer.clone(),
+        epoch_manager.clone(),
+        runtime.clone(),
+        Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(PartialWitnessValidationThreadPool::new()),
+        Arc::new(WitnessCreationThreadPool::new()),
+    ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
         runtime.store().clone(),
@@ -588,7 +587,8 @@ pub fn start_with_config_and_synchronization(
         view_client_addr.clone().with_auto_span_context().into_multi_sender(),
     );
 
-    let tokio_runtimes = vec![partial_witness_actor_runtime];
+    // let tokio_runtimes = vec![partial_witness_actor_runtime];
+    let tokio_runtimes = vec![];
 
     Ok(NearNode {
         client: client_actor,
