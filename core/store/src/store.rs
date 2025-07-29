@@ -325,14 +325,22 @@ impl Store {
         let Some(pending) = self.pending.as_ref() else {
             return Ok(()); // Nothing to flush if there are no pending writes.
         };
-        let mut pending = pending.0.write().expect("poisoned");
-        if pending.batches.is_empty() {
-            return Ok(());
-        }
-        let batches = std::mem::take(&mut pending.batches);
-        for batch in batches {
-            self.write(batch)?;
-        }
+        // Avoid blocking current thread
+        let storage = self.storage.clone();
+        let pending = pending.clone();
+        let _ = std::thread::spawn(move || -> io::Result<()> {
+            let mut pending = pending.0.write().expect("poisoned");
+            if pending.batches.is_empty() {
+                return Ok(());
+            }
+            let batches = std::mem::take(&mut pending.batches);
+            for batch in batches {
+                storage.write(batch)?;
+            }
+            Ok(())
+        });
+
+        // handle.join().map_err(|_| io::Error::new(io::ErrorKind::Other, "Thread panicked"))?
         Ok(())
     }
 
