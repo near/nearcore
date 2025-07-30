@@ -32,6 +32,7 @@ near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-config-utils.workspace = true
+near-gas.workspace = true
 
 [features]
 nightly = [

@@ -54,6 +54,7 @@ near-primitives.workspace = true
 near-schema-checker-lib.workspace = true
 near-time.workspace = true
 near-vm-runner.workspace = true
+near-gas.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true

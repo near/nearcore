@@ -5,6 +5,7 @@
 
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_crypto::{KeyType, PublicKey};
+use near_gas::NearGas;
 use near_parameters::ActionCosts;
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType,
@@ -209,7 +210,7 @@ fn check_meta_tx_fn_call(
 
     // calculate contract rewards as reward("gas burnt in fn call receipt" - "static exec costs")
     let gas_burnt_for_function_call =
-        tx_result.receipts_outcome[1].outcome.gas_burnt - static_exec_gas;
+        tx_result.receipts_outcome[1].outcome.gas_burnt.as_gas() - static_exec_gas;
     let dyn_cost = fee_helper.gas_to_balance(gas_burnt_for_function_call);
     let contract_reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
 
@@ -609,7 +610,7 @@ fn log_something_fn_call() -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: TEST_METHOD.to_owned(),
         args: vec![],
-        gas: 30_000_000_000_000,
+        gas: NearGas::from_gas(30_000_000_000_000),
         deposit: 0,
     }))
 }
@@ -631,7 +632,7 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args,
-        gas: 20_000_000_000_000,
+        gas: NearGas::from_gas(20_000_000_000_000),
         deposit: 1,
     }));
 
@@ -651,7 +652,7 @@ fn ft_register_action(receiver: &str) -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "storage_deposit".to_owned(),
         args,
-        gas: 20_000_000_000_000,
+        gas: NearGas::from_gas(20_000_000_000_000),
         deposit: NEAR_BASE,
     }))
 }

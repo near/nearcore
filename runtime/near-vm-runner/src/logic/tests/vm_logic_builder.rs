@@ -29,8 +29,9 @@ impl VMLogicBuilder {
     pub fn view() -> Self {
         let mut builder = Self::default();
         let max_gas_burnt = builder.config.limit_config.max_gas_burnt;
-        builder.context.view_config =
-            Some(near_primitives_core::config::ViewConfig { max_gas_burnt });
+        builder.context.view_config = Some(near_primitives_core::config::ViewConfig {
+            max_gas_burnt: max_gas_burnt.as_gas(),
+        });
         builder
     }
 

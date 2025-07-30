@@ -2,6 +2,7 @@ pub mod delegate;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+use near_gas::NearGas;
 use near_primitives_core::{
     account::AccessKey,
     hash::CryptoHash,
@@ -251,7 +252,7 @@ pub struct FunctionCallAction {
     #[serde_as(as = "Base64")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub args: Vec<u8>,
-    pub gas: Gas,
+    pub gas: NearGas,
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub deposit: Balance,
@@ -352,7 +353,7 @@ const _: () = assert!(
 impl Action {
     pub fn get_prepaid_gas(&self) -> Gas {
         match self {
-            Action::FunctionCall(a) => a.gas,
+            Action::FunctionCall(a) => a.gas.as_gas(),
             _ => 0,
         }
     }

@@ -10,6 +10,7 @@ use near_dump_test_contract::DumpTestContractCommand;
 use near_dyn_configs::{UpdatableConfigLoader, UpdatableConfigLoaderError, UpdatableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
 use near_fork_network::cli::ForkNetworkCommand;
+use near_gas::NearGas;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_network::tcp;
@@ -523,7 +524,8 @@ impl RunCmd {
             near_config.client_config.archive = true;
         }
         if self.max_gas_burnt_view.is_some() {
-            near_config.client_config.max_gas_burnt_view = self.max_gas_burnt_view;
+            near_config.client_config.max_gas_burnt_view =
+                self.max_gas_burnt_view.map(NearGas::from_gas);
         }
 
         #[cfg(feature = "sandbox")]

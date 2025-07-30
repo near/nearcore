@@ -55,6 +55,7 @@ near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
 near-dump-test-contract.workspace = true
+near-gas.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true

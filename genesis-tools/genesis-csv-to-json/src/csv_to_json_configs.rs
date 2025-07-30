@@ -6,6 +6,7 @@ use near_chain_configs::{
     PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
     TrackedShardsConfig,
 };
+use near_gas::NearGas;
 use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -84,7 +85,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         dynamic_resharding: false,
         protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
         epoch_length: EXPECTED_EPOCH_LENGTH,
-        gas_limit: INITIAL_GAS_LIMIT,
+        gas_limit: NearGas::from_gas(INITIAL_GAS_LIMIT),
         gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
         block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
         chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,

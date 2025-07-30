@@ -4,6 +4,7 @@ use crate::gas_cost::GasCost;
 use anyhow::Context;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
+use near_gas::NearGas;
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
 use near_primitives::apply::ApplyChunkReason;
@@ -150,7 +151,7 @@ impl<'c> EstimatorContext<'c> {
         wasm_config.limit_config = LimitConfig {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
-            max_gas_burnt: u64::MAX,
+            max_gas_burnt: NearGas::from_gas(u64::MAX),
             max_register_size: u64::MAX,
             max_number_logs: u64::MAX,
 
@@ -159,7 +160,7 @@ impl<'c> EstimatorContext<'c> {
             max_number_input_data_dependencies: u64::MAX,
             max_length_storage_key: u64::MAX,
 
-            max_total_prepaid_gas: u64::MAX,
+            max_total_prepaid_gas: NearGas::from_gas(u64::MAX),
 
             ..wasm_config.limit_config
         };

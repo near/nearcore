@@ -2679,6 +2679,7 @@ dependencies = [
  "csv",
  "near-chain-configs",
  "near-crypto",
+ "near-gas",
  "near-network",
  "near-primitives",
  "nearcore",
@@ -3487,6 +3488,7 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-fmt",
+ "near-gas",
  "near-jsonrpc",
  "near-jsonrpc-client-internal",
  "near-jsonrpc-primitives",
@@ -4166,6 +4168,7 @@ dependencies = [
  "clap",
  "near-chain-configs",
  "near-crypto",
+ "near-gas",
  "near-primitives",
  "near-primitives-core",
  "near-time",
@@ -4237,6 +4240,7 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-epoch-manager",
+ "near-gas",
  "near-mainnet-res",
  "near-network",
  "near-o11y",
@@ -4279,6 +4283,7 @@ dependencies = [
  "derive_more 2.0.1",
  "near-config-utils",
  "near-crypto",
+ "near-gas",
  "near-o11y",
  "near-parameters",
  "near-primitives",
@@ -4583,6 +4588,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-gas"
+version = "0.3.1"
+source = "git+https://github.com/polyprogrammist/near-gas-rs?branch=openapi#bbd945733d6963ec200124bd7b10f06c32eee469"
+dependencies = [
+ "borsh",
+ "schemars 0.8.22",
+ "schemars 1.0.3",
+ "serde",
+]
+
+[[package]]
 name = "near-indexer"
 version = "0.0.0"
 dependencies = [
@@ -4722,6 +4738,7 @@ dependencies = [
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-gas",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-network",
@@ -4885,6 +4902,7 @@ dependencies = [
  "enum-map",
  "insta",
  "near-account-id",
+ "near-gas",
  "near-primitives-core",
  "near-schema-checker-lib",
  "num-rational 0.3.2",
@@ -4968,6 +4986,7 @@ dependencies = [
  "itertools 0.12.1",
  "near-crypto",
  "near-fmt",
+ "near-gas",
  "near-parameters",
  "near-primitives",
  "near-primitives-core",
@@ -5056,6 +5075,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-gas",
  "near-network",
  "near-o11y",
  "near-parameters",
@@ -5170,6 +5190,7 @@ dependencies = [
  "near-chunks",
  "near-crypto",
  "near-fmt",
+ "near-gas",
  "near-o11y",
  "near-parameters",
  "near-primitives",
@@ -5504,6 +5525,7 @@ dependencies = [
  "lru 0.12.3",
  "memoffset 0.8.0",
  "near-crypto",
+ "near-gas",
  "near-o11y",
  "near-parameters",
  "near-primitives-core",
@@ -5671,6 +5693,7 @@ dependencies = [
  "near-crypto",
  "near-dyn-configs",
  "near-epoch-manager",
+ "near-gas",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-mainnet-res",
@@ -5722,6 +5745,7 @@ dependencies = [
  "near-dyn-configs",
  "near-flat-storage",
  "near-fork-network",
+ "near-gas",
  "near-jsonrpc-primitives",
  "near-mirror",
  "near-network",
@@ -5787,6 +5811,7 @@ dependencies = [
  "itertools 0.12.1",
  "near-chain-configs",
  "near-crypto",
+ "near-gas",
  "near-o11y",
  "near-parameters",
  "near-primitives",
@@ -7278,6 +7303,7 @@ dependencies = [
  "near-chain-configs",
  "near-crypto",
  "near-fmt",
+ "near-gas",
  "near-o11y",
  "near-parameters",
  "near-primitives",
@@ -7314,6 +7340,7 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-epoch-manager",
+ "near-gas",
  "near-o11y",
  "near-parameters",
  "near-primitives",
@@ -8065,6 +8092,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
+ "near-gas",
  "near-jsonrpc",
  "near-network",
  "near-o11y",
@@ -8336,6 +8364,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
+ "near-gas",
  "near-jsonrpc",
  "near-network",
  "near-o11y",
