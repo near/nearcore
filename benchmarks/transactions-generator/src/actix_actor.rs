@@ -1,6 +1,6 @@
 use crate::{ClientSender, Config, TxGenerator, ViewClientSender};
 use actix::Actor;
-use near_async::actix_wrapper::ActixWrapper;
+use near_async::actix::wrapper::ActixWrapper;
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{self};
 

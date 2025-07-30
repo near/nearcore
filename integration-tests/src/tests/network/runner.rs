@@ -1,8 +1,8 @@
 use actix::{Actor, Addr};
 use anyhow::{Context, anyhow, bail};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
-use near_async::futures::ActixFutureSpawner;
+use near_async::actix::futures::ActixFutureSpawner;
+use near_async::actix::wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;

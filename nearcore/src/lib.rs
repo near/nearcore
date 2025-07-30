@@ -11,7 +11,7 @@ use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{
+use near_async::actix::wrapper::{
     ActixWrapper, SyncActixWrapper, spawn_actix_actor, spawn_sync_actix_actor,
 };
 use near_async::futures::TokioRuntimeFutureSpawner;
