@@ -672,7 +672,7 @@ impl LocalnetCmd {
             let shard_id = shard_id.parse::<ShardId>().expect("Shard id must be an integer");
             ShardUId::new(0, shard_id)
         });
-        // TODO(archival_v2): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
+        // TODO(cloud_archival): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
         TrackedShardsConfig::AllShards
     }
 

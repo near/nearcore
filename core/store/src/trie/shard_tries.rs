@@ -12,9 +12,10 @@ use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::{DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage, metrics};
 use crate::{Trie, TrieChanges, TrieUpdate};
 use itertools::Itertools;
+use near_primitives::block::Block;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     BlockHeight, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
@@ -582,6 +583,29 @@ impl ShardTries {
         split_shard_map_guard.insert(parent_shard_uid, children_shard_uids);
 
         tracing::info!(target: "memtrie", "Memtries freezing complete");
+        Ok(())
+    }
+
+    /// Used in state_sync to create a snapshot of the state as of the given block.
+    /// As convention, we use the previous state root of each chunk header as the state root for that shard.
+    ///
+    /// For state sync, we have the assumption that at least 2 chunks have been produced for each shard,
+    /// which means the shard_id belongs to the current epoch.
+    pub fn create_memtrie_snapshot(
+        &self,
+        block: &Block,
+        shard_layout: &ShardLayout,
+    ) -> Result<(), StorageError> {
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
+            // With the sync_hash constraints, we are assured that the chunk belongs to the current epoch.
+            assert_eq!(shard_uid.shard_id(), chunk_header.shard_id());
+            let Some(memtries) = self.get_memtries(shard_uid) else {
+                continue;
+            };
+            let mut guard = memtries.write();
+            guard.snapshot(&chunk_header.prev_state_root())?;
+        }
         Ok(())
     }
 }

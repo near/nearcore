@@ -839,7 +839,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             let port1 = tcp::ListenerAddr::reserve_for_test();
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.client_config.min_num_peers = 0;
-            // TODO(archival_v2): Since stateless validation, validators do not need to track all shards.
+            // TODO(cloud_archival): Since stateless validation, validators do not need to track all shards.
             // That should likely be changed to `TrackedShardsConfig::NoShards`.
             near1.client_config.tracked_shards_config = TrackedShardsConfig::AllShards; // Track all shards, it is a validator.
             near1.config.store.disable_state_snapshot();

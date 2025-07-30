@@ -1036,8 +1036,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         res
     }
 
-    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool {
-        match BorshDeserialize::try_from_slice(data) {
+    fn validate_state_part(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: PartId,
+        data: &[u8],
+    ) -> bool {
+        let instant = Instant::now();
+        let res = match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => {
                 match Trie::validate_state_part(state_root, part_id, trie_nodes) {
                     Ok(_) => true,
@@ -1053,7 +1060,13 @@ impl RuntimeAdapter for NightshadeRuntime {
                 tracing::error!(target: "state-parts", ?err, "State part deserialization error");
                 false
             }
-        }
+        };
+        let elapsed = instant.elapsed();
+        let is_ok = if res { "ok" } else { "error" };
+        metrics::STATE_SYNC_VALIDATE_PART_DELAY
+            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .observe(elapsed.as_secs_f64());
+        res
     }
 
     fn apply_state_part(

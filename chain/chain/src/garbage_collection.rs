@@ -744,6 +744,9 @@ impl<'a> ChainStoreUpdate<'a> {
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
+        if cfg!(feature = "protocol_feature_spice") {
+            self.gc_col(DBCol::all_next_block_hashes(), block_hash.as_bytes());
+        }
         self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
         self.gc_col(DBCol::BlocksToCatchup, block_hash.as_bytes());
         let storage_key = KeyForStateChanges::for_block(&block_hash);
@@ -1124,6 +1127,10 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => {
+                store_update.delete(col, key);
+            }
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::AllNextBlockHashes => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion

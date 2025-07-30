@@ -1,18 +1,22 @@
 use crate::cli::{ApplyRangeMode, StorageSource};
 use crate::commands::{maybe_print_db_stats, maybe_save_trie_changes};
 use crate::progress_reporter::ProgressReporter;
+use core::panic;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::{
-    ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter, get_incoming_receipts_for_shard,
+    Block, ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter,
+    get_incoming_receipts_for_shard,
 };
 use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
@@ -22,6 +26,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
@@ -32,6 +37,8 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+use tracing::span::EnteredSpan;
 
 fn old_outcomes(
     store: Store,
@@ -62,21 +69,95 @@ fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
     }
 }
 
-fn apply_block_from_range(
-    mode: ApplyRangeMode,
+// Input for chunk application - contains all of the data needed to apply a chunk.
+// Also includes the block and chunk header to provide extra context.
+#[derive(Clone)]
+struct ChunkApplicationInput {
+    chunk_header: ShardChunkHeader,
+    block: Block,
+    storage_config: RuntimeStorageConfig,
+    apply_reason: ApplyChunkReason,
+    block_context: ApplyChunkBlockContext,
+    receipts: Vec<Receipt>,
+    transactions: SignedValidPeriodTransactions,
+}
+
+fn apply_chunk_from_input(
+    input: ChunkApplicationInput,
+    runtime_adapter: &dyn RuntimeAdapter,
+) -> ApplyChunkResult {
+    let ChunkApplicationInput {
+        block,
+        chunk_header,
+        storage_config,
+        apply_reason,
+        block_context,
+        receipts,
+        transactions,
+        ..
+    } = input;
+
+    // Can't have an `ApplyChunkShardContext` field inside `ChunkApplicationInput` because `last_validator_proposals` is borrowed.
+    let chunk_context = ApplyChunkShardContext {
+        shard_id: chunk_header.shard_id(),
+        last_validator_proposals: chunk_header.prev_validator_proposals(),
+        gas_limit: chunk_header.gas_limit(),
+        is_new_chunk: chunk_header.is_new_chunk(block.header().height()),
+    };
+
+    runtime_adapter
+        .apply_chunk(
+            storage_config,
+            apply_reason,
+            chunk_context,
+            block_context,
+            &receipts,
+            transactions,
+        )
+        .unwrap()
+}
+
+/// Result of `get_chunk_application_input` - either input for chunk application or a reason why we can't apply the chunk and should skip it.
+enum ApplicationInputOrSkip {
+    Input(ChunkApplicationInput),
+    Skip(SkipReason),
+}
+
+enum SkipReason {
+    BlockNotAvailable,
+    GenesisBlock,
+    PrevBlockNotAvailable(Arc<Block>, Box<ShardChunkHeader>),
+    NoContractTransactions,
+    MissingChunkCantUseRecorded,
+}
+
+impl SkipReason {
+    pub fn explanation(&self) -> &'static str {
+        match self {
+            SkipReason::BlockNotAvailable => "Block not available",
+            SkipReason::GenesisBlock => "Genesis block",
+            SkipReason::PrevBlockNotAvailable(_, _) => "Previous block not available",
+            SkipReason::NoContractTransactions => {
+                "only_contracts is true and there are no contract transactions in the chunk"
+            }
+            SkipReason::MissingChunkCantUseRecorded => {
+                "Can't apply a missing chunk using recorded storage. Witnesses are produced only for non-missing chunks"
+            }
+        }
+    }
+}
+
+/// Gather data needed to apply a chunk on a given height and shard ID.
+fn get_chunk_application_input(
     height: BlockHeight,
     shard_id: ShardId,
-    read_store: Store,
-    write_store: Option<Store>,
+    read_store: &Store,
     genesis: &Genesis,
     epoch_manager: &EpochManagerHandle,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
-    progress_reporter: &ProgressReporter,
-    verbose_output: bool,
-    csv_file_mutex: &Mutex<Option<&mut File>>,
-    only_contracts: bool,
     storage: StorageSource,
-) {
+    only_contracts: bool,
+    runtime_adapter: &dyn RuntimeAdapter,
+) -> ApplicationInputOrSkip {
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
     // since we're not writing anything to the read store anyway
@@ -86,8 +167,7 @@ fn apply_block_from_range(
         Ok(block_hash) => block_hash,
         Err(_) => {
             // Skipping block because it's not available in ChainStore.
-            progress_reporter.inc_and_report_progress(height, 0);
-            return;
+            return ApplicationInputOrSkip::Skip(SkipReason::BlockNotAvailable);
         }
     };
     let block = read_chain_store.get_block(&block_hash).unwrap();
@@ -95,31 +175,12 @@ fn apply_block_from_range(
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id).unwrap();
     let shard_index = shard_id_to_index(epoch_manager, shard_id, epoch_id).unwrap();
     assert!(!block.chunks().is_empty());
-    let mut existing_chunk_extra = None;
-    let mut prev_chunk_extra = None;
-    let mut num_tx = 0;
-    let mut num_receipt = 0;
-    let chunk_present: bool;
 
-    let block_author = epoch_manager
-        .get_block_producer(block.header().epoch_id(), block.header().height())
-        .unwrap();
+    let chunk_header = block.chunks()[shard_index].clone();
 
-    let apply_result = if block.header().is_genesis() {
-        if verbose_output {
-            println!("Skipping the genesis block #{}.", height);
-        }
-        progress_reporter.inc_and_report_progress(height, 0);
-        return;
-    } else if block.chunks()[shard_index].height_included() == height {
-        chunk_present = true;
-        let res_existing_chunk_extra = read_chain_store.get_chunk_extra(&block_hash, &shard_uid);
-        assert!(
-            res_existing_chunk_extra.is_ok(),
-            "Can't get existing chunk extra for block #{}",
-            height
-        );
-        existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
+    if block.header().is_genesis() {
+        ApplicationInputOrSkip::Skip(SkipReason::GenesisBlock)
+    } else if chunk_header.is_new_chunk(height) {
         let chunks = block.chunks();
         let chunk_hash = chunks[shard_index].chunk_hash();
         let chunk = read_chain_store.get_chunk(&chunk_hash).unwrap_or_else(|error| {
@@ -132,25 +193,10 @@ fn apply_block_from_range(
         let prev_block = match read_chain_store.get_block(block.header().prev_hash()) {
             Ok(prev_block) => prev_block,
             Err(_) => {
-                if verbose_output {
-                    println!(
-                        "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.",
-                        height
-                    );
-                }
-                maybe_add_to_csv(
-                    csv_file_mutex,
-                    &format!(
-                        "{},{},{},,,{},,{},,",
-                        height,
-                        block_hash,
-                        block_author,
-                        block.header().raw_timestamp(),
-                        chunk_present
-                    ),
-                );
-                progress_reporter.inc_and_report_progress(height, 0);
-                return;
+                return ApplicationInputOrSkip::Skip(SkipReason::PrevBlockNotAvailable(
+                    block.clone(),
+                    Box::new(chunk_header),
+                ));
             }
         };
 
@@ -175,9 +221,6 @@ fn apply_block_from_range(
 
         let chunk_inner = chunk.cloned_header().take_inner();
 
-        num_receipt = receipts.len();
-        num_tx = chunk.to_transactions().len();
-
         if only_contracts {
             let mut has_contracts = false;
             for tx in chunk.to_transactions() {
@@ -187,59 +230,211 @@ fn apply_block_from_range(
                 }
             }
             if !has_contracts {
-                progress_reporter.skipped.fetch_add(1, Ordering::Relaxed);
-                return;
+                return ApplicationInputOrSkip::Skip(SkipReason::NoContractTransactions);
             }
         }
 
-        runtime_adapter
-            .apply_chunk(
-                storage.create_runtime_storage(*chunk_inner.prev_state_root()),
-                ApplyChunkReason::UpdateTrackedShard,
-                ApplyChunkShardContext {
+        let runtime_storage = match storage {
+            StorageSource::Recorded => {
+                // Apply the chunk using flat storage to generate the storage proof
+                // and then use the storage proof to prepare recorded storage config.
+                let i = get_chunk_application_input(
+                    height,
                     shard_id,
-                    last_validator_proposals: chunk_inner.prev_validator_proposals(),
-                    gas_limit: chunk_inner.gas_limit(),
-                    is_new_chunk: true,
-                },
-                ApplyChunkBlockContext::from_header(
-                    block.header(),
-                    prev_block.header().next_gas_price(),
-                    block.block_congestion_info(),
-                    block.block_bandwidth_requests(),
-                ),
-                &receipts,
-                SignedValidPeriodTransactions::new(transactions, valid_txs),
-            )
-            .unwrap()
+                    read_store,
+                    genesis,
+                    epoch_manager,
+                    StorageSource::Trie,
+                    only_contracts,
+                    runtime_adapter,
+                );
+                match i {
+                    ApplicationInputOrSkip::Skip(skip_reason) => {
+                        panic!("Can't apply the chunk: {}", skip_reason.explanation());
+                    }
+                    ApplicationInputOrSkip::Input(input) => {
+                        let o = apply_chunk_from_input(input, runtime_adapter);
+                        let storage_proof = o.proof.unwrap();
+                        RuntimeStorageConfig {
+                            state_root: *chunk_inner.prev_state_root(),
+                            use_flat_storage: false,
+                            source: StorageDataSource::Recorded(storage_proof),
+                            state_patch: Default::default(),
+                        }
+                    }
+                }
+            }
+            _ => storage.create_runtime_storage(*chunk_inner.prev_state_root()),
+        };
+
+        let apply_reason = match storage {
+            StorageSource::Recorded => ApplyChunkReason::ValidateChunkStateWitness,
+            _ => ApplyChunkReason::UpdateTrackedShard,
+        };
+
+        ApplicationInputOrSkip::Input(ChunkApplicationInput {
+            chunk_header,
+            block: (*block).clone(),
+            storage_config: runtime_storage,
+            apply_reason,
+            block_context: ApplyChunkBlockContext::from_header(
+                block.header(),
+                block.header().next_gas_price(),
+                block.block_congestion_info(),
+                block.block_bandwidth_requests(),
+            ),
+            receipts,
+            transactions: SignedValidPeriodTransactions::new(transactions, valid_txs),
+        })
     } else {
-        chunk_present = false;
         let chunk_extra =
             read_chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
-        prev_chunk_extra = Some(chunk_extra.clone());
 
-        runtime_adapter
-            .apply_chunk(
-                storage.create_runtime_storage(*chunk_extra.state_root()),
-                ApplyChunkReason::UpdateTrackedShard,
-                ApplyChunkShardContext {
-                    shard_id,
-                    last_validator_proposals: chunk_extra.validator_proposals(),
-                    gas_limit: chunk_extra.gas_limit(),
-                    is_new_chunk: false,
-                },
-                ApplyChunkBlockContext::from_header(
-                    block.header(),
-                    block.header().next_gas_price(),
-                    block.block_congestion_info(),
-                    block.block_bandwidth_requests(),
-                ),
-                &[],
-                SignedValidPeriodTransactions::empty(),
-            )
-            .unwrap()
+        if matches!(storage, StorageSource::Recorded) {
+            return ApplicationInputOrSkip::Skip(SkipReason::MissingChunkCantUseRecorded);
+        }
+
+        ApplicationInputOrSkip::Input(ChunkApplicationInput {
+            chunk_header,
+            block: (*block).clone(),
+            storage_config: storage.create_runtime_storage(*chunk_extra.state_root()),
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
+            block_context: ApplyChunkBlockContext::from_header(
+                block.header(),
+                block.header().next_gas_price(),
+                block.block_congestion_info(),
+                block.block_bandwidth_requests(),
+            ),
+            receipts: Vec::new(),
+            transactions: SignedValidPeriodTransactions::empty(),
+        })
+    }
+}
+
+fn apply_block_from_range(
+    mode: ApplyRangeMode,
+    height: BlockHeight,
+    shard_id: ShardId,
+    read_store: Store,
+    write_store: Option<Store>,
+    genesis: &Genesis,
+    epoch_manager: &EpochManagerHandle,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    progress_reporter: &ProgressReporter,
+    verbose_output: bool,
+    csv_file_mutex: &Mutex<Option<&mut File>>,
+    only_contracts: bool,
+    storage: StorageSource,
+) {
+    // Gather inputs for chunk application
+    let input_or_skip: ApplicationInputOrSkip = get_chunk_application_input(
+        height,
+        shard_id,
+        &read_store,
+        genesis,
+        epoch_manager,
+        storage,
+        only_contracts,
+        &*runtime_adapter,
+    );
+
+    // See if the chunk can be applied, or if it should be skipped.
+    let input = match input_or_skip {
+        ApplicationInputOrSkip::Input(input) => input,
+        ApplicationInputOrSkip::Skip(skip_reason) => {
+            match &skip_reason {
+                SkipReason::BlockNotAvailable => {
+                    progress_reporter.inc_and_report_progress(height, 0);
+                }
+                SkipReason::GenesisBlock => {
+                    if verbose_output {
+                        println!("Skipping the genesis block #{}.", height);
+                    }
+                    progress_reporter.inc_and_report_progress(height, 0);
+                }
+                SkipReason::PrevBlockNotAvailable(block, chunk_header) => {
+                    if verbose_output {
+                        println!(
+                            "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.",
+                            height
+                        );
+                    }
+
+                    maybe_add_to_csv(
+                        csv_file_mutex,
+                        &format!(
+                            "{},{},{},,,{},,{},,",
+                            height,
+                            block.header().hash(),
+                            epoch_manager
+                                .get_block_producer(
+                                    block.header().epoch_id(),
+                                    block.header().height()
+                                )
+                                .unwrap(),
+                            block.header().raw_timestamp(),
+                            chunk_header.is_new_chunk(height)
+                        ),
+                    );
+                    progress_reporter.inc_and_report_progress(height, 0)
+                }
+                SkipReason::NoContractTransactions => {
+                    progress_reporter.skipped.fetch_add(1, Ordering::Relaxed);
+                }
+                SkipReason::MissingChunkCantUseRecorded => {
+                    if verbose_output {
+                        println!(
+                            "Skipping applying block #{} because {}",
+                            height,
+                            skip_reason.explanation()
+                        );
+                    }
+                    progress_reporter.inc_and_report_progress(height, 0)
+                }
+            }
+            return;
+        }
     };
 
+    // Collect information before the `input` is consumed by chunk application
+    let num_receipt = input.receipts.len();
+    let num_tx = input.transactions.len();
+    let block_author = epoch_manager
+        .get_block_producer(input.block.header().epoch_id(), input.block.header().height())
+        .unwrap();
+    let shard_uid = shard_id_to_uid(
+        epoch_manager,
+        input.chunk_header.shard_id(),
+        input.block.header().epoch_id(),
+    )
+    .unwrap();
+    let block_hash = *input.block.header().hash();
+    let prev_block_hash = *input.block.header().prev_hash();
+    let raw_timestamp = input.block.header().raw_timestamp();
+    let chunk_present = input.chunk_header.is_new_chunk(height);
+    let mut existing_chunk_extra = None;
+    let mut prev_chunk_extra = None;
+
+    if chunk_present {
+        let res_existing_chunk_extra =
+            ChainStoreAdapter::new(read_store.clone()).get_chunk_extra(&block_hash, &shard_uid);
+        assert!(
+            res_existing_chunk_extra.is_ok(),
+            "Can't get existing chunk extra for block #{}",
+            height
+        );
+        existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
+    } else {
+        let chunk_extra = ChainStoreAdapter::new(read_store.clone())
+            .get_chunk_extra(input.block.header().prev_hash(), &shard_uid)
+            .unwrap();
+        prev_chunk_extra = Some(chunk_extra);
+    }
+
+    // Apply the chunk (consumes input)
+    let apply_result = apply_chunk_from_input(input, &*runtime_adapter);
+
+    // Process application outcome
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         &apply_result.new_root,
@@ -298,7 +493,7 @@ fn apply_block_from_range(
             block_author,
             num_tx,
             num_receipt,
-            block.header().raw_timestamp(),
+            raw_timestamp,
             apply_result.total_gas_burnt,
             chunk_present,
             apply_result.processed_delayed_receipts.len(),
@@ -323,11 +518,7 @@ fn apply_block_from_range(
                 FlatStateChanges::from_state_changes(apply_result.trie_changes.state_changes());
             let delta = near_store::flat::FlatStateDelta {
                 metadata: near_store::flat::FlatStateDeltaMetadata {
-                    block: BlockInfo {
-                        hash: block_hash,
-                        height: block.header().height(),
-                        prev_hash: *block.header().prev_hash(),
-                    },
+                    block: BlockInfo { hash: block_hash, height, prev_hash: prev_block_hash },
                     prev_block_with_changes: None,
                 },
                 changes,
@@ -338,6 +529,9 @@ fn apply_block_from_range(
             let store_update = flat_storage.add_delta(delta).unwrap();
             store_update.commit().unwrap();
             flat_storage.update_flat_head(&block_hash).unwrap();
+        }
+        (_, StorageSource::Recorded) => {
+            panic!("Recorded storage is supported only in the benchmark mode")
         }
     }
     match (mode, storage) {
@@ -389,6 +583,9 @@ fn apply_block_from_range(
                 );
             }
         }
+        (_, StorageSource::Recorded) => {
+            panic!("Recorded storage is supported only in the benchmark mode")
+        }
     }
 }
 
@@ -429,7 +626,7 @@ pub fn apply_chain_range(
     // behaviour.
     match storage {
         StorageSource::Trie | StorageSource::TrieFree => {}
-        StorageSource::FlatStorage => {
+        StorageSource::FlatStorage | StorageSource::Recorded => {
             let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         }
@@ -448,7 +645,10 @@ pub fn apply_chain_range(
         (ApplyRangeMode::Benchmark, StorageSource::Trie | StorageSource::TrieFree) => {
             panic!("benchmark with --storage trie|trie-free is not supported")
         }
-        (ApplyRangeMode::Benchmark, StorageSource::FlatStorage | StorageSource::Memtrie) => {
+        (
+            ApplyRangeMode::Benchmark,
+            StorageSource::FlatStorage | StorageSource::Memtrie | StorageSource::Recorded,
+        ) => {
             // Benchmarking mode requires flat storage and retrieves the block height from flat
             // storage.
             assert!(start_height.is_none());
@@ -475,6 +675,9 @@ pub fn apply_chain_range(
                 ready.flat_head.height + 1
             });
             (start_height, end_height.unwrap_or_else(|| chain_store.head().unwrap().height))
+        }
+        (_, StorageSource::Recorded) => {
+            panic!("Recorded storage is supported only in the benchmark mode")
         }
     };
 
@@ -540,22 +743,98 @@ pub fn apply_chain_range(
                 process_height(height)
             });
         }
-        ApplyRangeMode::Benchmark => loop {
+        ApplyRangeMode::Benchmark => {
             let height = range.start();
-            let _span = tracing::debug_span!(
-                    target: "state_viewer",
-                    parent: &parent_span,
-                    "process_block",
-                    height)
-            .entered();
-            process_height(*height)
-        },
+            benchmark_chunk_application(
+                *height,
+                shard_id,
+                read_store,
+                genesis,
+                epoch_manager,
+                storage,
+                runtime_adapter,
+                only_contracts,
+                parent_span,
+            );
+        }
     }
 
     println!(
         "Applied range {range:?} for shard {shard_uid} in {elapsed:?}",
         elapsed = start_time.elapsed()
     );
+}
+
+fn benchmark_chunk_application(
+    height: BlockHeight,
+    shard_id: ShardId,
+    read_store: Store,
+    genesis: &Genesis,
+    epoch_manager: &EpochManagerHandle,
+    storage: StorageSource,
+    runtime_adapter: Arc<NightshadeRuntime>,
+    only_contracts: bool,
+    parent_span: EnteredSpan,
+) {
+    println!("\nBenchmarking chunk application at height: {}, shard_id: {}", height, shard_id);
+
+    let input_or_skip = get_chunk_application_input(
+        height,
+        shard_id,
+        &read_store,
+        genesis,
+        epoch_manager,
+        storage,
+        only_contracts,
+        &*runtime_adapter,
+    );
+
+    let input = match input_or_skip {
+        ApplicationInputOrSkip::Input(input) => input,
+        ApplicationInputOrSkip::Skip(skip_reason) => {
+            panic!("Can't apply chunk - reason: {:?}", skip_reason.explanation());
+        }
+    };
+
+    println!("Chunk hash: {}", input.chunk_header.chunk_hash().0);
+    println!(
+        "This chunk has {} transactions and {} incoming receipts",
+        input.transactions.len(),
+        input.receipts.len()
+    );
+    println!("");
+
+    let mut total_chunk_application_time: Duration = Duration::ZERO;
+    let mut total_gas_burned: u128 = 0;
+    let report_interval = Duration::from_secs(1);
+    let mut last_report_time = Instant::now();
+
+    for i in 1.. {
+        let cur_input = input.clone();
+
+        let _span = tracing::debug_span!(
+            target: "state_viewer",
+            parent: &parent_span,
+            "process_block",
+            height)
+        .entered();
+
+        let chunk_application_start_time = Instant::now();
+        let apply_result = apply_chunk_from_input(cur_input, &*runtime_adapter);
+        total_chunk_application_time += chunk_application_start_time.elapsed();
+        total_gas_burned += apply_result.total_gas_burnt as u128;
+
+        if i == 1 || last_report_time.elapsed() >= report_interval {
+            println!(
+                "Applied the chunk {} times. - average stats: (application time: {:.1}ms, applications per second: {:.2}, gas_burned: {:.1} TGas)",
+                i,
+                total_chunk_application_time.as_secs_f64() * 1000.0 / i as f64,
+                i as f64 / total_chunk_application_time.as_secs_f64(),
+                total_gas_burned as f64 / 1_000_000_000_000.0 / i as f64
+            );
+            last_report_time = std::time::Instant::now();
+        }
+    }
 }
 
 /**

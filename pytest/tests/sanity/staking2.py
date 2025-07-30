@@ -97,7 +97,7 @@ def doit(seq=[]):
         {
             0: {
                 "tracked_shards_config": "AllShards",
-                "view_client_throttle_period": {
+                "state_request_throttle_period": {
                     "secs": 0,
                     "nanos": 0
                 },
@@ -118,7 +118,7 @@ def doit(seq=[]):
             },
             1: {
                 "tracked_shards_config": "AllShards",
-                "view_client_throttle_period": {
+                "state_request_throttle_period": {
                     "secs": 0,
                     "nanos": 0
                 },
@@ -139,7 +139,7 @@ def doit(seq=[]):
             },
             2: {
                 "tracked_shards_config": "AllShards",
-                "view_client_throttle_period": {
+                "state_request_throttle_period": {
                     "secs": 0,
                     "nanos": 0
                 },

@@ -47,6 +47,9 @@ use time::ext::InstantExt as _;
 
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 
+use near_chain::chain::ChunkStateWitnessMessage;
+use near_client::ChunkValidationActorInner;
+
 use super::setup::{TEST_SEED, setup_client_with_runtime};
 use super::test_env_builder::TestEnvBuilder;
 
@@ -64,6 +67,7 @@ pub struct TestEnv {
     pub partial_witness_adapters: Vec<MockPartialWitnessAdapter>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
+    pub chunk_validation_actors: Vec<ChunkValidationActorInner>,
     pub rpc_handlers: Vec<RpcHandler>,
     pub(crate) account_indices: AccountIndices,
     pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceLock<()>>>>>,
@@ -418,15 +422,20 @@ impl TestEnv {
                         tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
                         continue;
                     }
-                    let client = self.client(&account_id);
-                    let processing_result = client.process_chunk_state_witness(
-                        state_witness.clone(),
+                    let account_index = self.get_client_index(&account_id);
+                    let witness_message = ChunkStateWitnessMessage {
+                        witness: state_witness.clone(),
                         raw_witness_size,
-                        Some(processing_done_tracker),
-                        client.validator_signer.get(),
-                    );
+                        processing_done_tracker: Some(processing_done_tracker),
+                    };
+
+                    // Call the chunk validation actor's processing method directly to get the actual result
+                    let processing_result = self.chunk_validation_actors[account_index]
+                        .process_chunk_state_witness_message(witness_message);
                     if !allow_errors {
-                        processing_result.unwrap();
+                        if let Err(err) = processing_result {
+                            panic!("Chunk state witness processing failed: {}", err);
+                        }
                     }
                 }
 
@@ -666,7 +675,7 @@ impl TestEnv {
             None => TEST_SEED,
         };
         let num_validator_seats = self.validators.len() as NumSeats;
-        self.clients[idx] = setup_client_with_runtime(
+        let (client, chunk_validation_inner) = setup_client_with_runtime(
             self.clock.clone(),
             num_validator_seats,
             false,
@@ -684,7 +693,9 @@ impl TestEnv {
             self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.clone(),
             self.clients[idx].resharding_sender.clone(),
-        )
+        );
+        self.clients[idx] = client;
+        self.chunk_validation_actors[idx] = chunk_validation_inner;
     }
 
     /// Returns an [`AccountId`] used by a client at given index.  More

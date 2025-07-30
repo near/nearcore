@@ -243,7 +243,7 @@ pub(crate) fn apply_range(
     storage: StorageSource,
     start_index: Option<BlockHeight>,
     end_index: Option<BlockHeight>,
-    shard_id: ShardId,
+    shard_id: Vec<ShardId>,
     verbose_output: bool,
     csv_file: Option<PathBuf>,
     home_dir: &Path,
@@ -266,22 +266,68 @@ pub(crate) fn apply_range(
         epoch_manager.clone(),
     )
     .expect("could not create the transaction runtime");
-    apply_chain_range(
-        mode,
-        read_store,
-        write_store.clone(),
-        &near_config.genesis,
-        start_index,
-        end_index,
-        shard_id,
-        epoch_manager.as_ref(),
-        runtime,
-        verbose_output,
-        csv_file.as_mut(),
-        only_contracts,
-        storage,
-    );
-    maybe_print_db_stats(write_store);
+    let shard_ids = if shard_id.is_empty() {
+        let chain_store = ChainStore::new(
+            read_store.clone(),
+            false,
+            near_config.genesis.config.transaction_validity_period,
+        );
+        let final_head = chain_store.final_head().unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
+        shard_layout.shard_ids().collect::<Vec<_>>()
+    } else {
+        shard_id
+    };
+
+    let genesis = &near_config.genesis;
+    let write_store_clone = write_store.clone();
+    if let Some(csv_file) = &mut csv_file {
+        println!("NOTE: applying chunks in parallel is not available with CSV file output");
+        for shard_id in shard_ids {
+            apply_chain_range(
+                mode,
+                read_store.clone(),
+                write_store.clone(),
+                genesis,
+                start_index,
+                end_index,
+                shard_id,
+                epoch_manager.as_ref(),
+                runtime.clone(),
+                verbose_output,
+                Some(csv_file),
+                only_contracts,
+                storage,
+            )
+        }
+    } else {
+        std::thread::scope(move |s| {
+            for shard_id in shard_ids {
+                let read_store = read_store.clone();
+                let write_store = write_store.clone();
+                let epoch_manager = epoch_manager.clone();
+                let runtime = runtime.clone();
+                s.spawn(move || {
+                    apply_chain_range(
+                        mode,
+                        read_store,
+                        write_store,
+                        genesis,
+                        start_index,
+                        end_index,
+                        shard_id,
+                        epoch_manager.as_ref(),
+                        runtime.clone(),
+                        verbose_output,
+                        None,
+                        only_contracts,
+                        storage,
+                    )
+                });
+            }
+        });
+    }
+    maybe_print_db_stats(write_store_clone);
 }
 
 pub(crate) fn apply_receipt(

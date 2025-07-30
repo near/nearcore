@@ -19,7 +19,7 @@ run-localnet loglevel="info":
     {{neard}} --home {{near_localnet_home}} run
 
 create-accounts num_accounts="50000":
-    #!/bin/bash
+    #!/usr/bin/env bash
     {{neard}} --home {{near_localnet_home}} run &
     NEARD_PID=$!
     sleep 5
@@ -36,7 +36,7 @@ create-accounts num_accounts="50000":
         --user-data-dir user-data
     kill ${NEARD_PID}
     sleep 3
-    
+
 enable-tx:
     cp -n tx-generator-settings.json.in tx-generator-settings.json
     jq '.tx_generator={ \

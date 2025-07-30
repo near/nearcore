@@ -741,11 +741,17 @@ fn test_state_sync() {
     root_node_wrong.data = std::sync::Arc::new([123]);
     assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
     assert!(!new_env.runtime.validate_state_part(
+        ShardId::new(0),
         &Trie::EMPTY_ROOT,
         PartId::new(0, 1),
         &state_part
     ));
-    new_env.runtime.validate_state_part(&env.state_roots[0], PartId::new(0, 1), &state_part);
+    new_env.runtime.validate_state_part(
+        ShardId::new(0),
+        &env.state_roots[0],
+        PartId::new(0, 1),
+        &state_part,
+    );
     let epoch_id = &new_env.head.epoch_id;
     new_env
         .runtime

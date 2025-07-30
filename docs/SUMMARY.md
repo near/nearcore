@@ -45,6 +45,8 @@
   - [IO tracing](./practices/workflows/io_trace.md)
   - [Profiling](./practices/workflows/profiling.md)
   - [Benchmarks](./practices/workflows/benchmarks.md)
+    - [Synthetic Workloads](./practices/workflows/benchmarking_synthetic_workloads.md)
+    - [Native Transfer Chunk Application](./practices/workflows/benchmarking_chunk_application_on_native_transfers.md)
   - [Working with OpenTelemetry Traces](./practices/workflows/otel_traces.md)
   - [Futex contention](./practices/workflows/futex_contention.md)
 - [Code Style](./practices/style.md)

@@ -9,7 +9,7 @@ pub mod state_patch {
     /// object can be non-empty only if `sandbox` feature is enabled.  On
     /// non-sandbox build, this struct is ZST and its methods are essentially
     /// short-circuited by treating the type as always empty.
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     pub struct SandboxStatePatch {
         records: Vec<StateRecord>,
     }
@@ -50,7 +50,7 @@ pub mod state_patch {
 pub mod state_patch {
     use crate::state_record::StateRecord;
 
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     pub struct SandboxStatePatch;
 
     impl SandboxStatePatch {

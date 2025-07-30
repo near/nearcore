@@ -413,6 +413,7 @@ async fn load_state_parts(
             }
             LoadAction::Validate => {
                 assert!(chain.runtime_adapter.validate_state_part(
+                    shard_id,
                     &state_root,
                     PartId::new(part_id, num_parts),
                     &part

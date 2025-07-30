@@ -529,7 +529,7 @@ impl ChainStateSyncAdapter {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();
-        if !self.runtime_adapter.validate_state_part(&state_root, part_id, data) {
+        if !self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, data) {
             byzantine_assert!(false);
             return Err(Error::Other(format!(
                 "set_state_part failed: validate_state_part failed. state_root={:?}",

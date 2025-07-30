@@ -480,15 +480,6 @@ impl ViewClientActorInner {
                 .flat_map(|outcome| &outcome.outcome.receipt_ids),
         );
 
-        // refund receipt == last receipt in outcome.receipt_ids
-        let mut awaiting_non_refund_receipt_ids: HashSet<&CryptoHash> =
-            HashSet::from_iter(&execution_outcome.transaction_outcome.outcome.receipt_ids);
-        awaiting_non_refund_receipt_ids.extend(execution_outcome.receipts_outcome.iter().flat_map(
-            |outcome| {
-                outcome.outcome.receipt_ids.split_last().map(|(_, ids)| ids).unwrap_or_else(|| &[])
-            },
-        ));
-
         let executed_receipt_ids: HashSet<&CryptoHash> = execution_outcome
             .receipts_outcome
             .iter()
@@ -500,6 +491,40 @@ impl ViewClientActorInner {
                 }
             })
             .collect();
+
+        // Optimization for end-user TX latency: If the last outgoing receipt of
+        // an outcome is a refund receipt, we don't wait for that and consider
+        // the transaction executed or finalized a block earlier.
+        let mut awaiting_non_refund_receipt_ids = awaiting_receipt_ids.clone();
+        for outcome in &execution_outcome.receipts_outcome {
+            let receipt_ids = outcome.outcome.receipt_ids.as_slice();
+            let Some(last_receipt_id) = receipt_ids.last() else {
+                continue;
+            };
+
+            // no need to apply the optimization for already executed receipts
+            if executed_receipt_ids.contains(last_receipt_id) {
+                continue;
+            }
+            // need the full receipt to determine if this is a refund or not
+            // Note: We can't read from DBCol::Receipts here because we store it there too late
+            // This means we have to read outgoing receipts, which isn't ideal.
+            // but since this is only triggered for receipts that are not
+            // executed yet, this is a rare case. And whenever we hit it, this is
+            // recent data that was written probably within the last second and
+            // should be fast to retrieve.
+            let outgoing_receipts = self.outgoing_receipts_for_outcome(outcome)?;
+            let Some(last_receipt) =
+                outgoing_receipts.iter().find(|receipt| receipt.receipt_id() == last_receipt_id)
+            else {
+                // if we can't fetch the receipt, be conservative and assume we have to wait
+                continue;
+            };
+            // predecessor_id == "system" means this is a refund receipt
+            if last_receipt.predecessor_id().is_system() {
+                awaiting_non_refund_receipt_ids.remove(last_receipt_id);
+            }
+        }
 
         let executed_ignoring_refunds =
             awaiting_non_refund_receipt_ids.is_subset(&executed_receipt_ids);
@@ -534,6 +559,25 @@ impl ViewClientActorInner {
             Err(_) => TxExecutionStatus::Executed,
             Ok(_) => TxExecutionStatus::Final,
         })
+    }
+
+    /// Read the receipts that are outgoing from the given execution outcome,
+    /// even before they have been validated on chain and stored in
+    /// DbCol::Receipts.
+    fn outgoing_receipts_for_outcome(
+        &self,
+        outcome: &ExecutionOutcomeWithIdView,
+    ) -> Result<Arc<Vec<Receipt>>, TxStatusError> {
+        let epoch_id = &self.epoch_manager.get_epoch_id(&outcome.block_hash).into_chain_error()?;
+        let shard_id = account_id_to_shard_id(
+            self.epoch_manager.as_ref(),
+            &outcome.outcome.executor_id,
+            epoch_id,
+        )
+        .into_chain_error()?;
+        let outgoing_receipts =
+            self.chain.chain_store().get_outgoing_receipts(&outcome.block_hash, shard_id)?;
+        Ok(outgoing_receipts)
     }
 
     fn get_tx_status(

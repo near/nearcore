@@ -715,6 +715,7 @@ fn network_message_to_shards_manager_handler(
                         ChunkStateWitnessMessage {
                             witness: state_witness.clone(),
                             raw_witness_size,
+                            processing_done_tracker: None,
                         }
                         .span_wrap(),
                     );

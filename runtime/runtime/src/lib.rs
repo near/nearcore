@@ -189,14 +189,14 @@ struct TransactionBatches<'a> {
 impl<'a> TransactionBatches<'a> {
     pub fn new(signed_txs: &'a [SignedTransaction]) -> Self {
         let mut indices: Vec<usize> = (0..signed_txs.len()).collect();
-        indices.sort_by_key(|&i| {
+        indices.sort_unstable_by_key(|&i| {
             let tx = &signed_txs[i].transaction;
-            (tx.signer_id().clone(), i)
+            (tx.signer_id(), i)
         });
         Self { signed_txs, indices }
     }
 
-    /// Returns a parallel iterator that yields `TransactionBatch` for each signer.
+    /// Returns a parallel iterator that yields a [`TransactionBatch`] for each signer.
     pub fn par_batches(
         &'a self,
     ) -> impl rayon::iter::ParallelIterator<Item = TransactionBatch<'a>> + 'a {
@@ -872,8 +872,8 @@ impl Runtime {
 
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
-            if let Some(ref mut account) = account {
-                match check_storage_stake(account, &apply_state.config) {
+            if let Some(ref account) = account {
+                match check_storage_stake(account, account.amount(), &apply_state.config) {
                     Ok(()) => {
                         set_account(state_update, account_id.clone(), account);
                     }
@@ -1780,7 +1780,7 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let tx_vec = signed_txs.into_iter_nonexpired_transactions().collect::<Vec<_>>();
+        let tx_vec = signed_txs.into_nonexpired_transactions();
         let tx_batches = TransactionBatches::new(&tx_vec);
 
         let batch_outputs = tx_batches

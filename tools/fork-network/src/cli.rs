@@ -411,7 +411,7 @@ impl ForkNetworkCommand {
         near_store::clear_columns(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
             &unwanted_cols,
             true,
         )
@@ -762,7 +762,7 @@ impl ForkNetworkCommand {
         near_store::clear_columns(
             home_dir,
             &near_config.config.store,
-            near_config.config.archival_config(),
+            near_config.config.cold_store.as_ref(),
             &unwanted_cols,
             true,
         )

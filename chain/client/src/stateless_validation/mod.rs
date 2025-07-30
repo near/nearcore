@@ -1,4 +1,5 @@
 pub mod chunk_endorsement;
+pub mod chunk_validation_actor;
 pub mod chunk_validator;
 pub mod partial_witness;
 mod shadow_validate;

@@ -127,7 +127,7 @@ fn write_epoch_checkpoint(store_update: &mut StoreUpdate, epoch_checkpoint: &Epo
 
 fn create_snapshot(create_cmd: CreateCmd) {
     let path = Path::new(&create_cmd.home);
-    let store = NodeStorage::opener(path, &Default::default(), None)
+    let store = NodeStorage::opener(path, &Default::default(), None, None)
         .open_in_mode(Mode::ReadOnly)
         .unwrap()
         .get_hot_store();
@@ -225,11 +225,15 @@ fn load_snapshot(load_cmd: LoadCmd) {
 
     let near_config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-    let store =
-        NodeStorage::opener(home_dir, &Default::default(), near_config.config.archival_config())
-            .open()
-            .unwrap()
-            .get_hot_store();
+    let store = NodeStorage::opener(
+        home_dir,
+        &Default::default(),
+        near_config.config.cold_store.as_ref(),
+        near_config.config.cloud_storage.as_ref(),
+    )
+    .open()
+    .unwrap()
+    .get_hot_store();
     let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));

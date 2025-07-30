@@ -187,6 +187,7 @@ impl StateSyncDownloader {
                     )
                     .await?;
                 if runtime_adapter.validate_state_part(
+                    shard_id,
                     &state_root,
                     PartId { idx: part_id, total: num_state_parts },
                     &part,

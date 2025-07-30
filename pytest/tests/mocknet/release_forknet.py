@@ -68,15 +68,25 @@ def handle_destroy(args):
 
 
 def handle_start_test(args):
+    logger.info("🚀 Starting test...")
     test_setup = get_test_case(args.test_case, args)
+    logger.info("🔄 Initializing environment...")
     test_setup.init_env()
+    logger.info("🔄 Running before test setup...")
     test_setup.before_test_setup()
+    logger.info("🔄 Running new test...")
     test_setup.new_test()
+    logger.info("🔄 Waiting for network to be ready...")
     test_setup.wait_for_network_to_be_ready()
+    logger.info("🔄 Amending epoch config...")
     test_setup.amend_epoch_config()
+    logger.info("🔄 Amending configs before test start...")
     test_setup.amend_configs_before_test_start()
+    logger.info("🔄 Starting network...")
     test_setup.start_network()
+    logger.info("🔄 Running after test start...")
     test_setup.after_test_start()
+    logger.info("🎉 Test setup completed!")
 
 
 def main():
