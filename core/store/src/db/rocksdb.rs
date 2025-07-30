@@ -725,7 +725,7 @@ impl RocksDB {
     }
 
     fn flush_pending(&mut self) {
-        let mut pending = self.pending.0.write().expect("poisoned");
+        let mut pending = self.pending.inner.write().expect("poisoned");
         if pending.batches.is_empty() {
             return;
         }

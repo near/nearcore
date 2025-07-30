@@ -21,11 +21,14 @@ pub struct PendingWritesInner {
 }
 
 #[derive(Default, Debug)]
-pub struct PendingWrites(pub RwLock<PendingWritesInner>);
+pub struct PendingWrites {
+    pub inner: RwLock<PendingWritesInner>,
+    write_in_progress: RwLock<()>,
+}
 
 impl PendingWrites {
     pub fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<Vec<u8>> {
-        let inner = self.0.read().expect("poisoned");
+        let inner = self.inner.read().expect("poisoned");
         // Iterate over batches in reverse order to find the most recent write.
         // TODO: Support deletes
         inner.batches.iter().rev().find_map(|batch| {
@@ -313,7 +316,7 @@ impl Store {
     pub fn write_pending(&self, transaction: DBTransaction) -> io::Result<()> {
         if let Some(pending) = self.pending.as_ref() {
             // If there are pending writes, add the transaction to them.
-            pending.0.write().expect("poisoned").batches.push(transaction);
+            pending.inner.write().expect("poisoned").batches.push(transaction);
             Ok(())
         } else {
             // Otherwise, write the transaction directly.
@@ -326,16 +329,18 @@ impl Store {
             return Ok(()); // Nothing to flush if there are no pending writes.
         };
         // Just return if there is nothing scheduled to flush already.
-        if pending.0.read().expect("poisoned").batches.is_empty() {
+        if pending.inner.read().expect("poisoned").batches.is_empty() {
             return Ok(());
         }
         // Avoid blocking current thread
         let storage = self.storage.clone();
         let pending = pending.clone();
         let _ = std::thread::spawn(move || -> io::Result<()> {
+            // Ensure mutual exclusivity of pending writes.
+            let _guard = pending.write_in_progress.write().expect("poisoned");
             // First write pending batches, but don't block readers.
             let num_batches = {
-                let pending = pending.0.read().expect("poisoned");
+                let pending = pending.inner.read().expect("poisoned");
                 if pending.batches.is_empty() {
                     return Ok(());
                 }
@@ -346,7 +351,7 @@ impl Store {
             };
             // Clear the pending writes after flushing.
             {
-                let mut pending = pending.0.write().expect("poisoned");
+                let mut pending = pending.inner.write().expect("poisoned");
                 pending.batches.drain(..num_batches);
             }
             Ok(())
