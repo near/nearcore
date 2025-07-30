@@ -10,7 +10,6 @@ use near_client_primitives::types::Status;
 use near_crypto::InMemorySigner;
 use near_network::client::{BlockResponse, ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
-use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Block, BlockHeader};
@@ -34,13 +33,10 @@ fn query_client() {
             true,
             true,
         );
-        let actor = actor_handles.view_client_actor.send(
-            Query::new(
-                BlockReference::latest(),
-                QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
-            )
-            .with_span_context(),
-        );
+        let actor = actor_handles.view_client_actor.send(Query::new(
+            BlockReference::latest(),
+            QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
+        ));
         let actor = actor.then(|res| {
             match res.unwrap().unwrap().kind {
                 QueryResponseKind::ViewAccount(_) => (),
@@ -67,9 +63,7 @@ fn query_status_not_crash() {
             false,
         );
         let signer = create_test_signer("test");
-        let actor = actor_handles
-            .view_client_actor
-            .send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -113,18 +107,13 @@ fn query_status_not_crash() {
                             peer_id: PeerInfo::random().id,
                             was_requested: false,
                         }
-                        .span_wrap()
-                        .with_span_context(),
+                        .span_wrap(),
                     )
                     .then(move |_| {
                         actix::spawn(
                             actor_handles
                                 .client_actor
-                                .send(
-                                    Status { is_health_check: true, detailed: false }
-                                        .span_wrap()
-                                        .with_span_context(),
-                                )
+                                .send(Status { is_health_check: true, detailed: false }.span_wrap())
                                 .then(move |_| {
                                     System::current().stop();
                                     future::ready(())
@@ -156,7 +145,7 @@ fn test_execution_outcome_for_chunk() {
         actix::spawn(async move {
             let block_hash = actor_handles
                 .view_client_actor
-                .send(GetBlock::latest().with_span_context())
+                .send(GetBlock::latest())
                 .await
                 .unwrap()
                 .unwrap()
@@ -174,10 +163,7 @@ fn test_execution_outcome_for_chunk() {
             let tx_hash = transaction.get_hash();
             let res = actor_handles
                 .rpc_handler_actor
-                .send(
-                    ProcessTxRequest { transaction, is_forwarded: false, check_only: false }
-                        .with_span_context(),
-                )
+                .send(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
                 .await
                 .unwrap();
             assert!(matches!(res, ProcessTxResponse::ValidTx));
@@ -185,14 +171,11 @@ fn test_execution_outcome_for_chunk() {
             actix::clock::sleep(std::time::Duration::from_millis(500)).await;
             let block_hash = actor_handles
                 .view_client_actor
-                .send(
-                    TxStatus {
-                        tx_hash,
-                        signer_account_id: "test".parse().unwrap(),
-                        fetch_receipt: false,
-                    }
-                    .with_span_context(),
-                )
+                .send(TxStatus {
+                    tx_hash,
+                    signer_account_id: "test".parse().unwrap(),
+                    fetch_receipt: false,
+                })
                 .await
                 .unwrap()
                 .unwrap()
@@ -203,7 +186,7 @@ fn test_execution_outcome_for_chunk() {
 
             let mut execution_outcomes_in_block = actor_handles
                 .view_client_actor
-                .send(GetExecutionOutcomesForBlock { block_hash }.with_span_context())
+                .send(GetExecutionOutcomesForBlock { block_hash })
                 .await
                 .unwrap()
                 .unwrap();
