@@ -1,4 +1,3 @@
-use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::GetValidatorInfoError;
@@ -25,12 +24,6 @@ impl RpcRequest for RpcValidatorRequest {
 impl RpcRequest for RpcValidatorsOrderedRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         Params::parse(value)
-    }
-}
-
-impl RpcFrom<AsyncSendError> for RpcValidatorError {
-    fn rpc_from(error: AsyncSendError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
     }
 }
 

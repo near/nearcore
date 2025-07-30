@@ -1,4 +1,3 @@
-use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetProtocolConfigError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigRequest};
@@ -9,12 +8,6 @@ use super::{Params, RpcFrom, RpcRequest};
 impl RpcRequest for RpcProtocolConfigRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         Params::parse(value).map(|block_reference| Self { block_reference })
-    }
-}
-
-impl RpcFrom<AsyncSendError> for RpcProtocolConfigError {
-    fn rpc_from(error: AsyncSendError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
     }
 }
 

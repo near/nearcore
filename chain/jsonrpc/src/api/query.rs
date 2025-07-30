@@ -1,4 +1,3 @@
-use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::QueryError;
@@ -86,12 +85,6 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
     };
     // Use Finality::None here to make backward compatibility tests work
     Ok(RpcQueryRequest { request, block_reference: BlockReference::latest() })
-}
-
-impl RpcFrom<AsyncSendError> for RpcQueryError {
-    fn rpc_from(error: AsyncSendError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
 }
 
 impl RpcFrom<QueryError> for RpcQueryError {

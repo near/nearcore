@@ -1,4 +1,3 @@
-use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::{GetChunk, GetChunkError};
@@ -31,12 +30,6 @@ impl RpcRequest for RpcChunkRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         let chunk_reference = parse_chunk_reference(value)?;
         Ok(Self { chunk_reference })
-    }
-}
-
-impl RpcFrom<AsyncSendError> for RpcChunkError {
-    fn rpc_from(error: AsyncSendError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
     }
 }
 

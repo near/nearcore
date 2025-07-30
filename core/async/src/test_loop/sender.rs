@@ -111,7 +111,7 @@ where
             let MessageWithCallback { message: msg, callback } = msg;
             let actor = data.get_mut(&this.actor_handle);
             let result = actor.handle(msg, &mut this);
-            callback(async move { Ok(result) }.boxed());
+            callback(async move { result }.boxed());
         };
         self.pending_events_sender.send_with_delay(
             description,

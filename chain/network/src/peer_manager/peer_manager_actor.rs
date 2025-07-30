@@ -757,7 +757,7 @@ impl PeerManagerActor {
         let state = self.state.clone();
         ctx.spawn(wrap_future(
             async move {
-                state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await.ok();
+                state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await;
             }
             .instrument(
                 tracing::trace_span!(target: "network", "push_network_info_trigger_future"),
@@ -1376,30 +1376,22 @@ impl actix::Handler<WithSpanContext<Tier3Request>> for PeerManagerActor {
                 let tier3_response = match request.body {
                     Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
                         match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
-                            Ok(Some(client_response)) => {
+                            Some(client_response) => {
                                 PeerMessage::VersionedStateResponse(*client_response.0)
                             }
-                            Ok(None) => {
+                            None => {
                                 tracing::debug!(target: "network", ?request, "client declined to respond");
-                                return;
-                            }
-                            Err(err) => {
-                                tracing::error!(target: "network", ?request, ?err, "client failed to respond");
                                 return;
                             }
                         }
                     }
                     Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
                         match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
-                            Ok(Some(client_response)) => {
+                            Some(client_response) => {
                                 PeerMessage::VersionedStateResponse(*client_response.0)
                             }
-                            Ok(None) => {
+                            None => {
                                 tracing::debug!(target: "network", "client declined to respond to {:?}", request);
-                                return;
-                            }
-                            Err(err) => {
-                                tracing::error!(target: "network", ?err, "client failed to respond to {:?}", request);
                                 return;
                             }
                         }

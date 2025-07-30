@@ -97,12 +97,7 @@ impl StateSyncDownloader {
                             }
                             .span_wrap(),
                         )
-                        .await
-                        .map_err(|_| {
-                            near_chain::Error::Other(
-                                "Validation request could not be handled".to_owned(),
-                            )
-                        })??;
+                        .await?;
                     Ok::<ShardStateSyncResponseHeader, near_chain::Error>(header)
                 }
             };

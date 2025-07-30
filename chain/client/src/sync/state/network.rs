@@ -154,13 +154,8 @@ impl StateSyncDownloadSourcePeer {
             .start_timer();
 
         handle.set_status("Sending network request");
-        let network_response = match request_sender.send_async(network_request).await {
-            Ok(response) => response.as_network_response(),
-            Err(e) => {
-                increment_download_count(key.shard_id, typ, "network", "failed_to_send");
-                return Err(near_chain::Error::Other(format!("Failed to send request: {}", e)));
-            }
-        };
+        let network_response =
+            request_sender.send_async(network_request).await.as_network_response();
 
         let request_sent_to_peer = match network_response {
             NetworkResponses::SelectedDestination(peer_id) => peer_id,

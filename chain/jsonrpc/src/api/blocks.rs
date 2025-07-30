@@ -1,4 +1,3 @@
-use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::GetBlockError;
@@ -14,12 +13,6 @@ impl RpcRequest for RpcBlockRequest {
             .try_singleton(|block_id| Ok(BlockReference::BlockId(block_id)))
             .unwrap_or_parse()?;
         Ok(Self { block_reference })
-    }
-}
-
-impl RpcFrom<AsyncSendError> for RpcBlockError {
-    fn rpc_from(error: AsyncSendError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
     }
 }
 

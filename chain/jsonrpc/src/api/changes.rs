@@ -1,4 +1,3 @@
-use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::{GetBlockError, GetStateChangesError};
@@ -18,12 +17,6 @@ impl RpcRequest for RpcStateChangesInBlockRequest {
 impl RpcRequest for RpcStateChangesInBlockByTypeRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         Params::parse(value)
-    }
-}
-
-impl RpcFrom<AsyncSendError> for RpcStateChangesError {
-    fn rpc_from(error: AsyncSendError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
     }
 }
 

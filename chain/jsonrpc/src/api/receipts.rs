@@ -1,5 +1,4 @@
 use super::{Params, RpcFrom, RpcRequest};
-use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::{GetReceipt, GetReceiptError};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::receipts::{
@@ -10,12 +9,6 @@ use serde_json::Value;
 impl RpcRequest for RpcReceiptRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         Ok(Self { receipt_reference: Params::parse(value)? })
-    }
-}
-
-impl RpcFrom<AsyncSendError> for RpcReceiptError {
-    fn rpc_from(error: AsyncSendError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
     }
 }
 

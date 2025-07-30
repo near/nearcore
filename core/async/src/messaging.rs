@@ -3,7 +3,7 @@ use crate::functional::{SendAsyncFunction, SendFunction};
 use crate::futures::DelayedActionRunner;
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot;
 
@@ -130,24 +130,18 @@ impl<M> Sender<M> {
 ///
 /// See `AsyncSendError` for reasons that the future may resolve to an error result.
 pub trait SendAsync<M, R: Send + 'static> {
-    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>>;
+    fn send_async(&self, message: M) -> BoxFuture<'static, R>;
 }
 
 impl<M, R: Send + 'static, A: CanSend<MessageWithCallback<M, R>> + ?Sized> SendAsync<M, R> for A {
-    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+    fn send_async(&self, message: M) -> BoxFuture<'static, R> {
         // To send a message and get a future of the response, we use a oneshot
         // channel that is resolved when the responder function is called. It's
         // possible that someone implementing the Sender would just drop the
         // message without calling the responder, in which case we return a
         // Dropped error.
-        let (sender, receiver) =
-            oneshot::channel::<BoxFuture<'static, Result<R, AsyncSendError>>>();
-        let future = async move {
-            match receiver.await {
-                Ok(result_future) => result_future.await,
-                Err(_) => Err(AsyncSendError::Dropped),
-            }
-        };
+        let (sender, receiver) = oneshot::channel();
+        let future = async move { receiver.await.unwrap().await };
         let responder = Box::new(move |r| {
             // It's ok for the send to return an error, because that means the receiver is dropped
             // therefore the sender does not care about the result.
@@ -160,7 +154,7 @@ impl<M, R: Send + 'static, A: CanSend<MessageWithCallback<M, R>> + ?Sized> SendA
 
 impl<M, R: Send + 'static> Sender<MessageWithCallback<M, R>> {
     /// Same as the above, but for a concrete Sender type.
-    pub fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+    pub fn send_async(&self, message: M) -> BoxFuture<'static, R> {
         self.sender.send_async(message)
     }
 
@@ -175,29 +169,12 @@ impl<M, R: Send + 'static> Sender<MessageWithCallback<M, R>> {
     }
 }
 
-/// Generic failure for async send.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum AsyncSendError {
-    // The receiver side could not accept the message.
-    Closed,
-    // The receiver side could not process the message in time.
-    Timeout,
-    // The message was ignored entirely.
-    Dropped,
-}
-
-impl Display for AsyncSendError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
 /// Used to implement an async sender. An async sender is just a Sender whose
 /// message is `MessageWithCallback<M, R>`, which is a message plus a
 /// callback to send the response future back.
 pub struct MessageWithCallback<T, R> {
     pub message: T,
-    pub callback: Box<dyn FnOnce(BoxFuture<'static, Result<R, AsyncSendError>>) + Send>,
+    pub callback: Box<dyn FnOnce(BoxFuture<'static, R>) + Send>,
 }
 
 impl<T: Debug, R> Debug for MessageWithCallback<T, R> {
@@ -275,17 +252,9 @@ impl<A, B: MultiSenderFrom<A>> IntoMultiSender<B> for A {
 
 #[cfg(test)]
 mod tests {
-    use crate::messaging::{AsyncSendError, MessageWithCallback, Sender};
+    use crate::messaging::{MessageWithCallback, Sender};
     use futures::FutureExt;
     use tokio_util::sync::CancellationToken;
-
-    #[tokio::test]
-    async fn test_async_send_sender_dropped() {
-        // The handler drops the callback, making the response will never resolve.
-        let sender: Sender<MessageWithCallback<u32, u32>> = Sender::from_fn(|_| {});
-        let result = sender.send_async(4).await;
-        assert_eq!(result, Err(AsyncSendError::Dropped));
-    }
 
     #[tokio::test]
     async fn test_async_send_receiver_dropped() {
@@ -308,7 +277,7 @@ mod tests {
                 let callback_done = callback_done.clone();
                 tokio::spawn(async move {
                     result_blocker.cancelled().await;
-                    callback(async move { Ok(message) }.boxed());
+                    callback(async move { message }.boxed());
                     callback_done.cancel();
                 });
             })
