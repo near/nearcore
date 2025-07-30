@@ -5,7 +5,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 
 use crate::futures::{DelayedActionRunner, FutureSpawner};
-use crate::messaging::{CanSend, CanSendAsync, HandlerWithContext};
+use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, HandlerWithContext};
 use crate::tokio::runtime_handle::{TokioRuntimeHandle, TokioRuntimeMessage};
 
 impl<A, M> CanSend<M> for TokioRuntimeHandle<A>
@@ -31,12 +31,12 @@ where
     M: Debug + Send + 'static,
     R: Debug + Send + 'static,
 {
-    fn send_async(&self, message: M) -> BoxFuture<'static, R> {
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
         tracing::debug!(target: "tokio_runtime", "Sending async message: {}", description);
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
-        let future = async move { receiver.await.unwrap() };
+        let future = async move { receiver.await.map_err(|_| AsyncSendError::Dropped) };
         let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
             let result = actor.handle(message, ctx);
             sender.send(result).unwrap();

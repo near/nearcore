@@ -68,7 +68,7 @@ pub trait CanSend<M>: Send + Sync + 'static {
 /// Trait for sending a typed message async. The sent message is then handled by the Handler trait.
 /// See [`Handler<M, R>`] trait for more details.
 pub trait CanSendAsync<M, R>: Send + Sync + 'static {
-    fn send_async(&self, message: M) -> BoxFuture<'static, R>;
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>>;
 }
 
 /// Wraps a CanSend. This should be used to pass around an Arc<dyn CanSend<M>>, instead
