@@ -1,3 +1,5 @@
+use super::mem::ArenaMemory;
+use super::mem::node::MemTrieNodeView;
 use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
 use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
 use borsh::BorshDeserialize;
@@ -116,6 +118,13 @@ impl TrieRecorder {
             self.upper_bound_size.fetch_add(size, Ordering::Release).checked_add(size).unwrap();
             self.size.fetch_add(size, Ordering::Release);
         }
+    }
+
+    /// Convenience function to record memtrie nodes
+    pub fn record_memtrie_node<M: ArenaMemory>(&self, node_view: &MemTrieNodeView<'_, M>) {
+        self.record_with(&node_view.node_hash(), || {
+            borsh::to_vec(&node_view.to_raw_trie_node_with_size()).unwrap().into()
+        });
     }
 
     pub fn record_key_removal(&self) {

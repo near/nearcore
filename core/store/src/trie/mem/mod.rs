@@ -13,6 +13,8 @@ pub(crate) mod nibbles_utils;
 pub mod node;
 mod parallel_loader;
 
+pub(crate) use arena::ArenaMemory;
+
 /// Check this, because in the code we conveniently assume usize is 8 bytes.
 /// In-memory trie can't possibly work under 32-bit anyway.
 #[cfg(not(target_pointer_width = "64"))]
