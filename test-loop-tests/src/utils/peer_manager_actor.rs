@@ -529,7 +529,7 @@ fn network_message_to_view_client_handler(
                 .view_client_sender
                 .send_async(BlockHeadersRequest(hashes));
             future_spawner.spawn("wait for ViewClient to handle BlockHeadersRequest", async move {
-                let response = future.await.unwrap().unwrap();
+                let response = future.await.unwrap();
                 let future =
                     responder.send_async(BlockHeadersResponse(response, peer_id).span_wrap());
                 drop(future);
@@ -545,7 +545,7 @@ fn network_message_to_view_client_handler(
                 .view_client_sender
                 .send_async(BlockRequest(hash));
             future_spawner.spawn("wait for ViewClient to handle BlockRequest", async move {
-                let response = future.await.unwrap().unwrap_or_else(|| {
+                let response = future.await.unwrap_or_else(|| {
                     panic!("Expect block with {hash} to be available on {peer_id}")
                 });
                 let future = responder.send_async(

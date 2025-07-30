@@ -6,7 +6,7 @@ use std::task::Poll;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::futures::FutureSpawnerExt;
-use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
+use near_async::messaging::{CanSend, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
@@ -595,7 +595,7 @@ pub fn make_account(index: usize) -> AccountId {
 pub struct TransactionRunner {
     transaction: SignedTransaction,
     tx_sent: bool,
-    process_tx_result: Arc<Mutex<Option<Result<ProcessTxResponse, AsyncSendError>>>>,
+    process_tx_result: Arc<Mutex<Option<ProcessTxResponse>>>,
     retry_when_congested: bool,
     final_result: Option<Result<FinalExecutionOutcomeView, InvalidTxError>>,
 }
@@ -713,19 +713,7 @@ impl TransactionRunner {
 
     /// Get result of initial processing, if the result is already available.
     fn get_tx_processing_res(&self) -> Option<TxProcessingResult> {
-        let processing_response_res = self.process_tx_result.lock().take()?;
-        let process_tx_response = match processing_response_res {
-            Ok(process_tx_response) => process_tx_response,
-            Err(AsyncSendError::Closed)
-            | Err(AsyncSendError::Timeout)
-            | Err(AsyncSendError::Dropped) => {
-                tracing::warn!(
-                    "TransactionRunner::get_tx_processing_res - got error: {:?}",
-                    processing_response_res
-                );
-                return None;
-            }
-        };
+        let process_tx_response = self.process_tx_result.lock().take()?;
         let res = match process_tx_response {
             ProcessTxResponse::NoResponse => panic!("NoResponse indicates an error"),
             ProcessTxResponse::RequestRouted | // Ok, transaction forwarded to a validator node
