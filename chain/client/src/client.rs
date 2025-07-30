@@ -9,7 +9,6 @@ use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
-use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     BlockNotificationMessage, ChunkValidationSender,
@@ -34,6 +33,7 @@ use near_chain::chain::{
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
@@ -293,6 +293,7 @@ impl Client {
             multi_spawner.apply_chunks,
             validator_signer.clone(),
             resharding_sender.clone(),
+            spice_core_processor.clone(),
         )?;
         chain.init_flat_storage()?;
         let epoch_sync = EpochSync::new(
@@ -929,6 +930,12 @@ impl Client {
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
+        let core_statements = if cfg!(feature = "protocol_feature_spice") {
+            self.chain.spice_core_processor.core_statement_for_next_block(&prev_header)?
+        } else {
+            vec![]
+        };
+
         let block = Arc::new(Block::produce(
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
@@ -951,6 +958,7 @@ impl Client {
             self.clock.clone(),
             sandbox_delta_time,
             optimistic_block,
+            core_statements,
         ));
 
         // Update latest known even before returning block out, to prevent race conditions.

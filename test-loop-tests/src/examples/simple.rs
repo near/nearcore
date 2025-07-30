@@ -2,11 +2,11 @@ use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainGenesis;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
-use near_client::spice_core::CoreStatementsProcessor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{AsyncComputationMultiSpawner, Client};
 use near_epoch_manager::EpochManager;
@@ -116,12 +116,7 @@ fn test_client_with_simple_test_loop() {
         client_adapter.as_multi_sender(),
         noop().into_multi_sender(),
         protocol_upgrade_schedule,
-        CoreStatementsProcessor::new(
-            store.chain_store(),
-            epoch_manager.clone(),
-            noop().into_sender(),
-            noop().into_sender(),
-        ),
+        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager.clone()),
     )
     .unwrap();
 

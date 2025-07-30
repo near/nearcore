@@ -6,7 +6,7 @@ use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 
@@ -1349,3 +1349,38 @@ impl std::fmt::Display for ChunkAccessError {
 }
 
 impl std::error::Error for ChunkAccessError {}
+
+#[derive(Debug)]
+pub enum InvalidSpiceCoreStatementsError {
+    /// Information about uncertified chunks for previous block is missing.
+    NoPrevUncertifiedChunks,
+    /// Could not find validator for account_id from endorsement.
+    NoValidatorForAccountId { index: usize, error: EpochError },
+    /// Could not find shard_ids for endorsement epoch.
+    NoShardIdsForEpochId { index: usize, error: EpochError },
+    /// Spice core statement is invalid.
+    InvalidCoreStatement { index: usize, reason: &'static str },
+    /// Spice core statements skipped over execution result for chunk.
+    SkippedExecutionResult { shard_id: ShardId, epoch_id: EpochId, height_created: BlockHeight },
+    /// Could not find validator assignment for chunk.
+    NoValidatorAssignments {
+        shard_id: ShardId,
+        epoch_id: EpochId,
+        height_created: BlockHeight,
+        error: EpochError,
+    },
+    /// Execution results for endorsed chunk are missing from block.
+    NoExecutionResultForEndorsedChunk {
+        shard_id: ShardId,
+        epoch_id: EpochId,
+        height_created: BlockHeight,
+    },
+}
+
+impl std::fmt::Display for InvalidSpiceCoreStatementsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str(&format!(" {:?}", self))
+    }
+}
+
+impl std::error::Error for InvalidSpiceCoreStatementsError {}
