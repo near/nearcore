@@ -723,10 +723,7 @@ impl NetworkState {
         match body {
             TieredMessageBody::T1(body) => match *body {
                 T1MessageBody::BlockApproval(approval) => {
-                    self.client
-                        .send_async(BlockApproval(approval, prev_hop).span_wrap())
-                        .await
-                        .ok();
+                    self.client.send_async(BlockApproval(approval, prev_hop).span_wrap()).await;
                     None
                 }
                 T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
@@ -750,7 +747,7 @@ impl NetworkState {
                     None
                 }
                 T1MessageBody::VersionedChunkEndorsement(endorsement) => {
-                    self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+                    self.client.send_async(ChunkEndorsementMessage(endorsement)).await;
                     None
                 }
                 T1MessageBody::ChunkContractAccesses(accesses) => {
@@ -771,13 +768,11 @@ impl NetworkState {
                     .client
                     .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
                     .await
-                    .ok()
-                    .flatten()
                     .map(|response| {
                         TieredMessageBody::T2(Box::new(T2MessageBody::TxStatusResponse(response)))
                     }),
                 T2MessageBody::TxStatusResponse(tx_result) => {
-                    self.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
+                    self.client.send_async(TxStatusResponse(tx_result.into())).await;
                     None
                 }
                 T2MessageBody::ForwardTx(transaction) => {
@@ -787,8 +782,7 @@ impl NetworkState {
                             is_forwarded: true,
                             check_only: false,
                         })
-                        .await
-                        .ok();
+                        .await;
                     None
                 }
                 T2MessageBody::PartialEncodedChunkRequest(request) => {

@@ -1,4 +1,3 @@
-use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::GetGasPriceError;
@@ -10,12 +9,6 @@ use super::{Params, RpcFrom, RpcRequest};
 impl RpcRequest for RpcGasPriceRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         Params::<RpcGasPriceRequest>::parse(value)
-    }
-}
-
-impl RpcFrom<AsyncSendError> for RpcGasPriceError {
-    fn rpc_from(error: AsyncSendError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
     }
 }
 

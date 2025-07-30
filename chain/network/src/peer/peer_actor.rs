@@ -1042,22 +1042,17 @@ impl PeerActor {
                     .client
                     .send_async(BlockRequest(hash))
                     .await
-                    .ok()
-                    .flatten()
                     .map(|block| PeerMessage::Block(block)),
                 PeerMessage::BlockHeadersRequest(hashes) => network_state
                     .client
                     .send_async(BlockHeadersRequest(hashes))
                     .await
-                    .ok()
-                    .flatten()
                     .map(PeerMessage::BlockHeaders),
                 PeerMessage::Block(block) => {
                     network_state
                         .client
                         .send_async(BlockResponse { block, peer_id, was_requested }.span_wrap())
-                        .await
-                        .ok();
+                        .await;
                     None
                 }
                 PeerMessage::Transaction(transaction) => {
@@ -1068,12 +1063,11 @@ impl PeerActor {
                             is_forwarded: false,
                             check_only: false,
                         })
-                        .await
-                        .ok();
+                        .await;
                     None
                 }
                 PeerMessage::BlockHeaders(headers) => {
-                    if let Ok(Err(ban_reason)) = network_state
+                    if let Err(ban_reason) = network_state
                         .client
                         .send_async(BlockHeadersResponse(headers, peer_id).span_wrap())
                         .await
@@ -1087,15 +1081,11 @@ impl PeerActor {
                     .state_request_adapter
                     .send_async(StateRequestHeader { shard_id, sync_hash })
                     .await
-                    .ok()
-                    .flatten()
                     .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
                 PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => network_state
                     .state_request_adapter
                     .send_async(StateRequestPart { shard_id, sync_hash, part_id })
                     .await
-                    .ok()
-                    .flatten()
                     .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
                 PeerMessage::VersionedStateResponse(info) => {
                     //TODO: Route to state sync actor.
@@ -1105,8 +1095,7 @@ impl PeerActor {
                             StateResponseReceived { peer_id, state_response_info: info.into() }
                                 .span_wrap(),
                         )
-                        .await
-                        .ok();
+                        .await;
                     None
                 }
                 PeerMessage::EpochSyncRequest => {
@@ -1526,9 +1515,8 @@ impl PeerActor {
             })
             .collect();
         match network_state.client.send_async(AnnounceAccountRequest(accounts)).await {
-            Ok(Err(ban_reason)) => conn.stop(Some(ban_reason)),
-            Ok(Ok(accounts)) => network_state.add_accounts(accounts).await,
-            Err(_) => {}
+            Err(ban_reason) => conn.stop(Some(ban_reason)),
+            Ok(accounts) => network_state.add_accounts(accounts).await,
         }
     }
 

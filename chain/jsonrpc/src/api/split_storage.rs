@@ -1,4 +1,3 @@
-use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetSplitStorageInfoError;
 use near_jsonrpc_primitives::{
     errors::RpcParseError,
@@ -11,12 +10,6 @@ use super::{Params, RpcFrom, RpcRequest};
 impl RpcRequest for RpcSplitStorageInfoRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         Params::parse(value)
-    }
-}
-
-impl RpcFrom<AsyncSendError> for RpcSplitStorageInfoError {
-    fn rpc_from(error: AsyncSendError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
     }
 }
 

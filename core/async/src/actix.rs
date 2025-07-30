@@ -1,4 +1,4 @@
-use crate::messaging::{AsyncSendError, CanSend, MessageWithCallback};
+use crate::messaging::{CanSend, MessageWithCallback};
 use futures::FutureExt;
 use near_o11y::{WithSpanContext, WithSpanContextExt};
 
@@ -41,13 +41,7 @@ where
         let MessageWithCallback { message, callback: responder } = message;
         let future = self.send(message);
 
-        let transformed_future = async move {
-            match future.await {
-                Ok(result) => Ok(result),
-                Err(actix::MailboxError::Closed) => Err(AsyncSendError::Closed),
-                Err(actix::MailboxError::Timeout) => Err(AsyncSendError::Timeout),
-            }
-        };
+        let transformed_future = async move { future.await.unwrap() };
         responder(transformed_future.boxed());
     }
 }

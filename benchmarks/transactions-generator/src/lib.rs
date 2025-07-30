@@ -273,17 +273,10 @@ impl TxGenerator {
             .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
             .await
         {
-            Ok(res) => match res {
-                ProcessTxResponse::ValidTx => true,
-                _ => {
-                    tracing::debug!(target: "transaction-generator",
-                        request_rsp=?res);
-                    false
-                }
-            },
-            Err(err) => {
+            ProcessTxResponse::ValidTx => true,
+            res => {
                 tracing::debug!(target: "transaction-generator",
-                    request_err=format!("{err}"), "error");
+                    request_rsp=?res);
                 false
             }
         }
@@ -292,19 +285,12 @@ impl TxGenerator {
     async fn get_latest_block(
         view_client_sender: &ViewClientSender,
     ) -> anyhow::Result<(CryptoHash, u64)> {
-        match view_client_sender
+        let rsp = view_client_sender
             .block_request_sender
             .send_async(GetBlock(BlockReference::latest()))
             .await
-        {
-            Ok(rsp) => {
-                let rsp = rsp.context("get latest block")?;
-                Ok((rsp.header.hash, rsp.header.height))
-            }
-            Err(err) => {
-                anyhow::bail!("async send error: {err}");
-            }
-        }
+            .context("get latest block")?;
+        Ok((rsp.header.hash, rsp.header.height))
     }
 
     fn start_block_updates(
@@ -630,17 +616,14 @@ impl TxGenerator {
         };
 
         match view_client.query_sender.send_async(q).await {
-            Ok(Ok(QueryResponse { kind, .. })) => {
+            Ok(QueryResponse { kind, .. }) => {
                 if let QueryResponseKind::AccessKey(access_key) = kind {
                     Ok(access_key.nonce)
                 } else {
                     panic!("wrong response type received from neard");
                 }
             }
-            Ok(Err(err)) => Err(err.into()),
-            Err(err) => {
-                anyhow::bail!("request to ViewAccessKey failed: {err}");
-            }
+            Err(err) => Err(err.into()),
         }
     }
 }

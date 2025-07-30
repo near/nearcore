@@ -1,4 +1,3 @@
-use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::TxStatusError;
@@ -50,12 +49,6 @@ impl RpcRequest for RpcTransactionStatusRequest {
                 })
             })
             .unwrap_or_parse()?)
-    }
-}
-
-impl RpcFrom<AsyncSendError> for RpcTransactionError {
-    fn rpc_from(error: AsyncSendError) -> Self {
-        Self::InternalError { debug_info: error.to_string() }
     }
 }
 

@@ -198,10 +198,7 @@ pub(super) async fn run_state_sync_for_shard(
     *status.lock() = ShardSyncStatus::StateApplyFinalizing;
     chain_finalization_sender
         .send_async(ChainFinalizationRequest { shard_id, sync_hash }.span_wrap())
-        .await
-        .map_err(|_| {
-            near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
-        })??;
+        .await?;
 
     *status.lock() = ShardSyncStatus::StateSyncDone;
 

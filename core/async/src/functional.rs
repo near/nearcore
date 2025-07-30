@@ -39,7 +39,7 @@ impl<M: 'static, R: Send + 'static, F: Fn(M) -> R + Send + Sync + 'static>
 {
     fn send(&self, message: MessageWithCallback<M, R>) {
         let MessageWithCallback { message, callback: responder } = message;
-        let result = Ok((self.f)(message));
+        let result = (self.f)(message);
         responder(async move { result }.boxed());
     }
 }

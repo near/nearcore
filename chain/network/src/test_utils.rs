@@ -244,9 +244,9 @@ impl CanSend<MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageRe
         self.requests.write().push_back(message.message);
         self.notify.notify_one();
         (message.callback)(
-            std::future::ready(Ok(PeerManagerMessageResponse::NetworkResponses(
+            std::future::ready(PeerManagerMessageResponse::NetworkResponses(
                 NetworkResponses::NoResponse,
-            )))
+            ))
             .boxed(),
         );
     }

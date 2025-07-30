@@ -598,12 +598,12 @@ pub(crate) async fn start(
                     match event {
                         ClientSenderForNetworkMessage::_announce_account(msg) => {
                             (msg.callback)(
-                                std::future::ready(Ok(Ok(msg
+                                std::future::ready(Ok(msg
                                     .message
                                     .0
                                     .iter()
                                     .map(|(account, _)| account.clone())
-                                    .collect())))
+                                    .collect()))
                                 .boxed(),
                             );
                             send.send(Event::Client(
@@ -633,7 +633,7 @@ pub(crate) async fn start(
                                 Some(StateResponse(Box::new(StateResponseInfo::V2(Box::new(
                                     StateResponseInfoV2 { shard_id, sync_hash, state_response },
                                 )))));
-                            (msg.callback)(std::future::ready(Ok(result)).boxed());
+                            (msg.callback)(std::future::ready(result).boxed());
                             send.send(Event::StateRequestSender(
                                 StateRequestSenderForNetworkInput::_state_request_part(msg.message),
                             ));

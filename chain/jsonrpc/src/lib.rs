@@ -6,9 +6,7 @@ use actix_web::http::header::{self, ContentType};
 use actix_web::{App, Error as HttpError, HttpResponse, HttpServer, get, http, middleware, web};
 pub use api::{RpcFrom, RpcInto, RpcRequest};
 use near_async::actix::ActixResult;
-use near_async::messaging::{
-    AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
-};
+use near_async::messaging::{AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender};
 use near_chain_configs::GenesisConfig;
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig, GetExecutionOutcome,
@@ -511,36 +509,27 @@ impl JsonRpcHandler {
         ClientSenderForRpc: CanSend<MessageWithCallback<M, Result<R, F>>>,
         R: Send + 'static,
         F: Send + 'static,
-        E: RpcFrom<F> + RpcFrom<AsyncSendError>,
+        E: RpcFrom<F>,
     {
-        self.client_sender
-            .send_async(msg)
-            .await
-            .map_err(RpcFrom::rpc_from)?
-            .map_err(RpcFrom::rpc_from)
+        self.client_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }
 
     async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
         ViewClientSenderForRpc: CanSend<MessageWithCallback<M, Result<T, F>>>,
         T: Send + 'static,
-        E: RpcFrom<AsyncSendError> + RpcFrom<F>,
+        E: RpcFrom<F>,
         F: Send + 'static,
     {
-        self.view_client_sender
-            .send_async(msg)
-            .await
-            .map_err(RpcFrom::rpc_from)?
-            .map_err(RpcFrom::rpc_from)
+        self.view_client_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }
 
-    async fn peer_manager_send<M, T, E>(&self, msg: M) -> Result<T, E>
+    async fn peer_manager_send<M, T>(&self, msg: M) -> T
     where
         PeerManagerSenderForRpc: CanSend<MessageWithCallback<M, T>>,
         T: Send + 'static,
-        E: RpcFrom<AsyncSendError> + Send + 'static,
     {
-        self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
+        self.peer_manager_sender.send_async(msg).await
     }
 
     fn send_tx_async(&self, request_data: RpcSendTransactionRequest) -> CryptoHash {
@@ -679,8 +668,7 @@ impl JsonRpcHandler {
         let response = self
             .process_tx_sender
             .send_async(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only })
-            .await
-            .map_err(RpcFrom::rpc_from)?;
+            .await;
 
         // If we receive InvalidNonce error, it might be the case that the transaction was
         // resubmitted, and we should check if that is the case and return ValidTx response to
@@ -820,26 +808,26 @@ impl JsonRpcHandler {
                     }
                     "/debug/api/peer_store" => self
                         .peer_manager_send(near_network::debug::GetDebugStatus::PeerStore)
-                        .await?
+                        .await
                         .rpc_into(),
                     "/debug/api/network_graph" => self
                         .peer_manager_send(near_network::debug::GetDebugStatus::Graph)
-                        .await?
+                        .await
                         .rpc_into(),
                     "/debug/api/recent_outbound_connections" => self
                         .peer_manager_send(
                             near_network::debug::GetDebugStatus::RecentOutboundConnections,
                         )
-                        .await?
+                        .await
                         .rpc_into(),
                     #[cfg(feature = "distance_vector_routing")]
                     "/debug/api/network_routes" => self
                         .peer_manager_send(near_network::debug::GetDebugStatus::Routes)
-                        .await?
+                        .await
                         .rpc_into(),
                     "/debug/api/snapshot_hosts" => self
                         .peer_manager_send(near_network::debug::GetDebugStatus::SnapshotHosts)
-                        .await?
+                        .await
                         .rpc_into(),
                     "/debug/api/split_store_info" => {
                         let split_storage_info: RpcSplitStorageInfoResponse = self
@@ -1233,8 +1221,7 @@ impl JsonRpcHandler {
             .send_async(near_client_primitives::types::SandboxMessage::SandboxPatchState(
                 patch_state_request.records,
             ))
-            .await
-            .map_err(RpcFrom::rpc_from)?;
+            .await;
 
         timeout(self.polling_config.polling_timeout, async {
             loop {
@@ -1244,8 +1231,8 @@ impl JsonRpcHandler {
                         near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {},
                     )
                     .await;
-                if let Ok(
-                    near_client_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
+                if let near_client_primitives::types::SandboxResponse::SandboxPatchStateFinished(
+                    true,
                 ) = patch_state_finished
                 {
                     break;
@@ -1272,8 +1259,7 @@ impl JsonRpcHandler {
             .send_async(near_client_primitives::types::SandboxMessage::SandboxFastForward(
                 fast_forward_request.delta_height,
             ))
-            .await
-            .map_err(RpcFrom::rpc_from)?;
+            .await;
 
         // Hard limit the request to timeout at an hour, since fast forwarding can take a while,
         // where we can leave it to the rpc clients to set their own timeouts if necessary.
@@ -1287,8 +1273,8 @@ impl JsonRpcHandler {
                     .await;
 
                 match fast_forward_finished {
-                    Ok(SandboxResponse::SandboxFastForwardFinished(true)) => break,
-                    Ok(SandboxResponse::SandboxFastForwardFailed(err)) => return Err(err),
+                    SandboxResponse::SandboxFastForwardFinished(true) => break,
+                    SandboxResponse::SandboxFastForwardFailed(err) => return Err(err),
                     _ => (),
                 }
 
@@ -1363,11 +1349,8 @@ impl JsonRpcHandler {
             .send_async(near_client::NetworkAdversarialMessage::AdvGetSavedBlocks)
             .await
         {
-            Ok(result) => match result {
-                Some(value) => serialize_response(value),
-                None => Err(RpcError::server_error::<String>(None)),
-            },
-            _ => Err(RpcError::server_error::<String>(None)),
+            Some(value) => serialize_response(value),
+            None => Err(RpcError::server_error::<String>(None)),
         }
     }
 
@@ -1375,25 +1358,16 @@ impl JsonRpcHandler {
     /// After store validator is done, resume GC by sending another message to GC Actor.
     /// This ensures that store validator is not run concurrently with another thread that may modify storage.
     async fn adv_check_store(&self, _params: Value) -> Result<Value, RpcError> {
-        self.gc_sender
-            .send_async(near_client::gc_actor::NetworkAdversarialMessage::StopGC)
-            .await
-            .map_err(|_| RpcError::server_error::<String>(None))?;
+        self.gc_sender.send_async(near_client::gc_actor::NetworkAdversarialMessage::StopGC).await;
         let ret_val = match self
             .client_sender
             .send_async(near_client::NetworkAdversarialMessage::AdvCheckStorageConsistency)
             .await
         {
-            Ok(result) => match result {
-                Some(value) => serialize_response(value),
-                None => Err(RpcError::server_error::<String>(None)),
-            },
-            _ => Err(RpcError::server_error::<String>(None)),
+            Some(value) => serialize_response(value),
+            None => Err(RpcError::server_error::<String>(None)),
         }?;
-        self.gc_sender
-            .send_async(near_client::gc_actor::NetworkAdversarialMessage::ResumeGC)
-            .await
-            .map_err(|_| RpcError::server_error::<String>(None))?;
+        self.gc_sender.send_async(near_client::gc_actor::NetworkAdversarialMessage::ResumeGC).await;
         Ok(ret_val)
     }
 }
