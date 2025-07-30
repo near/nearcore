@@ -1297,7 +1297,8 @@ impl Chain {
             "process_optimistic_block",
             hash = ?block.hash(),
             height = ?block.height(),
-            tag_block_production = true
+            tag_block_production = true,
+            tag_optimistic = true
         )
         .entered();
 

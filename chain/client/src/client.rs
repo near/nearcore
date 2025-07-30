@@ -633,7 +633,7 @@ impl Client {
         height: BlockHeight,
     ) -> Result<Option<OptimisticBlock>, Error> {
         let _span =
-            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height, tag_block_production = true)
+            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height, tag_block_production = true, tag_optimistic = true)
                 .entered();
 
         let head = self.chain.head()?;
@@ -1075,7 +1075,7 @@ impl Client {
 
     /// Check optimistic block and start processing if is valid.
     pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: &PeerId) {
-        let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
+        let _span = debug_span!(target: "client", "receive_optimistic_block", height = block.height(), tag_optimistic = true).entered();
         debug!(target: "client", ?block, ?peer_id, "Received optimistic block");
 
         // Pre-validate the optimistic block.
