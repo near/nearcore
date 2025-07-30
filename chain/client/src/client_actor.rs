@@ -1373,8 +1373,6 @@ impl ClientActorInner {
 
     /// Produce optimistic block if we are block producer for given `next_height` height.
     fn produce_optimistic_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_optimistic_block", height=next_height, tag_optimistic = true)
-            .entered();
         // Check if optimistic block is already produced
         if self.client.is_optimistic_block_done(next_height) {
             return Ok(());
