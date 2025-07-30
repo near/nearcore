@@ -6,7 +6,7 @@ use crate::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, metrics, sync,
 };
 use actix::{Addr, SyncArbiter};
-use near_async::actix_wrapper::SyncActixWrapper;
+use near_async::actix::wrapper::SyncActixWrapper;
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
