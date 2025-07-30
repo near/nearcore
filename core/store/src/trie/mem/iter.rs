@@ -41,9 +41,7 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
         let view = node.as_ptr(self.memtrie.arena.memory()).view();
         if opts.enable_state_witness_recording {
             if let Some(recorder) = &self.trie.recorder {
-                let raw_node_serialized =
-                    borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
-                recorder.record(&view.node_hash(), raw_node_serialized.into());
+                recorder.record_memtrie_node(&view);
             }
         }
         let node = MemTrieNode::from_existing_node_view(view);
