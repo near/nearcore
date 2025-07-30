@@ -22,15 +22,17 @@ impl RawTrieNodeWithSize {
 /// Trie node.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 #[allow(clippy::large_enum_variant)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum RawTrieNode {
     /// Leaf(key, value_length, value_hash)
-    Leaf(Vec<u8>, ValueRef),
+    Leaf(Vec<u8>, ValueRef) = 0,
     /// Branch(children)
-    BranchNoValue(Children),
+    BranchNoValue(Children) = 1,
     /// Branch(children, value)
-    BranchWithValue(ValueRef, Children),
+    BranchWithValue(ValueRef, Children) = 2,
     /// Extension(key, child)
-    Extension(Vec<u8>, CryptoHash),
+    Extension(Vec<u8>, CryptoHash) = 3,
 }
 
 impl RawTrieNode {

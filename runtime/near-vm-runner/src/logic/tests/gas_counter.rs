@@ -832,7 +832,7 @@ fn create_promise_dependency(logic: &mut TestVMLogic) -> Result<(), VMLogicError
 /// Given the limit in gas, compute the corresponding limit in wasm ops for use
 /// with [`VMLogic::gas`] function.
 fn op_limit(gas_limit: Gas) -> u32 {
-    (gas_limit / (test_vm_config().regular_op_cost as u64)) as u32
+    (gas_limit / (test_vm_config(None).regular_op_cost as u64)) as u32
 }
 
 fn test_pk() -> Vec<u8> {

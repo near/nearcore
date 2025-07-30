@@ -22,9 +22,7 @@ use near_chain_configs::{
 };
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::{
-    HighestHeightPeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-};
+use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
@@ -211,16 +209,11 @@ impl StateSync {
         &mut self,
         sync_hash: CryptoHash,
         sync_status: &mut StateSyncStatus,
-        highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: &[ShardId],
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span =
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
         tracing::debug!(%sync_hash, ?tracking_shards, "syncing state");
-
-        self.peer_source_state.lock().set_highest_peers(
-            highest_height_peers.iter().map(|info| info.peer_info.id.clone()).collect(),
-        );
 
         let mut all_done = true;
         for shard_id in tracking_shards {

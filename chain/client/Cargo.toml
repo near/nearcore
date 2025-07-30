@@ -68,6 +68,12 @@ node-runtime.workspace = true
 assert_matches.workspace = true
 near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 near-actix-test-utils.workspace = true
+criterion.workspace = true
+testlib.workspace = true
+
+[[bench]]
+name = "generate_state_witness_parts"
+harness = false
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.

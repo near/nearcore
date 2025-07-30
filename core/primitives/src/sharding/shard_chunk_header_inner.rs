@@ -12,12 +12,14 @@ use near_schema_checker_lib::ProtocolSchema;
 const DEFAULT_CRYPTO_HASH: &CryptoHash = &CryptoHash::new();
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardChunkHeaderInner {
-    V1(ShardChunkHeaderInnerV1),
-    V2(ShardChunkHeaderInnerV2),
-    V3(ShardChunkHeaderInnerV3),
-    V4(ShardChunkHeaderInnerV4),
-    V5(ShardChunkHeaderInnerV5SpiceTxOnly),
+    V1(ShardChunkHeaderInnerV1) = 0,
+    V2(ShardChunkHeaderInnerV2) = 1,
+    V3(ShardChunkHeaderInnerV3) = 2,
+    V4(ShardChunkHeaderInnerV4) = 3,
+    V5(ShardChunkHeaderInnerV5SpiceTxOnly) = 4,
 }
 
 impl ShardChunkHeaderInner {

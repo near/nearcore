@@ -119,8 +119,9 @@ impl<'c> EstimatorContext<'c> {
                 .context("Failed load memtries for single shard")
                 .unwrap();
         }
-        let cache = FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>)
-            .expect("create contract cache");
+        let cache =
+            FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>, "contract.cache")
+                .expect("create contract cache");
 
         Testbed {
             config: self.config,

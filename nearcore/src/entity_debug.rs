@@ -59,6 +59,7 @@ pub struct EntityDebugHandlerImpl {
 }
 
 impl EntityDebugHandlerImpl {
+    #[allow(clippy::large_stack_frames)]
     fn query_impl(&self, store: Store, query: EntityQuery) -> anyhow::Result<EntityDataValue> {
         match query {
             EntityQuery::AllShardsByEpochId { epoch_id } => {

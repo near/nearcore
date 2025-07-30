@@ -374,6 +374,11 @@ pub struct Config {
     ///
     /// Each loaded contract will increase the baseline memory use of the node appreciably.
     pub max_loaded_contracts: usize,
+    /// Location (within `home_dir`) where to store a cache of compiled contracts.
+    ///
+    /// This cache can be manually emptied occasionally to keep storage usage down and does not
+    /// need to be included into snapshots or dumps.
+    pub contract_cache_path: PathBuf,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
     /// This option can cause extra load on the database and is not recommended for production use.
@@ -390,6 +395,11 @@ fn is_false(value: &bool) -> bool {
 }
 impl Default for Config {
     fn default() -> Self {
+        let store = near_store::StoreConfig::default();
+        let contract_cache_path =
+            [store.path.as_deref().unwrap_or_else(|| "data".as_ref()), "contract.cache".as_ref()]
+                .into_iter()
+                .collect();
         Config {
             genesis_file: GENESIS_CONFIG_FILENAME.to_string(),
             genesis_records_file: None,
@@ -421,7 +431,7 @@ impl Default for Config {
                 default_view_client_num_state_requests_per_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
-            store: near_store::StoreConfig::default(),
+            store,
             cold_store: None,
             split_storage: None,
             archival_storage: None,
@@ -439,6 +449,7 @@ impl Default for Config {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
+            contract_cache_path,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
@@ -722,6 +733,7 @@ impl NightshadeRuntime {
         let contract_cache = FilesystemContractRuntimeCache::with_memory_cache(
             home_dir,
             config.config.store.path.as_ref(),
+            &config.config.contract_cache_path,
             config.config.max_loaded_contracts,
         )?;
         Ok(NightshadeRuntime::new(

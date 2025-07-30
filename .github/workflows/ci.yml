@@ -215,7 +215,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: streetsidesoftware/cspell-action@v6
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: just
+      - run: npm install -g cspell
+      - run: just check-cspell
 
   check_cargo_deny:
     name: "Cargo Deny"

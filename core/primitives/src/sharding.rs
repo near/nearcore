@@ -97,11 +97,13 @@ pub struct StateSyncInfoV1 {
 /// with some changes to the meaning of the "sync_hash", we should only need to wait for one. So this is included
 /// in order to allow for this change in the future without needing another database migration.
 #[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum StateSyncInfo {
     /// Old state sync: sync to the state right before the new epoch
-    V0(StateSyncInfoV0),
+    V0(StateSyncInfoV0) = 0,
     /// New state sync: sync to the state right after the new epoch
-    V1(StateSyncInfoV1),
+    V1(StateSyncInfoV1) = 1,
 }
 
 impl StateSyncInfo {
@@ -337,10 +339,12 @@ impl ShardChunkHeaderV3 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardChunkHeader {
-    V1(ShardChunkHeaderV1),
-    V2(ShardChunkHeaderV2),
-    V3(ShardChunkHeaderV3),
+    V1(ShardChunkHeaderV1) = 0,
+    V2(ShardChunkHeaderV2) = 1,
+    V3(ShardChunkHeaderV3) = 2,
 }
 
 impl ShardChunkHeader {
@@ -753,9 +757,11 @@ impl ShardChunkHeaderV1 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum PartialEncodedChunk {
-    V1(PartialEncodedChunkV1),
-    V2(PartialEncodedChunkV2),
+    V1(PartialEncodedChunkV1) = 0,
+    V2(PartialEncodedChunkV2) = 1,
 }
 
 impl PartialEncodedChunk {
@@ -979,9 +985,11 @@ pub struct ShardChunkV2 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardChunk {
-    V1(ShardChunkV1),
-    V2(ShardChunkV2),
+    V1(ShardChunkV1) = 0,
+    V2(ShardChunkV2) = 1,
 }
 
 impl ShardChunk {
@@ -1213,9 +1221,11 @@ pub struct EncodedShardChunkV2 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum EncodedShardChunk {
-    V1(EncodedShardChunkV1),
-    V2(EncodedShardChunkV2),
+    V1(EncodedShardChunkV1) = 0,
+    V2(EncodedShardChunkV2) = 1,
 }
 
 impl EncodedShardChunk {
@@ -1487,9 +1497,11 @@ pub struct ArcedShardChunkV2 {
 /// some fields inside `Arc` to avoid some cloning when the chunk is being
 /// persisted to disk.
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ArcedShardChunk {
-    V1(ArcedShardChunkV1),
-    V2(ArcedShardChunkV2),
+    V1(ArcedShardChunkV1) = 0,
+    V2(ArcedShardChunkV2) = 1,
 }
 
 impl ArcedShardChunk {

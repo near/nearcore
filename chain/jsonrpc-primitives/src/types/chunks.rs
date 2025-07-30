@@ -5,13 +5,13 @@ use serde_json::Value;
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum ChunkReference {
+    #[cfg_attr(feature = "schemars", schemars(title = "block_shard_id"))]
     BlockShardId {
         block_id: near_primitives::types::BlockId,
         shard_id: near_primitives::types::ShardId,
     },
-    ChunkHash {
-        chunk_id: near_primitives::hash::CryptoHash,
-    },
+    #[cfg_attr(feature = "schemars", schemars(title = "chunk_hash"))]
+    ChunkHash { chunk_id: near_primitives::hash::CryptoHash },
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, arbitrary::Arbitrary)]

@@ -78,11 +78,13 @@ pub struct BlockV4 {
 /// Versioned Block data structure.
 /// For each next version, document what are the changes between versions.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum Block {
-    BlockV1(BlockV1),
-    BlockV2(BlockV2),
-    BlockV3(BlockV3),
-    BlockV4(BlockV4),
+    BlockV1(BlockV1) = 0,
+    BlockV2(BlockV2) = 1,
+    BlockV3(BlockV3) = 2,
+    BlockV4(BlockV4) = 3,
 }
 
 impl Block {

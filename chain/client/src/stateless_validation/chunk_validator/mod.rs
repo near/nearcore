@@ -25,6 +25,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use orphan_witness_pool::OrphanStateWitnessPool;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::sync::Arc;
 
 // After validating a chunk state witness, we ideally need to send the chunk endorsement
@@ -46,6 +47,7 @@ pub struct ChunkValidator {
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
     main_state_transition_result_cache: chunk_validation::MainStateTransitionCache,
+    rs: Arc<ReedSolomon>,
 }
 
 impl ChunkValidator {
@@ -61,6 +63,9 @@ impl ChunkValidator {
         // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
         let max_num_shards =
             runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+        let data_parts = epoch_manager.num_data_parts();
+        let parity_parts = epoch_manager.num_total_parts() - data_parts;
+        let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
         Self {
             epoch_manager,
             network_sender,
@@ -69,6 +74,7 @@ impl ChunkValidator {
             validation_spawner: validation_spawner.into_spawner(max_num_shards),
             main_state_transition_result_cache: chunk_validation::MainStateTransitionCache::default(
             ),
+            rs,
         }
     }
 
@@ -174,6 +180,7 @@ impl ChunkValidator {
         let store = chain.chain_store.store();
         let cache = self.main_state_transition_result_cache.clone();
         let signer = signer.clone();
+        let rs = self.rs.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
@@ -187,6 +194,7 @@ impl ChunkValidator {
                 &cache,
                 store,
                 save_witness_if_invalid,
+                rs,
             ) {
                 Ok(_) => {
                     send_chunk_endorsement_to_block_producers(
@@ -211,6 +219,10 @@ impl ChunkValidator {
             }
         });
         Ok(())
+    }
+
+    pub fn rs(&self) -> Arc<ReedSolomon> {
+        self.rs.clone()
     }
 }
 

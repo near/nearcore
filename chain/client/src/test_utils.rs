@@ -12,7 +12,6 @@ use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
 use near_chain::{ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
-use near_network::types::HighestHeightPeerInfo;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -261,10 +260,7 @@ pub fn create_chunk(
 /// Note that this function does not necessarily mean that all blocks are caught up.
 /// It's possible that some blocks that need to be caught up are still being processed
 /// and the catchup process can't catch up on these blocks yet.
-pub fn run_catchup(
-    client: &mut Client,
-    highest_height_peers: &[HighestHeightPeerInfo],
-) -> Result<(), Error> {
+pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
     let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
@@ -272,7 +268,7 @@ pub fn run_catchup(
     });
     let _ = System::new();
     loop {
-        client.run_catchup(highest_height_peers, &block_catch_up, None)?;
+        client.run_catchup(&block_catch_up, None)?;
         let mut catchup_done = true;
         for msg in block_messages.write().drain(..) {
             let results =

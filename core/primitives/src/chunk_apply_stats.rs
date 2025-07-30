@@ -13,8 +13,10 @@ use crate::bandwidth_scheduler::{
 /// How many transactions and receipts were processed, buffered, forwarded, etc.
 /// Useful for debugging, metrics and sanity checks.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ChunkApplyStats {
-    V0(ChunkApplyStatsV0),
+    V0(ChunkApplyStatsV0) = 0,
 }
 
 /// Information gathered during chunk application.

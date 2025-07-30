@@ -51,6 +51,8 @@ enable-tx:
 
 unlimit:
     jq '.gas_limit=20000000000000000' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
+    # Some versions of jq emit 2e+16 instead of plain integer, which breaks genesis parsing. To prevent this replace 2e+16 with the integer.
+    sed -i 's/"gas_limit": 2e+16/"gas_limit": 20000000000000000/g' {{near_genesis_file}}
     jq '.view_client_threads=8 \
      | .store.load_mem_tries_for_tracked_shards=true \
      | .produce_chunk_add_transactions_time_limit={"secs": 0, "nanos": 500000000} ' {{near_config_file}} > tmp_config.json \

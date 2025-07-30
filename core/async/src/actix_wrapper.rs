@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use actix::Actor;
+use actix::{Actor, SyncArbiter};
 use near_o11y::{WithSpanContext, handler_debug_span};
 
 use crate::futures::DelayedActionRunner;
@@ -103,4 +103,21 @@ where
     let arbiter = actix::Arbiter::new().handle();
     let addr = ActixWrapper::<T>::start_in_arbiter(&arbiter, |_| actix_wrapper);
     (addr, arbiter)
+}
+
+/// Spawns the actor returned by the factory function in a SyncArbiter,
+/// after wrapping it in a SyncActixWrapper.
+/// This is useful for actors that need to run in a separate thread pool.
+pub fn spawn_sync_actix_actor<T, F>(
+    num_threads: usize,
+    factory: F,
+) -> actix::Addr<SyncActixWrapper<T>>
+where
+    T: Unpin + Send + 'static,
+    F: Fn() -> T + Sync + Send + 'static,
+{
+    SyncArbiter::start(num_threads, move || {
+        let actor = factory();
+        SyncActixWrapper::new(actor)
+    })
 }

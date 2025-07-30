@@ -139,6 +139,7 @@ impl From<AccountView> for Account {
     }
 }
 
+/// Describes the permission scope for an access key. Whether it is a function call or a full access key.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -149,6 +150,8 @@ impl From<AccountView> for Account {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermissionView {
     FunctionCall {
@@ -157,8 +160,8 @@ pub enum AccessKeyPermissionView {
         allowance: Option<Balance>,
         receiver_id: String,
         method_names: Vec<String>,
-    },
-    FullAccess,
+    } = 0,
+    FullAccess = 1,
 }
 
 impl From<AccessKeyPermission> for AccessKeyPermissionView {
@@ -189,6 +192,7 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
     }
 }
 
+/// Describes access key permission scope and nonce.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -262,6 +266,7 @@ pub struct StateItem {
     pub value: StoreValue,
 }
 
+/// Resulting state values for a view state query request
 #[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -273,6 +278,7 @@ pub struct ViewStateResult {
     pub proof: Vec<Arc<[u8]>>,
 }
 
+/// A result returned by contract method
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CallResult {
@@ -286,6 +292,7 @@ pub struct QueryError {
     pub logs: Vec<String>,
 }
 
+/// Describes information about an access key including the public key.
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyInfoView {
@@ -293,6 +300,7 @@ pub struct AccessKeyInfoView {
     pub access_key: AccessKeyView,
 }
 
+/// Lists access keys
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyList {
@@ -462,12 +470,30 @@ pub struct Tier1ProxyView {
     pub peer_id: PublicKey,
 }
 
+/// AccountData is a piece of global state that a validator
+/// signs and broadcasts to the network.
+///
+/// It is essentially the data that a validator wants to share with the network.
+/// All the nodes in the network are collecting the account data
+/// broadcasted by the validators.
+/// Since the number of the validators is bounded and their
+/// identity is known (and the maximal size of allowed AccountData is bounded)
+/// the global state that is distributed in the form of AccountData is bounded
+/// as well.
+/// Find more information in the docs [here](https://github.com/near/nearcore/blob/560f7fc8f4b3106e0d5d46050688610b1f104ac6/chain/client/src/client.rs#L2232)
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountDataView {
+    /// ID of the node that handles the account key (aka validator key).
     pub peer_id: PublicKey,
+    /// Proxy nodes that are directly connected to the validator node
+    /// (this list may include the validator node itself).
+    /// TIER1 nodes should connect to one of the proxies to sent TIER1
+    /// messages to the validator.
     pub proxies: Vec<Tier1ProxyView>,
+    /// Account key of the validator signing this AccountData.
     pub account_key: PublicKey,
+    /// UTC timestamp of when the AccountData has been signed.
     #[serde(with = "near_time::serde_utc_as_iso")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub timestamp: Utc,
@@ -604,6 +630,7 @@ pub struct DownloadStatusView {
     pub done: bool,
 }
 
+/// Status of the [catchup](https://near.github.io/nearcore/architecture/how/sync.html#catchup) process
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CatchupStatusView {
@@ -625,6 +652,7 @@ pub struct RequestedStatePartsView {
     pub shard_requested_parts: HashMap<ShardId, Vec<PartElapsedTimeView>>,
 }
 
+/// Height and hash of a block
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockStatusView {
@@ -718,15 +746,17 @@ pub struct BlockProcessingInfo {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum BlockProcessingStatus {
-    Orphan,
-    WaitingForChunks,
-    InProcessing,
-    Accepted,
-    Error(String),
-    Dropped(DroppedReason),
-    Unknown,
+    Orphan = 0,
+    WaitingForChunks = 1,
+    InProcessing = 2,
+    Accepted = 3,
+    Error(String) = 4,
+    Dropped(DroppedReason) = 5,
+    Unknown = 6,
 }
 
 #[derive(
@@ -739,12 +769,14 @@ pub enum BlockProcessingStatus {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum DroppedReason {
     // If the node has already processed a block at this height
-    HeightProcessed,
+    HeightProcessed = 0,
     // If the block processing pool is full
-    TooManyProcessingBlocks,
+    TooManyProcessingBlocks = 1,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -844,6 +876,7 @@ pub struct StatusResponse {
     pub detailed_debug_status: Option<DetailedDebugStatus>,
 }
 
+/// Contains main info about the block.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockHeaderView {
@@ -852,6 +885,7 @@ pub struct BlockHeaderView {
     pub epoch_id: CryptoHash,
     pub next_epoch_id: CryptoHash,
     pub hash: CryptoHash,
+    /// The hash of the previous Block
     pub prev_hash: CryptoHash,
     pub prev_state_root: CryptoHash,
     pub block_body_hash: Option<CryptoHash>,
@@ -892,6 +926,7 @@ pub struct BlockHeaderView {
     pub block_merkle_root: CryptoHash,
     pub epoch_sync_data_hash: Option<CryptoHash>,
     pub approvals: Vec<Option<Box<Signature>>>,
+    /// Signature of the block producer.
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
@@ -977,6 +1012,7 @@ impl From<BlockHeaderView> for BlockHeader {
     }
 }
 
+/// A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
 #[derive(
     PartialEq,
     Eq,
@@ -990,7 +1026,9 @@ impl From<BlockHeaderView> for BlockHeader {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockHeaderInnerLiteView {
     pub height: BlockHeight,
+    /// The epoch to which the block that is the current known head belongs
     pub epoch_id: CryptoHash,
+    /// The epoch that will follow the current epoch
     pub next_epoch_id: CryptoHash,
     pub prev_state_root: CryptoHash,
     pub outcome_root: CryptoHash,
@@ -999,7 +1037,9 @@ pub struct BlockHeaderInnerLiteView {
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub timestamp_nanosec: u64,
+    /// The hash of the block producers set for the next epoch
     pub next_bp_hash: CryptoHash,
+    /// The merkle root of all the block hashes
     pub block_merkle_root: CryptoHash,
 }
 
@@ -1035,6 +1075,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
     }
 }
 
+/// Contains main info about the chunk.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChunkHeaderView {
@@ -1202,6 +1243,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockView {
+    /// The AccountId of the author of the Block
     pub author: AccountId,
     pub header: BlockHeaderView,
     pub chunks: Vec<ChunkHeaderView>,
@@ -1257,8 +1299,10 @@ impl ChunkView {
     serde::Deserialize,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ActionView {
-    CreateAccount,
+    CreateAccount = 0,
     DeployContract {
         #[serde_as(as = "Base64")]
         #[cfg_attr(
@@ -1266,7 +1310,7 @@ pub enum ActionView {
             schemars(schema_with = "crate::serialize::base64_schema")
         )]
         code: Vec<u8>,
-    },
+    } = 1,
     FunctionCall {
         method_name: String,
         args: FunctionArgs,
@@ -1274,32 +1318,32 @@ pub enum ActionView {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         deposit: Balance,
-    },
+    } = 2,
     Transfer {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         deposit: Balance,
-    },
+    } = 3,
     Stake {
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         stake: Balance,
         public_key: PublicKey,
-    },
+    } = 4,
     AddKey {
         public_key: PublicKey,
         access_key: AccessKeyView,
-    },
+    } = 5,
     DeleteKey {
         public_key: PublicKey,
-    },
+    } = 6,
     DeleteAccount {
         beneficiary_id: AccountId,
-    },
+    } = 7,
     Delegate {
         delegate_action: DelegateAction,
         signature: Signature,
-    },
+    } = 8,
     DeployGlobalContract {
         #[serde_as(as = "Base64")]
         #[cfg_attr(
@@ -1307,7 +1351,7 @@ pub enum ActionView {
             schemars(schema_with = "crate::serialize::base64_schema")
         )]
         code: Vec<u8>,
-    },
+    } = 9,
     DeployGlobalContractByAccountId {
         #[serde_as(as = "Base64")]
         #[cfg_attr(
@@ -1315,13 +1359,13 @@ pub enum ActionView {
             schemars(schema_with = "crate::serialize::base64_schema")
         )]
         code: Vec<u8>,
-    },
+    } = 10,
     UseGlobalContract {
         code_hash: CryptoHash,
-    },
+    } = 11,
     UseGlobalContractByAccountId {
         account_id: AccountId,
-    },
+    } = 12,
 }
 
 impl From<Action> for ActionView {
@@ -1490,20 +1534,22 @@ impl From<SignedTransaction> for SignedTransactionView {
     Default,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
     #[default]
-    NotStarted,
+    NotStarted = 0,
     /// The execution has started and still going.
-    Started,
+    Started = 1,
     /// The execution has failed with the given error.
-    Failure(TxExecutionError),
+    Failure(TxExecutionError) = 2,
     /// The execution has succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(
         #[serde_as(as = "Base64")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         Vec<u8>,
-    ),
+    ) = 3,
 }
 
 impl fmt::Debug for FinalExecutionStatus {
@@ -1529,10 +1575,12 @@ impl fmt::Debug for FinalExecutionStatus {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ServerError {
-    TxExecutionError(TxExecutionError),
-    Timeout,
-    Closed,
+    TxExecutionError(TxExecutionError) = 0,
+    Timeout = 1,
+    Closed = 2,
 }
 
 #[serde_as]
@@ -1540,20 +1588,22 @@ pub enum ServerError {
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
-    Unknown,
+    Unknown = 0,
     /// The execution has failed.
-    Failure(TxExecutionError),
+    Failure(TxExecutionError) = 1,
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(
         #[serde_as(as = "Base64")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         Vec<u8>,
-    ),
+    ) = 2,
     /// The final action of the receipt returned a promise or the signed transaction was converted
     /// to a receipt. Contains the receipt_id of the generated receipt.
-    SuccessReceiptId(CryptoHash),
+    SuccessReceiptId(CryptoHash) = 3,
 }
 
 impl fmt::Debug for ExecutionStatusView {
@@ -1584,6 +1634,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     }
 }
 
+/// Shows gas profile. More info [here](https://near.github.io/nearcore/architecture/gas/gas_profile.html?highlight=WASM_HOST_COST#example-transaction-gas-profile).
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1596,6 +1647,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CostGasUsed {
+    /// Either ACTION_COST or WASM_HOST_COST.
     pub cost_category: String,
     pub cost: String,
     #[serde(with = "dec_format")]
@@ -1865,25 +1917,26 @@ pub struct TxStatusView {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[borsh(use_discriminant = true)]
 pub enum TxExecutionStatus {
     /// Transaction is waiting to be included into the block
-    None,
+    None = 0,
     /// Transaction is included into the block. The block may be not finalized yet
-    Included,
+    Included = 1,
     /// Transaction is included into the block +
     /// All non-refund transaction receipts finished their execution.
     /// The corresponding blocks for tx and each receipt may be not finalized yet
     #[default]
-    ExecutedOptimistic,
+    ExecutedOptimistic = 2,
     /// Transaction is included into finalized block
-    IncludedFinal,
+    IncludedFinal = 3,
     /// Transaction is included into finalized block +
     /// All non-refund transaction receipts finished their execution.
     /// The corresponding blocks for each receipt may be not finalized yet
-    Executed,
+    Executed = 4,
     /// Transaction is included into finalized block +
     /// Execution of all transaction receipts is finalized, including refund receipts
-    Final,
+    Final = 5,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -2096,7 +2149,9 @@ pub struct DataReceiverView {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[borsh(use_discriminant = true)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[repr(u8)]
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
@@ -2109,7 +2164,7 @@ pub enum ReceiptEnumView {
         actions: Vec<ActionView>,
         #[serde(default = "default_is_promise")]
         is_promise_yield: bool,
-    },
+    } = 0,
     Data {
         data_id: CryptoHash,
         #[serde_as(as = "Option<Base64>")]
@@ -2117,7 +2172,7 @@ pub enum ReceiptEnumView {
         data: Option<Vec<u8>>,
         #[serde(default = "default_is_promise")]
         is_promise_resume: bool,
-    },
+    } = 1,
     GlobalContractDistribution {
         id: GlobalContractIdentifier,
         target_shard: ShardId,
@@ -2125,7 +2180,7 @@ pub enum ReceiptEnumView {
         #[serde_as(as = "Base64")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         code: Vec<u8>,
-    },
+    } = 2,
 }
 
 // Default value used when deserializing ReceiptEnumViews which are missing either the
@@ -2298,6 +2353,7 @@ pub struct ValidatorKickoutView {
     pub reason: ValidatorKickoutReason,
 }
 
+/// Describes information about the current epoch validator
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolSchema)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CurrentEpochValidatorInfo {
@@ -2359,6 +2415,7 @@ pub struct NextEpochValidatorInfo {
     pub shards: Vec<ShardId>,
 }
 
+/// A state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
 #[derive(
     PartialEq,
     Eq,
@@ -2373,6 +2430,8 @@ pub struct NextEpochValidatorInfo {
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
     pub next_block_inner_hash: CryptoHash,
+    /// Inner part of the block header that gets hashed, split into two parts, one that is sent
+    ///    to light clients, and the rest
     pub inner_lite: BlockHeaderInnerLiteView,
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
@@ -2694,6 +2753,7 @@ pub struct SplitStorageInfoView {
     pub hot_db_kind: Option<String>,
 }
 
+/// Stores the congestion level of a shard. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CongestionInfoView {

@@ -47,12 +47,12 @@ pub struct BlockBodyV2 {
 
 pub type ChunkEndorsementSignatures = Vec<Option<Box<Signature>>>;
 
-// For now, we only have one version of block body.
-// Eventually with ChunkValidation, we would include ChunkEndorsement in BlockBodyV2
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum BlockBody {
-    V1(BlockBodyV1),
-    V2(BlockBodyV2),
+    V1(BlockBodyV1) = 0,
+    V2(BlockBodyV2) = 1,
 }
 
 impl BlockBody {

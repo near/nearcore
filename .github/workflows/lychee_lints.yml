@@ -8,7 +8,7 @@ on:
   schedule:
       # At 17:15 on every day-of-month.
     - cron: '15 17 */1 * *'
-    
+
 
 jobs:
   lychee_checks:
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # cspell:disable-next-line
       - uses: lycheeverse/lychee-action@2ac9f030ccdea0033e2510a23a67da2a2da98492
         with:
           fail: true
-          

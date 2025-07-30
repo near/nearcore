@@ -25,6 +25,8 @@ use crate::state_witness::PartialWitnessSenderForNetworkMessage;
 use crate::tcp;
 use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
+use crate::types::StateRequestSenderForNetworkInput;
+use crate::types::StateRequestSenderForNetworkMessage;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
@@ -74,6 +76,7 @@ impl actix::Handler<WithNetworkState> for PeerManagerActor {
 pub enum Event {
     ShardsManager(ShardsManagerRequestFromNetwork),
     Client(ClientSenderForNetworkInput),
+    StateRequestSender(StateRequestSenderForNetworkInput),
     PeerManager(PME),
     PeerManagerSender(PeerManagerSenderForNetworkInput),
     PartialWitness(PartialWitnessSenderForNetworkInput),
@@ -593,23 +596,6 @@ pub(crate) async fn start(
                     // For some specific events we craft a response and send it back, while for
                     // most other events we send it to the sink (for what? I have no idea).
                     match event {
-                        ClientSenderForNetworkMessage::_state_request_part(msg) => {
-                            let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
-                            let part = Some((part_id, vec![]));
-                            let state_response =
-                                ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
-                                    header: None,
-                                    part,
-                                });
-                            let result =
-                                Some(StateResponse(Box::new(StateResponseInfo::V2(Box::new(
-                                    StateResponseInfoV2 { shard_id, sync_hash, state_response },
-                                )))));
-                            (msg.callback)(std::future::ready(Ok(result)).boxed());
-                            send.send(Event::Client(
-                                ClientSenderForNetworkInput::_state_request_part(msg.message),
-                            ));
-                        }
                         ClientSenderForNetworkMessage::_announce_account(msg) => {
                             (msg.callback)(
                                 std::future::ready(Ok(Ok(msg
@@ -626,6 +612,34 @@ pub(crate) async fn start(
                         }
                         _ => {
                             send.send(Event::Client(event.into_input()));
+                        }
+                    }
+                }
+            });
+            let state_request_sender = Sender::from_fn({
+                let send = send.clone();
+                move |event: StateRequestSenderForNetworkMessage| {
+                    // NOTE: See above comment for explanation about this code.
+                    match event {
+                        StateRequestSenderForNetworkMessage::_state_request_part(msg) => {
+                            let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
+                            let part = Some((part_id, vec![]));
+                            let state_response =
+                                ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
+                                    header: None,
+                                    part,
+                                });
+                            let result =
+                                Some(StateResponse(Box::new(StateResponseInfo::V2(Box::new(
+                                    StateResponseInfoV2 { shard_id, sync_hash, state_response },
+                                )))));
+                            (msg.callback)(std::future::ready(Ok(result)).boxed());
+                            send.send(Event::StateRequestSender(
+                                StateRequestSenderForNetworkInput::_state_request_part(msg.message),
+                            ));
+                        }
+                        _ => {
+                            send.send(Event::StateRequestSender(event.into_input()));
                         }
                     }
                 }
@@ -653,6 +667,7 @@ pub(crate) async fn start(
                 store,
                 cfg,
                 client_sender.break_apart().into_multi_sender(),
+                state_request_sender.break_apart().into_multi_sender(),
                 peer_manager_sender.break_apart().into_multi_sender(),
                 shards_manager_sender,
                 state_witness_sender.break_apart().into_multi_sender(),

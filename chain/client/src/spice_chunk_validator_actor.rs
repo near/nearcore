@@ -32,6 +32,7 @@ use near_store::adapter::StoreAdapter as _;
 use crate::chunk_executor_actor::{ExecutionResultEndorsed, ProcessedBlock};
 use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,
@@ -53,6 +54,8 @@ pub struct SpiceChunkValidatorActor {
     // access from both places.
     /// Next block hashes keyed by block hash.
     next_block_hashes: LruCache<CryptoHash, Vec<CryptoHash>>,
+
+    rs: Arc<ReedSolomon>,
 }
 
 impl near_async::messaging::Actor for SpiceChunkValidatorActor {}
@@ -75,6 +78,9 @@ impl SpiceChunkValidatorActor {
         // See ChunkValidator::new in c/c/s/s/chunk_validator/mod.rs for rationale used currently.
         let validation_thread_limit =
             runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+        let data_parts = epoch_manager.num_data_parts();
+        let parity_parts = epoch_manager.num_total_parts() - data_parts;
+        let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
         Self {
             pending_witnesses: HashMap::new(),
             client_config,
@@ -88,6 +94,7 @@ impl SpiceChunkValidatorActor {
             chunk_endorsement_tracker,
             validation_spawner: validation_spawner.into_spawner(validation_thread_limit),
             main_state_transition_result_cache: MainStateTransitionCache::default(),
+            rs,
         }
     }
 }
@@ -298,6 +305,7 @@ impl SpiceChunkValidatorActor {
         let store = self.chain_store.store();
         let network_sender = self.network_adapter.clone().into_sender();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
+        let rs = self.rs.clone();
         self.validation_spawner.spawn("spice_stateless_validation", move || {
             let chunk_header = witness.chunk_header().clone();
             let shard_id = witness.chunk_header().shard_id();
@@ -309,6 +317,7 @@ impl SpiceChunkValidatorActor {
                 &main_state_transition_cache,
                 store,
                 save_witness_if_invalid,
+                rs,
             ) {
                 Ok(execution_result) => execution_result,
                 Err(err) => {

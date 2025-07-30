@@ -323,6 +323,7 @@ pub enum ProtocolFeature {
 
     RefTypesBulkMemory,
     SaturatingFloatToInt,
+    ChunkPartChecks,
 }
 
 impl ProtocolFeature {
@@ -416,6 +417,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
             | ProtocolFeature::VersionedStateWitness
+            | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,

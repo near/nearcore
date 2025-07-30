@@ -19,8 +19,6 @@ pub fn client_sender_for_network(
         block_headers_request: view_client_addr.clone().into_sender(),
         block_request: view_client_addr.clone().into_sender(),
         network_info: client_addr.clone().into_sender(),
-        state_request_header: view_client_addr.clone().into_sender(),
-        state_request_part: view_client_addr.clone().into_sender(),
         state_response: client_addr.clone().into_sender(),
         tx_status_request: view_client_addr.clone().into_sender(),
         tx_status_response: view_client_addr.clone().into_sender(),

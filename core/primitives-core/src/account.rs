@@ -401,9 +401,11 @@ impl schemars::JsonSchema for Account {
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 enum BorshVersionedAccount {
     // V1 is not included since it is serialized directly without being wrapped in enum
-    V2(AccountV2),
+    V2(AccountV2) = 0,
 }
 
 impl BorshDeserialize for Account {

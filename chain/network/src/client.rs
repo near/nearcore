@@ -150,8 +150,6 @@ pub struct ClientSenderForNetwork {
     pub tx_status_request: AsyncSender<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>>,
     pub tx_status_response: AsyncSender<TxStatusResponse, ()>,
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
-    pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
-    pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
     pub state_response: AsyncSender<SpanWrapped<StateResponseReceived>, ()>,
     pub block_approval: AsyncSender<SpanWrapped<BlockApproval>, ()>,
     pub block_request: AsyncSender<BlockRequest, Option<Arc<Block>>>,
