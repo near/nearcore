@@ -19,11 +19,12 @@ if __name__ == '__main__':
     parser = ArgumentParser(
         description=
         'Global contract deploy')
-    parser.add_argument('--key-path', type=str, required=True)
+    #parser.add_argument('--key-path', type=str, required=True)
     parser.add_argument('--node-url', type=str, required=True)
 
     args = parser.parse_args()
-    signer_key = Key.from_json_file(args.key_path)
+    #signer_key = Key.from_json_file(args.key_path)
+    signer_key = Key("test-user.astro-stakers.poolv1.near","ed25519:GToqd4CouqUdhexNkRWiz4y6yZi2HoNrhk5ZGLogJJF", "ed25519:3Pj3iVURbj5zyMaur6DTxNzNzZGYtuoBePvxzoovpAw4p6aDTT8Dkdg4DanrV3uVXnHH2g96hnfXaj3AwRAUKtew")
     url_parse_result = urlparse(args.node_url)
     rpc_addr, rpc_port = url_parse_result.hostname, url_parse_result.port
     latest_block_hash = get_latest_block_hash(rpc_addr, rpc_port)
