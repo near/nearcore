@@ -1,4 +1,4 @@
-use near_async::actix_wrapper::SyncActixWrapper;
+use near_async::actix::wrapper::SyncActixWrapper;
 use near_async::messaging;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;

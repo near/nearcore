@@ -14,6 +14,8 @@ use near_chain::chain::{
 };
 use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
+use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::spice_core::ExecutionResultEndorsed;
 use near_chain::types::ApplyChunkResult;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
@@ -59,7 +61,6 @@ use node_runtime::SignedValidPeriodTransactions;
 use tracing::instrument;
 
 use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
-use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct ChunkExecutorActor {
@@ -132,13 +133,6 @@ pub struct ExecutorIncomingReceipts {
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ProcessedBlock {
-    pub block_hash: CryptoHash,
-}
-
-/// Message that should be sent once executions results for all chunks in a block are endorsed.
-#[derive(actix::Message, Debug, Clone)]
-#[rtype(result = "()")]
-pub struct ExecutionResultEndorsed {
     pub block_hash: CryptoHash,
 }
 
@@ -708,6 +702,7 @@ impl ChunkExecutorActor {
             self.runtime_adapter.clone(),
             // Since we don't produce blocks, this argument is irrelevant.
             DoomslugThresholdMode::NoApprovals,
+            self.core_processor.clone(),
         )
     }
 
