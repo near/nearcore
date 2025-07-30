@@ -1349,6 +1349,7 @@ impl Client {
             "on_chunk_completed",
             height_created = partial_chunk.height_created(),
             shard_id = ?partial_chunk.shard_id(),
+            tag_block_production = true,
         )
         .entered();
         let chunk_header = partial_chunk.cloned_header();
