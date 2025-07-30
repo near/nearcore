@@ -41,6 +41,26 @@ where
 
 /// Spawns an actor in the Tokio runtime and returns a handle to it.
 /// The handle can be used to get the sender and future spawner for the actor.
+///
+/// ```rust, ignore
+///
+/// struct MyActor;
+///
+/// impl Actor for MyActor {}
+///
+/// impl Handler<MyMessage> for MyActor {
+///     fn handle(&mut self, msg: MyMessage) {}
+/// }
+///
+/// // We can use the actor_handle to create senders and future spawners.
+/// let actor_handle = spawn_tokio_actor(MyActor);
+///
+/// let sender: MyAdapter = actor_handle.sender();
+/// let future_spawner = actor_handle.future_spawner();
+/// ```
+///
+/// The sender and future spawner can then be passed onto other components that need to send messages
+/// to the actor or spawn futures in the runtime of the actor.
 pub fn spawn_tokio_actor<A>(mut actor: A) -> TokioRuntimeHandle<A>
 where
     A: Actor + Send + 'static,
