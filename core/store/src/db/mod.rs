@@ -1,3 +1,4 @@
+use crate::store::PendingWrites;
 use crate::{DBCol, deserialized_column};
 use near_fmt::{AbbrBytes, StorageKey};
 use std::collections::HashSet;
@@ -45,11 +46,12 @@ pub const TRIE_STATE_RESHARDING_STATUS_KEY: &[u8] = b"TRIE_STATE_RESHARDING_STAT
 pub const LATEST_WITNESSES_INFO: &[u8] = b"LATEST_WITNESSES_INFO";
 pub const INVALID_WITNESSES_INFO: &[u8] = b"INVALID_WITNESSES_INFO";
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,
 }
 
+#[derive(Clone)]
 pub(crate) enum DBOp {
     /// Sets `key` to `value`, without doing any checks.
     Set { col: DBCol, key: Vec<u8>, value: Vec<u8> },
@@ -265,6 +267,10 @@ pub trait Database: Sync + Send {
 
     fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
         deserialized_column::Cache::disabled()
+    }
+
+    fn pending_writes(&self) -> Option<Arc<PendingWrites>> {
+        None
     }
 }
 

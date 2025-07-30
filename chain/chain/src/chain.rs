@@ -1773,7 +1773,14 @@ impl Chain {
             apply_results,
             should_save_state_transition_data,
         )?;
-        chain_update.commit()?;
+        let (async_batch, sync_batch) = chain_update.into_split_store_updates()?;
+        let reprocessing = false; // XXX: Add support for reprocessing blocks.
+        if reprocessing {
+            async_batch.commit()?; // Just need to write the async batch, as sync batch was already written.
+        } else {
+            async_batch.write_pending()?;
+            sync_batch.commit()?;
+        }
         Ok(new_head)
     }
 

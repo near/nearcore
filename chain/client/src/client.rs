@@ -43,7 +43,7 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::logic::{create_partial_chunk, persist_chunk};
+use near_chunks::logic::{create_partial_chunk, persist_chunk, persist_chunk_async};
 use near_client_primitives::types::{Error, StateSyncStatus, SyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -1067,7 +1067,9 @@ impl Client {
 
     /// Check optimistic block and start processing if is valid.
     pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: &PeerId) {
-        let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
+        let _span =
+            debug_span!(target: "client", "receive_optimistic_block", height = block.height(), tag_block_production = true)
+                .entered();
         debug!(target: "client", ?block, ?peer_id, "Received optimistic block");
 
         // Pre-validate the optimistic block.
@@ -1322,6 +1324,14 @@ impl Client {
         shard_chunk: Option<ShardChunk>,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "on_chunk_completed",
+            height_created = partial_chunk.height_created(),
+            shard_id = ?partial_chunk.shard_id(),
+            tag_block_production = true,
+        )
+        .entered();
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
 
@@ -1765,7 +1775,7 @@ impl Client {
         )?;
         let (shard_chunk, encoded_shard_chunk) = chunk.into_parts();
         let partial_chunk_arc = Arc::new(partial_chunk.clone());
-        persist_chunk(
+        persist_chunk_async(
             Arc::clone(&partial_chunk_arc),
             Some(shard_chunk),
             self.chain.mut_chain_store(),
