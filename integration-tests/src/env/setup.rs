@@ -11,6 +11,7 @@ use near_async::messaging::{
     IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
 };
 use near_async::time::{Clock, Duration, Utc};
+use near_async::tokio::runtime_handle::construct_actor_with_tokio_runtime;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
@@ -89,6 +90,7 @@ fn setup(
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
     tempfile::TempDir,
+    Vec<tokio::runtime::Runtime>,
 ) {
     let store = create_test_store();
 
@@ -169,11 +171,11 @@ fn setup(
         signer.clone(),
     );
 
-    let client_adapter_for_partial_witness_actor = LateBoundSender::new();
-    let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
+    let client_adapter_for_partial_witness_adapter = LateBoundSender::new();
+    let partial_witness_adapter = construct_actor_with_tokio_runtime(PartialWitnessActor::new(
         clock.clone(),
         network_adapter.clone(),
-        client_adapter_for_partial_witness_actor.as_multi_sender(),
+        client_adapter_for_partial_witness_adapter.as_multi_sender(),
         signer.clone(),
         epoch_manager.clone(),
         runtime.clone(),
@@ -181,11 +183,6 @@ fn setup(
         Arc::new(RayonAsyncComputationSpawner),
         Arc::new(RayonAsyncComputationSpawner),
     ));
-    let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
-
-    let partial_witness_sender_for_client = PartialWitnessSenderForClient {
-        distribute_chunk_state_witness: partial_witness_adapter.clone().into_sender(),
-    };
 
     let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
         epoch_manager.clone(),
@@ -219,7 +216,7 @@ fn setup(
         None,
         adv,
         None,
-        partial_witness_sender_for_client,
+        partial_witness_adapter.sender(),
         enable_doomslug,
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
@@ -257,7 +254,7 @@ fn setup(
     let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
-    client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
+    client_adapter_for_partial_witness_adapter.bind(ChunkValidationSenderForPartialWitness {
         chunk_state_witness: chunk_validation_actor.with_auto_span_context().into_sender(),
     });
 
@@ -268,6 +265,7 @@ fn setup(
         shards_manager_adapter.into_multi_sender(),
         partial_witness_adapter.into_multi_sender(),
         tempdir,
+        vec![],
     )
 }
 
@@ -322,6 +320,7 @@ pub fn setup_mock_with_validity_period(
         shards_manager_adapter,
         partial_witness_sender,
         runtime_tempdir,
+        tokio_runtimes,
     ) = setup(
         clock.clone(),
         validators,
@@ -355,10 +354,10 @@ pub fn setup_mock_with_validity_period(
         shards_manager_adapter,
         partial_witness_sender,
         runtime_tempdir: Some(runtime_tempdir.into()),
+        tokio_runtimes,
     }
 }
 
-#[derive(Clone)]
 pub struct ActorHandlesForTesting {
     pub client_actor: Addr<ClientActor>,
     pub view_client_actor: Addr<ViewClientActor>,
@@ -369,6 +368,15 @@ pub struct ActorHandlesForTesting {
     // this TempDir isn't dropped before test finishes, but is dropped after to avoid leaking temp
     // dirs.
     pub runtime_tempdir: Option<Arc<tempfile::TempDir>>,
+    pub tokio_runtimes: Vec<tokio::runtime::Runtime>,
+}
+
+impl Drop for ActorHandlesForTesting {
+    fn drop(&mut self) {
+        for runtime in self.tokio_runtimes.drain(..) {
+            runtime.shutdown_background();
+        }
+    }
 }
 
 /// Sets up ClientActor and ViewClientActor without network.

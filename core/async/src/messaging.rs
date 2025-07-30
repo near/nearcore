@@ -67,6 +67,12 @@ pub trait CanSend<M>: Send + Sync + 'static {
     fn send(&self, message: M);
 }
 
+// Added new trait for async messages
+// Eventually, I would like to get rid of MessageWithCallback in favor of this trait.
+pub trait CanSendAsync<M, R>: Send + Sync + 'static {
+    fn send_async(&self, message: M) -> BoxFuture<'static, R>;
+}
+
 /// Wraps a CanSend. This should be used to pass around an Arc<dyn CanSend<M>>, instead
 /// of spelling out that type. Using a wrapper struct allows us to define more flexible
 /// APIs.
@@ -245,12 +251,16 @@ impl<M> CanSend<M> for Noop {
     fn send(&self, _message: M) {}
 }
 
+impl<M> CanSend<M> for Arc<Noop> {
+    fn send(&self, _message: M) {}
+}
+
 /// Creates a no-op sender that does nothing with the message.
 ///
 /// Returns a type that can be converted to any type of sender,
 /// sync or async, including multi-senders.
-pub fn noop() -> Noop {
-    Noop
+pub fn noop() -> Arc<Noop> {
+    Arc::new(Noop)
 }
 
 /// A trait for converting something that implements individual senders into

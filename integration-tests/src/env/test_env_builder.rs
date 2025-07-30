@@ -559,7 +559,7 @@ impl TestEnvBuilder {
                         self.save_trie_changes,
                         self.save_tx_outcomes,
                         Some(snapshot_callbacks),
-                        partial_witness_adapter.into_multi_sender(),
+                        Arc::new(partial_witness_adapter),
                         validator_signers[i].clone(),
                         noop().into_multi_sender(),
                     )

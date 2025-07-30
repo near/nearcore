@@ -5,9 +5,8 @@ use std::sync::Arc;
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
-use near_async::messaging::{Actor, CanSend, Handler, Sender};
+use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::Clock;
-use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Error;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
@@ -100,10 +99,11 @@ pub struct DistributeStateWitnessRequest {
     pub main_transition_shard_id: ShardId,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct PartialWitnessSenderForClient {
-    pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
-}
+pub trait PartialWitnessSenderForClientTrait: CanSend<DistributeStateWitnessRequest> {}
+
+impl<T> PartialWitnessSenderForClientTrait for T where T: CanSend<DistributeStateWitnessRequest> {}
+
+pub type PartialWitnessSenderForClient = Arc<dyn PartialWitnessSenderForClientTrait>;
 
 impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
     #[perf]
