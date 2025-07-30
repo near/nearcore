@@ -185,6 +185,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn status(&self) -> RpcRequest<StatusResponse>;
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_genesis_config(&self) -> RpcRequest<serde_json::Value>;
+    pub fn genesis_config(&self) -> RpcRequest<serde_json::Value>;
     pub fn health(&self) -> RpcRequest<()>;
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
     pub fn gas_price(&self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;

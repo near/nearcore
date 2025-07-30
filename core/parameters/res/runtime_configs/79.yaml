@@ -5,11 +5,3 @@ max_congestion_missed_chunks: {
   old : 5,
   new : 125,
 }
-
-# Reverting the ReducedGasRefunds feature
-pessimistic_gas_price_inflation:
-  {
-    old: { numerator: 1, denominator: 1 },
-    new: { numerator: 103, denominator: 100 },
-  }
-refund_gas_price_changes: { old: false, new: true }
