@@ -808,6 +808,7 @@ fn benchmark_chunk_application(
     let mut total_gas_burned: u128 = 0;
     let report_interval = Duration::from_secs(1);
     let mut last_report_time = Instant::now();
+    let start_time = Instant::now();
 
     for i in 1.. {
         let cur_input = input.clone();
@@ -833,6 +834,13 @@ fn benchmark_chunk_application(
                 total_gas_burned as f64 / 1_000_000_000_000.0 / i as f64
             );
             last_report_time = std::time::Instant::now();
+        }
+
+        let total_elapsed = start_time.elapsed();
+        let desired_elapsed = Duration::from_millis(500 * i);
+        if total_elapsed < desired_elapsed {
+            let sleep_duration = desired_elapsed - total_elapsed;
+            std::thread::sleep(sleep_duration);
         }
     }
 }

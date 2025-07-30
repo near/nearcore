@@ -22,7 +22,7 @@ mod view;
 /// references in the case of multiple state roots (trie roots), and are
 /// internally refcounted. See `MemTries` for more details on the lifecycle
 /// of trie nodes.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub struct MemTrieNodeId {
     pub(crate) pos: ArenaPos,
 }
