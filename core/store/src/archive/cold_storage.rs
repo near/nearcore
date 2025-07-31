@@ -1,10 +1,11 @@
-use crate::adapter::StoreUpdateAdapter;
 use crate::adapter::trie_store::get_shard_uid_mapping;
+use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::columns::DBKeyType;
 use crate::db::{COLD_HEAD_KEY, ColdDB, HEAD_KEY};
-use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, metrics};
+use crate::{DBCol, DBTransaction, Database, Store, metrics};
 
 use borsh::BorshDeserialize;
+use itertools::Itertools;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -91,6 +92,8 @@ pub fn update_cold_db(
     let height_key = height.to_le_bytes();
     let block_hash_vec = hot_store.get_or_err_for_cold(DBCol::BlockHeight, &height_key)?;
     let block_hash_key = block_hash_vec.as_slice();
+    let block_hash = CryptoHash::try_from_slice(block_hash_key)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid block hash key"))?;
 
     let key_type_to_keys =
         get_keys_from_store(&hot_store, shard_layout, tracked_shards, &height_key, block_hash_key)?;
@@ -118,7 +121,7 @@ pub fn update_cold_db(
                         copy_state_from_store(
                             shard_layout,
                             &tracked_shards,
-                            block_hash_key,
+                            &block_hash,
                             cold_db,
                             &hot_store,
                         )
@@ -204,7 +207,7 @@ fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) 
 fn copy_state_from_store(
     shard_layout: &ShardLayout,
     tracked_shards: &Vec<ShardUId>,
-    block_hash_key: &[u8],
+    block_hash: &CryptoHash,
     cold_db: &ColdDB,
     hot_store: &Store,
 ) -> io::Result<()> {
@@ -217,18 +220,17 @@ fn copy_state_from_store(
     let mut total_size = 0;
     let mut transaction = DBTransaction::new();
     let mut copied_shards = HashSet::<ShardUId>::new();
-    for shard_uid in shard_layout.shard_uids() {
-        debug_assert_eq!(
-            DBCol::TrieChanges.key_type(),
-            &[DBKeyType::BlockHash, DBKeyType::ShardUId]
-        );
 
-        let shard_uid_key = shard_uid.to_bytes();
-        let key = join_two_keys(&block_hash_key, &shard_uid_key);
-        let trie_changes: Option<TrieChanges> =
-            hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
+    // Technically we should only need to iterate over the shard uids in the
+    // current shard layout. However during resharding we write trie changes at
+    // the resharding block, using the children shard uids that are not present
+    // in the shard layout. So instead we iterate over all trie changes using
+    // the iter prefix serialized method.
+    for shard_uid_and_trie_changes in hot_store.chain_store().get_trie_changes(block_hash) {
+        let (shard_uid, trie_changes) = shard_uid_and_trie_changes.map_err(|err| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("Failed to get TrieChanges {err}"))
+        })?;
 
-        let Some(trie_changes) = trie_changes else { continue };
         copied_shards.insert(shard_uid);
         total_keys += trie_changes.insertions().len();
         let mapped_shard_uid_key = get_shard_uid_mapping(&cold_store, shard_uid).to_bytes();
@@ -248,10 +250,14 @@ fn copy_state_from_store(
             return Err(io::Error::new(io::ErrorKind::NotFound, error_message));
         }
     }
-    // We know that `copied_shards` includes all `tracked_shards`.
-    // Emit a warning if `copied_shards` contains any unexpected extra shards.
+    // We know that `copied_shards` includes all `tracked_shards`. Emit a
+    // warning if `copied_shards` contains any unexpected extra shards.
+    //
+    // It is fine when processing resharding block where we copy nodes of the
+    // children shards but otherwise it should not happen.
     if copied_shards.len() > tracked_shards.len() {
-        tracing::warn!(target: "cold_store", "Copied state for shards {:?} while tracking {:?}", copied_shards, tracked_shards);
+        let shard_ids = shard_layout.shard_ids().collect_vec();
+        tracing::warn!(target: "cold_store", ?shard_ids, ?tracked_shards, ?copied_shards, "Copied state nodes for unexpected shards.");
     }
 
     let read_duration = instant.elapsed();
