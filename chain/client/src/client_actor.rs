@@ -25,7 +25,6 @@ use crate::sync::state::chain_requests::{
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
-use actix::Actor;
 use near_async::actix::wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{
@@ -33,6 +32,7 @@ use near_async::messaging::{
 };
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
+use near_async::tokio::{TokioRuntimeHandle, spawn_tokio_actor};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::ApplyChunksSpawner;
 #[cfg(feature = "test_features")]
@@ -122,8 +122,7 @@ fn wait_until_genesis(genesis_time: &Utc) {
 }
 
 pub struct StartClientResult {
-    pub client_actor: actix::Addr<ClientActor>,
-    pub client_arbiter_handle: actix::ArbiterHandle,
+    pub client_actor: TokioRuntimeHandle<ClientActorInner>,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     pub chunk_validation_actor: actix::Addr<ChunkValidationSyncActor>,
@@ -152,9 +151,6 @@ pub fn start_client(
     seed: Option<RngSeed>,
     resharding_sender: ReshardingSender,
 ) -> StartClientResult {
-    let client_arbiter = actix::Arbiter::new();
-    let client_arbiter_handle = client_arbiter.handle();
-
     wait_until_genesis(&chain_genesis.time);
 
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
@@ -245,18 +241,15 @@ pub fn start_client(
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
     let chunk_endorsement_tracker =
         Arc::clone(&client_actor_inner.client.chunk_endorsement_tracker);
-    let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_| {
-        ActixWrapper::new(client_actor_inner)
-    });
+    let client_actor = spawn_tokio_actor(client_actor_inner);
 
-    client_sender_for_sync_jobs.bind(client_addr.clone().into_multi_sender());
-    client_sender_for_client.bind(client_addr.clone().into_multi_sender());
-    chain_sender_for_state_sync.bind(client_addr.clone().into_multi_sender());
+    client_sender_for_sync_jobs.bind(client_actor.clone().into_multi_sender());
+    client_sender_for_client.bind(client_actor.clone().into_multi_sender());
+    chain_sender_for_state_sync.bind(client_actor.clone().into_multi_sender());
     chunk_validation_adapter.bind(chunk_validation_actor_addr.clone().into_multi_sender());
 
     StartClientResult {
-        client_actor: client_addr,
-        client_arbiter_handle,
+        client_actor,
         tx_pool,
         chunk_endorsement_tracker,
         chunk_validation_actor: chunk_validation_actor_addr,

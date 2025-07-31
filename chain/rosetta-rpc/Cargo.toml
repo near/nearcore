@@ -27,6 +27,7 @@ thiserror.workspace = true
 tokio.workspace = true
 
 near-account-id.workspace = true
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-client-primitives.workspace = true
 near-client.workspace = true

@@ -5,6 +5,9 @@ use actix::{Actor, SyncArbiter};
 use crate::futures::DelayedActionRunner;
 use crate::messaging;
 
+/// Compatibility layer for actix messages.
+impl<T: actix::Message> messaging::Message for T {}
+
 /// Wrapper on top of a generic actor to make it implement actix::Actor trait. The wrapped actor
 /// should implement the Handler trait for all the messages it would like to handle.
 /// ActixWrapper is then used to create an actix actor that implements the CanSend trait.

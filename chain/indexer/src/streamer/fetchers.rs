@@ -12,15 +12,18 @@ use near_primitives::{types, views};
 
 use super::INDEXER;
 use super::errors::FailedToFetchData;
+use near_async::messaging::CanSendAsync;
+use near_async::tokio::TokioRuntimeHandle;
+use near_client::client_actor::ClientActorInner;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 
 pub(crate) async fn fetch_status(
-    client: &Addr<near_client::ClientActor>,
+    client: &TokioRuntimeHandle<ClientActorInner>,
 ) -> Result<near_primitives::views::StatusResponse, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching status");
     client
-        .send(near_client::Status { is_health_check: false, detailed: false }.span_wrap())
+        .send_async(near_client::Status { is_health_check: false, detailed: false }.span_wrap())
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }

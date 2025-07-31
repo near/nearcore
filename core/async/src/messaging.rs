@@ -24,6 +24,8 @@ pub trait Actor {
     }
 }
 
+pub trait Message {}
+
 /// Trait for handling a message.
 /// This works in unison with the [`CanSend`] trait. An actor implements the Handler trait for all
 /// messages it would like to handle, while the CanSend trait implements the logic to send the
@@ -31,6 +33,7 @@ pub trait Actor {
 /// Note that the actor is any struct that implements the Handler trait, not just actix actors.
 pub trait Handler<M, R = ()>
 where
+    M: Message,
     R: Send,
 {
     fn handle(&mut self, msg: M) -> R;
@@ -44,6 +47,7 @@ where
 /// HandlerWithContext, not both.
 pub trait HandlerWithContext<M, R = ()>
 where
+    M: Message,
     R: Send,
 {
     fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> R;
@@ -52,6 +56,7 @@ where
 impl<A, M, R> HandlerWithContext<M, R> for A
 where
     A: Actor + Handler<M, R>,
+    M: Message,
     R: Send,
 {
     fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> R {

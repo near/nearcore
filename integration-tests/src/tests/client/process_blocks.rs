@@ -10,6 +10,7 @@ use assert_matches::assert_matches;
 use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
+use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -160,7 +161,7 @@ fn receive_network_block() {
                 None,
                 vec![],
             );
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.into(),
                     peer_id: PeerInfo::random().id,
@@ -251,7 +252,7 @@ fn produce_block_with_approvals() {
                 None,
                 vec![],
             );
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -276,7 +277,7 @@ fn produce_block_with_approvals() {
                 );
                 actor_handles
                     .client_actor
-                    .do_send(BlockApproval(approval, PeerInfo::random().id).span_wrap());
+                    .send(BlockApproval(approval, PeerInfo::random().id).span_wrap());
             }
 
             future::ready(())
@@ -362,7 +363,7 @@ fn invalid_blocks_common(is_requested: bool) {
             let mut block = valid_block.clone();
             block.mut_header().set_chunk_mask(vec![]);
             block.mut_header().init();
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -375,7 +376,7 @@ fn invalid_blocks_common(is_requested: bool) {
             let mut block = valid_block.clone();
             block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
             block.mut_header().init();
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -400,7 +401,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 }
             };
             block.set_chunks(chunks);
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -411,7 +412,7 @@ fn invalid_blocks_common(is_requested: bool) {
 
             // Send proper block.
             let block2 = valid_block;
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block2.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -423,7 +424,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 let mut block3 = block2;
                 block3.mut_header().set_chunk_headers_root(hash(&[1]));
                 block3.mut_header().init();
-                actor_handles.client_actor.do_send(
+                actor_handles.client_actor.send(
                     BlockResponse {
                         block: block3.clone().into(),
                         peer_id: PeerInfo::random().id,
@@ -504,7 +505,7 @@ fn client_sync_headers() {
                 }
             }),
         );
-        actor_handles.client_actor.do_send(
+        actor_handles.client_actor.send(
             SetNetworkInfo(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo {
                     full_peer_info: FullPeerInfo {
