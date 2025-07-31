@@ -1,7 +1,7 @@
 use super::validate::{ChunkRelevance, validate_chunk_endorsement};
 use crate::metrics;
-use crate::spice_core::CoreStatementsProcessor;
 use near_cache::SyncLruCache;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;

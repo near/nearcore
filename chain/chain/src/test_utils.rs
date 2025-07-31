@@ -5,6 +5,7 @@ use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
+use crate::spice_core::CoreStatementsProcessor;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
@@ -24,6 +25,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
+use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -61,11 +63,15 @@ pub fn get_chain_with_epoch_length_and_num_shards(
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::test(
+        tempdir.path(),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
     Chain::new(
         clock,
-        epoch_manager,
+        epoch_manager.clone(),
         shard_tracker,
         runtime,
         &chain_genesis,
@@ -75,6 +81,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
     )
     .unwrap()
 }
@@ -149,8 +156,12 @@ pub fn setup_with_tx_validity_period(
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::test(
+        tempdir.path(),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
     let chain = Chain::new(
         clock,
         epoch_manager.clone(),
@@ -163,6 +174,7 @@ pub fn setup_with_tx_validity_period(
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager.clone()),
     )
     .unwrap();
     chain.init_flat_storage().unwrap();

@@ -1,7 +1,6 @@
 pub use near_async_derive::{MultiSend, MultiSendMessage, MultiSenderFrom};
 
 pub mod actix;
-pub mod actix_wrapper;
 pub mod break_apart;
 mod functional;
 pub mod futures;

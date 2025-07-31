@@ -9,7 +9,7 @@
 
 use crate::stateless_validation::chunk_validator::orphan_witness_pool::OrphanStateWitnessPool;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use near_async::actix_wrapper::SyncActixWrapper;
+use near_async::actix::wrapper::SyncActixWrapper;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, Handler, Sender};
 use near_async::{MultiSend, MultiSenderFrom};

@@ -5,6 +5,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as
 use near_async::messaging::{Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::ChunkStateWitnessMessage;
+use near_chain::spice_core::{CoreStatementsProcessor, ExecutionResultEndorsed};
 use near_chain::stateless_validation::chunk_validation::{
     MainStateTransitionCache, validate_chunk_state_witness,
 };
@@ -26,11 +27,10 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
-
-use crate::chunk_executor_actor::{ExecutionResultEndorsed, ProcessedBlock};
-use crate::spice_core::CoreStatementsProcessor;
-use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+
+use crate::chunk_executor_actor::ProcessedBlock;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,
@@ -353,8 +353,8 @@ pub fn send_spice_chunk_endorsement(
     signer: &ValidatorSigner,
 ) {
     let block_hash = endorsement.block_hash().unwrap();
-    let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
-    let next_epoch_id = epoch_manager.get_next_epoch_id(&block_hash).unwrap();
+    let epoch_id = epoch_manager.get_epoch_id(block_hash).unwrap();
+    let next_epoch_id = epoch_manager.get_next_epoch_id(block_hash).unwrap();
 
     // Everyone should be aware of all core statements to make sure that execution can proceed
     // without waiting on endorsements appearing in consensus.

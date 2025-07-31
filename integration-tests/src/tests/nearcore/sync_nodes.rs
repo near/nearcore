@@ -10,7 +10,6 @@ use near_client::{GetBlock, ProcessTxRequest};
 use near_crypto::InMemorySigner;
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
-use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use nearcore::{load_test_config, start_with_config};
@@ -61,14 +60,11 @@ fn ultra_slow_test_sync_state_stake_change() {
             );
             actix::spawn(
                 tx_processor1
-                    .send(
-                        ProcessTxRequest {
-                            transaction: unstake_transaction,
-                            is_forwarded: false,
-                            check_only: false,
-                        }
-                        .with_span_context(),
-                    )
+                    .send(ProcessTxRequest {
+                        transaction: unstake_transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
                     .map(drop),
             );
 
@@ -82,7 +78,7 @@ fn ultra_slow_test_sync_state_stake_change() {
                     let near2_copy = near2.clone();
                     let dir2_path_copy = dir2_path.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
-                    let actor = view_client1.send(GetBlock::latest().with_span_context());
+                    let actor = view_client1.send(GetBlock::latest());
                     let actor = actor.then(move |res| {
                         let latest_height =
                             if let Ok(Ok(block)) = res { block.header.height } else { 0 };
@@ -96,18 +92,16 @@ fn ultra_slow_test_sync_state_stake_change() {
 
                             WaitOrTimeoutActor::new(
                                 Box::new(move |_ctx| {
-                                    actix::spawn(
-                                        view_client2
-                                            .send(GetBlock::latest().with_span_context())
-                                            .then(move |res| {
-                                                if let Ok(Ok(block)) = res {
-                                                    if block.header.height > latest_height + 1 {
-                                                        System::current().stop()
-                                                    }
+                                    actix::spawn(view_client2.send(GetBlock::latest()).then(
+                                        move |res| {
+                                            if let Ok(Ok(block)) = res {
+                                                if block.header.height > latest_height + 1 {
+                                                    System::current().stop()
                                                 }
-                                                future::ready(())
-                                            }),
-                                    );
+                                            }
+                                            future::ready(())
+                                        },
+                                    ));
                                 }),
                                 100,
                                 30000,

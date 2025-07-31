@@ -1,7 +1,6 @@
 use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
 use actix::Addr;
 use near_account_id::AccountId;
-use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::views::{ExecutionOutcomeWithIdView, SignedTransactionView};
 use std::collections::HashMap;
@@ -32,10 +31,7 @@ impl ExecutionToReceipts {
         currencies: &Option<Vec<Currency>>,
     ) -> crate::errors::Result<Self> {
         let block = view_client_addr
-            .send(
-                near_client::GetBlock(near_primitives::types::BlockId::Hash(block_hash).into())
-                    .with_span_context(),
-            )
+            .send(near_client::GetBlock(near_primitives::types::BlockId::Hash(block_hash).into()))
             .await?
             .map_err(|e| crate::errors::ErrorKind::InternalError(e.to_string()))?;
         let mut transactions = HashMap::new();
@@ -43,12 +39,9 @@ impl ExecutionToReceipts {
         for (shard_id, contained) in block.header.chunk_mask.iter().enumerate() {
             if *contained {
                 let chunk = view_client_addr
-                    .send(
-                        near_client::GetChunk::ChunkHash(near_primitives::sharding::ChunkHash(
-                            block.chunks[shard_id].chunk_hash,
-                        ))
-                        .with_span_context(),
-                    )
+                    .send(near_client::GetChunk::ChunkHash(near_primitives::sharding::ChunkHash(
+                        block.chunks[shard_id].chunk_hash,
+                    )))
                     .await?
                     .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
                 transactions.extend(chunk.transactions.into_iter().map(|t| (t.hash, t)));
@@ -56,9 +49,8 @@ impl ExecutionToReceipts {
                     .extend(chunk.receipts.into_iter().map(|t| (t.receipt_id, t.predecessor_id)));
             }
         }
-        let map = view_client_addr
-            .send(near_client::GetExecutionOutcomesForBlock { block_hash }.with_span_context())
-            .await?;
+        let map =
+            view_client_addr.send(near_client::GetExecutionOutcomesForBlock { block_hash }).await?;
 
         let map_hash_to_receipts = map
             .clone()
@@ -205,11 +197,7 @@ async fn get_predecessor_id_from_receipt_hash(
     view_client: &Addr<near_client::ViewClientActor>,
     receipt_id: CryptoHash,
 ) -> Option<AccountId> {
-    let receipt_view = view_client
-        .send(near_client::GetReceipt { receipt_id }.with_span_context())
-        .await
-        .ok()?
-        .ok()?;
+    let receipt_view = view_client.send(near_client::GetReceipt { receipt_id }).await.ok()?.ok()?;
     Some(receipt_view?.predecessor_id)
 }
 

@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::messaging::{IntoMultiSender, noop};
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
@@ -16,6 +17,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 use near_store::HEADER_HEAD_KEY;
+use near_store::adapter::StoreAdapter as _;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
 use near_time::Clock;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
@@ -252,7 +254,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         Clock::real(),
-        epoch_manager,
+        epoch_manager.clone(),
         shard_tracker,
         runtime,
         &chain_genesis,
@@ -270,6 +272,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
     )
     .unwrap();
 
