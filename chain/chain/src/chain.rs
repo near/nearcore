@@ -1266,8 +1266,6 @@ impl Chain {
             return;
         }
 
-        // Optimistically prepare transactions
-
         match self.process_optimistic_block(block, chunks, apply_chunks_done_sender) {
             Ok(()) => {
                 debug!(
