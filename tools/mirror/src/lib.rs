@@ -12,7 +12,6 @@ use near_client_primitives::types::{
 };
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
-use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{
@@ -774,13 +773,10 @@ async fn account_exists(
     account_id: &AccountId,
 ) -> anyhow::Result<bool> {
     match view_client
-        .send(
-            Query::new(
-                BlockReference::Finality(Finality::None),
-                QueryRequest::ViewAccount { account_id: account_id.clone() },
-            )
-            .with_span_context(),
-        )
+        .send(Query::new(
+            BlockReference::Finality(Finality::None),
+            QueryRequest::ViewAccount { account_id: account_id.clone() },
+        ))
         .await?
     {
         Ok(res) => match res.kind {
@@ -802,16 +798,13 @@ async fn fetch_access_key_nonce(
     public_key: &PublicKey,
 ) -> anyhow::Result<Option<Nonce>> {
     match view_client
-        .send(
-            Query::new(
-                BlockReference::Finality(Finality::None),
-                QueryRequest::ViewAccessKey {
-                    account_id: account_id.clone(),
-                    public_key: public_key.clone(),
-                },
-            )
-            .with_span_context(),
-        )
+        .send(Query::new(
+            BlockReference::Finality(Finality::None),
+            QueryRequest::ViewAccessKey {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            },
+        ))
         .await
         .unwrap()
     {
@@ -880,14 +873,11 @@ impl<T: ChainAccess> TxMirror<T> {
             match tx {
                 TargetChainTx::Ready(tx) => {
                     match target_client
-                        .send(
-                            ProcessTxRequest {
-                                transaction: tx.target_tx.clone(),
-                                is_forwarded: false,
-                                check_only: false,
-                            }
-                            .with_span_context(),
-                        )
+                        .send(ProcessTxRequest {
+                            transaction: tx.target_tx.clone(),
+                            is_forwarded: false,
+                            check_only: false,
+                        })
                         .await?
                     {
                         ProcessTxResponse::RequestRouted => {
@@ -1889,9 +1879,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
     async fn target_chain_syncing(target_client: &Addr<ClientActor>) -> bool {
         target_client
-            .send(
-                Status { is_health_check: false, detailed: false }.span_wrap().with_span_context(),
-            )
+            .send(Status { is_health_check: false, detailed: false }.span_wrap())
             .await
             .unwrap()
             .map(|s| s.sync_info.syncing)
@@ -1902,7 +1890,7 @@ impl<T: ChainAccess> TxMirror<T> {
         target_view_client: &Addr<ViewClientActor>,
     ) -> anyhow::Result<(BlockHeight, CryptoHash)> {
         let header = target_view_client
-            .send(GetBlock(BlockReference::Finality(Finality::Final)).with_span_context())
+            .send(GetBlock(BlockReference::Finality(Finality::Final)))
             .await
             .unwrap()
             .context("failed fetching target chain HEAD")?

@@ -4,7 +4,6 @@
 
 use crate::utils::peer_manager_mock::PeerManagerMock;
 use actix::{Actor, Addr, Context};
-use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix::futures::ActixFutureSpawner;
 use near_async::actix::wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::messaging::{
@@ -43,7 +42,6 @@ use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
-use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
@@ -170,7 +168,7 @@ fn setup(
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
-    let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
+    let (partial_witness_adapter, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
         network_adapter.clone(),
         client_adapter_for_partial_witness_actor.as_multi_sender(),
@@ -181,19 +179,17 @@ fn setup(
         Arc::new(RayonAsyncComputationSpawner),
         Arc::new(RayonAsyncComputationSpawner),
     ));
-    let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 
     let partial_witness_sender_for_client = PartialWitnessSenderForClient {
         distribute_chunk_state_witness: partial_witness_adapter.clone().into_sender(),
     };
 
-    let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
+    let (resharding_sender, _) = spawn_actix_actor(ReshardingActor::new(
         epoch_manager.clone(),
         runtime.clone(),
         ReshardingHandle::new(),
         config.resharding_config.clone(),
     ));
-    let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
     let StartClientResult {
@@ -214,7 +210,7 @@ fn setup(
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
         signer.clone(),
-        telemetry.with_auto_span_context().into_sender(),
+        telemetry.into_sender(),
         None,
         None,
         adv,
@@ -244,21 +240,20 @@ fn setup(
     );
 
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
-    let (shards_manager_addr, _) = start_shards_manager(
+    let (shards_manager_adapter, _) = start_shards_manager(
         epoch_manager.clone(),
         epoch_manager,
         shard_tracker,
         network_adapter.into_sender(),
-        client_actor.clone().with_auto_span_context().into_sender(),
+        client_actor.clone().into_sender(),
         MutableConfigValue::new(validator_signer, "validator_signer"),
         store,
         config.chunk_request_retry_period,
     );
-    let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
-        chunk_state_witness: chunk_validation_actor.with_auto_span_context().into_sender(),
+        chunk_state_witness: chunk_validation_actor.into_sender(),
     });
 
     (
@@ -412,9 +407,8 @@ pub fn setup_no_network_with_validity_period(
                     endorsement,
                 )) => {
                     if account_id == &my_account_id {
-                        let future = rpc_handler.send_async(
-                            ChunkEndorsementMessage(endorsement.clone()).with_span_context(),
-                        );
+                        let future =
+                            rpc_handler.send_async(ChunkEndorsementMessage(endorsement.clone()));
                         // Don't ignore the future or else the message may not actually be handled.
                         actix::spawn(future);
                     }

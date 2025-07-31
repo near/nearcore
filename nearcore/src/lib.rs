@@ -10,7 +10,6 @@ use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
-use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix::wrapper::{
     ActixWrapper, SyncActixWrapper, spawn_actix_actor, spawn_sync_actix_actor,
 };
@@ -387,13 +386,12 @@ pub fn start_with_config_and_synchronization(
         runtime.get_tries(),
     );
     let (state_snapshot_addr, state_snapshot_arbiter) = spawn_actix_actor(state_snapshot_actor);
-    state_snapshot_sender.bind(state_snapshot_addr.clone().with_auto_span_context());
+    state_snapshot_sender.bind(state_snapshot_addr.clone());
 
-    let delete_snapshot_callback: Arc<dyn Fn() + Sync + Send> = get_delete_snapshot_callback(
-        state_snapshot_addr.clone().with_auto_span_context().into_multi_sender(),
-    );
+    let delete_snapshot_callback: Arc<dyn Fn() + Sync + Send> =
+        get_delete_snapshot_callback(state_snapshot_addr.clone().into_multi_sender());
     let make_snapshot_callback = get_make_snapshot_callback(
-        state_snapshot_addr.with_auto_span_context().into_multi_sender(),
+        state_snapshot_addr.into_multi_sender(),
         runtime.get_flat_storage_manager(),
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
@@ -428,7 +426,7 @@ pub fn start_with_config_and_synchronization(
         resharding_handle.clone(),
         config.client_config.resharding_config.clone(),
     ));
-    let resharding_sender = resharding_sender_addr.with_auto_span_context();
+    let resharding_sender = resharding_sender_addr;
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
@@ -451,19 +449,19 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
-        telemetry.with_auto_span_context().into_sender(),
+        telemetry.into_sender(),
         Some(snapshot_callbacks),
         shutdown_signal,
         adv,
         config_updater,
-        partial_witness_actor.clone().with_auto_span_context().into_multi_sender(),
+        partial_witness_actor.clone().into_multi_sender(),
         true,
         None,
         resharding_sender.into_multi_sender(),
     );
-    client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
+    client_adapter_for_shards_manager.bind(client_actor.clone());
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
-        chunk_state_witness: chunk_validation_actor.with_auto_span_context().into_sender(),
+        chunk_state_witness: chunk_validation_actor.into_sender(),
     });
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
@@ -475,7 +473,7 @@ pub fn start_with_config_and_synchronization(
         split_store.unwrap_or_else(|| storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
+    shards_manager_adapter.bind(shards_manager_actor);
 
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: config.client_config.transaction_request_handler_threads,
@@ -520,14 +518,14 @@ pub fn start_with_config_and_synchronization(
             view_client_addr.clone(),
             rpc_handler.clone(),
         ),
-        state_request_addr.clone().with_auto_span_context().into_multi_sender(),
+        state_request_addr.clone().into_multi_sender(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
-        partial_witness_actor.with_auto_span_context().into_multi_sender(),
+        partial_witness_actor.into_multi_sender(),
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
-    network_adapter.bind(network_actor.clone().with_auto_span_context());
+    network_adapter.bind(network_actor.clone());
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
         let entity_debug_handler = EntityDebugHandlerImpl {
@@ -539,12 +537,12 @@ pub fn start_with_config_and_synchronization(
         rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
-            client_actor.clone().with_auto_span_context().into_multi_sender(),
-            view_client_addr.clone().with_auto_span_context().into_multi_sender(),
-            rpc_handler.clone().with_auto_span_context().into_multi_sender(),
+            client_actor.clone().into_multi_sender(),
+            view_client_addr.clone().into_multi_sender(),
+            rpc_handler.clone().into_multi_sender(),
             network_actor.into_multi_sender(),
             #[cfg(feature = "test_features")]
-            _gc_actor.with_auto_span_context().into_multi_sender(),
+            _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
         ));
     }
@@ -583,8 +581,8 @@ pub fn start_with_config_and_synchronization(
     #[cfg(feature = "tx_generator")]
     let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
         config.tx_generator.unwrap_or_default(),
-        rpc_handler.clone().with_auto_span_context().into_multi_sender(),
-        view_client_addr.clone().with_auto_span_context().into_multi_sender(),
+        rpc_handler.clone().into_multi_sender(),
+        view_client_addr.clone().into_multi_sender(),
     );
 
     Ok(NearNode {

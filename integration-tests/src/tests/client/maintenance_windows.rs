@@ -3,7 +3,6 @@ use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
 use near_client_primitives::types::GetMaintenanceWindows;
-use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_test_logger;
 
 use crate::env::setup::setup_no_network;
@@ -20,9 +19,9 @@ fn test_get_maintenance_windows_for_validator() {
             true,
             true,
         );
-        let actor = actor_handles.view_client_actor.send(
-            GetMaintenanceWindows { account_id: "test".parse().unwrap() }.with_span_context(),
-        );
+        let actor = actor_handles
+            .view_client_actor
+            .send(GetMaintenanceWindows { account_id: "test".parse().unwrap() });
 
         // With test setup we get the following:
         //
@@ -79,9 +78,9 @@ fn test_get_maintenance_windows_for_not_validator() {
             true,
             true,
         );
-        let actor = actor_handles.view_client_actor.send(
-            GetMaintenanceWindows { account_id: "alice".parse().unwrap() }.with_span_context(),
-        );
+        let actor = actor_handles
+            .view_client_actor
+            .send(GetMaintenanceWindows { account_id: "alice".parse().unwrap() });
         let actor = actor.then(|res| {
             assert_eq!(res.unwrap().unwrap(), vec![0..10]);
             System::current().stop();

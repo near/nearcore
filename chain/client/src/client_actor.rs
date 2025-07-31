@@ -26,7 +26,6 @@ use crate::sync::state::chain_requests::{
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
 use actix::Actor;
-use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix::wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{
@@ -236,7 +235,7 @@ pub fn start_client(
         sender,
         adv,
         config_updater,
-        sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+        sync_jobs_actor_addr.into_multi_sender(),
         // TODO(spice): Pass in chunk_executor_sender.
         noop().into_sender(),
         // TODO(spice): Pass in spice_chunk_validator_sender.
@@ -250,13 +249,10 @@ pub fn start_client(
         ActixWrapper::new(client_actor_inner)
     });
 
-    client_sender_for_sync_jobs
-        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
-    client_sender_for_client.bind(client_addr.clone().with_auto_span_context().into_multi_sender());
-    chain_sender_for_state_sync
-        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
-    chunk_validation_adapter
-        .bind(chunk_validation_actor_addr.clone().with_auto_span_context().into_multi_sender());
+    client_sender_for_sync_jobs.bind(client_addr.clone().into_multi_sender());
+    client_sender_for_client.bind(client_addr.clone().into_multi_sender());
+    chain_sender_for_state_sync.bind(client_addr.clone().into_multi_sender());
+    chunk_validation_adapter.bind(chunk_validation_actor_addr.clone().into_multi_sender());
 
     StartClientResult {
         client_actor: client_addr,

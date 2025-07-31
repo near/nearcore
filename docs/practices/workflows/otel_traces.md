@@ -63,8 +63,7 @@ work, the parent span is passed explicitly to the sub-tasks.
 * Messages to actix workers. If you do nothing, that the traces are limited to work done in a
 single actor. But that is very restrictive and not useful enough. To workaround that, each actix
 message gets attached `opentelemetry::Context`. That context somehow represents the information
-about the parent span. This mechanism is the reason you see annoying `.with_span_context()`
-function calls whenever you send a message to an actix Actor.
+about the parent span. This mechanism was the reason for `.with_span_context()` function calls when sending messages to actix Actors, which have now been removed.
 * Inter-process tracing is theoretically available, but I have never tested it. The plan was to
 test it as soon as the Canary images get updated 😭 Therefore it most likely doesn’t work. Each
 `PeerMessage` is injected with `TraceContext` (1, 2) and the receiving node extracts that context

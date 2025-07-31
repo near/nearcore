@@ -39,8 +39,8 @@ use lru::LruCache;
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
+use near_o11y::log_assert;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
-use near_o11y::{WithSpanContext, handler_debug_span, log_assert};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -1770,12 +1770,11 @@ impl actix::Handler<stream::Frame> for PeerActor {
     }
 }
 
-impl actix::Handler<WithSpanContext<SpanWrapped<SendMessage>>> for PeerActor {
+impl actix::Handler<SpanWrapped<SendMessage>> for PeerActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: WithSpanContext<SpanWrapped<SendMessage>>, _: &mut Self::Context) {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
+    fn handle(&mut self, msg: SpanWrapped<SendMessage>, _: &mut Self::Context) {
         let msg = msg.span_unwrap();
         self.send_message(&msg.message);
     }
@@ -1788,16 +1787,11 @@ pub(crate) struct Stop {
     pub ban_reason: Option<ReasonForBan>,
 }
 
-impl actix::Handler<WithSpanContext<SpanWrapped<Stop>>> for PeerActor {
+impl actix::Handler<SpanWrapped<Stop>> for PeerActor {
     type Result = ();
 
     #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<SpanWrapped<Stop>>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
+    fn handle(&mut self, msg: SpanWrapped<Stop>, ctx: &mut Self::Context) -> Self::Result {
         let msg = msg.span_unwrap();
         self.stop(
             ctx,
