@@ -49,7 +49,7 @@ impl<M, T> actix::Handler<WithSpanContext<M>> for ActixWrapper<T>
 where
     Self: actix::Actor,
     Self::Context: DelayedActionRunner<T>,
-    T: messaging::HandlerWithContext<M>,
+    T: messaging::HandlerWithContext<M, M::Result>,
     M: actix::Message,
     <M as actix::Message>::Result:
         actix::dev::MessageResponse<ActixWrapper<T>, WithSpanContext<M>> + Send,
@@ -81,7 +81,7 @@ where
 impl<M, T> actix::Handler<WithSpanContext<M>> for SyncActixWrapper<T>
 where
     Self: actix::Actor,
-    T: messaging::Handler<M>,
+    T: messaging::Handler<M, M::Result>,
     M: actix::Message,
     <M as actix::Message>::Result:
         actix::dev::MessageResponse<SyncActixWrapper<T>, WithSpanContext<M>> + Send,

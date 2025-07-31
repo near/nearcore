@@ -14,12 +14,12 @@ use tokio::sync::oneshot;
 pub trait Actor {
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {}
 
-    fn wrap_handler<M: actix::Message>(
+    fn wrap_handler<M, R>(
         &mut self,
         msg: M,
         ctx: &mut dyn DelayedActionRunner<Self>,
-        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> M::Result,
-    ) -> M::Result {
+        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> R,
+    ) -> R {
         f(self, msg, ctx)
     }
 }
@@ -29,11 +29,11 @@ pub trait Actor {
 /// messages it would like to handle, while the CanSend trait implements the logic to send the
 /// message to the actor. Handle and CanSend are typically not both implemented by the same struct.
 /// Note that the actor is any struct that implements the Handler trait, not just actix actors.
-pub trait Handler<M: actix::Message>
+pub trait Handler<M, R = ()>
 where
-    M::Result: Send,
+    R: Send,
 {
-    fn handle(&mut self, msg: M) -> M::Result;
+    fn handle(&mut self, msg: M) -> R;
 }
 
 /// Trait for handling a message with context.
@@ -42,20 +42,19 @@ where
 /// defined as actix::Context<Self> implements DelayedActionRunner<T>.
 /// Note that the implementer for handler of a message only needs to implement either of Handler or
 /// HandlerWithContext, not both.
-pub trait HandlerWithContext<M: actix::Message>
+pub trait HandlerWithContext<M, R = ()>
 where
-    M::Result: Send,
+    R: Send,
 {
-    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result;
+    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> R;
 }
 
-impl<A, M> HandlerWithContext<M> for A
+impl<A, M, R> HandlerWithContext<M, R> for A
 where
-    M: actix::Message,
-    A: Actor + Handler<M>,
-    M::Result: Send,
+    A: Actor + Handler<M, R>,
+    R: Send,
 {
-    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result {
+    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> R {
         self.wrap_handler(msg, ctx, |this, msg, _| Handler::handle(this, msg))
     }
 }

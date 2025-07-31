@@ -227,11 +227,11 @@ struct OneClientSenders {
 /// between.
 pub struct UnreachableActor {}
 
-impl<M: actix::Message> Handler<M> for UnreachableActor
+impl<M, R> Handler<M, R> for UnreachableActor
 where
-    M::Result: std::marker::Send,
+    R: Send,
 {
-    fn handle(&mut self, _msg: M) -> M::Result {
+    fn handle(&mut self, _msg: M) -> R {
         unreachable!("All events for this actor shouldn't be processed");
     }
 }
@@ -385,6 +385,12 @@ impl Handler<Tier3Request> for TestLoopPeerManagerActor {
 }
 
 impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
+    fn handle(&mut self, msg: PeerManagerMessageRequest) {
+        Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(self, msg);
+    }
+}
+
+impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
         let PeerManagerMessageRequest::NetworkRequests(request) = msg else {
             panic!("Unexpected message: {:?}", msg);
