@@ -80,13 +80,11 @@ where
     runtime_handle.runtime.spawn(async move {
         actor.start_actor(&mut runtime_handle_clone);
         loop {
-            tokio::select! {
-                Some(message) = receiver.recv() => {
-                    tracing::debug!(target: "tokio_runtime", "Executing message: {}", message.description);
-                    (message.function)(&mut actor, &mut runtime_handle_clone);
-                },
-                else => break,
-            }
+            let Some(message) = receiver.recv().await else {
+                break;
+            };
+            tracing::debug!(target: "tokio_runtime", "Executing message: {}", message.description);
+            (message.function)(&mut actor, &mut runtime_handle_clone);
         }
     });
 
