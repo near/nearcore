@@ -221,6 +221,7 @@ impl ChunkProducer {
         %shard_id,
         ?epoch_id,
         prev_block_hash = ?prev_block.header().hash(),
+        chunk_hash = tracing::field::Empty,
         tag_block_production = true
     ))]
     fn produce_chunk_internal(
