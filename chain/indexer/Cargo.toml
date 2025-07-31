@@ -21,6 +21,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 nearcore.workspace = true
+near-async.workspace = true
 near-client.workspace = true
 near-chain-configs.workspace = true
 near-config-utils.workspace = true

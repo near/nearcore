@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
-use near_async::messaging::Handler;
+use near_async::messaging::{Handler, Message};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::time::Duration;
@@ -129,6 +129,7 @@ impl<'a> ViewClientTester<'a> {
     /// Sends a message to the `[ViewClientActorInner]` for the client at position `idx`.
     fn send<M, R>(&mut self, request: M, idx: usize) -> R
     where
+        M: Message,
         R: Send,
         ViewClientActorInner: Handler<M, R>,
     {
