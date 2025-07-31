@@ -60,10 +60,15 @@ where
 }
 
 /// Trait for sending a typed message. The sent message is then handled by the Handler trait.
-/// actix::Addr, which is derived from actix::Actor is an example of a struct that implements CanSend.
-/// See [`Handler`] trait for more details.
+/// See [`Handler<M>`] trait for more details.
 pub trait CanSend<M>: Send + Sync + 'static {
     fn send(&self, message: M);
+}
+
+/// Trait for sending a typed message async. The sent message is then handled by the Handler trait.
+/// See [`Handler<M, R>`] trait for more details.
+pub trait CanSendAsync<M, R>: Send + Sync + 'static {
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>>;
 }
 
 /// Wraps a CanSend. This should be used to pass around an Arc<dyn CanSend<M>>, instead
@@ -244,12 +249,16 @@ impl<M> CanSend<M> for Noop {
     fn send(&self, _message: M) {}
 }
 
+impl<M> CanSend<M> for Arc<Noop> {
+    fn send(&self, _message: M) {}
+}
+
 /// Creates a no-op sender that does nothing with the message.
 ///
 /// Returns a type that can be converted to any type of sender,
 /// sync or async, including multi-senders.
-pub fn noop() -> Noop {
-    Noop
+pub fn noop() -> Arc<Noop> {
+    Arc::new(Noop)
 }
 
 /// A trait for converting something that implements individual senders into
