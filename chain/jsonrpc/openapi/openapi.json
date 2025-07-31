@@ -8597,7 +8597,6 @@
       },
       "NearGas": {
         "format": "uint64",
-        "maximum": 9007199254740991,
         "minimum": 0,
         "type": "integer"
       },
@@ -9591,6 +9590,7 @@
                 "nullable": true
               }
             ],
+            "default": null,
             "description": "Max burnt gas per view method.  If present, overrides value stored in\ngenesis file.  The value only affects the RPCs without influencing the\nprotocol thus changing it per-node doesn’t affect the blockchain."
           },
           "min_block_production_delay": {

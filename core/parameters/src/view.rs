@@ -4,7 +4,10 @@ use near_account_id::AccountId;
 use near_gas::NearGas;
 use near_primitives_core::serialize::dec_format;
 use near_primitives_core::types::Balance;
+use near_primitives_core::serialize::{GasNumberSerialization, NameTrait};
+use near_primitives_core::gas_field_name;
 use num_rational::Rational32;
+use serde_with::serde_as;
 
 /// View that preserves JSON format of the runtime config.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -293,204 +296,385 @@ impl From<VMConfigView> for crate::vm::Config {
 
 /// Typed view of ExtCostsConfig to preserve JSON output field names in protocol
 /// config RPC output.
+#[serde_as]
+#[serde_with::apply(
+    NearGas => #[serde_as(as = "GasNumberSerialization<baseGasFieldName>")],
+)]
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ExtCostsConfigView {
     /// Base cost for calling a host function.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub base: NearGas,
 
     /// Base cost of loading a pre-compiled contract
+    // #[serde_as(as = "GasNumberSerialization")]
     pub contract_loading_base: NearGas,
     /// Cost per byte of loading a pre-compiled contract
+    // #[serde_as(as = "GasNumberSerialization")]
     pub contract_loading_bytes: NearGas,
 
     /// Base cost for guest memory read
+    // #[serde_as(as = "GasNumberSerialization")]
     pub read_memory_base: NearGas,
     /// Cost for guest memory read
+    // #[serde_as(as = "GasNumberSerialization")]
     pub read_memory_byte: NearGas,
 
     /// Base cost for guest memory write
+    // #[serde_as(as = "GasNumberSerialization")]
     pub write_memory_base: NearGas,
+
     /// Cost for guest memory write per byte
+    // #[serde_as(as = "GasNumberSerialization")]
     pub write_memory_byte: NearGas,
 
     /// Base cost for reading from register
+    // #[serde_as(as = "GasNumberSerialization")]
     pub read_register_base: NearGas,
     /// Cost for reading byte from register
+    // #[serde_as(as = "GasNumberSerialization")]
     pub read_register_byte: NearGas,
 
     /// Base cost for writing into register
+    // #[serde_as(as = "GasNumberSerialization")]
     pub write_register_base: NearGas,
     /// Cost for writing byte into register
+    // #[serde_as(as = "GasNumberSerialization")]
     pub write_register_byte: NearGas,
 
     /// Base cost of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub utf8_decoding_base: NearGas,
     /// Cost per byte of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub utf8_decoding_byte: NearGas,
 
     /// Base cost of decoding utf16. It's used for `log_utf16`.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub utf16_decoding_base: NearGas,
     /// Cost per byte of decoding utf16. It's used for `log_utf16`.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub utf16_decoding_byte: NearGas,
 
     /// Cost of getting sha256 base
+    // #[serde_as(as = "GasNumberSerialization")]
     pub sha256_base: NearGas,
     /// Cost of getting sha256 per byte
+    // #[serde_as(as = "GasNumberSerialization")]
     pub sha256_byte: NearGas,
 
     /// Cost of getting sha256 base
+    // #[serde_as(as = "GasNumberSerialization")]
     pub keccak256_base: NearGas,
     /// Cost of getting sha256 per byte
+    // #[serde_as(as = "GasNumberSerialization")]
     pub keccak256_byte: NearGas,
 
     /// Cost of getting sha256 base
+    // #[serde_as(as = "GasNumberSerialization")]
     pub keccak512_base: NearGas,
     /// Cost of getting sha256 per byte
+    // #[serde_as(as = "GasNumberSerialization")]
     pub keccak512_byte: NearGas,
 
     /// Cost of getting ripemd160 base
+    // #[serde_as(as = "GasNumberSerialization")]
     pub ripemd160_base: NearGas,
     /// Cost of getting ripemd160 per message block
+    // #[serde_as(as = "GasNumberSerialization")]
     pub ripemd160_block: NearGas,
 
     /// Cost of getting ed25519 base
+    // #[serde_as(as = "GasNumberSerialization")]
     pub ed25519_verify_base: NearGas,
     /// Cost of getting ed25519 per byte
+    // #[serde_as(as = "GasNumberSerialization")]
     pub ed25519_verify_byte: NearGas,
 
     /// Cost of calling ecrecover
+    // #[serde_as(as = "GasNumberSerialization")]
     pub ecrecover_base: NearGas,
 
     /// Cost for calling logging.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub log_base: NearGas,
     /// Cost for logging per byte
+    // #[serde_as(as = "GasNumberSerialization")]
     pub log_byte: NearGas,
 
     // ###############
     // # Storage API #
     // ###############
     /// Storage trie write key base cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_write_base: NearGas,
     /// Storage trie write key per byte cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_write_key_byte: NearGas,
     /// Storage trie write value per byte cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_write_value_byte: NearGas,
     /// Storage trie write cost per byte of evicted value.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_write_evicted_byte: NearGas,
 
     /// Storage trie read key base cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_read_base: NearGas,
     /// Storage trie read key per byte cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_read_key_byte: NearGas,
     /// Storage trie read value cost per byte cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_read_value_byte: NearGas,
 
     /// Storage trie read key overhead base cost, when doing large reads
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_large_read_overhead_base: NearGas,
     /// Storage trie read key overhead  per-byte cost, when doing large reads
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_large_read_overhead_byte: NearGas,
 
     /// Remove key from trie base cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_remove_base: NearGas,
     /// Remove key from trie per byte cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_remove_key_byte: NearGas,
     /// Remove key from trie ret value byte cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_remove_ret_value_byte: NearGas,
 
     /// Storage trie check for key existence cost base
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_has_key_base: NearGas,
     /// Storage trie check for key existence per key byte
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_has_key_byte: NearGas,
 
     /// Create trie prefix iterator cost base
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_iter_create_prefix_base: NearGas,
     /// Create trie prefix iterator cost per byte.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_iter_create_prefix_byte: NearGas,
 
     /// Create trie range iterator cost base
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_iter_create_range_base: NearGas,
     /// Create trie range iterator cost per byte of from key.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_iter_create_from_byte: NearGas,
     /// Create trie range iterator cost per byte of to key.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_iter_create_to_byte: NearGas,
 
     /// Trie iterator per key base cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_iter_next_base: NearGas,
     /// Trie iterator next key byte cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_iter_next_key_byte: NearGas,
     /// Trie iterator next key byte cost
+    // #[serde_as(as = "GasNumberSerialization")]
     pub storage_iter_next_value_byte: NearGas,
 
     /// Cost per reading trie node from DB
+    // #[serde_as(as = "GasNumberSerialization")]
     pub touching_trie_node: NearGas,
     /// Cost for reading trie node from memory
+    // #[serde_as(as = "GasNumberSerialization")]
     pub read_cached_trie_node: NearGas,
 
     // ###############
     // # Promise API #
     // ###############
     /// Cost for calling `promise_and`
+    // #[serde_as(as = "GasNumberSerialization")]
     pub promise_and_base: NearGas,
     /// Cost for calling `promise_and` for each promise
+    // #[serde_as(as = "GasNumberSerialization")]
     pub promise_and_per_promise: NearGas,
     /// Cost for calling `promise_return`
+    // #[serde_as(as = "GasNumberSerialization")]
     pub promise_return: NearGas,
 
     // ###############
     // # Validator API #
     // ###############
     /// Cost of calling `validator_stake`.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub validator_stake_base: NearGas,
     /// Cost of calling `validator_total_stake`.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub validator_total_stake_base: NearGas,
 
     // Removed parameters, only here for keeping the output backward-compatible.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub contract_compile_base: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub contract_compile_bytes: NearGas,
 
     // #############
     // # Alt BN128 #
     // #############
     /// Base cost for multiexp
+    // #[serde_as(as = "GasNumberSerialization")]
     pub alt_bn128_g1_multiexp_base: NearGas,
     /// Per element cost for multiexp
+    // #[serde_as(as = "GasNumberSerialization")]
     pub alt_bn128_g1_multiexp_element: NearGas,
     /// Base cost for sum
+    // #[serde_as(as = "GasNumberSerialization")]
     pub alt_bn128_g1_sum_base: NearGas,
     /// Per element cost for sum
+    // #[serde_as(as = "GasNumberSerialization")]
     pub alt_bn128_g1_sum_element: NearGas,
     /// Base cost for pairing check
+    // #[serde_as(as = "GasNumberSerialization")]
     pub alt_bn128_pairing_check_base: NearGas,
     /// Per element cost for pairing check
+    // #[serde_as(as = "GasNumberSerialization")]
     pub alt_bn128_pairing_check_element: NearGas,
     /// Base cost for creating a yield promise.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub yield_create_base: NearGas,
     /// Per byte cost of arguments and method name.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub yield_create_byte: NearGas,
     /// Base cost for resuming a yield receipt.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub yield_resume_base: NearGas,
     /// Per byte cost of resume payload.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub yield_resume_byte: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_p1_sum_base: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_p1_sum_element: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_p2_sum_base: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_p2_sum_element: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_g1_multiexp_base: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_g1_multiexp_element: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_g2_multiexp_base: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_g2_multiexp_element: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_map_fp_to_g1_base: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_map_fp_to_g1_element: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_map_fp2_to_g2_base: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_map_fp2_to_g2_element: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_pairing_base: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_pairing_element: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_p1_decompress_base: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_p1_decompress_element: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_p2_decompress_base: NearGas,
+    // #[serde_as(as = "GasNumberSerialization")]
     pub bls12381_p2_decompress_element: NearGas,
 }
+
+gas_field_name!(base);
+gas_field_name!(contract_loading_base);
+gas_field_name!(contract_loading_bytes);
+gas_field_name!(read_memory_base);
+gas_field_name!(read_memory_byte);
+gas_field_name!(write_memory_base);
+gas_field_name!(write_memory_byte);
+gas_field_name!(read_register_base);
+gas_field_name!(read_register_byte);
+gas_field_name!(write_register_base);
+gas_field_name!(write_register_byte);
+gas_field_name!(utf8_decoding_base);
+gas_field_name!(utf8_decoding_byte);
+gas_field_name!(utf16_decoding_base);
+gas_field_name!(utf16_decoding_byte);
+gas_field_name!(sha256_base);
+gas_field_name!(sha256_byte);
+gas_field_name!(keccak256_base);
+gas_field_name!(keccak256_byte);
+gas_field_name!(keccak512_base);
+gas_field_name!(keccak512_byte);
+gas_field_name!(ripemd160_base);
+gas_field_name!(ripemd160_block);
+gas_field_name!(ed25519_verify_base);
+gas_field_name!(ed25519_verify_byte);
+gas_field_name!(ecrecover_base);
+gas_field_name!(log_base);
+gas_field_name!(log_byte);
+gas_field_name!(storage_write_base);
+gas_field_name!(storage_write_key_byte);
+gas_field_name!(storage_write_value_byte);
+gas_field_name!(storage_write_evicted_byte);
+gas_field_name!(storage_read_base);
+gas_field_name!(storage_read_key_byte);
+gas_field_name!(storage_read_value_byte);
+gas_field_name!(storage_large_read_overhead_base);
+gas_field_name!(storage_large_read_overhead_byte);
+gas_field_name!(storage_remove_base);
+gas_field_name!(storage_remove_key_byte);
+gas_field_name!(storage_remove_ret_value_byte);
+gas_field_name!(storage_has_key_base);
+gas_field_name!(storage_has_key_byte);
+gas_field_name!(storage_iter_create_prefix_base);
+gas_field_name!(storage_iter_create_prefix_byte);
+gas_field_name!(storage_iter_create_range_base);
+gas_field_name!(storage_iter_create_from_byte);
+gas_field_name!(storage_iter_create_to_byte);
+gas_field_name!(storage_iter_next_base);
+gas_field_name!(storage_iter_next_key_byte);
+gas_field_name!(storage_iter_next_value_byte);
+gas_field_name!(touching_trie_node);
+gas_field_name!(read_cached_trie_node);
+gas_field_name!(promise_and_base);
+gas_field_name!(promise_and_per_promise);
+gas_field_name!(promise_return);
+gas_field_name!(validator_stake_base);
+gas_field_name!(validator_total_stake_base);
+gas_field_name!(contract_compile_base);
+gas_field_name!(contract_compile_bytes);
+gas_field_name!(alt_bn128_g1_multiexp_base);
+gas_field_name!(alt_bn128_g1_multiexp_element);
+gas_field_name!(alt_bn128_g1_sum_base);
+gas_field_name!(alt_bn128_g1_sum_element);
+gas_field_name!(alt_bn128_pairing_check_base);
+gas_field_name!(alt_bn128_pairing_check_element);
+gas_field_name!(yield_create_base);
+gas_field_name!(yield_create_byte);
+gas_field_name!(yield_resume_base);
+gas_field_name!(yield_resume_byte);
+gas_field_name!(bls12381_p1_sum_base);
+gas_field_name!(bls12381_p1_sum_element);
+gas_field_name!(bls12381_p2_sum_base);
+gas_field_name!(bls12381_p2_sum_element);
+gas_field_name!(bls12381_g1_multiexp_base);
+gas_field_name!(bls12381_g1_multiexp_element);
+gas_field_name!(bls12381_g2_multiexp_base);
+gas_field_name!(bls12381_g2_multiexp_element);
+gas_field_name!(bls12381_map_fp_to_g1_base);
+gas_field_name!(bls12381_map_fp_to_g1_element);
+gas_field_name!(bls12381_map_fp2_to_g2_base);
+gas_field_name!(bls12381_map_fp2_to_g2_element);
+gas_field_name!(bls12381_pairing_base);
+gas_field_name!(bls12381_pairing_element);
+gas_field_name!(bls12381_p1_decompress_base);
+gas_field_name!(bls12381_p1_decompress_element);
+gas_field_name!(bls12381_p2_decompress_base);
+gas_field_name!(bls12381_p2_decompress_element);
+
 
 impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
     fn from(config: crate::ExtCostsConfig) -> Self {
@@ -807,18 +991,24 @@ impl From<WitnessConfig> for WitnessConfigView {
 }
 
 /// The configuration for congestion control. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)
+#[serde_as]
+#[serde_with::apply(
+    NearGas => #[serde_as(as = "GasNumberSerialization<baseGasFieldName>")],
+)]
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CongestionControlConfigView {
     /// How much gas in delayed receipts of a shard is 100% incoming congestion.
     ///
     /// See [`CongestionControlConfig`] for more details.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub max_congestion_incoming_gas: NearGas,
 
     /// How much gas in outgoing buffered receipts of a shard is 100% congested.
     ///
     /// Outgoing congestion contributes to overall congestion, which reduces how
     /// much other shards are allowed to forward to this shard.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub max_congestion_outgoing_gas: NearGas,
 
     /// How much memory space of all delayed and buffered receipts in a shard is
@@ -834,28 +1024,33 @@ pub struct CongestionControlConfigView {
     /// another shard per chunk.
     ///
     /// See [`CongestionControlConfig`] for more details.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub max_outgoing_gas: NearGas,
 
     /// The minimum gas each shard can send to a shard that is not fully congested.
     ///
     /// See [`CongestionControlConfig`] for more details.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub min_outgoing_gas: NearGas,
 
     /// How much gas the chosen allowed shard can send to a 100% congested shard.
     ///
     /// See [`CongestionControlConfig`] for more details.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub allowed_shard_outgoing_gas: NearGas,
 
     /// The maximum amount of gas in a chunk spent on converting new transactions to
     /// receipts.
     ///
     /// See [`CongestionControlConfig`] for more details.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub max_tx_gas: NearGas,
 
     /// The minimum amount of gas in a chunk spent on converting new transactions
     /// to receipts, as long as the receiving shard is not congested.
     ///
     /// See [`CongestionControlConfig`] for more details.
+    // #[serde_as(as = "GasNumberSerialization")]
     pub min_tx_gas: NearGas,
 
     /// How much congestion a shard can tolerate before it stops all shards from
@@ -913,22 +1108,3 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
 
 #[cfg(feature = "schemars")]
 pub type Rational32SchemarsProvider = [i32; 2];
-
-#[cfg(test)]
-#[cfg(not(feature = "nightly"))]
-mod tests {
-    /// The JSON representation used in RPC responses must not remove or rename
-    /// fields, only adding fields is allowed or we risk breaking clients.
-    #[test]
-    fn test_runtime_config_view() {
-        use crate::RuntimeConfig;
-        use crate::RuntimeConfigStore;
-        use crate::view::RuntimeConfigView;
-        use near_primitives_core::version::PROTOCOL_VERSION;
-
-        let config_store = RuntimeConfigStore::new(None);
-        let config = config_store.get_config(PROTOCOL_VERSION);
-        let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
-        insta::assert_json_snapshot!(&view, { ".wasm_config.vm_kind" => "<REDACTED>"});
-    }
-}

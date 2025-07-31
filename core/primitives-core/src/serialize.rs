@@ -2,6 +2,7 @@ use base64::Engine;
 use base64::display::Base64Display;
 use base64::engine::general_purpose::GeneralPurpose;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use serde::ser::SerializeStruct;
 
 pub fn to_base64(input: &[u8]) -> String {
     BASE64_STANDARD.encode(input)
@@ -132,6 +133,107 @@ pub mod dec_format {
             Some(value) => serializer.serialize_str(&value),
             None => serializer.serialize_none(),
         }
+    }
+}
+
+// pub mod gas_number_serialization {
+//     pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+//     where
+//         D: Deserializer<'de>,
+//         T: DecType,
+//     {
+//         deserializer.deserialize_any(Visitor(Default::default()))
+//     }
+
+//     pub fn serialize<S, T>(num: &T, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//         T: DecType,
+//     {
+
+//     }
+// }
+
+pub trait NameTrait {
+    fn name() -> &'static str;
+    fn name_lossless() -> &'static str;
+}
+
+pub struct GasNumberSerialization<T: NameTrait> {
+    inner: u64,
+    name: T,
+}
+
+#[macro_export]
+macro_rules! gas_field_name {
+    ($field:ident) => {
+        paste::paste! {
+            struct [<$field GasFieldName>];
+
+            impl NameTrait for [<$field GasFieldName>] {
+                fn name() -> &'static str {
+                    stringify!($field)
+                }
+                fn name_lossless() -> &'static str {
+                    concat!(stringify!($field), "_lossless")
+                }
+            }
+        }
+    };
+}
+
+impl<T: NameTrait> serde_with::SerializeAs<near_gas::NearGas> for GasNumberSerialization<T> {
+    fn serialize_as<S>(source: &near_gas::NearGas, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("GasNumberSerialization", 2)?;
+        state.serialize_field(T::name(), &source.as_gas())?;
+        state.serialize_field(T::name_lossless(), &source.as_gas().to_string())?;
+        state.end()
+    }
+}
+
+impl<'de, T: NameTrait> serde_with::DeserializeAs<'de, near_gas::NearGas> for GasNumberSerialization<T> {
+    fn deserialize_as<D>(deserializer: D) -> Result<near_gas::NearGas, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Helper<S>(core::marker::PhantomData<S>);
+        impl<S> serde::de::Visitor<'_> for Helper<S>
+        where
+            S: std::str::FromStr,
+            <S as std::str::FromStr>::Err: std::fmt::Display,
+        {
+            type Value = S;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a string")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                value.parse::<Self::Value>().map_err(serde::de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_str(Helper(core::marker::PhantomData))
+    }
+}
+
+impl<T: NameTrait> serde_with::schemars_1::JsonSchemaAs<near_gas::NearGas> for GasNumberSerialization<T> {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "NearGas".to_string().into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0,
+        })
     }
 }
 

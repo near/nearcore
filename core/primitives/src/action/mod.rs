@@ -6,10 +6,12 @@ use near_gas::NearGas;
 use near_primitives_core::{
     account::AccessKey,
     hash::CryptoHash,
-    serialize::dec_format,
+    serialize::{dec_format, GasNumberSerialization, NameTrait},
     types::{AccountId, Balance, Gas},
+    gas_field_name,
 };
 use near_schema_checker_lib::ProtocolSchema;
+
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
@@ -252,11 +254,13 @@ pub struct FunctionCallAction {
     #[serde_as(as = "Base64")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub args: Vec<u8>,
+    #[serde_as(as = "GasNumberSerialization<gasGasFieldName>")]
     pub gas: NearGas,
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub deposit: Balance,
 }
+gas_field_name!(gas);
 
 impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

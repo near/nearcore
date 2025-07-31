@@ -4,13 +4,20 @@ use near_account_id::AccountType;
 use near_gas::NearGas;
 use near_primitives_core::types::{Balance, Compute, Gas};
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives_core::serialize::{GasNumberSerialization, NameTrait};
+use near_primitives_core::gas_field_name;
 use near_schema_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
+use serde_with::serde_as;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
 /// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
 /// And `execution` fee is burned when the item is being executed.
+#[serde_as]
+#[serde_with::apply(
+    NearGas => #[serde_as(as = "GasNumberSerialization<baseGasFieldName>")],
+)]
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Fee {
@@ -22,6 +29,9 @@ pub struct Fee {
     /// Fee for executing the object.
     pub execution: NearGas,
 }
+
+gas_field_name!(send_sir);
+
 
 impl Fee {
     #[inline]

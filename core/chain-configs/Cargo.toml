@@ -20,11 +20,13 @@ num-rational.workspace = true
 parking_lot = { workspace = true, features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
+serde_with.workspace = true
 schemars = {workspace = true, optional = true }
 sha2.workspace = true
 smart-default.workspace = true
 time.workspace = true
 tracing.workspace = true
+paste.workspace = true
 
 near-time.workspace = true
 near-crypto.workspace = true

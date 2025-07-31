@@ -10,10 +10,13 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::version::Version;
+use near_primitives::serialize::{GasNumberSerialization, NameTrait};
+use near_primitives::gas_field_name;
 use near_time::Duration;
 #[cfg(feature = "schemars")]
 use near_time::{DurationAsStdSchemaProvider, DurationSchemarsProvider};
 use num_rational::Rational32;
+use serde_with::serde_as;
 use std::cmp::{max, min};
 use std::num::NonZero;
 use std::path::PathBuf;
@@ -595,6 +598,7 @@ pub struct ChunkDistributionUris {
 }
 
 /// ClientConfig where some fields can be updated at runtime.
+#[serde_as]
 #[derive(Clone, serde::Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ClientConfig {
@@ -709,6 +713,7 @@ pub struct ClientConfig {
     /// Max burnt gas per view method.  If present, overrides value stored in
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
+    #[serde_as(as = "Option<GasNumberSerialization<max_gas_burnt_viewGasFieldName>>")]
     pub max_gas_burnt_view: Option<NearGas>,
     /// Re-export storage layer statistics as prometheus metrics.
     pub enable_statistics_export: bool,
@@ -762,6 +767,8 @@ pub struct ClientConfig {
     pub save_invalid_witnesses: bool,
     pub transaction_request_handler_threads: usize,
 }
+
+gas_field_name!(max_gas_burnt_view);
 
 impl ClientConfig {
     pub fn test(

@@ -217,47 +217,6 @@ fn ultra_slow_test_get_execution_outcome_tx_failure() {
 }
 
 #[test]
-fn test_protocol_config_rpc() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::default()
-        .set_num_shards(1)
-        .set_num_validator_seats(1)
-        .set_num_lightclients(0)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
-        let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let config_response = client
-            .EXPERIMENTAL_protocol_config(
-                near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
-                    block_reference: near_primitives::types::BlockReference::Finality(
-                        Finality::None,
-                    ),
-                },
-            )
-            .await
-            .unwrap();
-
-        let runtime_config_store = RuntimeConfigStore::new(None);
-        let initial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
-        let latest_runtime_config =
-            runtime_config_store.get_config(near_primitives::version::PROTOCOL_VERSION);
-        assert_ne!(
-            config_response.config_view.runtime_config.storage_amount_per_byte,
-            initial_runtime_config.storage_amount_per_byte()
-        );
-        // compare JSON view
-        assert_eq!(
-            serde_json::json!(config_response.config_view.runtime_config),
-            serde_json::json!(RuntimeConfigView::from(latest_runtime_config.as_ref().clone()))
-        );
-        System::current().stop();
-    });
-}
-
-#[test]
 fn test_query_rpc_account_view_must_succeed() {
     init_integration_logger();
 

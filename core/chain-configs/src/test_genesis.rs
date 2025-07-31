@@ -73,6 +73,7 @@ pub struct TestGenesisBuilder {
     genesis_height: BlockHeight,
     min_gas_price: Balance,
     max_gas_price: Balance,
+    #[serde_as(as = "GasNumberSerialization")]
     gas_limit: NearGas,
     transaction_validity_period: NumBlocks,
     protocol_treasury_account: String,

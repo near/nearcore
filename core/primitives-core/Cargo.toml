@@ -21,12 +21,15 @@ enum-map.workspace = true
 num-rational.workspace = true
 serde.workspace = true
 serde_repr.workspace = true
+serde_with.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 schemars = { workspace = true, optional = true }
+paste.workspace = true
 
 near-account-id.workspace = true
 near-schema-checker-lib.workspace = true
+near-gas.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
