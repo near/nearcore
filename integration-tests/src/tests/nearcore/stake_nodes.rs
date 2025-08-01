@@ -12,9 +12,7 @@ use crate::utils::genesis_helpers::genesis_hash;
 use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
-use near_client::{
-    ClientActor, GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActor,
-};
+use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
@@ -25,6 +23,9 @@ use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSea
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
+use near_async::messaging::CanSendAsync;
+use near_async::tokio::TokioRuntimeHandle;
+use near_client::client_actor::ClientActorInner;
 use near_client_primitives::types::Status;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use {near_primitives::types::BlockId, primitive_types::U256};
@@ -34,7 +35,7 @@ struct TestNode {
     account_id: AccountId,
     signer: Arc<Signer>,
     config: NearConfig,
-    client: Addr<ClientActor>,
+    client: TokioRuntimeHandle<ClientActorInner>,
     view_client: Addr<ViewClientActor>,
     tx_processor: Addr<RpcHandlerActor>,
     genesis_hash: CryptoHash,
@@ -142,7 +143,7 @@ fn slow_test_stake_nodes() {
                 Box::new(move |_ctx| {
                     let actor = test_nodes[0]
                         .client
-                        .send(Status { is_health_check: false, detailed: false }.span_wrap());
+                        .send_async(Status { is_health_check: false, detailed: false }.span_wrap());
                     let actor = actor.then(|res| {
                         let res = res.unwrap();
                         if res.is_err() {
@@ -232,7 +233,7 @@ fn slow_test_validator_kickout() {
 
                     let actor = test_node1
                         .client
-                        .send(Status { is_health_check: false, detailed: false }.span_wrap());
+                        .send_async(Status { is_health_check: false, detailed: false }.span_wrap());
                     let actor = actor.then(move |res| {
                         let expected: Vec<_> = (num_nodes / 2..num_nodes)
                             .map(|i| ValidatorInfo {
@@ -382,7 +383,7 @@ fn ultra_slow_test_validator_join() {
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                     let actor = test_node1
                         .client
-                        .send(Status { is_health_check: false, detailed: false }.span_wrap());
+                        .send_async(Status { is_health_check: false, detailed: false }.span_wrap());
                     let actor = actor.then(move |res| {
                         let expected = vec![
                             ValidatorInfo { account_id: "near.0".parse().unwrap() },

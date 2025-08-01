@@ -3,7 +3,7 @@ use actix_rt::ArbiterHandle;
 use futures::future;
 use near_actix_test_utils::{run_actix, spawn_interruptible};
 use near_chain_configs::{Genesis, TrackedShardsConfig};
-use near_client::{ClientActor, ViewClientActor};
+use near_client::ViewClientActor;
 use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
@@ -11,6 +11,8 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards}
 use nearcore::{load_test_config, start_with_config};
 
 use crate::utils::test_helpers::heavy_test;
+use near_async::tokio::TokioRuntimeHandle;
+use near_client::client_actor::ClientActorInner;
 
 fn start_nodes(
     temp_dir: &std::path::Path,
@@ -21,7 +23,11 @@ fn start_nodes(
     epoch_length: BlockHeightDelta,
     genesis_height: BlockHeight,
     save_tx_outcomes: Option<bool>,
-) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>)>) {
+) -> (
+    Genesis,
+    Vec<String>,
+    Vec<(TokioRuntimeHandle<ClientActorInner>, Addr<ViewClientActor>, Vec<ArbiterHandle>)>,
+) {
     init_integration_logger();
 
     let num_tracking_nodes = num_nodes - num_lightclient;
@@ -123,7 +129,7 @@ impl NodeCluster {
             near_chain_configs::Genesis,
             Vec<String>,
             Vec<(
-                actix::Addr<ClientActor>,
+                TokioRuntimeHandle<ClientActorInner>,
                 actix::Addr<ViewClientActor>,
                 Vec<actix_rt::ArbiterHandle>,
             )>,

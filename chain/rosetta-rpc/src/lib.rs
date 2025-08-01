@@ -13,7 +13,9 @@ use paperclip::actix::{
 use strum::IntoEnumIterator;
 
 pub use config::RosettaRpcConfig;
+use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::Genesis;
+use near_client::client_actor::ClientActorInner;
 use near_client::{ClientActor, RpcHandlerActor, ViewClientActor};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
@@ -833,7 +835,7 @@ pub fn start_rosetta_rpc(
     config: crate::config::RosettaRpcConfig,
     genesis: Genesis,
     genesis_block_hash: &near_primitives::hash::CryptoHash,
-    client_addr: Addr<ClientActor>,
+    client_addr: TokioRuntimeHandle<ClientActorInner>,
     view_client_addr: Addr<ViewClientActor>,
     tx_handler_addr: Addr<RpcHandlerActor>,
 ) -> actix_web::dev::ServerHandle {
