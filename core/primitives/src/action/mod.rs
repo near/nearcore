@@ -254,6 +254,7 @@ pub struct FunctionCallAction {
     #[serde_as(as = "Base64")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub args: Vec<u8>,
+    #[serde(flatten)]
     #[serde_as(as = "GasNumberSerialization<gasGasFieldName>")]
     pub gas: NearGas,
     #[serde(with = "dec_format")]

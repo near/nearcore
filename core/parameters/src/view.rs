@@ -298,6 +298,9 @@ impl From<VMConfigView> for crate::vm::Config {
 /// config RPC output.
 #[serde_as]
 #[serde_with::apply(
+    NearGas => #[serde(flatten)],
+)]
+#[serde_with::apply(
     NearGas => #[serde_as(as = "GasNumberSerialization<baseGasFieldName>")],
 )]
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
@@ -992,6 +995,9 @@ impl From<WitnessConfig> for WitnessConfigView {
 
 /// The configuration for congestion control. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)
 #[serde_as]
+#[serde_with::apply(
+    NearGas => #[serde(flatten)],
+)]
 #[serde_with::apply(
     NearGas => #[serde_as(as = "GasNumberSerialization<baseGasFieldName>")],
 )]

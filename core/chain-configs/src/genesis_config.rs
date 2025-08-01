@@ -145,6 +145,7 @@ pub struct GenesisConfig {
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
+    #[serde(flatten)]
     #[serde_as(as = "GasNumberSerialization<gas_limitGasFieldName>")]
     pub gas_limit: NearGas,
     /// Minimum gas price. It is also the initial gas price.
@@ -847,6 +848,7 @@ pub struct ProtocolConfigView {
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
+    #[serde(flatten)]
     #[serde_as(as = "GasNumberSerialization<gas_limitGasFieldName>")]
     pub gas_limit: NearGas,
     /// Minimum gas price. It is also the initial gas price.

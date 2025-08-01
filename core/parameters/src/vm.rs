@@ -64,6 +64,7 @@ pub enum StorageGetMode {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
+    #[serde(flatten)]
     #[serde_as(as = "GasNumberSerialization<max_gas_burntGasFieldName>")]
     pub max_gas_burnt: NearGas,
 
@@ -96,6 +97,7 @@ pub struct LimitConfig {
     pub max_total_log_length: u64,
 
     /// Max total prepaid gas for all function call actions per receipt.
+    #[serde(flatten)]
     #[serde_as(as = "GasNumberSerialization<max_total_prepaid_gasGasFieldName>")]
     pub max_total_prepaid_gas: NearGas,
 

@@ -225,14 +225,29 @@ impl<'de, T: NameTrait> serde_with::DeserializeAs<'de, near_gas::NearGas> for Ga
 
 impl<T: NameTrait> serde_with::schemars_1::JsonSchemaAs<near_gas::NearGas> for GasNumberSerialization<T> {
     fn schema_name() -> std::borrow::Cow<'static, str> {
-        "NearGas".to_string().into()
+        format!("GasNumberSerialization{}", T::name()).to_string().into()
     }
 
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
-            "type": "integer",
-            "format": "uint64",
-            "minimum": 0,
+            "type": "object",
+            "properties": {
+                T::name(): {
+                    "allOf": [
+                        {
+                            "$ref": "#/components/schemas/NearGas"
+                        }
+                    ],
+                },
+                T::name_lossless(): {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/NearGas"
+                            }
+                        ],
+                }
+            },
+            "required": [T::name(), T::name_lossless()],
         })
     }
 }

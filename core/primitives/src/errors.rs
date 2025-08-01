@@ -348,9 +348,11 @@ pub enum ActionsValidationError {
     DeleteActionMustBeFinal = 0,
     /// The total prepaid gas (for all given actions) exceeded the limit.
     TotalPrepaidGasExceeded { 
+        #[serde(flatten)]
             #[serde_as(as = "GasNumberSerialization<total_prepaid_gasGasFieldName>")]
 
         total_prepaid_gas: NearGas, 
+        #[serde(flatten)]
             #[serde_as(as = "GasNumberSerialization<limitGasFieldName>")]
 
         limit: NearGas 

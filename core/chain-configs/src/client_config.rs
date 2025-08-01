@@ -713,6 +713,7 @@ pub struct ClientConfig {
     /// Max burnt gas per view method.  If present, overrides value stored in
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
+    #[serde(flatten)]
     #[serde_as(as = "Option<GasNumberSerialization<max_gas_burnt_viewGasFieldName>>")]
     pub max_gas_burnt_view: Option<NearGas>,
     /// Re-export storage layer statistics as prometheus metrics.
