@@ -5,13 +5,15 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 
 use crate::futures::{DelayedActionRunner, FutureSpawner};
-use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, HandlerWithContext};
+use crate::messaging::{
+    AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message, MessageWithCallback,
+};
 use crate::tokio::runtime_handle::{TokioRuntimeHandle, TokioRuntimeMessage};
 
 impl<A, M> CanSend<M> for TokioRuntimeHandle<A>
 where
     A: HandlerWithContext<M> + 'static,
-    M: Debug + Send + 'static,
+    M: Message + Debug + Send + 'static,
 {
     fn send(&self, message: M) {
         let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
@@ -25,10 +27,31 @@ where
     }
 }
 
+// Compatibility layer for multi-send style adapters.
+impl<A, M, R> CanSend<MessageWithCallback<M, R>> for TokioRuntimeHandle<A>
+where
+    A: HandlerWithContext<M, R> + 'static,
+    M: Message + Debug + Send + 'static,
+    R: Send + 'static,
+{
+    fn send(&self, message: MessageWithCallback<M, R>) {
+        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
+        tracing::debug!(target: "tokio_runtime", "Sending sync message with callback: {}", description);
+
+        let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
+            let result = actor.handle(message.message, ctx);
+            (message.callback)(std::future::ready(Ok(result)).boxed());
+        };
+
+        let message = TokioRuntimeMessage { description, function: Box::new(function) };
+        self.sender.send(message).unwrap();
+    }
+}
+
 impl<A, M, R> CanSendAsync<M, R> for TokioRuntimeHandle<A>
 where
     A: HandlerWithContext<M, R> + 'static,
-    M: Debug + Send + 'static,
+    M: Message + Debug + Send + 'static,
     R: Debug + Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
