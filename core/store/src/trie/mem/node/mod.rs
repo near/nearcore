@@ -32,12 +32,13 @@ impl MemTrieNodeId {
         Self::new_impl(arena, input, None)
     }
 
-    pub fn new_with_hash(
+    pub fn new_with_hash_and_memory_usage(
         arena: &mut impl ArenaMut,
         input: InputMemTrieNode,
         hash: CryptoHash,
+        memory_usage: u64,
     ) -> Self {
-        Self::new_impl(arena, input, Some(hash))
+        Self::new_impl(arena, input, Some((hash, memory_usage)))
     }
 
     pub fn as_ptr<'a, M: ArenaMemory>(&self, arena: &'a M) -> MemTrieNodePtr<'a, M> {
