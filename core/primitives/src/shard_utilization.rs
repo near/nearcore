@@ -57,7 +57,7 @@ impl Div<u64> for ShardUtilization {
     type Output = Self;
     fn div(self, rhs: u64) -> Self::Output {
         match self {
-            ShardUtilization::V1(lhs) => (lhs / rhs).into(),
+            Self::V1(lhs) => (lhs / rhs).into(),
         }
     }
 }
@@ -67,7 +67,16 @@ impl Mul<u64> for ShardUtilization {
 
     fn mul(self, rhs: u64) -> Self::Output {
         match self {
-            ShardUtilization::V1(lhs) => (lhs * rhs).into(),
+            Self::V1(lhs) => (lhs * rhs).into(),
+        }
+    }
+}
+
+impl Div<ShardUtilization> for ShardUtilization {
+    type Output = f64;
+    fn div(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Self::V1(lhs), Self::V1(rhs)) => lhs / rhs,
         }
     }
 }
@@ -127,5 +136,12 @@ impl Mul<u64> for ShardUtilizationV1 {
     fn mul(mut self, rhs: u64) -> Self::Output {
         self.gas_usage *= rhs;
         self
+    }
+}
+
+impl Div<ShardUtilizationV1> for ShardUtilizationV1 {
+    type Output = f64;
+    fn div(self, rhs: Self) -> Self::Output {
+        self.gas_usage as f64 / rhs.gas_usage as f64
     }
 }
