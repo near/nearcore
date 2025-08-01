@@ -880,7 +880,7 @@ impl Emitter for Assembler {
         }
     }
     fn emit_cmp(&mut self, sz: Size, left: Location, right: Location) {
-        // Constant elimination for comparision between consts.
+        // Constant elimination for comparison between consts.
         //
         // Only needed for `emit_cmp`, since other binary operators actually write to `right` and `right` must
         // be a writable location for them.
