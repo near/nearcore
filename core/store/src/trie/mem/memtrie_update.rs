@@ -116,7 +116,9 @@ impl<'a> TrieChangesTracker<'a> {
         let node_hash = node.node_hash();
         *self.refcount_deleted_hashes.entry(node_hash).or_default() += 1;
         if let Some(recorder) = self.recorder.as_mut() {
-            recorder.record_memtrie_node(node);
+            recorder.record_with(&node_hash, || {
+                borsh::to_vec(&node.to_raw_trie_node_with_size()).unwrap().into()
+            });
         }
     }
 
