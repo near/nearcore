@@ -1,7 +1,7 @@
 use super::arena::{ArenaMemory, ArenaMut, ArenaPos, ArenaPtr};
 use super::flexible_data::children::ChildrenView;
 use super::flexible_data::value::ValueView;
-use crate::trie::{Children, TRIE_COSTS};
+use crate::trie::{Children, CryptoHashWithMemoryUsage, TRIE_COSTS};
 use crate::{RawTrieNode, RawTrieNodeWithSize};
 use derive_where::derive_where;
 use near_primitives::hash::CryptoHash;
@@ -35,7 +35,7 @@ impl MemTrieNodeId {
     pub fn new_with_hash(
         arena: &mut impl ArenaMut,
         input: InputMemTrieNode,
-        hash: CryptoHash,
+        hash: CryptoHashWithMemoryUsage,
     ) -> Self {
         Self::new_impl(arena, input, Some(hash))
     }

@@ -10,7 +10,9 @@ use crate::trie::ops::interface::{
     GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
 use crate::trie::trie_recording::TrieRecorder;
-use crate::trie::{AccessOptions, Children, MemTrieChanges, TrieRefcountDeltaMap};
+use crate::trie::{
+    AccessOptions, Children, CryptoHashWithMemoryUsage, MemTrieChanges, TrieRefcountDeltaMap,
+};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 
 use super::arena::{ArenaMemory, ArenaMut};
@@ -323,29 +325,30 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// `ordered_nodes` is expected to follow the post-order traversal of the
     /// updated nodes.
     /// `updated_nodes` must be indexed by the node IDs in `ordered_nodes`.
-    pub(crate) fn compute_hashes_and_serialized_nodes(
+    fn compute_hashes_and_serialized_nodes(
         &self,
         ordered_nodes: &Vec<UpdatedNodeId>,
         updated_nodes: &Vec<Option<UpdatedMemTrieNodeWithSize>>,
-    ) -> Vec<(UpdatedNodeId, CryptoHash, Vec<u8>)> {
+    ) -> Vec<(UpdatedNodeId, CryptoHashWithMemoryUsage, Vec<u8>)> {
         let memory = self.memory;
-        let mut result = Vec::<(CryptoHash, Vec<u8>)>::new();
+        let mut result = Vec::<(CryptoHashWithMemoryUsage, Vec<u8>)>::new();
         for _ in 0..updated_nodes.len() {
-            result.push((CryptoHash::default(), Vec::new()));
+            result.push((CryptoHashWithMemoryUsage::default(), Vec::new()));
         }
-        let get_hash =
-            |node: OldOrUpdatedNodeId, result: &Vec<(CryptoHash, Vec<u8>)>| -> CryptoHash {
-                match node {
-                    OldOrUpdatedNodeId::Updated(node_id) => result[node_id].0,
-                    // IMPORTANT: getting a node hash for a child doesn't
-                    // record a new node read. In recorded storage, child node
-                    // is referenced by its hash, and we don't need to need the
-                    // whole node to verify parent hash.
-                    // TODO(#12361): consider fixing it, perhaps by taking this
-                    // hash from old version of the parent node.
-                    OldOrUpdatedNodeId::Old(node_id) => node_id.as_ptr(memory).view().node_hash(),
-                }
-            };
+        let get_hash = |node: OldOrUpdatedNodeId,
+                        result: &Vec<(CryptoHashWithMemoryUsage, Vec<u8>)>|
+         -> CryptoHash {
+            match node {
+                OldOrUpdatedNodeId::Updated(node_id) => result[node_id].0.hash,
+                // IMPORTANT: getting a node hash for a child doesn't
+                // record a new node read. In recorded storage, child node
+                // is referenced by its hash, and we don't need to need the
+                // whole node to verify parent hash.
+                // TODO(#12361): consider fixing it, perhaps by taking this
+                // hash from old version of the parent node.
+                OldOrUpdatedNodeId::Old(node_id) => node_id.as_ptr(memory).view().node_hash(),
+            }
+        };
 
         for node_id in ordered_nodes {
             let node = updated_nodes[*node_id].as_ref().unwrap();
@@ -380,7 +383,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             let memory_usage = node.memory_usage;
             let raw_node_with_size = RawTrieNodeWithSize { node: raw_node, memory_usage };
             let node_serialized = borsh::to_vec(&raw_node_with_size).unwrap();
-            let node_hash = hash(&node_serialized);
+            let node_hash = CryptoHashWithMemoryUsage::new(hash(&node_serialized), memory_usage);
             result[*node_id] = (node_hash, node_serialized);
         }
 
@@ -413,7 +416,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             MemTrieChanges { node_ids_with_hashes, updated_nodes: self.updated_nodes },
             hashes_and_serialized_nodes
                 .into_iter()
-                .map(|(_, hash, serialized)| (hash, serialized))
+                .map(|(_, hash, serialized)| (hash.hash, serialized))
                 .collect(),
         )
     }
@@ -447,7 +450,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             new_root: memtrie_changes
                 .node_ids_with_hashes
                 .last()
-                .map(|(_, hash)| *hash)
+                .map(|(_, hash)| hash.hash)
                 .unwrap_or_default(),
             insertions,
             deletions,

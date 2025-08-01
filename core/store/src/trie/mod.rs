@@ -428,6 +428,17 @@ impl TrieRefcountDeltaMap {
     }
 }
 
+#[derive(Default, Debug, Clone, PartialEq, Eq, Copy)]
+pub struct CryptoHashWithMemoryUsage {
+    pub hash: CryptoHash,
+    pub memory_usage: u64,
+}
+
+impl CryptoHashWithMemoryUsage {
+    pub fn new(hash: CryptoHash, memory_usage: u64) -> Self {
+        Self { hash, memory_usage }
+    }
+}
 /// Changes to be applied to in-memory trie.
 /// Result is the new state root attached to existing persistent trie structure.
 #[derive(Default, Clone, PartialEq, Eq, Debug)]
@@ -435,7 +446,7 @@ pub struct MemTrieChanges {
     /// Node ids with hashes of updated nodes.
     /// Should be in the post-order traversal of the updated nodes.
     /// It implies that the root node is the last one in the list.
-    node_ids_with_hashes: Vec<(UpdatedNodeId, CryptoHash)>,
+    node_ids_with_hashes: Vec<(UpdatedNodeId, CryptoHashWithMemoryUsage)>,
     updated_nodes: Vec<Option<UpdatedMemTrieNodeWithSize>>,
 }
 

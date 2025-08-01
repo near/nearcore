@@ -1,4 +1,5 @@
 use super::{InputMemTrieNode, MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
+use crate::trie::CryptoHashWithMemoryUsage;
 use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos, ArenaWithDealloc};
 use crate::trie::mem::flexible_data::FlexibleDataHeader;
 use crate::trie::mem::flexible_data::children::EncodedChildrenHeader;
@@ -114,7 +115,7 @@ impl MemTrieNodeId {
     pub(crate) fn new_impl(
         arena: &mut impl ArenaMut,
         node: InputMemTrieNode,
-        node_hash: Option<CryptoHash>,
+        node_hash: Option<CryptoHashWithMemoryUsage>,
     ) -> Self {
         // We add reference to all the children when creating the node.
         // As for the refcount of this newly created node, it starts at 0.
@@ -136,10 +137,12 @@ impl MemTrieNodeId {
             _ => {}
         }
         // Prepare the raw node, for memory usage and hash computation.
-        let raw_node_with_size = if matches!(&node, InputMemTrieNode::Leaf { .. }) {
-            None
-        } else {
-            Some(node.to_raw_trie_node_with_size_non_leaf(arena.memory()))
+        let get_hash_and_memory_usage = || {
+            let raw_node_with_size = node.to_raw_trie_node_with_size_non_leaf(arena.memory());
+            CryptoHashWithMemoryUsage::new(
+                raw_node_with_size.hash(),
+                raw_node_with_size.memory_usage,
+            )
         };
 
         // Finally, encode the data.
@@ -164,17 +167,14 @@ impl MemTrieNodeId {
             }
             InputMemTrieNode::Extension { extension, child } => {
                 let extension_header = EncodedExtensionHeader::from_input(&extension);
+                let hash_and_size = node_hash.unwrap_or_else(get_hash_and_memory_usage);
                 let mut data = RawEncoder::new(
                     arena,
                     ExtensionHeader::SERIALIZED_SIZE + extension_header.flexible_data_length(),
                 );
-                let raw_node_with_size = raw_node_with_size.unwrap();
                 data.encode(ExtensionHeader {
                     common: CommonHeader { refcount: 0, kind: NodeKind::Extension },
-                    nonleaf: NonLeafHeader::new(
-                        raw_node_with_size.memory_usage,
-                        node_hash.unwrap_or_else(|| raw_node_with_size.hash()),
-                    ),
+                    nonleaf: NonLeafHeader::new(hash_and_size.memory_usage, hash_and_size.hash),
                     child: child.pos,
                     extension: extension_header,
                 });
@@ -183,17 +183,14 @@ impl MemTrieNodeId {
             }
             InputMemTrieNode::Branch { children } => {
                 let children_header = EncodedChildrenHeader::from_input(&children);
+                let hash_and_size = node_hash.unwrap_or_else(get_hash_and_memory_usage);
                 let mut data = RawEncoder::new(
                     arena,
                     BranchHeader::SERIALIZED_SIZE + children_header.flexible_data_length(),
                 );
-                let raw_node_with_size = raw_node_with_size.unwrap();
                 data.encode(BranchHeader {
                     common: CommonHeader { refcount: 0, kind: NodeKind::Branch },
-                    nonleaf: NonLeafHeader::new(
-                        raw_node_with_size.memory_usage,
-                        node_hash.unwrap_or_else(|| raw_node_with_size.hash()),
-                    ),
+                    nonleaf: NonLeafHeader::new(hash_and_size.memory_usage, hash_and_size.hash),
                     children: children_header,
                 });
                 data.encode_flexible(&children_header, &children);
@@ -202,19 +199,16 @@ impl MemTrieNodeId {
             InputMemTrieNode::BranchWithValue { children, value } => {
                 let children_header = EncodedChildrenHeader::from_input(&children);
                 let value_header = EncodedValueHeader::from_input(&value);
+                let hash_and_size = node_hash.unwrap_or_else(get_hash_and_memory_usage);
                 let mut data = RawEncoder::new(
                     arena,
                     BranchWithValueHeader::SERIALIZED_SIZE
                         + children_header.flexible_data_length()
                         + value_header.flexible_data_length(),
                 );
-                let raw_node_with_size = raw_node_with_size.unwrap();
                 data.encode(BranchWithValueHeader {
                     common: CommonHeader { refcount: 0, kind: NodeKind::BranchWithValue },
-                    nonleaf: NonLeafHeader::new(
-                        raw_node_with_size.memory_usage,
-                        node_hash.unwrap_or_else(|| raw_node_with_size.hash()),
-                    ),
+                    nonleaf: NonLeafHeader::new(hash_and_size.memory_usage, hash_and_size.hash),
                     children: children_header,
                     value: value_header,
                 });
