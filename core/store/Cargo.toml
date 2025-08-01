@@ -54,6 +54,7 @@ near-primitives.workspace = true
 near-schema-checker-lib.workspace = true
 near-time.workspace = true
 near-vm-runner.workspace = true
+tracing-subscriber = "0.3.18"
 
 [dev-dependencies]
 assert_matches.workspace = true
@@ -65,6 +66,11 @@ rand.workspace = true
 thiserror.workspace = true
 rand_chacha.workspace = true
 testlib.workspace = true
+
+near-lake-framework = "0.7.12"
+aws-smithy-runtime = "1.8.5"
+tracing-subscriber.workspace = true
+tikv-jemallocator.workspace = true
 
 [[bench]]
 name = "trie_bench"
