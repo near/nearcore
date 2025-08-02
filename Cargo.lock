@@ -4232,6 +4232,7 @@ dependencies = [
  "itertools 0.12.1",
  "lru 0.12.3",
  "near-async",
+ "near-cache",
  "near-chain-configs",
  "near-chain-primitives",
  "near-client-primitives",

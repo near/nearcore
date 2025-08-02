@@ -1,6 +1,7 @@
 #[cfg(feature = "clock")]
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
+use crate::stateless_validation::ChunkProductionKey;
 use crate::transaction::ValidatedTransactionHash;
 use crate::types::{NumSeats, NumShards, ShardId};
 use chrono;
@@ -201,6 +202,26 @@ pub fn get_receipt_proof_target_shard_prefix(
     res.extend_from_slice(block_hash.as_ref());
     res.extend_from_slice(&to_shard_id.to_le_bytes());
     res
+}
+
+pub fn get_endorsements_key_prefix(chunk_production_key: &ChunkProductionKey) -> Vec<u8> {
+    chunk_production_key.to_le_bytes().into()
+}
+
+pub fn get_endorsements_key(
+    chunk_production_key: &ChunkProductionKey,
+    account_id: &AccountId,
+) -> Vec<u8> {
+    let account_id = account_id.as_bytes();
+    let length: usize = size_of::<ChunkProductionKey>() + account_id.len();
+    let mut res = Vec::with_capacity(length);
+    res.extend_from_slice(&chunk_production_key.to_le_bytes());
+    res.extend_from_slice(account_id);
+    res
+}
+
+pub fn get_execution_results_key(chunk_production_key: &ChunkProductionKey) -> Vec<u8> {
+    chunk_production_key.to_le_bytes().into()
 }
 
 pub fn get_block_shard_id_rev(

@@ -20,3 +20,13 @@ pub struct ChunkProductionKey {
     pub epoch_id: EpochId,
     pub height_created: BlockHeight,
 }
+
+impl ChunkProductionKey {
+    pub fn to_le_bytes(&self) -> [u8; size_of::<Self>()] {
+        let mut res = Vec::with_capacity(size_of::<Self>());
+        res.extend_from_slice(&self.shard_id.to_le_bytes());
+        res.extend_from_slice(self.epoch_id.as_ref());
+        res.extend_from_slice(&self.height_created.to_le_bytes());
+        res.try_into().unwrap()
+    }
+}

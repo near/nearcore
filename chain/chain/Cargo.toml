@@ -36,6 +36,7 @@ tracing.workspace = true
 reed-solomon-erasure.workspace = true
 
 near-async.workspace = true
+near-cache.workspace = true
 near-chain-configs = { workspace = true, features = [
     "test_genesis",
     "test_utils",
