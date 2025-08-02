@@ -1703,7 +1703,11 @@ impl Trie {
     /// constructed afterward. This is needed because memtries are not
     /// thread-safe.
     pub fn lock_for_iter(&self) -> TrieWithReadLock<'_> {
-        TrieWithReadLock { trie: self, memtries: self.memtries.as_ref().map(|m| m.read()) }
+        TrieWithReadLock { trie: self, memtries: self.read_lock_memtries() }
+    }
+
+    pub fn read_lock_memtries(&self) -> Option<RwLockReadGuard<'_, MemTries>> {
+        self.memtries.as_ref().map(|m| m.read())
     }
 
     /// Splits the trie, separating entries by the boundary account.
@@ -1783,7 +1787,7 @@ impl<'a> TrieWithReadLock<'a> {
         match &self.memtries {
             Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie)?)),
             None => Ok(TrieIterator::Disk(DiskTrieIterator::new(
-                DiskTrieIteratorInner::new(&self.trie),
+                DiskTrieIteratorInner::new(self.trie),
                 None,
             )?)),
         }
