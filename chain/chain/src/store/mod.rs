@@ -99,6 +99,8 @@ pub trait ChainStoreAccess {
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Does this chunk exist?
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
+    /// Does this partial chunk exist?
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error>;
     /// Get chunk extra info for given block hash + shard id.
@@ -889,6 +891,10 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::chunk_exists(self, h)
     }
 
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        ChainStoreAdapter::partial_chunk_exists(self, h)
+    }
+
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         ChainStoreAdapter::get_previous_header(self, header)
@@ -1186,6 +1192,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
         Ok(self.chain_store_cache_update.chunks.contains_key(h)
             || self.chain_store.chunk_exists(h)?)
+    }
+
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        Ok(self.chain_store_cache_update.partial_chunks.contains_key(h)
+            || self.chain_store.partial_chunk_exists(h)?)
     }
 
     /// Get previous header.

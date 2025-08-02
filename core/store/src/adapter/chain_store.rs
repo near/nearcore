@@ -248,6 +248,11 @@ impl ChainStoreAdapter {
         self.store.exists(DBCol::Chunks, h.as_ref()).map_err(|e| e.into())
     }
 
+    /// Does this partial chunk exist?
+    pub fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        self.store.exists(DBCol::PartialChunks, h.as_ref()).map_err(|e| e.into())
+    }
+
     /// Returns encoded chunk if it's invalid otherwise None.
     pub fn is_invalid_chunk(
         &self,
