@@ -1101,13 +1101,13 @@ impl Chain {
             }
             match chunk_header {
                 ChunkType::New(chunk_header) => {
-                    if let Err(_) = self.chain_store.get_partial_chunk(chunk_hash) {
+                    if !self.chain_store.partial_chunk_exists(chunk_hash)? {
                         missing.push(chunk_header.clone());
                     } else if self
                         .shard_tracker
                         .cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
                     {
-                        if let Err(_) = self.chain_store.get_chunk(chunk_hash) {
+                        if !self.chain_store.chunk_exists(chunk_hash)? {
                             missing.push(chunk_header.clone());
                         }
                     }
