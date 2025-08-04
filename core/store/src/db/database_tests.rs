@@ -299,8 +299,9 @@ fn test_stress_trie_and_storage() {
                 measured_times.disk.as_millis() / (log_each as u128),
                 measured_times.flat.as_millis() / (log_each as u128),
                 (next_hash_counter - hash_counter) / (log_each as usize),
-                (next_hash_nanos - hash_nanos) / (1_000_000 as u128) / (log_each as u128)
-                    * HASH_MEASURE_PER as u128
+                (next_hash_nanos - hash_nanos) * HASH_MEASURE_PER as u128
+                    / (1_000_000 as u128)
+                    / (log_each as u128)
             );
             measured_times = MeasuredTimes::new();
             hash_counter = next_hash_counter;
