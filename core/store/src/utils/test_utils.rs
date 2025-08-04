@@ -165,9 +165,6 @@ impl TestTriesBuilder {
 
             let flat_storage_manager = tries.get_flat_storage_manager();
             for &shard_uid in &shard_uids {
-                if initialized_shard_uids.contains(&shard_uid) {
-                    continue; // Skip already initialized shards
-                }
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             }
         }
