@@ -1506,6 +1506,7 @@ impl ClientActorInner {
             self.check_send_announce_account(*block.header().last_final_block());
             self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
+            self.client.chain.spice_core_processor.send_execution_result_endorsements(&block);
         }
     }
 

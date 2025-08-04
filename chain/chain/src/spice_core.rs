@@ -307,7 +307,6 @@ impl CoreStatementsTracker {
 
         store_update.merge(self.save_execution_result(&chunk_production_key, &execution_result)?);
 
-        self.try_sending_execution_result_endorsed(&block_hash)?;
         return Ok(store_update);
     }
 }
@@ -326,7 +325,7 @@ impl CoreStatementsProcessor {
             return Ok(());
         }
 
-        let Some(block_hash) = endorsement.block_hash() else {
+        let Some(&block_hash) = endorsement.block_hash() else {
             return Ok(());
         };
 
@@ -364,6 +363,7 @@ impl CoreStatementsProcessor {
 
         let store_update = tracker.record_chunk_endorsement_with_block(endorsement, &block)?;
         store_update.commit()?;
+        tracker.try_sending_execution_result_endorsed(&block_hash)?;
         Ok(())
     }
 
@@ -458,10 +458,40 @@ impl CoreStatementsProcessor {
         Ok(core_statements)
     }
 
+    /// Sends notifications if an accepted block contains execution result endorsements.
+    pub fn send_execution_result_endorsements(&self, block: &Block) {
+        let mut execution_result_hashes = HashSet::new();
+        let mut execution_result_original_block = HashMap::new();
+
+        for core_statement in block.spice_core_statements() {
+            match core_statement {
+                SpiceCoreStatement::Endorsement { signed_inner, .. } => {
+                    execution_result_original_block
+                        .insert(&signed_inner.execution_result_hash, signed_inner.block_hash);
+                }
+                SpiceCoreStatement::ChunkExecutionResult { execution_result, .. } => {
+                    execution_result_hashes.insert(execution_result.compute_hash());
+                }
+            };
+        }
+
+        let tracker = self.read();
+        for execution_result_hash in &execution_result_hashes {
+            // TODO(spice): to avoid this expect unite endorsements and execution results into a
+            // single struct with chunk production key, non-empty vector of endorsements and
+            // optional execution results.
+            let block_hash = execution_result_original_block.get(execution_result_hash).expect(
+                "block validation should make sure that each block contains at least one endorsement for each execution_result");
+
+            tracker
+                .try_sending_execution_result_endorsed(block_hash)
+                .expect("should fail only if failing to access store");
+        }
+    }
+
     pub fn record_block(&self, block: &Block) -> Result<StoreUpdate, Error> {
         let tracker = self.read();
         let mut block_execution_results = HashMap::new();
-        let mut execution_result_original_block = HashMap::new();
         let mut endorsements = HashSet::new();
         let mut store_update = tracker.chain_store.store().store_update();
         for core_statement in block.spice_core_statements() {
@@ -479,8 +509,6 @@ impl CoreStatementsProcessor {
                         signature.clone(),
                     )?);
                     endorsements.insert((chunk_production_key, account_id));
-                    execution_result_original_block
-                        .insert(&signed_inner.execution_result_hash, signed_inner.block_hash);
                 }
                 SpiceCoreStatement::ChunkExecutionResult {
                     chunk_production_key,
@@ -493,13 +521,6 @@ impl CoreStatementsProcessor {
                         .insert(chunk_production_key, execution_result.compute_hash());
                 }
             };
-        }
-
-        for (_, execution_result_hash) in &block_execution_results {
-            let block_hash = execution_result_original_block.get(execution_result_hash).expect(
-                "block validation should make sure that each block contains at least one endorsement for each execution_result");
-
-            tracker.try_sending_execution_result_endorsed(block_hash)?;
         }
 
         store_update.merge(tracker.record_uncertified_chunks(
