@@ -3,10 +3,10 @@ use chrono::DateTime;
 use chrono::Utc;
 use csv::ReaderBuilder;
 use near_crypto::{KeyType, PublicKey};
-use near_gas::NearGas;
 use near_network::types::PeerInfo;
 use near_primitives::account::AccountContract;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
+use near_primitives::gas::Gas as TypedGas;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::ReceiptV0;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -269,7 +269,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                 actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "init".to_string(),
                     args,
-                    gas: NearGas::from_gas(INIT_GAS),
+                    gas: TypedGas::from_gas(INIT_GAS),
                     deposit: 0,
                 }))],
             }),

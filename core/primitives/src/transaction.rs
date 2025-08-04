@@ -634,7 +634,7 @@ mod tests {
     use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
     use borsh::BorshDeserialize;
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
-    use near_gas::NearGas;
+    use near_primitives::gas::Gas;
 
     #[test]
     fn test_verify_transaction() {
@@ -675,7 +675,7 @@ mod tests {
                 Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],
-                    gas: NearGas::from_gas(1_000),
+                    gas: Gas::from_gas(1_000),
                     deposit: 1_000_000,
                 })),
                 Action::Transfer(TransferAction { deposit: 123 }),
@@ -716,7 +716,7 @@ mod tests {
                 Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],
-                    gas: NearGas::from_gas(1_000),
+                    gas: Gas::from_gas(1_000),
                     deposit: 1_000_000,
                 })),
                 Action::Transfer(TransferAction { deposit: 123 }),

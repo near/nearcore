@@ -1,9 +1,7 @@
 use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
-use near_gas::NearGas;
 use near_primitives_core::config::AccountIdValidityRulesVersion;
-use near_primitives_core::serialize::{GasNumberSerialization, NameTrait};
-use near_primitives_core::gas_field_name;
+use near_primitives_core::gas::Gas;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::serde_as;
 use std::collections::hash_map::DefaultHasher;
@@ -59,14 +57,11 @@ pub enum StorageGetMode {
 
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
-#[serde_as]
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
-    #[serde(flatten)]
-    #[serde_as(as = "GasNumberSerialization<max_gas_burntGasFieldName>")]
-    pub max_gas_burnt: NearGas,
+    pub max_gas_burnt: Gas,
 
     /// How tall the stack is allowed to grow?
     ///
@@ -97,9 +92,7 @@ pub struct LimitConfig {
     pub max_total_log_length: u64,
 
     /// Max total prepaid gas for all function call actions per receipt.
-    #[serde(flatten)]
-    #[serde_as(as = "GasNumberSerialization<max_total_prepaid_gasGasFieldName>")]
-    pub max_total_prepaid_gas: NearGas,
+    pub max_total_prepaid_gas: Gas,
 
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u64,
@@ -143,9 +136,6 @@ pub struct LimitConfig {
     /// Hard limit on the size of storage proof generated while executing a single receipt.
     pub per_receipt_storage_proof_size_limit: usize,
 }
-
-gas_field_name!(max_gas_burnt);
-gas_field_name!(max_total_prepaid_gas);
 
 /// Dynamic configuration parameters required for the WASM runtime to
 /// execute a smart contract.
@@ -214,7 +204,7 @@ impl Config {
         };
         self.grow_mem_cost = 0;
         self.regular_op_cost = 0;
-        self.limit_config.max_gas_burnt = NearGas::gas_limit();
+        self.limit_config.max_gas_burnt = Gas::gas_limit();
     }
 
     pub fn enable_all_features(&mut self) {

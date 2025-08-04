@@ -22,7 +22,6 @@ near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-primitives.workspace = true
 near-network.workspace = true
-near-gas.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

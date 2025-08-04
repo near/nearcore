@@ -13,7 +13,6 @@ use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_gas::NearGas;
 use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::action::FunctionCallAction;
@@ -23,6 +22,7 @@ use near_primitives::block::Tip;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
+use near_primitives::gas::Gas;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -1498,7 +1498,7 @@ fn test_storage_proof_garbage() {
                 FunctionCallAction {
                     method_name: format!("internal_record_storage_garbage_{garbage_size_mb}"),
                     args: vec![],
-                    gas: NearGas::from_gas(300000000000000),
+                    gas: Gas::from_gas(300000000000000),
                     deposit: 300000000000000,
                 }
                 .into(),

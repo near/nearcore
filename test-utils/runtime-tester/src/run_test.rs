@@ -5,8 +5,8 @@ use near_client::ProcessTxResponse;
 use near_client_primitives::types::Error;
 use near_crypto::Signer;
 use near_epoch_manager::EpochManager;
-use near_gas::NearGas;
 use near_parameters::RuntimeConfigStore;
+use near_primitives::gas::Gas as TypedGas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce};
@@ -41,9 +41,9 @@ impl Scenario {
         let mut runtime_config = near_parameters::RuntimeConfig::test();
         let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
         wasm_config.limit_config.max_total_prepaid_gas =
-            NearGas::from_gas(self.runtime_config.max_total_prepaid_gas);
+            TypedGas::from_gas(self.runtime_config.max_total_prepaid_gas);
         genesis.config.epoch_length = self.runtime_config.epoch_length;
-        genesis.config.gas_limit = NearGas::from_gas(self.runtime_config.gas_limit);
+        genesis.config.gas_limit = TypedGas::from_gas(self.runtime_config.gas_limit);
         let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
 
         let (tempdir, store) = if self.use_in_memory_store {

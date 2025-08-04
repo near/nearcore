@@ -3,11 +3,11 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
-use near_gas::NearGas;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
 use near_primitives::errors::FunctionCallError;
 use near_primitives::errors::{ActionErrorKind, TxExecutionError};
+use near_primitives::gas::Gas;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -59,7 +59,7 @@ fn test_storage_proof_size_limit() {
         let action = Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_one_megabyte".to_string(),
             args: vec![idx],
-            gas: NearGas::from_gas(300_000_000_000_000),
+            gas: Gas::from_gas(300_000_000_000_000),
             deposit: 0,
         }));
 
@@ -83,7 +83,7 @@ fn test_storage_proof_size_limit() {
         let action = Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "read_n_megabytes".to_string(),
             args: vec![from, to],
-            gas: NearGas::from_gas(300_000_000_000_000),
+            gas: Gas::from_gas(300_000_000_000_000),
             deposit: 0,
         }));
         let tx = SignedTransaction::from_actions(

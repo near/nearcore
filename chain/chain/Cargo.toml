@@ -55,7 +55,6 @@ node-runtime.workspace = true
 near-parameters.workspace = true
 near-vm-runner.workspace = true
 near-schema-checker-lib.workspace = true
-near-gas.workspace = true
 
 [dev-dependencies]
 near-mainnet-res.workspace = true

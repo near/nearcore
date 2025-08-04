@@ -270,7 +270,7 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::cost::ActionCosts;
-    use near_gas::NearGas;
+    use near_primitives_core::gas::Gas;
     use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
@@ -348,7 +348,7 @@ mod tests {
         assert_eq!(modified_config.wasm_config.limit_config.max_length_storage_key, 42);
         assert_eq!(
             modified_config.fees.fee(ActionCosts::new_action_receipt).send_sir,
-            NearGas::from_gas(100000000)
+            Gas::from_gas(100000000)
         );
 
         assert_eq!(

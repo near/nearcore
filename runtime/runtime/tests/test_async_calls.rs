@@ -1,8 +1,8 @@
 use crate::runtime_group_tools::RuntimeGroup;
 
 use near_crypto::InMemorySigner;
-use near_gas::NearGas;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
 use near_primitives::serialize::to_base64;
@@ -35,7 +35,7 @@ fn test_simple_func_call() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "sum_n".to_string(),
             args: 10u64.to_le_bytes().to_vec(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -85,7 +85,7 @@ fn test_single_promise_no_callback() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -106,7 +106,7 @@ fn test_single_promise_no_callback() {
         actions,
         a0, Action::FunctionCall(function_call_action),
         {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -117,7 +117,7 @@ fn test_single_promise_no_callback() {
     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
     actions,
     a0, Action::FunctionCall(function_call_action), {
-    assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+    assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
     assert_eq!(function_call_action.deposit, 0);
     });
     assert_single_refund_prior_to_nep536(&group, &receipts);
@@ -156,7 +156,7 @@ fn test_single_promise_with_callback() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -177,7 +177,7 @@ fn test_single_promise_with_callback() {
     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
     actions,
     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+        assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
         assert_eq!(function_call_action.deposit, 0);
     });
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -192,7 +192,7 @@ fn test_single_promise_with_callback() {
     },
     actions,
     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+        assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
         assert_eq!(function_call_action.deposit, 0);
     });
     assert_single_refund_prior_to_nep536(&group, &receipts);
@@ -204,7 +204,7 @@ fn test_single_promise_with_callback() {
         },
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -245,7 +245,7 @@ fn test_two_promises_no_callbacks() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -265,7 +265,7 @@ fn test_two_promises_no_callbacks() {
     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
     actions,
     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+        assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
         assert_eq!(function_call_action.deposit, 0);
     });
     let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
@@ -275,7 +275,7 @@ fn test_two_promises_no_callbacks() {
     ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
     actions,
     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+        assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
         assert_eq!(function_call_action.deposit, 0);
     });
     let [r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -285,7 +285,7 @@ fn test_two_promises_no_callbacks() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_3));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_3));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -343,7 +343,7 @@ fn test_two_promises_with_two_callbacks() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -364,7 +364,7 @@ fn test_two_promises_with_two_callbacks() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -377,7 +377,7 @@ fn test_two_promises_with_two_callbacks() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -390,7 +390,7 @@ fn test_two_promises_with_two_callbacks() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_3));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_3));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -400,7 +400,7 @@ fn test_two_promises_with_two_callbacks() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_3));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_3));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -410,7 +410,7 @@ fn test_two_promises_with_two_callbacks() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -447,7 +447,7 @@ fn test_single_promise_no_callback_batch() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -467,7 +467,7 @@ fn test_single_promise_no_callback_batch() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -478,7 +478,7 @@ fn test_single_promise_no_callback_batch() {
      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
      actions,
      a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+        assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
         assert_eq!(function_call_action.deposit, 0);
      }
     );
@@ -524,7 +524,7 @@ fn test_single_promise_with_callback_batch() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -545,7 +545,7 @@ fn test_single_promise_with_callback_batch() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -560,7 +560,7 @@ fn test_single_promise_with_callback_batch() {
         },
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -573,7 +573,7 @@ fn test_single_promise_with_callback_batch() {
         },
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -609,7 +609,7 @@ fn test_simple_transfer() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -630,7 +630,7 @@ fn test_simple_transfer() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -687,7 +687,7 @@ fn test_create_account_with_transfer_and_full_key() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -707,7 +707,7 @@ fn test_create_account_with_transfer_and_full_key() {
     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
     actions,
     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+        assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
         assert_eq!(function_call_action.deposit, 0);
     });
     let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
@@ -808,7 +808,7 @@ fn test_account_factory() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -828,7 +828,7 @@ fn test_account_factory() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -866,7 +866,7 @@ fn test_account_factory() {
             assert_eq!(code, near_test_contracts::rs_contract());
         },
         a4, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -880,7 +880,7 @@ fn test_account_factory() {
      },
      actions,
      a0, Action::FunctionCall(function_call_action), {
-         assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+         assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
          assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -892,7 +892,7 @@ fn test_account_factory() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_3));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_3));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -902,7 +902,7 @@ fn test_account_factory() {
      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
      actions,
      a0, Action::FunctionCall(function_call_action), {
-         assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_3));
+         assert_eq!(function_call_action.gas, Gas::from_gas(GAS_3));
          assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -970,7 +970,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -990,7 +990,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -1015,7 +1015,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
             assert_eq!(code, near_test_contracts::rs_contract());
         },
         a4, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_2));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_2));
             assert_eq!(function_call_action.deposit, 0);
         },
         a5, Action::DeleteKey(delete_key_action), {
@@ -1039,7 +1039,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
-            assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_3));
+            assert_eq!(function_call_action.gas, Gas::from_gas(GAS_3));
             assert_eq!(function_call_action.deposit, 0);
         }
     );
@@ -1087,7 +1087,7 @@ fn test_transfer_64len_hex() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -1107,7 +1107,7 @@ fn test_transfer_64len_hex() {
      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
      actions,
      a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+        assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
         assert_eq!(function_call_action.deposit, 0);
      }
     );
@@ -1165,7 +1165,7 @@ fn test_create_transfer_64len_hex_fail() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         }))],
         CryptoHash::default(),
@@ -1185,7 +1185,7 @@ fn test_create_transfer_64len_hex_fail() {
      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
      actions,
      a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, NearGas::from_gas(GAS_1));
+        assert_eq!(function_call_action.gas, Gas::from_gas(GAS_1));
         assert_eq!(function_call_action.deposit, 0);
      }
     );

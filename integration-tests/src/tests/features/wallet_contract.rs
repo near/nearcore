@@ -6,10 +6,10 @@ use ethabi::ethereum_types::U256;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
-use near_gas::NearGas;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
+use near_primitives::gas::Gas;
 use near_primitives::test_utils::{create_user_test_signer, eth_implicit_test_account};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
@@ -389,7 +389,7 @@ pub fn create_rlp_execute_tx(
     let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "rlp_execute".into(),
         args,
-        gas: NearGas::from_gas(300_000_000_000_000),
+        gas: Gas::from_gas(300_000_000_000_000),
         deposit: 0,
     }))];
     let nonce = view_nonce(env, near_signer.account_id, near_signer.signer.public_key()) + 1;

@@ -11,9 +11,9 @@ use near_client::{
     GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
     ViewClientActorInner,
 };
-use near_gas::NearGas;
 use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
@@ -224,7 +224,7 @@ impl<'a> ViewClientTester<'a> {
 
         let mut get_and_check_chunk = |request: GetChunk| {
             let chunk = self.send(request, ARCHIVAL_CLIENT).unwrap();
-            assert_eq!(chunk.header.gas_limit, NearGas::from_gas(1_000_000_000_000_000));
+            assert_eq!(chunk.header.gas_limit, Gas::from_gas(1_000_000_000_000_000));
             chunk
         };
 

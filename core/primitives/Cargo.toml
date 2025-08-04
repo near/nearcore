@@ -54,7 +54,6 @@ near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-parameters.workspace = true
 near-schema-checker-lib.workspace = true
-near-gas = { workspace = true, features = ["serde", "borsh", "schemars-v1"]}
 
 [features]
 sandbox = []

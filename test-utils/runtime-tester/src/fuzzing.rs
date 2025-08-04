@@ -1,7 +1,7 @@
 use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
 use near_chain_configs::{NEAR_BASE, test_utils::TESTING_INIT_BALANCE};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
-use near_gas::NearGas;
+use near_primitives::gas::Gas;
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
     transaction::{
@@ -730,7 +730,7 @@ impl Function {
         Ok(FunctionCallAction {
             method_name: method_name.to_string(),
             args: args,
-            gas: NearGas::from_gas(GAS_1),
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         })
     }

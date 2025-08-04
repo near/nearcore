@@ -35,7 +35,6 @@ near-primitives-core.workspace = true
 near-store.workspace = true
 near-vm-runner = { workspace = true, features = ["near_vm", "wasmtime_vm"] }
 near-wallet-contract.workspace = true
-near-gas = { workspace = true }
 
 [features]
 default = []

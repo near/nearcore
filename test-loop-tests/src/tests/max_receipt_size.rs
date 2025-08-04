@@ -2,13 +2,13 @@ use assert_matches::assert_matches;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::{ReceiptFilter, get_incoming_receipts_for_shard};
-use near_gas::NearGas;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, FunctionCallError, InvalidTxError, ReceiptValidationError,
     TxExecutionError,
 };
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::create_user_test_signer;
@@ -180,7 +180,7 @@ fn test_max_receipt_size_promise_return() {
             actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "noop".into(),
                 args: vec![],
-                gas: NearGas::from_gas(0),
+                gas: Gas::from_gas(0),
                 deposit: 0,
             }))],
         }),

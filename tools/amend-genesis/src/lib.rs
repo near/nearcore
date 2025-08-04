@@ -2,8 +2,8 @@ use anyhow::Context;
 
 use near_chain_configs::{Genesis, GenesisValidationMode, NEAR_BASE};
 use near_crypto::PublicKey;
-use near_gas::NearGas;
 use near_primitives::account::AccountContract;
+use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, AccountInfo};
@@ -393,7 +393,7 @@ pub fn amend_genesis(
         genesis.config.chunk_validator_only_kickout_threshold = t;
     }
     if let Some(l) = genesis_changes.gas_limit {
-        genesis.config.gas_limit = NearGas::from_gas(l);
+        genesis.config.gas_limit = Gas::from_gas(l);
     }
     if let Some(p) = genesis_changes.min_gas_price {
         genesis.config.min_gas_price = p;
@@ -410,8 +410,8 @@ pub fn amend_genesis(
 mod test {
     use anyhow::Context;
     use near_chain_configs::{Genesis, GenesisConfig, NEAR_BASE, get_initial_supply};
-    use near_gas::NearGas;
     use near_primitives::account::AccountContract;
+    use near_primitives::gas::Gas;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
     use near_primitives::types::{AccountId, AccountInfo};
@@ -605,7 +605,7 @@ mod test {
                 protocol_upgrade_stake_threshold:
                     near_chain_configs::PROTOCOL_UPGRADE_STAKE_THRESHOLD,
                 epoch_length: 1000,
-                gas_limit: NearGas::from_gas(near_chain_configs::INITIAL_GAS_LIMIT),
+                gas_limit: Gas::from_gas(near_chain_configs::INITIAL_GAS_LIMIT),
                 gas_price_adjustment_rate: near_chain_configs::GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold:
                     near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD,

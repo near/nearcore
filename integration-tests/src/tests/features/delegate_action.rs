@@ -5,7 +5,6 @@
 
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_crypto::{KeyType, PublicKey};
-use near_gas::NearGas;
 use near_parameters::ActionCosts;
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType,
@@ -13,6 +12,7 @@ use near_primitives::account::{
 use near_primitives::errors::{
     ActionError, ActionErrorKind, InvalidAccessKeyError, TxExecutionError,
 };
+use near_primitives::gas::Gas;
 use near_primitives::test_utils::{
     create_user_test_signer, eth_implicit_test_account, near_implicit_test_account,
 };
@@ -610,7 +610,7 @@ fn log_something_fn_call() -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: TEST_METHOD.to_owned(),
         args: vec![],
-        gas: NearGas::from_gas(30_000_000_000_000),
+        gas: Gas::from_gas(30_000_000_000_000),
         deposit: 0,
     }))
 }
@@ -632,7 +632,7 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args,
-        gas: NearGas::from_gas(20_000_000_000_000),
+        gas: Gas::from_gas(20_000_000_000_000),
         deposit: 1,
     }));
 
@@ -652,7 +652,7 @@ fn ft_register_action(receiver: &str) -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "storage_deposit".to_owned(),
         args,
-        gas: NearGas::from_gas(20_000_000_000_000),
+        gas: Gas::from_gas(20_000_000_000_000),
         deposit: NEAR_BASE,
     }))
 }

@@ -6,8 +6,8 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
-use near_gas::NearGas;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
+use near_primitives::gas::Gas as TypedGas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{
@@ -41,13 +41,13 @@ fn process_transaction(
             Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[0u64, 10u64]),
                 method_name: "write_key_value".to_string(),
-                gas: NearGas::from_gas(gas),
+                gas: TypedGas::from_gas(gas),
                 deposit: 0,
             })),
             Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[1u64, 20u64]),
                 method_name: "write_key_value".to_string(),
-                gas: NearGas::from_gas(gas),
+                gas: TypedGas::from_gas(gas),
                 deposit: 0,
             })),
         ],

@@ -6,10 +6,8 @@ use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_gas::NearGas;
+use near_primitives_core::gas::Gas;
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::serialize::{GasNumberSerialization, NameTrait};
-use near_primitives_core::gas_field_name;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::serde_as;
 use std::fmt::{Debug, Display};
@@ -347,16 +345,7 @@ pub enum ActionsValidationError {
     /// The delete action must be a final action in transaction
     DeleteActionMustBeFinal = 0,
     /// The total prepaid gas (for all given actions) exceeded the limit.
-    TotalPrepaidGasExceeded { 
-        #[serde(flatten)]
-            #[serde_as(as = "GasNumberSerialization<total_prepaid_gasGasFieldName>")]
-
-        total_prepaid_gas: NearGas, 
-        #[serde(flatten)]
-            #[serde_as(as = "GasNumberSerialization<limitGasFieldName>")]
-
-        limit: NearGas 
-    } = 1,
+    TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas } = 1,
     /// The number of actions exceeded the given limit.
     TotalNumberOfActionsExceeded { total_number_of_actions: u64, limit: u64 } = 2,
     /// The total number of bytes of the method names exceeded the limit in a Add Key action.
@@ -387,8 +376,6 @@ pub enum ActionsValidationError {
     /// that type into observable borsh serialization.
     UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion } = 13,
 }
-gas_field_name!(total_prepaid_gas);
-gas_field_name!(limit);
 
 /// Describes the error for validating a receipt.
 #[derive(

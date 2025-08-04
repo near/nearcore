@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use near_crypto::PublicKey;
-use near_gas::NearGas;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
+use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
@@ -73,8 +73,7 @@ pub struct TestGenesisBuilder {
     genesis_height: BlockHeight,
     min_gas_price: Balance,
     max_gas_price: Balance,
-    #[serde_as(as = "GasNumberSerialization")]
-    gas_limit: NearGas,
+    gas_limit: Gas,
     transaction_validity_period: NumBlocks,
     protocol_treasury_account: String,
     max_inflation_rate: Rational32,
@@ -286,7 +285,7 @@ impl Default for TestGenesisBuilder {
             genesis_height: 1,
             min_gas_price: 0,
             max_gas_price: 0,
-            gas_limit: NearGas::from_gas(1_000_000_000_000_000),
+            gas_limit: Gas::from_gas(1_000_000_000_000_000),
             transaction_validity_period: 100,
             protocol_treasury_account: "near".to_string().parse().unwrap(),
             max_inflation_rate: Rational32::new(1, 1),
@@ -352,13 +351,13 @@ impl TestGenesisBuilder {
         self
     }
 
-    pub fn gas_limit(mut self, gas_limit: NearGas) -> Self {
+    pub fn gas_limit(mut self, gas_limit: Gas) -> Self {
         self.gas_limit = gas_limit;
         self
     }
 
     pub fn gas_limit_one_petagas(mut self) -> Self {
-        self.gas_limit = NearGas::from_gas(1_000_000_000_000_000);
+        self.gas_limit = Gas::from_gas(1_000_000_000_000_000);
         self
     }
 

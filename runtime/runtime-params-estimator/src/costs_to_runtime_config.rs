@@ -1,12 +1,12 @@
 use crate::cost::Cost;
 use crate::cost_table::CostTable;
 use anyhow::Context;
-use near_gas::NearGas;
 use near_parameters::vm::Config as VMConfig;
 use near_parameters::{
     AccountCreationConfig, ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost,
     RuntimeConfig, RuntimeConfigStore, RuntimeFeesConfig,
 };
+use near_primitives::gas::Gas;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
 
@@ -48,7 +48,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
 
 fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConfig> {
     let fee = |cost: Cost| -> anyhow::Result<Fee> {
-        let total_gas = NearGas::from_gas(
+        let total_gas = Gas::from_gas(
             cost_table.get(cost).with_context(|| format!("undefined cost: {}", cost))?,
         );
         // Split the total cost evenly between send and execution fee.

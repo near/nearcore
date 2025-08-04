@@ -36,7 +36,6 @@ near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 node-runtime.workspace = true
-near-gas.workspace = true
 
 [features]
 nightly = [

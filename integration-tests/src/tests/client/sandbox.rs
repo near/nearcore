@@ -2,8 +2,8 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
-use near_gas::NearGas;
 use near_primitives::account::Account;
+use near_primitives::gas::Gas;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
@@ -45,7 +45,7 @@ fn test_setup() -> (TestEnv, Signer) {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "write_random_value".to_string(),
                 args: vec![],
-                gas: NearGas::from_gas(100000000000000),
+                gas: Gas::from_gas(100000000000000),
                 deposit: 0,
             }))],
         ),

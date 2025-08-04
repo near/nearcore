@@ -2,16 +2,14 @@
 use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
-use near_gas::NearGas;
 #[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
+use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::version::Version;
-use near_primitives::serialize::{GasNumberSerialization, NameTrait};
-use near_primitives::gas_field_name;
 use near_time::Duration;
 #[cfg(feature = "schemars")]
 use near_time::{DurationAsStdSchemaProvider, DurationSchemarsProvider};
@@ -713,9 +711,7 @@ pub struct ClientConfig {
     /// Max burnt gas per view method.  If present, overrides value stored in
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
-    #[serde(flatten)]
-    #[serde_as(as = "Option<GasNumberSerialization<max_gas_burnt_viewGasFieldName>>")]
-    pub max_gas_burnt_view: Option<NearGas>,
+    pub max_gas_burnt_view: Option<Gas>,
     /// Re-export storage layer statistics as prometheus metrics.
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
@@ -768,8 +764,6 @@ pub struct ClientConfig {
     pub save_invalid_witnesses: bool,
     pub transaction_request_handler_threads: usize,
 }
-
-gas_field_name!(max_gas_burnt_view);
 
 impl ClientConfig {
     pub fn test(

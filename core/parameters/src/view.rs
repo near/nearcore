@@ -1,11 +1,9 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
-use near_gas::NearGas;
+use near_primitives_core::gas::Gas;
 use near_primitives_core::serialize::dec_format;
 use near_primitives_core::types::Balance;
-use near_primitives_core::serialize::{GasNumberSerialization, NameTrait};
-use near_primitives_core::gas_field_name;
 use num_rational::Rational32;
 use serde_with::serde_as;
 
@@ -296,578 +294,375 @@ impl From<VMConfigView> for crate::vm::Config {
 
 /// Typed view of ExtCostsConfig to preserve JSON output field names in protocol
 /// config RPC output.
-#[serde_as]
-#[serde_with::apply(
-    NearGas => #[serde(flatten)],
-)]
-#[serde_with::apply(
-    NearGas => #[serde_as(as = "GasNumberSerialization<baseGasFieldName>")],
-)]
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ExtCostsConfigView {
     /// Base cost for calling a host function.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub base: NearGas,
+    pub base: Gas,
 
     /// Base cost of loading a pre-compiled contract
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub contract_loading_base: NearGas,
+    pub contract_loading_base: Gas,
     /// Cost per byte of loading a pre-compiled contract
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub contract_loading_bytes: NearGas,
+    pub contract_loading_bytes: Gas,
 
     /// Base cost for guest memory read
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub read_memory_base: NearGas,
+    pub read_memory_base: Gas,
     /// Cost for guest memory read
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub read_memory_byte: NearGas,
+    pub read_memory_byte: Gas,
 
     /// Base cost for guest memory write
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub write_memory_base: NearGas,
+    pub write_memory_base: Gas,
 
     /// Cost for guest memory write per byte
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub write_memory_byte: NearGas,
+    pub write_memory_byte: Gas,
 
     /// Base cost for reading from register
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub read_register_base: NearGas,
+    pub read_register_base: Gas,
     /// Cost for reading byte from register
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub read_register_byte: NearGas,
+    pub read_register_byte: Gas,
 
     /// Base cost for writing into register
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub write_register_base: NearGas,
+    pub write_register_base: Gas,
     /// Cost for writing byte into register
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub write_register_byte: NearGas,
+    pub write_register_byte: Gas,
 
     /// Base cost of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub utf8_decoding_base: NearGas,
+    pub utf8_decoding_base: Gas,
     /// Cost per byte of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub utf8_decoding_byte: NearGas,
+    pub utf8_decoding_byte: Gas,
 
     /// Base cost of decoding utf16. It's used for `log_utf16`.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub utf16_decoding_base: NearGas,
+    pub utf16_decoding_base: Gas,
     /// Cost per byte of decoding utf16. It's used for `log_utf16`.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub utf16_decoding_byte: NearGas,
+    pub utf16_decoding_byte: Gas,
 
     /// Cost of getting sha256 base
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub sha256_base: NearGas,
+    pub sha256_base: Gas,
     /// Cost of getting sha256 per byte
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub sha256_byte: NearGas,
+    pub sha256_byte: Gas,
 
     /// Cost of getting sha256 base
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub keccak256_base: NearGas,
+    pub keccak256_base: Gas,
     /// Cost of getting sha256 per byte
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub keccak256_byte: NearGas,
+    pub keccak256_byte: Gas,
 
-    /// Cost of getting sha256 base
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub keccak512_base: NearGas,
+    /// Cost of getting sha256 baseGas
+    pub keccak512_base: Gas,
     /// Cost of getting sha256 per byte
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub keccak512_byte: NearGas,
+    pub keccak512_byte: Gas,
 
     /// Cost of getting ripemd160 base
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub ripemd160_base: NearGas,
+    pub ripemd160_base: Gas,
     /// Cost of getting ripemd160 per message block
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub ripemd160_block: NearGas,
+    pub ripemd160_block: Gas,
 
     /// Cost of getting ed25519 base
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub ed25519_verify_base: NearGas,
+    pub ed25519_verify_base: Gas,
     /// Cost of getting ed25519 per byte
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub ed25519_verify_byte: NearGas,
+    pub ed25519_verify_byte: Gas,
 
     /// Cost of calling ecrecover
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub ecrecover_base: NearGas,
+    pub ecrecover_base: Gas,
 
     /// Cost for calling logging.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub log_base: NearGas,
+    pub log_base: Gas,
     /// Cost for logging per byte
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub log_byte: NearGas,
+    pub log_byte: Gas,
 
     // ###############
     // # Storage API #
     // ###############
     /// Storage trie write key base cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_write_base: NearGas,
+    pub storage_write_base: Gas,
     /// Storage trie write key per byte cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_write_key_byte: NearGas,
+    pub storage_write_key_byte: Gas,
     /// Storage trie write value per byte cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_write_value_byte: NearGas,
+    pub storage_write_value_byte: Gas,
     /// Storage trie write cost per byte of evicted value.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_write_evicted_byte: NearGas,
+    pub storage_write_evicted_byte: Gas,
 
     /// Storage trie read key base cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_read_base: NearGas,
+    pub storage_read_base: Gas,
     /// Storage trie read key per byte cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_read_key_byte: NearGas,
+    pub storage_read_key_byte: Gas,
     /// Storage trie read value cost per byte cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_read_value_byte: NearGas,
+    pub storage_read_value_byte: Gas,
 
     /// Storage trie read key overhead base cost, when doing large reads
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_large_read_overhead_base: NearGas,
+    pub storage_large_read_overhead_base: Gas,
     /// Storage trie read key overhead  per-byte cost, when doing large reads
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_large_read_overhead_byte: NearGas,
+    pub storage_large_read_overhead_byte: Gas,
 
     /// Remove key from trie base cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_remove_base: NearGas,
+    pub storage_remove_base: Gas,
     /// Remove key from trie per byte cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_remove_key_byte: NearGas,
+    pub storage_remove_key_byte: Gas,
     /// Remove key from trie ret value byte cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_remove_ret_value_byte: NearGas,
+    pub storage_remove_ret_value_byte: Gas,
 
     /// Storage trie check for key existence cost base
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_has_key_base: NearGas,
+    pub storage_has_key_base: Gas,
     /// Storage trie check for key existence per key byte
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_has_key_byte: NearGas,
+    pub storage_has_key_byte: Gas,
 
     /// Create trie prefix iterator cost base
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_iter_create_prefix_base: NearGas,
+    pub storage_iter_create_prefix_base: Gas,
     /// Create trie prefix iterator cost per byte.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_iter_create_prefix_byte: NearGas,
+    pub storage_iter_create_prefix_byte: Gas,
 
     /// Create trie range iterator cost base
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_iter_create_range_base: NearGas,
+    pub storage_iter_create_range_base: Gas,
     /// Create trie range iterator cost per byte of from key.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_iter_create_from_byte: NearGas,
+    pub storage_iter_create_from_byte: Gas,
     /// Create trie range iterator cost per byte of to key.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_iter_create_to_byte: NearGas,
+    pub storage_iter_create_to_byte: Gas,
 
     /// Trie iterator per key base cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_iter_next_base: NearGas,
+    pub storage_iter_next_base: Gas,
     /// Trie iterator next key byte cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_iter_next_key_byte: NearGas,
+    pub storage_iter_next_key_byte: Gas,
     /// Trie iterator next key byte cost
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub storage_iter_next_value_byte: NearGas,
+    pub storage_iter_next_value_byte: Gas,
 
     /// Cost per reading trie node from DB
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub touching_trie_node: NearGas,
+    pub touching_trie_node: Gas,
     /// Cost for reading trie node from memory
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub read_cached_trie_node: NearGas,
+    pub read_cached_trie_node: Gas,
 
     // ###############
     // # Promise API #
     // ###############
     /// Cost for calling `promise_and`
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub promise_and_base: NearGas,
+    pub promise_and_base: Gas,
     /// Cost for calling `promise_and` for each promise
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub promise_and_per_promise: NearGas,
+    pub promise_and_per_promise: Gas,
     /// Cost for calling `promise_return`
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub promise_return: NearGas,
+    pub promise_return: Gas,
 
     // ###############
     // # Validator API #
     // ###############
     /// Cost of calling `validator_stake`.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub validator_stake_base: NearGas,
+    pub validator_stake_base: Gas,
     /// Cost of calling `validator_total_stake`.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub validator_total_stake_base: NearGas,
+    pub validator_total_stake_base: Gas,
 
     // Removed parameters, only here for keeping the output backward-compatible.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub contract_compile_base: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub contract_compile_bytes: NearGas,
+    pub contract_compile_base: Gas,
+    pub contract_compile_bytes: Gas,
 
     // #############
     // # Alt BN128 #
     // #############
     /// Base cost for multiexp
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub alt_bn128_g1_multiexp_base: NearGas,
+    pub alt_bn128_g1_multiexp_base: Gas,
     /// Per element cost for multiexp
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub alt_bn128_g1_multiexp_element: NearGas,
+    pub alt_bn128_g1_multiexp_element: Gas,
     /// Base cost for sum
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub alt_bn128_g1_sum_base: NearGas,
+    pub alt_bn128_g1_sum_base: Gas,
     /// Per element cost for sum
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub alt_bn128_g1_sum_element: NearGas,
+    pub alt_bn128_g1_sum_element: Gas,
     /// Base cost for pairing check
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub alt_bn128_pairing_check_base: NearGas,
+    pub alt_bn128_pairing_check_base: Gas,
     /// Per element cost for pairing check
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub alt_bn128_pairing_check_element: NearGas,
+    pub alt_bn128_pairing_check_element: Gas,
     /// Base cost for creating a yield promise.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub yield_create_base: NearGas,
+    pub yield_create_base: Gas,
     /// Per byte cost of arguments and method name.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub yield_create_byte: NearGas,
+    pub yield_create_byte: Gas,
     /// Base cost for resuming a yield receipt.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub yield_resume_base: NearGas,
+    pub yield_resume_base: Gas,
     /// Per byte cost of resume payload.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub yield_resume_byte: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_p1_sum_base: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_p1_sum_element: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_p2_sum_base: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_p2_sum_element: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_g1_multiexp_base: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_g1_multiexp_element: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_g2_multiexp_base: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_g2_multiexp_element: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_map_fp_to_g1_base: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_map_fp_to_g1_element: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_map_fp2_to_g2_base: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_map_fp2_to_g2_element: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_pairing_base: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_pairing_element: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_p1_decompress_base: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_p1_decompress_element: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_p2_decompress_base: NearGas,
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub bls12381_p2_decompress_element: NearGas,
+    pub yield_resume_byte: Gas,
+    pub bls12381_p1_sum_base: Gas,
+    pub bls12381_p1_sum_element: Gas,
+    pub bls12381_p2_sum_base: Gas,
+    pub bls12381_p2_sum_element: Gas,
+    pub bls12381_g1_multiexp_base: Gas,
+    pub bls12381_g1_multiexp_element: Gas,
+    pub bls12381_g2_multiexp_base: Gas,
+    pub bls12381_g2_multiexp_element: Gas,
+    pub bls12381_map_fp_to_g1_base: Gas,
+    pub bls12381_map_fp_to_g1_element: Gas,
+    pub bls12381_map_fp2_to_g2_base: Gas,
+    pub bls12381_map_fp2_to_g2_element: Gas,
+    pub bls12381_pairing_base: Gas,
+    pub bls12381_pairing_element: Gas,
+    pub bls12381_p1_decompress_base: Gas,
+    pub bls12381_p1_decompress_element: Gas,
+    pub bls12381_p2_decompress_base: Gas,
+    pub bls12381_p2_decompress_element: Gas,
 }
-
-gas_field_name!(base);
-gas_field_name!(contract_loading_base);
-gas_field_name!(contract_loading_bytes);
-gas_field_name!(read_memory_base);
-gas_field_name!(read_memory_byte);
-gas_field_name!(write_memory_base);
-gas_field_name!(write_memory_byte);
-gas_field_name!(read_register_base);
-gas_field_name!(read_register_byte);
-gas_field_name!(write_register_base);
-gas_field_name!(write_register_byte);
-gas_field_name!(utf8_decoding_base);
-gas_field_name!(utf8_decoding_byte);
-gas_field_name!(utf16_decoding_base);
-gas_field_name!(utf16_decoding_byte);
-gas_field_name!(sha256_base);
-gas_field_name!(sha256_byte);
-gas_field_name!(keccak256_base);
-gas_field_name!(keccak256_byte);
-gas_field_name!(keccak512_base);
-gas_field_name!(keccak512_byte);
-gas_field_name!(ripemd160_base);
-gas_field_name!(ripemd160_block);
-gas_field_name!(ed25519_verify_base);
-gas_field_name!(ed25519_verify_byte);
-gas_field_name!(ecrecover_base);
-gas_field_name!(log_base);
-gas_field_name!(log_byte);
-gas_field_name!(storage_write_base);
-gas_field_name!(storage_write_key_byte);
-gas_field_name!(storage_write_value_byte);
-gas_field_name!(storage_write_evicted_byte);
-gas_field_name!(storage_read_base);
-gas_field_name!(storage_read_key_byte);
-gas_field_name!(storage_read_value_byte);
-gas_field_name!(storage_large_read_overhead_base);
-gas_field_name!(storage_large_read_overhead_byte);
-gas_field_name!(storage_remove_base);
-gas_field_name!(storage_remove_key_byte);
-gas_field_name!(storage_remove_ret_value_byte);
-gas_field_name!(storage_has_key_base);
-gas_field_name!(storage_has_key_byte);
-gas_field_name!(storage_iter_create_prefix_base);
-gas_field_name!(storage_iter_create_prefix_byte);
-gas_field_name!(storage_iter_create_range_base);
-gas_field_name!(storage_iter_create_from_byte);
-gas_field_name!(storage_iter_create_to_byte);
-gas_field_name!(storage_iter_next_base);
-gas_field_name!(storage_iter_next_key_byte);
-gas_field_name!(storage_iter_next_value_byte);
-gas_field_name!(touching_trie_node);
-gas_field_name!(read_cached_trie_node);
-gas_field_name!(promise_and_base);
-gas_field_name!(promise_and_per_promise);
-gas_field_name!(promise_return);
-gas_field_name!(validator_stake_base);
-gas_field_name!(validator_total_stake_base);
-gas_field_name!(contract_compile_base);
-gas_field_name!(contract_compile_bytes);
-gas_field_name!(alt_bn128_g1_multiexp_base);
-gas_field_name!(alt_bn128_g1_multiexp_element);
-gas_field_name!(alt_bn128_g1_sum_base);
-gas_field_name!(alt_bn128_g1_sum_element);
-gas_field_name!(alt_bn128_pairing_check_base);
-gas_field_name!(alt_bn128_pairing_check_element);
-gas_field_name!(yield_create_base);
-gas_field_name!(yield_create_byte);
-gas_field_name!(yield_resume_base);
-gas_field_name!(yield_resume_byte);
-gas_field_name!(bls12381_p1_sum_base);
-gas_field_name!(bls12381_p1_sum_element);
-gas_field_name!(bls12381_p2_sum_base);
-gas_field_name!(bls12381_p2_sum_element);
-gas_field_name!(bls12381_g1_multiexp_base);
-gas_field_name!(bls12381_g1_multiexp_element);
-gas_field_name!(bls12381_g2_multiexp_base);
-gas_field_name!(bls12381_g2_multiexp_element);
-gas_field_name!(bls12381_map_fp_to_g1_base);
-gas_field_name!(bls12381_map_fp_to_g1_element);
-gas_field_name!(bls12381_map_fp2_to_g2_base);
-gas_field_name!(bls12381_map_fp2_to_g2_element);
-gas_field_name!(bls12381_pairing_base);
-gas_field_name!(bls12381_pairing_element);
-gas_field_name!(bls12381_p1_decompress_base);
-gas_field_name!(bls12381_p1_decompress_element);
-gas_field_name!(bls12381_p2_decompress_base);
-gas_field_name!(bls12381_p2_decompress_element);
-
 
 impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
     fn from(config: crate::ExtCostsConfig) -> Self {
         Self {
-            base: NearGas::from_gas(config.gas_cost(ExtCosts::base)),
-            contract_loading_base: NearGas::from_gas(
-                config.gas_cost(ExtCosts::contract_loading_base),
-            ),
-            contract_loading_bytes: NearGas::from_gas(
+            base: Gas::from_gas(config.gas_cost(ExtCosts::base)),
+            contract_loading_base: Gas::from_gas(config.gas_cost(ExtCosts::contract_loading_base)),
+            contract_loading_bytes: Gas::from_gas(
                 config.gas_cost(ExtCosts::contract_loading_bytes),
             ),
-            read_memory_base: NearGas::from_gas(config.gas_cost(ExtCosts::read_memory_base)),
-            read_memory_byte: NearGas::from_gas(config.gas_cost(ExtCosts::read_memory_byte)),
-            write_memory_base: NearGas::from_gas(config.gas_cost(ExtCosts::write_memory_base)),
-            write_memory_byte: NearGas::from_gas(config.gas_cost(ExtCosts::write_memory_byte)),
-            read_register_base: NearGas::from_gas(config.gas_cost(ExtCosts::read_register_base)),
-            read_register_byte: NearGas::from_gas(config.gas_cost(ExtCosts::read_register_byte)),
-            write_register_base: NearGas::from_gas(config.gas_cost(ExtCosts::write_register_base)),
-            write_register_byte: NearGas::from_gas(config.gas_cost(ExtCosts::write_register_byte)),
-            utf8_decoding_base: NearGas::from_gas(config.gas_cost(ExtCosts::utf8_decoding_base)),
-            utf8_decoding_byte: NearGas::from_gas(config.gas_cost(ExtCosts::utf8_decoding_byte)),
-            utf16_decoding_base: NearGas::from_gas(config.gas_cost(ExtCosts::utf16_decoding_base)),
-            utf16_decoding_byte: NearGas::from_gas(config.gas_cost(ExtCosts::utf16_decoding_byte)),
-            sha256_base: NearGas::from_gas(config.gas_cost(ExtCosts::sha256_base)),
-            sha256_byte: NearGas::from_gas(config.gas_cost(ExtCosts::sha256_byte)),
-            keccak256_base: NearGas::from_gas(config.gas_cost(ExtCosts::keccak256_base)),
-            keccak256_byte: NearGas::from_gas(config.gas_cost(ExtCosts::keccak256_byte)),
-            keccak512_base: NearGas::from_gas(config.gas_cost(ExtCosts::keccak512_base)),
-            keccak512_byte: NearGas::from_gas(config.gas_cost(ExtCosts::keccak512_byte)),
-            ripemd160_base: NearGas::from_gas(config.gas_cost(ExtCosts::ripemd160_base)),
-            ripemd160_block: NearGas::from_gas(config.gas_cost(ExtCosts::ripemd160_block)),
-            ed25519_verify_base: NearGas::from_gas(config.gas_cost(ExtCosts::ed25519_verify_base)),
-            ed25519_verify_byte: NearGas::from_gas(config.gas_cost(ExtCosts::ed25519_verify_byte)),
-            ecrecover_base: NearGas::from_gas(config.gas_cost(ExtCosts::ecrecover_base)),
-            log_base: NearGas::from_gas(config.gas_cost(ExtCosts::log_base)),
-            log_byte: NearGas::from_gas(config.gas_cost(ExtCosts::log_byte)),
-            storage_write_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_write_base)),
-            storage_write_key_byte: NearGas::from_gas(
+            read_memory_base: Gas::from_gas(config.gas_cost(ExtCosts::read_memory_base)),
+            read_memory_byte: Gas::from_gas(config.gas_cost(ExtCosts::read_memory_byte)),
+            write_memory_base: Gas::from_gas(config.gas_cost(ExtCosts::write_memory_base)),
+            write_memory_byte: Gas::from_gas(config.gas_cost(ExtCosts::write_memory_byte)),
+            read_register_base: Gas::from_gas(config.gas_cost(ExtCosts::read_register_base)),
+            read_register_byte: Gas::from_gas(config.gas_cost(ExtCosts::read_register_byte)),
+            write_register_base: Gas::from_gas(config.gas_cost(ExtCosts::write_register_base)),
+            write_register_byte: Gas::from_gas(config.gas_cost(ExtCosts::write_register_byte)),
+            utf8_decoding_base: Gas::from_gas(config.gas_cost(ExtCosts::utf8_decoding_base)),
+            utf8_decoding_byte: Gas::from_gas(config.gas_cost(ExtCosts::utf8_decoding_byte)),
+            utf16_decoding_base: Gas::from_gas(config.gas_cost(ExtCosts::utf16_decoding_base)),
+            utf16_decoding_byte: Gas::from_gas(config.gas_cost(ExtCosts::utf16_decoding_byte)),
+            sha256_base: Gas::from_gas(config.gas_cost(ExtCosts::sha256_base)),
+            sha256_byte: Gas::from_gas(config.gas_cost(ExtCosts::sha256_byte)),
+            keccak256_base: Gas::from_gas(config.gas_cost(ExtCosts::keccak256_base)),
+            keccak256_byte: Gas::from_gas(config.gas_cost(ExtCosts::keccak256_byte)),
+            keccak512_base: Gas::from_gas(config.gas_cost(ExtCosts::keccak512_base)),
+            keccak512_byte: Gas::from_gas(config.gas_cost(ExtCosts::keccak512_byte)),
+            ripemd160_base: Gas::from_gas(config.gas_cost(ExtCosts::ripemd160_base)),
+            ripemd160_block: Gas::from_gas(config.gas_cost(ExtCosts::ripemd160_block)),
+            ed25519_verify_base: Gas::from_gas(config.gas_cost(ExtCosts::ed25519_verify_base)),
+            ed25519_verify_byte: Gas::from_gas(config.gas_cost(ExtCosts::ed25519_verify_byte)),
+            ecrecover_base: Gas::from_gas(config.gas_cost(ExtCosts::ecrecover_base)),
+            log_base: Gas::from_gas(config.gas_cost(ExtCosts::log_base)),
+            log_byte: Gas::from_gas(config.gas_cost(ExtCosts::log_byte)),
+            storage_write_base: Gas::from_gas(config.gas_cost(ExtCosts::storage_write_base)),
+            storage_write_key_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_write_key_byte),
             ),
-            storage_write_value_byte: NearGas::from_gas(
+            storage_write_value_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_write_value_byte),
             ),
-            storage_write_evicted_byte: NearGas::from_gas(
+            storage_write_evicted_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_write_evicted_byte),
             ),
-            storage_read_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_read_base)),
-            storage_read_key_byte: NearGas::from_gas(
-                config.gas_cost(ExtCosts::storage_read_key_byte),
-            ),
-            storage_read_value_byte: NearGas::from_gas(
+            storage_read_base: Gas::from_gas(config.gas_cost(ExtCosts::storage_read_base)),
+            storage_read_key_byte: Gas::from_gas(config.gas_cost(ExtCosts::storage_read_key_byte)),
+            storage_read_value_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_read_value_byte),
             ),
-            storage_large_read_overhead_base: NearGas::from_gas(
+            storage_large_read_overhead_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_large_read_overhead_base),
             ),
-            storage_large_read_overhead_byte: NearGas::from_gas(
+            storage_large_read_overhead_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_large_read_overhead_byte),
             ),
-            storage_remove_base: NearGas::from_gas(config.gas_cost(ExtCosts::storage_remove_base)),
-            storage_remove_key_byte: NearGas::from_gas(
+            storage_remove_base: Gas::from_gas(config.gas_cost(ExtCosts::storage_remove_base)),
+            storage_remove_key_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_remove_key_byte),
             ),
-            storage_remove_ret_value_byte: NearGas::from_gas(
+            storage_remove_ret_value_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_remove_ret_value_byte),
             ),
-            storage_has_key_base: NearGas::from_gas(
-                config.gas_cost(ExtCosts::storage_has_key_base),
-            ),
-            storage_has_key_byte: NearGas::from_gas(
-                config.gas_cost(ExtCosts::storage_has_key_byte),
-            ),
-            storage_iter_create_prefix_base: NearGas::from_gas(
+            storage_has_key_base: Gas::from_gas(config.gas_cost(ExtCosts::storage_has_key_base)),
+            storage_has_key_byte: Gas::from_gas(config.gas_cost(ExtCosts::storage_has_key_byte)),
+            storage_iter_create_prefix_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_iter_create_prefix_base),
             ),
-            storage_iter_create_prefix_byte: NearGas::from_gas(
+            storage_iter_create_prefix_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_iter_create_prefix_byte),
             ),
-            storage_iter_create_range_base: NearGas::from_gas(
+            storage_iter_create_range_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_iter_create_range_base),
             ),
-            storage_iter_create_from_byte: NearGas::from_gas(
+            storage_iter_create_from_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_iter_create_from_byte),
             ),
-            storage_iter_create_to_byte: NearGas::from_gas(
+            storage_iter_create_to_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_iter_create_to_byte),
             ),
-            storage_iter_next_base: NearGas::from_gas(
+            storage_iter_next_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_iter_next_base),
             ),
-            storage_iter_next_key_byte: NearGas::from_gas(
+            storage_iter_next_key_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_iter_next_key_byte),
             ),
-            storage_iter_next_value_byte: NearGas::from_gas(
+            storage_iter_next_value_byte: Gas::from_gas(
                 config.gas_cost(ExtCosts::storage_iter_next_value_byte),
             ),
-            touching_trie_node: NearGas::from_gas(config.gas_cost(ExtCosts::touching_trie_node)),
-            read_cached_trie_node: NearGas::from_gas(
-                config.gas_cost(ExtCosts::read_cached_trie_node),
-            ),
-            promise_and_base: NearGas::from_gas(config.gas_cost(ExtCosts::promise_and_base)),
-            promise_and_per_promise: NearGas::from_gas(
+            touching_trie_node: Gas::from_gas(config.gas_cost(ExtCosts::touching_trie_node)),
+            read_cached_trie_node: Gas::from_gas(config.gas_cost(ExtCosts::read_cached_trie_node)),
+            promise_and_base: Gas::from_gas(config.gas_cost(ExtCosts::promise_and_base)),
+            promise_and_per_promise: Gas::from_gas(
                 config.gas_cost(ExtCosts::promise_and_per_promise),
             ),
-            promise_return: NearGas::from_gas(config.gas_cost(ExtCosts::promise_return)),
-            validator_stake_base: NearGas::from_gas(
-                config.gas_cost(ExtCosts::validator_stake_base),
-            ),
-            validator_total_stake_base: NearGas::from_gas(
+            promise_return: Gas::from_gas(config.gas_cost(ExtCosts::promise_return)),
+            validator_stake_base: Gas::from_gas(config.gas_cost(ExtCosts::validator_stake_base)),
+            validator_total_stake_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::validator_total_stake_base),
             ),
-            alt_bn128_g1_multiexp_base: NearGas::from_gas(
+            alt_bn128_g1_multiexp_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_base),
             ),
-            alt_bn128_g1_multiexp_element: NearGas::from_gas(
+            alt_bn128_g1_multiexp_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_element),
             ),
-            alt_bn128_g1_sum_base: NearGas::from_gas(
-                config.gas_cost(ExtCosts::alt_bn128_g1_sum_base),
-            ),
-            alt_bn128_g1_sum_element: NearGas::from_gas(
+            alt_bn128_g1_sum_base: Gas::from_gas(config.gas_cost(ExtCosts::alt_bn128_g1_sum_base)),
+            alt_bn128_g1_sum_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::alt_bn128_g1_sum_element),
             ),
-            alt_bn128_pairing_check_base: NearGas::from_gas(
+            alt_bn128_pairing_check_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::alt_bn128_pairing_check_base),
             ),
-            alt_bn128_pairing_check_element: NearGas::from_gas(
+            alt_bn128_pairing_check_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::alt_bn128_pairing_check_element),
             ),
-            yield_create_base: NearGas::from_gas(config.gas_cost(ExtCosts::yield_create_base)),
-            yield_create_byte: NearGas::from_gas(config.gas_cost(ExtCosts::yield_create_byte)),
-            yield_resume_base: NearGas::from_gas(config.gas_cost(ExtCosts::yield_resume_base)),
-            yield_resume_byte: NearGas::from_gas(config.gas_cost(ExtCosts::yield_resume_byte)),
-            bls12381_p1_sum_base: NearGas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_p1_sum_base),
-            ),
-            bls12381_p1_sum_element: NearGas::from_gas(
+            yield_create_base: Gas::from_gas(config.gas_cost(ExtCosts::yield_create_base)),
+            yield_create_byte: Gas::from_gas(config.gas_cost(ExtCosts::yield_create_byte)),
+            yield_resume_base: Gas::from_gas(config.gas_cost(ExtCosts::yield_resume_base)),
+            yield_resume_byte: Gas::from_gas(config.gas_cost(ExtCosts::yield_resume_byte)),
+            bls12381_p1_sum_base: Gas::from_gas(config.gas_cost(ExtCosts::bls12381_p1_sum_base)),
+            bls12381_p1_sum_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_p1_sum_element),
             ),
-            bls12381_p2_sum_base: NearGas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_p2_sum_base),
-            ),
-            bls12381_p2_sum_element: NearGas::from_gas(
+            bls12381_p2_sum_base: Gas::from_gas(config.gas_cost(ExtCosts::bls12381_p2_sum_base)),
+            bls12381_p2_sum_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_p2_sum_element),
             ),
-            bls12381_g1_multiexp_base: NearGas::from_gas(
+            bls12381_g1_multiexp_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_g1_multiexp_base),
             ),
-            bls12381_g1_multiexp_element: NearGas::from_gas(
+            bls12381_g1_multiexp_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_g1_multiexp_element),
             ),
-            bls12381_g2_multiexp_base: NearGas::from_gas(
+            bls12381_g2_multiexp_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_g2_multiexp_base),
             ),
-            bls12381_g2_multiexp_element: NearGas::from_gas(
+            bls12381_g2_multiexp_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_g2_multiexp_element),
             ),
-            bls12381_map_fp_to_g1_base: NearGas::from_gas(
+            bls12381_map_fp_to_g1_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_base),
             ),
-            bls12381_map_fp_to_g1_element: NearGas::from_gas(
+            bls12381_map_fp_to_g1_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_element),
             ),
-            bls12381_map_fp2_to_g2_base: NearGas::from_gas(
+            bls12381_map_fp2_to_g2_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_base),
             ),
-            bls12381_map_fp2_to_g2_element: NearGas::from_gas(
+            bls12381_map_fp2_to_g2_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_element),
             ),
-            bls12381_pairing_base: NearGas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_pairing_base),
-            ),
-            bls12381_pairing_element: NearGas::from_gas(
+            bls12381_pairing_base: Gas::from_gas(config.gas_cost(ExtCosts::bls12381_pairing_base)),
+            bls12381_pairing_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_pairing_element),
             ),
-            bls12381_p1_decompress_base: NearGas::from_gas(
+            bls12381_p1_decompress_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_p1_decompress_base),
             ),
-            bls12381_p1_decompress_element: NearGas::from_gas(
+            bls12381_p1_decompress_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_p1_decompress_element),
             ),
-            bls12381_p2_decompress_base: NearGas::from_gas(
+            bls12381_p2_decompress_base: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_p2_decompress_base),
             ),
-            bls12381_p2_decompress_element: NearGas::from_gas(
+            bls12381_p2_decompress_element: Gas::from_gas(
                 config.gas_cost(ExtCosts::bls12381_p2_decompress_element),
             ),
             // removed parameters
-            contract_compile_base: NearGas::from_gas(0),
-            contract_compile_bytes: NearGas::from_gas(0),
+            contract_compile_base: Gas::from_gas(0),
+            contract_compile_bytes: Gas::from_gas(0),
         }
     }
 }
@@ -994,28 +789,19 @@ impl From<WitnessConfig> for WitnessConfigView {
 }
 
 /// The configuration for congestion control. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)
-#[serde_as]
-#[serde_with::apply(
-    NearGas => #[serde(flatten)],
-)]
-#[serde_with::apply(
-    NearGas => #[serde_as(as = "GasNumberSerialization<baseGasFieldName>")],
-)]
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CongestionControlConfigView {
     /// How much gas in delayed receipts of a shard is 100% incoming congestion.
     ///
     /// See [`CongestionControlConfig`] for more details.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub max_congestion_incoming_gas: NearGas,
+    pub max_congestion_incoming_gas: Gas,
 
     /// How much gas in outgoing buffered receipts of a shard is 100% congested.
     ///
     /// Outgoing congestion contributes to overall congestion, which reduces how
     /// much other shards are allowed to forward to this shard.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub max_congestion_outgoing_gas: NearGas,
+    pub max_congestion_outgoing_gas: Gas,
 
     /// How much memory space of all delayed and buffered receipts in a shard is
     /// considered 100% congested.
@@ -1030,34 +816,29 @@ pub struct CongestionControlConfigView {
     /// another shard per chunk.
     ///
     /// See [`CongestionControlConfig`] for more details.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub max_outgoing_gas: NearGas,
+    pub max_outgoing_gas: Gas,
 
     /// The minimum gas each shard can send to a shard that is not fully congested.
     ///
     /// See [`CongestionControlConfig`] for more details.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub min_outgoing_gas: NearGas,
+    pub min_outgoing_gas: Gas,
 
     /// How much gas the chosen allowed shard can send to a 100% congested shard.
     ///
     /// See [`CongestionControlConfig`] for more details.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub allowed_shard_outgoing_gas: NearGas,
+    pub allowed_shard_outgoing_gas: Gas,
 
     /// The maximum amount of gas in a chunk spent on converting new transactions to
     /// receipts.
     ///
     /// See [`CongestionControlConfig`] for more details.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub max_tx_gas: NearGas,
+    pub max_tx_gas: Gas,
 
     /// The minimum amount of gas in a chunk spent on converting new transactions
     /// to receipts, as long as the receiving shard is not congested.
     ///
     /// See [`CongestionControlConfig`] for more details.
-    // #[serde_as(as = "GasNumberSerialization")]
-    pub min_tx_gas: NearGas,
+    pub min_tx_gas: Gas,
 
     /// How much congestion a shard can tolerate before it stops all shards from
     /// accepting new transactions with the receiver set to the congested shard.
@@ -1077,15 +858,15 @@ pub struct CongestionControlConfigView {
 impl From<CongestionControlConfig> for CongestionControlConfigView {
     fn from(other: CongestionControlConfig) -> Self {
         Self {
-            max_congestion_incoming_gas: NearGas::from_gas(other.max_congestion_incoming_gas),
-            max_congestion_outgoing_gas: NearGas::from_gas(other.max_congestion_outgoing_gas),
+            max_congestion_incoming_gas: Gas::from_gas(other.max_congestion_incoming_gas),
+            max_congestion_outgoing_gas: Gas::from_gas(other.max_congestion_outgoing_gas),
             max_congestion_memory_consumption: other.max_congestion_memory_consumption,
             max_congestion_missed_chunks: other.max_congestion_missed_chunks,
-            max_outgoing_gas: NearGas::from_gas(other.max_outgoing_gas),
-            min_outgoing_gas: NearGas::from_gas(other.min_outgoing_gas),
-            allowed_shard_outgoing_gas: NearGas::from_gas(other.allowed_shard_outgoing_gas),
-            max_tx_gas: NearGas::from_gas(other.max_tx_gas),
-            min_tx_gas: NearGas::from_gas(other.min_tx_gas),
+            max_outgoing_gas: Gas::from_gas(other.max_outgoing_gas),
+            min_outgoing_gas: Gas::from_gas(other.min_outgoing_gas),
+            allowed_shard_outgoing_gas: Gas::from_gas(other.allowed_shard_outgoing_gas),
+            max_tx_gas: Gas::from_gas(other.max_tx_gas),
+            min_tx_gas: Gas::from_gas(other.min_tx_gas),
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
             outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
             outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,

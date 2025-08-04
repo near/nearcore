@@ -12,8 +12,8 @@ use near_client::Client;
 use near_client::{Query, QueryError::GarbageCollectedBlock};
 use near_crypto::Signer;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_gas::NearGas;
 use near_primitives::action::{Action, FunctionCallAction};
+use near_primitives::gas::Gas as TypedGas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     DelayedReceiptIndices, PromiseYieldIndices, ReceiptOrStateStoredReceipt,
@@ -214,13 +214,13 @@ pub(crate) fn execute_storage_operations(
             let read_action = Action::FunctionCall(Box::new(FunctionCallAction {
                 args: near_primitives::test_utils::encode(&[salt]),
                 method_name: "read_value".to_string(),
-                gas: NearGas::from_gas(gas),
+                gas: TypedGas::from_gas(gas),
                 deposit: 0,
             }));
             let write_action = Action::FunctionCall(Box::new(FunctionCallAction {
                 args: near_primitives::test_utils::encode(&[salt + 1, salt * 10]),
                 method_name: "write_key_value".to_string(),
-                gas: NearGas::from_gas(gas),
+                gas: TypedGas::from_gas(gas),
                 deposit: 0,
             }));
             let tx = SignedTransaction::from_actions(

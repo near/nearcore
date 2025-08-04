@@ -1,9 +1,9 @@
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
-use near_gas::NearGas;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptEnum::{PromiseResume, PromiseYield};
 use near_primitives::transaction::{
@@ -62,7 +62,7 @@ fn prepare_env_with_yield(
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     if let Some(gas_limit) = test_env_gas_limit {
-        genesis.config.gas_limit = NearGas::from_gas(gas_limit);
+        genesis.config.gas_limit = Gas::from_gas(gas_limit);
     }
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -101,7 +101,7 @@ fn prepare_env_with_yield(
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_create_return_promise".to_string(),
             args: anticipated_yield_payload,
-            gas: NearGas::from_gas(300_000_000_000_000),
+            gas: Gas::from_gas(300_000_000_000_000),
             deposit: 0,
         }))],
         *genesis_block.hash(),
@@ -140,7 +140,7 @@ fn invoke_yield_resume(env: &TestEnv, data_id: CryptoHash, yield_payload: Vec<u8
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_resume".to_string(),
             args: yield_payload.into_iter().chain(data_id.as_bytes().iter().cloned()).collect(),
-            gas: NearGas::from_gas(300_000_000_000_000),
+            gas: Gas::from_gas(300_000_000_000_000),
             deposit: 0,
         }))],
         *genesis_block.hash(),
@@ -173,7 +173,7 @@ fn create_congestion(env: &TestEnv) {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "epoch_height".to_string(),
                 args: vec![],
-                gas: NearGas::from_gas(100),
+                gas: Gas::from_gas(100),
                 deposit: 0,
             }))],
             *genesis_block.hash(),

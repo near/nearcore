@@ -4,13 +4,13 @@ use crate::ext::RuntimeExt;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use near_crypto::{KeyType, PublicKey};
-use near_gas::NearGas;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::borsh::BorshDeserialize;
+use near_primitives::gas::Gas as TypedGas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV1};
 use near_primitives::transaction::FunctionCallAction;
@@ -240,7 +240,7 @@ impl TrieViewer {
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
             args: args.to_vec(),
-            gas: NearGas::from_gas(self.max_gas_burnt_view),
+            gas: TypedGas::from_gas(self.max_gas_burnt_view),
             deposit: 0,
         };
         let action_receipt = ActionReceipt {

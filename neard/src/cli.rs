@@ -10,7 +10,6 @@ use near_dump_test_contract::DumpTestContractCommand;
 use near_dyn_configs::{UpdatableConfigLoader, UpdatableConfigLoaderError, UpdatableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
 use near_fork_network::cli::ForkNetworkCommand;
-use near_gas::NearGas;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_network::tcp;
@@ -21,6 +20,7 @@ use near_o11y::{
 };
 use near_ping::PingCommand;
 use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::gas::Gas as TypedGas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
@@ -525,7 +525,7 @@ impl RunCmd {
         }
         if self.max_gas_burnt_view.is_some() {
             near_config.client_config.max_gas_burnt_view =
-                self.max_gas_burnt_view.map(NearGas::from_gas);
+                self.max_gas_burnt_view.map(TypedGas::from_gas);
         }
 
         #[cfg(feature = "sandbox")]

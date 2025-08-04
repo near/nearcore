@@ -48,7 +48,6 @@ near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true
 near-primitives-core.workspace = true
 near-schema-checker-lib.workspace = true
-near-gas.workspace = true
 
 bytesize.workspace = true
 

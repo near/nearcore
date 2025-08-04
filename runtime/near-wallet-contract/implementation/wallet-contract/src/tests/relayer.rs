@@ -10,7 +10,7 @@ use crate::{
     types::{Action, ExecuteResponse},
 };
 use aurora_engine_types::types::{Address, Wei};
-use near_gas::NearGas;
+use near_primitives::gas::Gas;
 use near_sdk::NearToken;
 use near_workspaces::{
     network::Sandbox,
@@ -284,7 +284,7 @@ async fn test_relayer_insufficient_gas() -> anyhow::Result<()> {
     let relayer_pk = wallet_contract.register_relayer(&worker).await?;
 
     // Relayer does not attach enough gas
-    let attached_gas = NearGas::from_tgas(30);
+    let attached_gas = Gas::from_tgas(30);
     let requested_gas = attached_gas.as_gas() / crate::internal::GAS_MULTIPLIER + 100;
     let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
         nonce: 0.into(),

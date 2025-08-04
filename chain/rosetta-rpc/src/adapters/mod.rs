@@ -1,8 +1,8 @@
 use actix::Addr;
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
-use near_gas::NearGas;
 use near_o11y::WithSpanContextExt;
+use near_primitives::gas::Gas;
 use validated_operations::ValidatedOperation;
 
 pub(crate) mod nep141;
@@ -713,7 +713,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         near_primitives::transaction::FunctionCallAction {
                             method_name: function_call_operation.method_name,
                             args: function_call_operation.args,
-                            gas: NearGas::from_gas(function_call_operation.attached_gas),
+                            gas: Gas::from_gas(function_call_operation.attached_gas),
                             deposit: function_call_operation.attached_amount,
                         }
                         .into(),
@@ -887,7 +887,7 @@ mod tests {
             near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: NearGas::from_gas(100500),
+                gas: Gas::from_gas(100500),
                 deposit: 0,
             }
             .into(),
@@ -896,7 +896,7 @@ mod tests {
             near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: NearGas::from_gas(100500),
+                gas: Gas::from_gas(100500),
                 deposit: near_primitives::types::Balance::MAX,
             }
             .into(),

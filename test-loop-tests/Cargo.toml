@@ -42,7 +42,6 @@ near-store.workspace = true
 near-test-contracts.workspace = true
 near-vm-runner.workspace = true
 nearcore.workspace = true
-near-gas.workspace = true
 testlib.workspace = true
 
 [features]

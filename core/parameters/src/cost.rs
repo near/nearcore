@@ -1,37 +1,27 @@
 use crate::parameter::Parameter;
 use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
-use near_gas::NearGas;
+use near_primitives_core::gas::Gas as TypedGas;
 use near_primitives_core::types::{Balance, Compute, Gas};
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives_core::serialize::{GasNumberSerialization, NameTrait};
-use near_primitives_core::gas_field_name;
 use near_schema_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
-use serde_with::serde_as;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
 /// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
 /// And `execution` fee is burned when the item is being executed.
-#[serde_as]
-#[serde_with::apply(
-    NearGas => #[serde_as(as = "GasNumberSerialization<baseGasFieldName>")],
-)]
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Fee {
     /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
     /// the shard.
-    pub send_sir: NearGas,
+    pub send_sir: near_primitives_core::gas::Gas,
     /// Fee for sending an object potentially across the shards.
-    pub send_not_sir: NearGas,
+    pub send_not_sir: near_primitives_core::gas::Gas,
     /// Fee for executing the object.
-    pub execution: NearGas,
+    pub execution: near_primitives_core::gas::Gas,
 }
-
-gas_field_name!(send_sir);
-
 
 impl Fee {
     #[inline]
@@ -503,104 +493,104 @@ impl RuntimeFeesConfig {
             },
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee {
-                    send_sir: NearGas::from_gas(3_850_000_000_000),
-                    send_not_sir: NearGas::from_gas(3_850_000_000_000),
-                    execution: NearGas::from_gas(3_850_000_000_000),
+                    send_sir: TypedGas::from_gas(3_850_000_000_000),
+                    send_not_sir: TypedGas::from_gas(3_850_000_000_000),
+                    execution: TypedGas::from_gas(3_850_000_000_000),
                 },
                 ActionCosts::delete_account => Fee {
-                    send_sir: NearGas::from_gas(147489000000),
-                    send_not_sir: NearGas::from_gas(147489000000),
-                    execution: NearGas::from_gas(147489000000),
+                    send_sir: TypedGas::from_gas(147489000000),
+                    send_not_sir: TypedGas::from_gas(147489000000),
+                    execution: TypedGas::from_gas(147489000000),
                 },
                 ActionCosts::deploy_contract_base => Fee {
-                    send_sir: NearGas::from_gas(184765750000),
-                    send_not_sir: NearGas::from_gas(184765750000),
-                    execution: NearGas::from_gas(184765750000),
+                    send_sir: TypedGas::from_gas(184765750000),
+                    send_not_sir: TypedGas::from_gas(184765750000),
+                    execution: TypedGas::from_gas(184765750000),
                 },
                 ActionCosts::deploy_contract_byte => Fee {
-                    send_sir: NearGas::from_gas(6812999),
-                    send_not_sir: NearGas::from_gas(6812999),
-                    execution: NearGas::from_gas(6812999),
+                    send_sir: TypedGas::from_gas(6812999),
+                    send_not_sir: TypedGas::from_gas(6812999),
+                    execution: TypedGas::from_gas(6812999),
                 },
                 ActionCosts::function_call_base => Fee {
-                    send_sir: NearGas::from_gas(2319861500000),
-                    send_not_sir: NearGas::from_gas(2319861500000),
-                    execution: NearGas::from_gas(2319861500000),
+                    send_sir: TypedGas::from_gas(2319861500000),
+                    send_not_sir: TypedGas::from_gas(2319861500000),
+                    execution: TypedGas::from_gas(2319861500000),
                 },
                 ActionCosts::function_call_byte => Fee {
-                    send_sir: NearGas::from_gas(2235934),
-                    send_not_sir: NearGas::from_gas(2235934),
-                    execution: NearGas::from_gas(2235934),
+                    send_sir: TypedGas::from_gas(2235934),
+                    send_not_sir: TypedGas::from_gas(2235934),
+                    execution: TypedGas::from_gas(2235934),
                 },
                 ActionCosts::transfer => Fee {
-                    send_sir: NearGas::from_gas(115123062500),
-                    send_not_sir: NearGas::from_gas(115123062500),
-                    execution: NearGas::from_gas(115123062500),
+                    send_sir: TypedGas::from_gas(115123062500),
+                    send_not_sir: TypedGas::from_gas(115123062500),
+                    execution: TypedGas::from_gas(115123062500),
                 },
                 ActionCosts::stake => Fee {
-                    send_sir: NearGas::from_gas(141715687500),
-                    send_not_sir: NearGas::from_gas(141715687500),
-                    execution: NearGas::from_gas(102217625000),
+                    send_sir: TypedGas::from_gas(141715687500),
+                    send_not_sir: TypedGas::from_gas(141715687500),
+                    execution: TypedGas::from_gas(102217625000),
                 },
                 ActionCosts::add_full_access_key => Fee {
-                    send_sir: NearGas::from_gas(101765125000),
-                    send_not_sir: NearGas::from_gas(101765125000),
-                    execution: NearGas::from_gas(101765125000),
+                    send_sir: TypedGas::from_gas(101765125000),
+                    send_not_sir: TypedGas::from_gas(101765125000),
+                    execution: TypedGas::from_gas(101765125000),
                 },
                 ActionCosts::add_function_call_key_base => Fee {
-                    send_sir: NearGas::from_gas(102217625000),
-                    send_not_sir: NearGas::from_gas(102217625000),
-                    execution: NearGas::from_gas(102217625000),
+                    send_sir: TypedGas::from_gas(102217625000),
+                    send_not_sir: TypedGas::from_gas(102217625000),
+                    execution: TypedGas::from_gas(102217625000),
                 },
                 ActionCosts::add_function_call_key_byte => Fee {
-                    send_sir: NearGas::from_gas(1925331),
-                    send_not_sir: NearGas::from_gas(1925331),
-                    execution: NearGas::from_gas(1925331),
+                    send_sir: TypedGas::from_gas(1925331),
+                    send_not_sir: TypedGas::from_gas(1925331),
+                    execution: TypedGas::from_gas(1925331),
                 },
                 ActionCosts::delete_key => Fee {
-                    send_sir: NearGas::from_gas(94946625000),
-                    send_not_sir: NearGas::from_gas(94946625000),
-                    execution: NearGas::from_gas(94946625000),
+                    send_sir: TypedGas::from_gas(94946625000),
+                    send_not_sir: TypedGas::from_gas(94946625000),
+                    execution: TypedGas::from_gas(94946625000),
                 },
                 ActionCosts::new_action_receipt => Fee {
-                    send_sir: NearGas::from_gas(108059500000),
-                    send_not_sir: NearGas::from_gas(108059500000),
-                    execution: NearGas::from_gas(108059500000),
+                    send_sir: TypedGas::from_gas(108059500000),
+                    send_not_sir: TypedGas::from_gas(108059500000),
+                    execution: TypedGas::from_gas(108059500000),
                 },
                 ActionCosts::new_data_receipt_base => Fee {
-                    send_sir: NearGas::from_gas(4697339419375),
-                    send_not_sir: NearGas::from_gas(4697339419375),
-                    execution: NearGas::from_gas(4697339419375),
+                    send_sir: TypedGas::from_gas(4697339419375),
+                    send_not_sir: TypedGas::from_gas(4697339419375),
+                    execution: TypedGas::from_gas(4697339419375),
                 },
                 ActionCosts::new_data_receipt_byte => Fee {
-                    send_sir: NearGas::from_gas(59357464),
-                    send_not_sir: NearGas::from_gas(59357464),
-                    execution: NearGas::from_gas(59357464),
+                    send_sir: TypedGas::from_gas(59357464),
+                    send_not_sir: TypedGas::from_gas(59357464),
+                    execution: TypedGas::from_gas(59357464),
                 },
                 ActionCosts::delegate => Fee {
-                    send_sir: NearGas::from_gas(200_000_000_000),
-                    send_not_sir: NearGas::from_gas(200_000_000_000),
-                    execution: NearGas::from_gas(200_000_000_000),
+                    send_sir: TypedGas::from_gas(200_000_000_000),
+                    send_not_sir: TypedGas::from_gas(200_000_000_000),
+                    execution: TypedGas::from_gas(200_000_000_000),
                 },
                 ActionCosts::deploy_global_contract_base => Fee {
-                    send_sir: NearGas::from_gas(184_765_750_000),
-                    send_not_sir: NearGas::from_gas(184_765_750_000),
-                    execution: NearGas::from_gas(184_765_750_000),
+                    send_sir: TypedGas::from_gas(184_765_750_000),
+                    send_not_sir: TypedGas::from_gas(184_765_750_000),
+                    execution: TypedGas::from_gas(184_765_750_000),
                 },
                 ActionCosts::deploy_global_contract_byte => Fee {
-                    send_sir: NearGas::from_gas(6_812_999),
-                    send_not_sir: NearGas::from_gas(6_812_999),
-                    execution: NearGas::from_gas(70_000_000),
+                    send_sir: TypedGas::from_gas(6_812_999),
+                    send_not_sir: TypedGas::from_gas(6_812_999),
+                    execution: TypedGas::from_gas(70_000_000),
                 },
                 ActionCosts::use_global_contract_base => Fee {
-                    send_sir: NearGas::from_gas(184_765_750_000),
-                    send_not_sir: NearGas::from_gas(184_765_750_000),
-                    execution: NearGas::from_gas(184_765_750_000),
+                    send_sir: TypedGas::from_gas(184_765_750_000),
+                    send_not_sir: TypedGas::from_gas(184_765_750_000),
+                    execution: TypedGas::from_gas(184_765_750_000),
                 },
                 ActionCosts::use_global_contract_byte => Fee {
-                    send_sir: NearGas::from_gas(6_812_999),
-                    send_not_sir: NearGas::from_gas(47_683_715),
-                    execution: NearGas::from_gas(64_572_944),
+                    send_sir: TypedGas::from_gas(6_812_999),
+                    send_not_sir: TypedGas::from_gas(47_683_715),
+                    execution: TypedGas::from_gas(64_572_944),
                 },
             },
         }
@@ -609,7 +599,7 @@ impl RuntimeFeesConfig {
     pub fn free() -> Self {
         Self {
             action_fees: enum_map::enum_map! {
-                _ => Fee { send_sir: NearGas::from_gas(0), send_not_sir: NearGas::from_gas(0), execution: NearGas::from_gas(0) }
+                _ => Fee { send_sir: TypedGas::from_gas(0), send_not_sir: TypedGas::from_gas(0), execution: TypedGas::from_gas(0) }
             },
             storage_usage_config: StorageUsageConfig::free(),
             burnt_gas_reward: Rational32::from_integer(0),

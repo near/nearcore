@@ -1,11 +1,11 @@
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords, get_initial_supply};
 use near_crypto::{InMemorySigner, Signer};
-use near_gas::NearGas;
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
+use near_primitives::gas::Gas;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
@@ -60,7 +60,7 @@ impl StandaloneRuntime {
         let mut runtime_config = random_config();
         let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
         // Bumping costs to avoid inflation overflows.
-        wasm_config.limit_config.max_total_prepaid_gas = NearGas::from_gas(10u64.pow(15));
+        wasm_config.limit_config.max_total_prepaid_gas = Gas::from_gas(10u64.pow(15));
         let fees = Arc::make_mut(&mut runtime_config.fees);
         fees.action_fees[ActionCosts::new_action_receipt].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();

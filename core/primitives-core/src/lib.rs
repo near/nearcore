@@ -8,6 +8,7 @@ pub mod apply;
 pub mod chains;
 pub mod code;
 pub mod config;
+pub mod gas;
 pub mod hash;
 pub mod serialize;
 pub mod types;

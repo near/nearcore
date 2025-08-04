@@ -20,7 +20,6 @@ use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE};
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
-use near_gas::NearGas;
 use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::{MockPeerManagerAdapter, wait_or_panic};
 use near_network::types::{
@@ -37,6 +36,7 @@ use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::{Approval, Chunks};
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
+use near_primitives::gas::Gas;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{PartialMerkleTree, verify_hash};
@@ -1593,7 +1593,7 @@ fn test_gas_price_change() {
     let gas_price_adjustment_rate = Ratio::new(1, 10);
 
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = NearGas::from_gas(gas_limit);
+    genesis.config.gas_limit = Gas::from_gas(gas_limit);
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
@@ -1634,7 +1634,7 @@ fn test_gas_price_overflow() {
     let gas_limit = 450000000000;
     let gas_price_adjustment_rate = Ratio::from_integer(1);
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = NearGas::from_gas(gas_limit);
+    genesis.config.gas_limit = Gas::from_gas(gas_limit);
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     genesis.config.transaction_validity_period = 100000;
     genesis.config.epoch_length = 43200;
@@ -1917,7 +1917,7 @@ fn test_validate_chunk_extra() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_block_height".to_string(),
             args: vec![],
-            gas: NearGas::from_gas(100000000000000),
+            gas: Gas::from_gas(100000000000000),
             deposit: 0,
         }))],
         *last_block.hash(),
@@ -2048,7 +2048,7 @@ fn slow_test_catchup_gas_price_change() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = NearGas::from_gas(1000000000000);
+    genesis.config.gas_limit = Gas::from_gas(1000000000000);
 
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
@@ -2197,7 +2197,7 @@ fn test_block_execution_outcomes() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = NearGas::from_gas(1000000000000);
+    genesis.config.gas_limit = Gas::from_gas(1000000000000);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -2279,7 +2279,7 @@ fn test_save_tx_outcomes_false() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = NearGas::from_gas(1000000000000);
+    genesis.config.gas_limit = Gas::from_gas(1000000000000);
     let mut env = TestEnv::builder(&genesis.config)
         .save_tx_outcomes(false)
         .nightshade_runtimes(&genesis)
@@ -2329,7 +2329,7 @@ fn test_refund_receipts_processing() {
     genesis.config.min_gas_price = min_gas_price;
     // Set gas limit to be small enough to produce some delayed receipts, but large enough for
     // transactions to get through.
-    genesis.config.gas_limit = NearGas::from_gas(100_000_000);
+    genesis.config.gas_limit = Gas::from_gas(100_000_000);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -3187,7 +3187,7 @@ fn test_validator_stake_host_function() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_validator_stake".to_string(),
             args: b"test0".to_vec(),
-            gas: NearGas::from_gas(100_000_000_000_000),
+            gas: Gas::from_gas(100_000_000_000_000),
             deposit: 0,
         }))],
         *genesis_block.hash(),

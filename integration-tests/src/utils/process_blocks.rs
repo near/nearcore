@@ -4,9 +4,9 @@ use near_chain::{Block, Provenance};
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
-use near_gas::NearGas;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -133,7 +133,7 @@ pub fn prepare_env_with_congestion(
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.protocol_version = protocol_version;
     genesis.config.epoch_length = epoch_length;
-    genesis.config.gas_limit = NearGas::from_gas(10_000_000_000_000);
+    genesis.config.gas_limit = Gas::from_gas(10_000_000_000_000);
     if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
         genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     }
@@ -182,7 +182,7 @@ pub fn prepare_env_with_congestion(
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "call_promise".to_string(),
                 args: serde_json::to_vec(&data).unwrap(),
-                gas: NearGas::from_gas(gas_1),
+                gas: Gas::from_gas(gas_1),
                 deposit: 0,
             }))],
             *genesis_block.hash(),

@@ -27,8 +27,8 @@ use std::sync::Arc;
 
 use crate::node::Node;
 use crate::user::{CommitError, User};
-use near_gas::NearGas;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_primitives::gas::Gas;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils;
 use near_primitives::transaction::{Action, DeployContractAction, FunctionCallAction};
@@ -1446,7 +1446,7 @@ fn make_write_key_value_action(key: Vec<u64>, value: Vec<u64>) -> Action {
     FunctionCallAction {
         method_name: "write_key_value".to_string(),
         args: test_utils::encode(&args),
-        gas: NearGas::from_gas(10u64.pow(14)),
+        gas: Gas::from_gas(10u64.pow(14)),
         deposit: 0,
     }
     .into()
@@ -1607,7 +1607,7 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
                 FunctionCallAction {
                     args: test_utils::encode(&[1]),
                     method_name: "read_value".to_string(),
-                    gas: NearGas::from_gas(10u64.pow(14)),
+                    gas: Gas::from_gas(10u64.pow(14)),
                     deposit: 0,
                 }
                 .into(),

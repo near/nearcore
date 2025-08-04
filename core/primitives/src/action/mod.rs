@@ -2,13 +2,12 @@ pub mod delegate;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_gas::NearGas;
 use near_primitives_core::{
     account::AccessKey,
+    gas::Gas as TypedGas,
     hash::CryptoHash,
-    serialize::{dec_format, GasNumberSerialization, NameTrait},
+    serialize::dec_format,
     types::{AccountId, Balance, Gas},
-    gas_field_name,
 };
 use near_schema_checker_lib::ProtocolSchema;
 
@@ -254,14 +253,11 @@ pub struct FunctionCallAction {
     #[serde_as(as = "Base64")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub args: Vec<u8>,
-    #[serde(flatten)]
-    #[serde_as(as = "GasNumberSerialization<gasGasFieldName>")]
-    pub gas: NearGas,
+    pub gas: TypedGas,
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub deposit: Balance,
 }
-gas_field_name!(gas);
 
 impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

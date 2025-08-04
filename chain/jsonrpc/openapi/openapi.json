@@ -1952,18 +1952,7 @@
                     "type": "string"
                   },
                   "gas": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/NearGas"
-                      }
-                    ]
-                  },
-                  "gas_lossless": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/NearGas"
-                      }
-                    ]
+                    "$ref": "#/components/schemas/MyGas"
                   },
                   "method_name": {
                     "type": "string"
@@ -1973,7 +1962,6 @@
                   "method_name",
                   "args",
                   "gas",
-                  "gas_lossless",
                   "deposit"
                 ],
                 "type": "object"
@@ -2217,39 +2205,15 @@
               "TotalPrepaidGasExceeded": {
                 "properties": {
                   "limit": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/NearGas"
-                      }
-                    ]
-                  },
-                  "limit_lossless": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/NearGas"
-                      }
-                    ]
+                    "$ref": "#/components/schemas/MyGas"
                   },
                   "total_prepaid_gas": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/NearGas"
-                      }
-                    ]
-                  },
-                  "total_prepaid_gas_lossless": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/NearGas"
-                      }
-                    ]
+                    "$ref": "#/components/schemas/MyGas"
                   }
                 },
                 "required": [
                   "total_prepaid_gas",
-                  "total_prepaid_gas_lossless",
-                  "limit",
-                  "limit_lossless"
+                  "limit"
                 ],
                 "type": "object"
               }
@@ -3084,32 +3048,10 @@
             "$ref": "#/components/schemas/CryptoHash"
           },
           "gas_limit": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
-          },
-          "gas_limit_lossless": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
+            "$ref": "#/components/schemas/MyGas"
           },
           "gas_used": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
-          },
-          "gas_used_lossless": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
+            "$ref": "#/components/schemas/MyGas"
           },
           "height_created": {
             "format": "uint64",
@@ -3168,9 +3110,7 @@
           "height_included",
           "shard_id",
           "gas_used",
-          "gas_used_lossless",
           "gas_limit",
-          "gas_limit_lossless",
           "rent_paid",
           "validator_reward",
           "balance_burnt",
@@ -3240,10 +3180,23 @@
       },
       "CongestionControlConfigView": {
         "description": "The configuration for congestion control. More info about congestion [here](https://near.github.io/nearcore/architecture/how/receipt-congestion.html?highlight=congestion#receipt-congestion)",
-        "format": "uint64",
-        "maximum": 9007199254740991,
-        "minimum": 0,
         "properties": {
+          "allowed_shard_outgoing_gas": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "How much gas the chosen allowed shard can send to a 100% congested shard.\n\nSee [`CongestionControlConfig`] for more details."
+          },
+          "max_congestion_incoming_gas": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "How much gas in delayed receipts of a shard is 100% incoming congestion.\n\nSee [`CongestionControlConfig`] for more details."
+          },
           "max_congestion_memory_consumption": {
             "description": "How much memory space of all delayed and buffered receipts in a shard is\nconsidered 100% congested.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
@@ -3255,6 +3208,46 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "max_congestion_outgoing_gas": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "How much gas in outgoing buffered receipts of a shard is 100% congested.\n\nOutgoing congestion contributes to overall congestion, which reduces how\nmuch other shards are allowed to forward to this shard."
+          },
+          "max_outgoing_gas": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "The maximum amount of gas attached to receipts a shard can forward to\nanother shard per chunk.\n\nSee [`CongestionControlConfig`] for more details."
+          },
+          "max_tx_gas": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "The maximum amount of gas in a chunk spent on converting new transactions to\nreceipts.\n\nSee [`CongestionControlConfig`] for more details."
+          },
+          "min_outgoing_gas": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "The minimum gas each shard can send to a shard that is not fully congested.\n\nSee [`CongestionControlConfig`] for more details."
+          },
+          "min_tx_gas": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "The minimum amount of gas in a chunk spent on converting new transactions\nto receipts, as long as the receiving shard is not congested.\n\nSee [`CongestionControlConfig`] for more details."
           },
           "outgoing_receipts_big_size_limit": {
             "description": "Large size limit for outgoing receipts to a shard, used when it's safe\nto send a lot of receipts without making the state witness too large.\nIt limits the total sum of outgoing receipts, not individual receipts.",
@@ -3275,8 +3268,15 @@
           }
         },
         "required": [
+          "max_congestion_incoming_gas",
+          "max_congestion_outgoing_gas",
           "max_congestion_memory_consumption",
           "max_congestion_missed_chunks",
+          "max_outgoing_gas",
+          "min_outgoing_gas",
+          "allowed_shard_outgoing_gas",
+          "max_tx_gas",
+          "min_tx_gas",
           "reject_tx_congestion_threshold",
           "outgoing_receipts_usual_size_limit",
           "outgoing_receipts_big_size_limit"
@@ -3803,16 +3803,10 @@
           "gas_burnt": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/NearGas"
+                "$ref": "#/components/schemas/MyGas"
               }
-            ]
-          },
-          "gas_burnt_lossless": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
+            ],
+            "description": "The amount of the gas burnt by the given transaction or receipt."
           },
           "logs": {
             "description": "Logs from this transaction or receipt.",
@@ -3856,7 +3850,6 @@
           "logs",
           "receipt_ids",
           "gas_burnt",
-          "gas_burnt_lossless",
           "tokens_burnt",
           "executor_id",
           "status"
@@ -3941,9 +3934,693 @@
       },
       "ExtCostsConfigView": {
         "description": "Typed view of ExtCostsConfig to preserve JSON output field names in protocol\nconfig RPC output.",
-        "format": "uint64",
-        "maximum": 9007199254740991,
-        "minimum": 0,
+        "properties": {
+          "alt_bn128_g1_multiexp_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost for multiexp"
+          },
+          "alt_bn128_g1_multiexp_element": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Per element cost for multiexp"
+          },
+          "alt_bn128_g1_sum_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost for sum"
+          },
+          "alt_bn128_g1_sum_element": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Per element cost for sum"
+          },
+          "alt_bn128_pairing_check_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost for pairing check"
+          },
+          "alt_bn128_pairing_check_element": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Per element cost for pairing check"
+          },
+          "base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost for calling a host function."
+          },
+          "bls12381_g1_multiexp_base": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_g1_multiexp_element": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_g2_multiexp_base": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_g2_multiexp_element": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_map_fp2_to_g2_base": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_map_fp2_to_g2_element": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_map_fp_to_g1_base": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_map_fp_to_g1_element": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_p1_decompress_base": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_p1_decompress_element": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_p1_sum_base": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_p1_sum_element": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_p2_decompress_base": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_p2_decompress_element": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_p2_sum_base": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_p2_sum_element": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_pairing_base": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "bls12381_pairing_element": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "contract_compile_base": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "contract_compile_bytes": {
+            "$ref": "#/components/schemas/MyGas"
+          },
+          "contract_loading_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost of loading a pre-compiled contract"
+          },
+          "contract_loading_bytes": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost per byte of loading a pre-compiled contract"
+          },
+          "ecrecover_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of calling ecrecover"
+          },
+          "ed25519_verify_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of getting ed25519 base"
+          },
+          "ed25519_verify_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of getting ed25519 per byte"
+          },
+          "keccak256_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of getting sha256 base"
+          },
+          "keccak256_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of getting sha256 per byte"
+          },
+          "keccak512_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of getting sha256 baseGas"
+          },
+          "keccak512_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of getting sha256 per byte"
+          },
+          "log_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost for calling logging."
+          },
+          "log_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost for logging per byte"
+          },
+          "promise_and_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost for calling `promise_and`"
+          },
+          "promise_and_per_promise": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost for calling `promise_and` for each promise"
+          },
+          "promise_return": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost for calling `promise_return`"
+          },
+          "read_cached_trie_node": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost for reading trie node from memory"
+          },
+          "read_memory_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost for guest memory read"
+          },
+          "read_memory_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost for guest memory read"
+          },
+          "read_register_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost for reading from register"
+          },
+          "read_register_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost for reading byte from register"
+          },
+          "ripemd160_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of getting ripemd160 base"
+          },
+          "ripemd160_block": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of getting ripemd160 per message block"
+          },
+          "sha256_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of getting sha256 base"
+          },
+          "sha256_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of getting sha256 per byte"
+          },
+          "storage_has_key_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie check for key existence cost base"
+          },
+          "storage_has_key_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie check for key existence per key byte"
+          },
+          "storage_iter_create_from_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Create trie range iterator cost per byte of from key."
+          },
+          "storage_iter_create_prefix_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Create trie prefix iterator cost base"
+          },
+          "storage_iter_create_prefix_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Create trie prefix iterator cost per byte."
+          },
+          "storage_iter_create_range_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Create trie range iterator cost base"
+          },
+          "storage_iter_create_to_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Create trie range iterator cost per byte of to key."
+          },
+          "storage_iter_next_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Trie iterator per key base cost"
+          },
+          "storage_iter_next_key_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Trie iterator next key byte cost"
+          },
+          "storage_iter_next_value_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Trie iterator next key byte cost"
+          },
+          "storage_large_read_overhead_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie read key overhead base cost, when doing large reads"
+          },
+          "storage_large_read_overhead_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie read key overhead  per-byte cost, when doing large reads"
+          },
+          "storage_read_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie read key base cost"
+          },
+          "storage_read_key_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie read key per byte cost"
+          },
+          "storage_read_value_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie read value cost per byte cost"
+          },
+          "storage_remove_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Remove key from trie base cost"
+          },
+          "storage_remove_key_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Remove key from trie per byte cost"
+          },
+          "storage_remove_ret_value_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Remove key from trie ret value byte cost"
+          },
+          "storage_write_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie write key base cost"
+          },
+          "storage_write_evicted_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie write cost per byte of evicted value."
+          },
+          "storage_write_key_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie write key per byte cost"
+          },
+          "storage_write_value_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Storage trie write value per byte cost"
+          },
+          "touching_trie_node": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost per reading trie node from DB"
+          },
+          "utf16_decoding_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost of decoding utf16. It's used for `log_utf16`."
+          },
+          "utf16_decoding_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost per byte of decoding utf16. It's used for `log_utf16`."
+          },
+          "utf8_decoding_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost of decoding utf8. It's used for `log_utf8` and `panic_utf8`."
+          },
+          "utf8_decoding_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost per byte of decoding utf8. It's used for `log_utf8` and `panic_utf8`."
+          },
+          "validator_stake_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of calling `validator_stake`."
+          },
+          "validator_total_stake_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost of calling `validator_total_stake`."
+          },
+          "write_memory_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost for guest memory write"
+          },
+          "write_memory_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost for guest memory write per byte"
+          },
+          "write_register_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost for writing into register"
+          },
+          "write_register_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Cost for writing byte into register"
+          },
+          "yield_create_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost for creating a yield promise."
+          },
+          "yield_create_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Per byte cost of arguments and method name."
+          },
+          "yield_resume_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Base cost for resuming a yield receipt."
+          },
+          "yield_resume_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              }
+            ],
+            "description": "Per byte cost of resume payload."
+          }
+        },
+        "required": [
+          "base",
+          "contract_loading_base",
+          "contract_loading_bytes",
+          "read_memory_base",
+          "read_memory_byte",
+          "write_memory_base",
+          "write_memory_byte",
+          "read_register_base",
+          "read_register_byte",
+          "write_register_base",
+          "write_register_byte",
+          "utf8_decoding_base",
+          "utf8_decoding_byte",
+          "utf16_decoding_base",
+          "utf16_decoding_byte",
+          "sha256_base",
+          "sha256_byte",
+          "keccak256_base",
+          "keccak256_byte",
+          "keccak512_base",
+          "keccak512_byte",
+          "ripemd160_base",
+          "ripemd160_block",
+          "ed25519_verify_base",
+          "ed25519_verify_byte",
+          "ecrecover_base",
+          "log_base",
+          "log_byte",
+          "storage_write_base",
+          "storage_write_key_byte",
+          "storage_write_value_byte",
+          "storage_write_evicted_byte",
+          "storage_read_base",
+          "storage_read_key_byte",
+          "storage_read_value_byte",
+          "storage_large_read_overhead_base",
+          "storage_large_read_overhead_byte",
+          "storage_remove_base",
+          "storage_remove_key_byte",
+          "storage_remove_ret_value_byte",
+          "storage_has_key_base",
+          "storage_has_key_byte",
+          "storage_iter_create_prefix_base",
+          "storage_iter_create_prefix_byte",
+          "storage_iter_create_range_base",
+          "storage_iter_create_from_byte",
+          "storage_iter_create_to_byte",
+          "storage_iter_next_base",
+          "storage_iter_next_key_byte",
+          "storage_iter_next_value_byte",
+          "touching_trie_node",
+          "read_cached_trie_node",
+          "promise_and_base",
+          "promise_and_per_promise",
+          "promise_return",
+          "validator_stake_base",
+          "validator_total_stake_base",
+          "contract_compile_base",
+          "contract_compile_bytes",
+          "alt_bn128_g1_multiexp_base",
+          "alt_bn128_g1_multiexp_element",
+          "alt_bn128_g1_sum_base",
+          "alt_bn128_g1_sum_element",
+          "alt_bn128_pairing_check_base",
+          "alt_bn128_pairing_check_element",
+          "yield_create_base",
+          "yield_create_byte",
+          "yield_resume_base",
+          "yield_resume_byte",
+          "bls12381_p1_sum_base",
+          "bls12381_p1_sum_element",
+          "bls12381_p2_sum_base",
+          "bls12381_p2_sum_element",
+          "bls12381_g1_multiexp_base",
+          "bls12381_g1_multiexp_element",
+          "bls12381_g2_multiexp_base",
+          "bls12381_g2_multiexp_element",
+          "bls12381_map_fp_to_g1_base",
+          "bls12381_map_fp_to_g1_element",
+          "bls12381_map_fp2_to_g2_base",
+          "bls12381_map_fp2_to_g2_element",
+          "bls12381_pairing_base",
+          "bls12381_pairing_element",
+          "bls12381_p1_decompress_base",
+          "bls12381_p1_decompress_element",
+          "bls12381_p2_decompress_base",
+          "bls12381_p2_decompress_element"
+        ],
         "type": "object"
       },
       "ExternalStorageConfig": {
@@ -4061,7 +4738,7 @@
           "execution": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/NearGas"
+                "$ref": "#/components/schemas/MyGas"
               }
             ],
             "description": "Fee for executing the object."
@@ -4069,7 +4746,7 @@
           "send_not_sir": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/NearGas"
+                "$ref": "#/components/schemas/MyGas"
               }
             ],
             "description": "Fee for sending an object potentially across the shards."
@@ -4077,7 +4754,7 @@
           "send_sir": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/NearGas"
+                "$ref": "#/components/schemas/MyGas"
               }
             ],
             "description": "Fee for sending an object from the sender to itself, guaranteeing that it does not leave\nthe shard."
@@ -4251,18 +4928,7 @@
             "type": "string"
           },
           "gas": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
-          },
-          "gas_lossless": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
+            "$ref": "#/components/schemas/MyGas"
           },
           "method_name": {
             "type": "string"
@@ -4272,7 +4938,6 @@
           "method_name",
           "args",
           "gas",
-          "gas_lossless",
           "deposit"
         ],
         "type": "object"
@@ -4462,29 +5127,6 @@
         ],
         "type": "object"
       },
-      "GasNumberSerializationmax_gas_burnt_view": {
-        "properties": {
-          "max_gas_burnt_view": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
-          },
-          "max_gas_burnt_view_lossless": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
-          }
-        },
-        "required": [
-          "max_gas_burnt_view",
-          "max_gas_burnt_view_lossless"
-        ],
-        "type": "object"
-      },
       "GenesisConfig": {
         "properties": {
           "avg_hidden_validator_seats_per_shard": {
@@ -4546,16 +5188,10 @@
           "gas_limit": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/NearGas"
+                "$ref": "#/components/schemas/MyGas"
               }
-            ]
-          },
-          "gas_limit_lossless": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
+            ],
+            "description": "Initial gas limit."
           },
           "gas_price_adjustment_rate": {
             "description": "Gas price adjustment rate",
@@ -4809,7 +5445,6 @@
           "dynamic_resharding",
           "epoch_length",
           "gas_limit",
-          "gas_limit_lossless",
           "min_gas_price",
           "max_gas_price",
           "block_producer_kickout_threshold",
@@ -7715,16 +8350,10 @@
           "max_gas_burnt": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/NearGas"
+                "$ref": "#/components/schemas/MyGas"
               }
-            ]
-          },
-          "max_gas_burnt_lossless": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
+            ],
+            "description": "Max amount of gas that can be used, excluding gas attached to promises."
           },
           "max_length_method_name": {
             "description": "Max length of any method name (without terminating character).",
@@ -7820,16 +8449,10 @@
           "max_total_prepaid_gas": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/NearGas"
+                "$ref": "#/components/schemas/MyGas"
               }
-            ]
-          },
-          "max_total_prepaid_gas_lossless": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
+            ],
+            "description": "Max total prepaid gas for all function call actions per receipt."
           },
           "max_transaction_size": {
             "description": "Max transaction size",
@@ -7864,7 +8487,6 @@
         },
         "required": [
           "max_gas_burnt",
-          "max_gas_burnt_lossless",
           "max_stack_height",
           "initial_memory_pages",
           "max_memory_pages",
@@ -7874,7 +8496,6 @@
           "max_number_logs",
           "max_total_log_length",
           "max_total_prepaid_gas",
-          "max_total_prepaid_gas_lossless",
           "max_actions_per_receipt",
           "max_number_bytes_method_names",
           "max_length_method_name",
@@ -7974,9 +8595,8 @@
       "MutableConfigValue": {
         "type": "string"
       },
-      "NearGas": {
+      "MyGas": {
         "format": "uint64",
-        "maximum": 9007199254740991,
         "minimum": 0,
         "type": "integer"
       },
@@ -8745,17 +9365,6 @@
         "title": "RpcClientConfigRequest"
       },
       "RpcClientConfigResponse": {
-        "anyOf": [
-          {
-            "$ref": "#/components/schemas/GasNumberSerializationmax_gas_burnt_view"
-          },
-          {
-            "enum": [
-              null
-            ],
-            "nullable": true
-          }
-        ],
         "description": "ClientConfig where some fields can be updated at runtime.",
         "properties": {
           "archive": {
@@ -8968,6 +9577,20 @@
             "maxItems": 2,
             "minItems": 2,
             "type": "array"
+          },
+          "max_gas_burnt_view": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MyGas"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Max burnt gas per view method.  If present, overrides value stored in\ngenesis file.  The value only affects the RPCs without influencing the\nprotocol thus changing it per-node doesn’t affect the blockchain."
           },
           "min_block_production_delay": {
             "description": "Minimum duration before producing block.",
@@ -9809,16 +10432,10 @@
           "gas_limit": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/NearGas"
+                "$ref": "#/components/schemas/MyGas"
               }
-            ]
-          },
-          "gas_limit_lossless": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearGas"
-              }
-            ]
+            ],
+            "description": "Initial gas limit."
           },
           "gas_price_adjustment_rate": {
             "description": "Gas price adjustment rate",
@@ -10008,7 +10625,6 @@
           "protocol_upgrade_stake_threshold",
           "epoch_length",
           "gas_limit",
-          "gas_limit_lossless",
           "min_gas_price",
           "max_gas_price",
           "block_producer_kickout_threshold",

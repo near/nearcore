@@ -11,17 +11,15 @@ use crate::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
-use near_gas::NearGas;
 #[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
 use near_parameters::{RuntimeConfig, RuntimeConfigView};
 use near_primitives::epoch_manager::EpochConfig;
-use near_primitives::serialize::{GasNumberSerialization, NameTrait};
-use near_primitives::gas_field_name;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::StateRoot;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::{
+    gas::Gas,
     hash::CryptoHash,
     serialize::dec_format,
     state_record::StateRecord,
@@ -145,9 +143,7 @@ pub struct GenesisConfig {
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
-    #[serde(flatten)]
-    #[serde_as(as = "GasNumberSerialization<gas_limitGasFieldName>")]
-    pub gas_limit: NearGas,
+    pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
@@ -260,8 +256,6 @@ pub struct GenesisConfig {
     /// number of chunk producers for shards.
     pub chunk_producer_assignment_changes_limit: NumSeats,
 }
-
-gas_field_name!(gas_limit);
 
 impl GenesisConfig {
     pub fn use_production_config(&self) -> bool {
@@ -848,9 +842,7 @@ pub struct ProtocolConfigView {
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
-    #[serde(flatten)]
-    #[serde_as(as = "GasNumberSerialization<gas_limitGasFieldName>")]
-    pub gas_limit: NearGas,
+    pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
