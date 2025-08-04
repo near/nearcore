@@ -70,6 +70,13 @@ pub fn get_account(
     get(trie, &TrieKey::Account { account_id: account_id.clone() })
 }
 
+pub fn get_account_pure(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+) -> Result<Option<Account>, StorageError> {
+    get_pure(trie, &TrieKey::Account { account_id: account_id.clone() })
+}
+
 pub fn set_received_data(
     state_update: &mut TrieUpdate,
     receiver_id: AccountId,
@@ -280,6 +287,17 @@ pub fn get_access_key(
     public_key: &PublicKey,
 ) -> Result<Option<AccessKey>, StorageError> {
     get(
+        trie,
+        &TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() },
+    )
+}
+
+pub fn get_access_key_pure(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+) -> Result<Option<AccessKey>, StorageError> {
+    get_pure(
         trie,
         &TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() },
     )
