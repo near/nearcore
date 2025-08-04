@@ -43,6 +43,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tikv-jemallocator.workspace = true
 
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-chain-primitives.workspace = true
