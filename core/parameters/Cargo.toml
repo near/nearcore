@@ -22,8 +22,6 @@ strum.workspace = true
 thiserror.workspace = true
 borsh.workspace = true
 clap = { workspace = true, optional = true }
-serde_with.workspace = true
-paste.workspace = true
 
 # FIXME: this ideally should not depend on near-primitives-core...
 near-primitives-core.workspace = true

@@ -26,7 +26,6 @@ sha2.workspace = true
 smart-default.workspace = true
 time.workspace = true
 tracing.workspace = true
-paste.workspace = true
 
 near-time.workspace = true
 near-crypto.workspace = true
