@@ -1,3 +1,5 @@
+use near_async::messaging::{IntoSender as _, Sender, noop};
+use near_cache::SyncLruCache;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
@@ -5,22 +7,23 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::ChunkProductionKey;
-use near_store::adapter::chain_store::ChainStoreAdapter;
-use parking_lot::{RwLock, RwLockWriteGuard};
-use std::collections::{HashMap, HashSet};
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
-use lru::LruCache;
-use near_async::messaging::{IntoSender as _, Sender, noop};
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsement, SpiceEndorsementSignedInner,
+    ChunkEndorsement, SpiceEndorsementSignedInner, SpiceEndorsementWithSignature,
 };
 use near_primitives::types::{
     AccountId, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, ShardId,
+    SpiceUncertifiedChunkInfo,
 };
+use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
+use near_store::adapter::StoreAdapter as _;
+use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::{DBCol, StoreUpdate};
+use parking_lot::{RwLock, RwLockReadGuard};
+use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 /// Message that should be sent once executions results for all chunks in a block are endorsed.
 #[derive(actix::Message, Debug, Clone)]
@@ -54,15 +57,9 @@ impl CoreStatementsProcessor {
         Self::new(chain_store, epoch_manager, noop().into_sender(), noop().into_sender())
     }
 
-    fn write(&self) -> RwLockWriteGuard<CoreStatementsTracker> {
-        self.0.write()
+    fn read(&self) -> RwLockReadGuard<CoreStatementsTracker> {
+        self.0.read()
     }
-}
-
-#[derive(Clone)]
-struct SpiceUncertifiedChunkInfo {
-    chunk_production_key: ChunkProductionKey,
-    missing_endorsements: Vec<AccountId>,
 }
 
 /// Tracks core statements that node knows about. This includes core statements that correspond to
@@ -75,15 +72,9 @@ struct CoreStatementsTracker {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     chunk_executor_sender: Sender<ExecutionResultEndorsed>,
     spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
-    // TODO(spice): persist endorsements, execution results and uncertified chunks in db, making
-    // sure we don't store anything that cannot be gc-ed.
-    /// Endorsements keyed by the chunk's hash execution of which they endorse.
-    endorsements:
-        LruCache<ChunkProductionKey, HashMap<AccountId, (SpiceEndorsementSignedInner, Signature)>>,
-    /// Execution results of the chunk keyed by the chunk's hash.
-    execution_results: LruCache<ChunkProductionKey, ChunkExecutionResult>,
-    /// Uncertified chunks for this block and all it's ancestry.
-    uncertified_chunks: LruCache<CryptoHash, Vec<SpiceUncertifiedChunkInfo>>,
+    // Endorsements that arrived before the relevant block (so cannot be verified to be related to
+    // the block yet).
+    pending_endorsements: SyncLruCache<ChunkProductionKey, HashMap<AccountId, ChunkEndorsement>>,
 }
 
 impl CoreStatementsTracker {
@@ -93,66 +84,97 @@ impl CoreStatementsTracker {
         chunk_executor_sender: Sender<ExecutionResultEndorsed>,
         spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
     ) -> Self {
-        const CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
+        const PENDING_ENDORSEMENT_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
         Self {
             chain_store,
             epoch_manager,
             chunk_executor_sender,
             spice_chunk_validator_sender,
-            endorsements: LruCache::new(CACHE_SIZE),
-            execution_results: LruCache::new(CACHE_SIZE),
-            uncertified_chunks: LruCache::new(CACHE_SIZE),
+            pending_endorsements: SyncLruCache::new(PENDING_ENDORSEMENT_CACHE_SIZE.into()),
         }
     }
 
-    fn all_execution_results_exist(&mut self, block: &Block) -> bool {
+    fn all_execution_results_exist(&self, block: &Block) -> Result<bool, std::io::Error> {
         for chunk in block.chunks().iter_raw() {
             let key = make_chunk_production_key(block, chunk);
-            if self.execution_results.get(&key).is_none() {
-                return false;
+            if self.get_execution_result(&key)?.is_none() {
+                return Ok(false);
             }
         }
-        true
+        Ok(true)
     }
 
     fn save_endorsement(
-        &mut self,
-        chunk_production_key: ChunkProductionKey,
-        account_id: AccountId,
-        signed_inner: SpiceEndorsementSignedInner,
-        signature: Signature,
-    ) -> &HashMap<AccountId, (SpiceEndorsementSignedInner, Signature)> {
-        let endorsements =
-            self.endorsements.get_or_insert_mut(chunk_production_key, || HashMap::new());
-        endorsements.insert(account_id, (signed_inner, signature));
-        endorsements
+        &self,
+        chunk_production_key: &ChunkProductionKey,
+        account_id: &AccountId,
+        endorsement: &SpiceEndorsementWithSignature,
+    ) -> Result<StoreUpdate, std::io::Error> {
+        let key = get_endorsements_key(chunk_production_key, account_id);
+        let mut store_update = self.chain_store.store().store_update();
+        store_update.set_ser(DBCol::endorsements(), &key, endorsement)?;
+        Ok(store_update)
+    }
+
+    fn get_endorsement(
+        &self,
+        chunk_production_key: &ChunkProductionKey,
+        account_id: &AccountId,
+    ) -> Result<Option<SpiceEndorsementWithSignature>, std::io::Error> {
+        self.chain_store.store().get_ser(
+            DBCol::endorsements(),
+            &get_endorsements_key(&chunk_production_key, &account_id),
+        )
+    }
+
+    fn save_execution_result(
+        &self,
+        chunk_production_key: &ChunkProductionKey,
+        execution_result: &ChunkExecutionResult,
+    ) -> Result<StoreUpdate, std::io::Error> {
+        let key = get_execution_results_key(chunk_production_key);
+        let mut store_update = self.chain_store.store().store_update();
+        store_update.insert_ser(DBCol::execution_results(), &key, &execution_result)?;
+        Ok(store_update)
+    }
+
+    fn get_execution_result(
+        &self,
+        chunk_production_key: &ChunkProductionKey,
+    ) -> Result<Option<Arc<ChunkExecutionResult>>, std::io::Error> {
+        let key = get_execution_results_key(chunk_production_key);
+        self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
     }
 
     fn get_uncertified_chunks(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
     ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
-        let header = self.chain_store.get_block_header(block_hash)?;
+        let block = self.chain_store.get_block(block_hash)?;
 
-        if header.is_genesis() {
+        if block.header().is_genesis() || !block.is_spice_block() {
             Ok(vec![])
         } else {
-            // TODO(spice): Don't unwrap after adding persistence.
-            Ok(self.uncertified_chunks.get(block_hash).unwrap().clone())
+            let Some(uncertified_chunks) = self
+                .chain_store
+                .store()
+                .get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())?
+            else {
+                return Err(Error::Other(format!("missing uncertified chunks for {}", block_hash)));
+            };
+
+            Ok(uncertified_chunks)
         }
     }
 
-    fn try_sending_execution_result_endorsed(
-        &mut self,
-        block_hash: &CryptoHash,
-    ) -> Result<(), Error> {
+    fn try_sending_execution_result_endorsed(&self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = match self.chain_store.get_block(block_hash) {
             Ok(block) => block,
             Err(Error::DBNotFoundErr(_)) => return Ok(()),
             Err(err) => return Err(err),
         };
 
-        if self.all_execution_results_exist(&block) {
+        if self.all_execution_results_exist(&block)? {
             let result_endorsed_message =
                 ExecutionResultEndorsed { block_hash: *block.header().hash() };
             self.chunk_executor_sender.send(result_endorsed_message.clone());
@@ -162,11 +184,11 @@ impl CoreStatementsTracker {
     }
 
     fn record_uncertified_chunks(
-        &mut self,
+        &self,
         block: &Block,
         endorsements: &HashSet<(&ChunkProductionKey, &AccountId)>,
         block_execution_results: &HashMap<&ChunkProductionKey, ChunkExecutionResultHash>,
-    ) -> Result<(), Error> {
+    ) -> Result<StoreUpdate, Error> {
         let prev_hash = block.header().prev_hash();
         let mut uncertified_chunks = self.get_uncertified_chunks(prev_hash)?;
         uncertified_chunks.retain(|chunk_info| {
@@ -208,8 +230,84 @@ impl CoreStatementsTracker {
                 missing_endorsements,
             });
         }
-        self.uncertified_chunks.push(*block.header().hash(), uncertified_chunks);
-        Ok(())
+
+        let mut store_update = self.chain_store.store().store_update();
+        store_update.insert_ser(
+            DBCol::uncertified_chunks(),
+            block.header().hash().as_ref(),
+            &uncertified_chunks,
+        )?;
+        Ok(store_update)
+    }
+
+    fn record_chunk_endorsement_with_block(
+        &self,
+        endorsement: ChunkEndorsement,
+        block: &Block,
+    ) -> Result<StoreUpdate, Error> {
+        let mut store_update = self.chain_store.store().store_update();
+        let Some((
+            chunk_production_key,
+            endorsement_account_id,
+            endorsement_signed_inner,
+            execution_result,
+            endorsement_signature,
+        )) = endorsement.spice_destructure()
+        else {
+            return Ok(store_update);
+        };
+        let block_hash = endorsement_signed_inner.block_hash;
+        assert_eq!(&block_hash, block.header().hash());
+
+        // We have to make sure that endorsement is for a valid chunk since otherwise it may not be
+        // garbage collected.
+        if !block.chunks().iter_raw().any(|chunk| {
+            let key = make_chunk_production_key(block, chunk);
+            key == chunk_production_key
+        }) {
+            tracing::error!(target: "spice_core", ?block_hash, ?chunk_production_key, "endorsement's key is invalid: missing from related block");
+            return Err(Error::InvalidChunkEndorsement);
+        }
+
+        store_update.merge(self.save_endorsement(
+            &chunk_production_key,
+            &endorsement_account_id,
+            &SpiceEndorsementWithSignature {
+                inner: endorsement_signed_inner.clone(),
+                signature: endorsement_signature.clone(),
+            },
+        )?);
+
+        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+            &chunk_production_key.epoch_id,
+            chunk_production_key.shard_id,
+            chunk_production_key.height_created,
+        )?;
+
+        let mut validator_signatures =
+            HashMap::from([(&endorsement_account_id, endorsement_signature)]);
+
+        for (account_id, _) in chunk_validator_assignments.assignments() {
+            let Some(endorsement) = self.get_endorsement(&chunk_production_key, &account_id)?
+            else {
+                continue;
+            };
+            if endorsement.inner != endorsement_signed_inner {
+                continue;
+            }
+            validator_signatures.insert(account_id, endorsement.signature);
+        }
+
+        let endorsement_state =
+            chunk_validator_assignments.compute_endorsement_state(validator_signatures);
+
+        if !endorsement_state.is_endorsed {
+            return Ok(store_update);
+        }
+
+        store_update.merge(self.save_execution_result(&chunk_production_key, &execution_result)?);
+
+        return Ok(store_update);
     }
 }
 
@@ -219,94 +317,103 @@ impl CoreStatementsProcessor {
     pub fn record_chunk_endorsement(&self, endorsement: ChunkEndorsement) -> Result<(), Error> {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
-        let Some((
-            chunk_production_key,
-            endorsement_account_id,
-            endorsement_signed_inner,
-            execution_result,
-            endorsement_signature,
-        )) = endorsement.spice_destructure()
-        else {
-            return Ok(());
-        };
+        let tracker = self.read();
 
-        let mut tracker = self.write();
-
-        let chunk_validator_assignments = tracker.epoch_manager.get_chunk_validator_assignments(
-            &chunk_production_key.epoch_id,
-            chunk_production_key.shard_id,
-            chunk_production_key.height_created,
-        )?;
-
-        let endorsements = tracker.save_endorsement(
-            chunk_production_key.clone(),
-            endorsement_account_id,
-            endorsement_signed_inner.clone(),
-            endorsement_signature,
-        );
-
-        let validator_signatures = endorsements
-            .iter()
-            .filter(|(_, (signed_inner, _))| signed_inner == &endorsement_signed_inner)
-            .map(|(account_id, (_, signature))| (account_id, signature.clone()))
-            .collect();
-        let endorsement_state =
-            chunk_validator_assignments.compute_endorsement_state(validator_signatures);
-
-        if !endorsement_state.is_endorsed {
+        let chunk_production_key = endorsement.chunk_production_key();
+        if tracker.get_execution_result(&chunk_production_key)?.is_some() {
+            tracing::debug!(target: "spice_core", ?chunk_production_key, "skipping endorsement since relevant execution result is already recorded");
             return Ok(());
         }
 
-        tracker.execution_results.get_or_insert(chunk_production_key, || execution_result);
+        let Some(&block_hash) = endorsement.block_hash() else {
+            return Ok(());
+        };
 
-        let block_hash = endorsement_signed_inner.block_hash;
-        tracker.try_sending_execution_result_endorsed(&block_hash)
+        let block = match tracker.chain_store.get_block(&block_hash) {
+            Ok(block) => block,
+            Err(Error::DBNotFoundErr(_)) => {
+                let final_head = tracker.chain_store.final_head()?;
+                if chunk_production_key.height_created <= final_head.height {
+                    tracing::debug!(
+                        target: "spice_core",
+                        %block_hash,
+                        ?chunk_production_key,
+                        ?final_head,
+                        "invalid endorsement: missing block with height < final head height"
+                    );
+                    return Err(Error::InvalidChunkEndorsement);
+                }
+                tracing::debug!(
+                    target: "spice_core",
+                    %block_hash,
+                    ?chunk_production_key,
+                    "not processing endorsement immediately since haven't received relevant block yet"
+                );
+                tracker
+                    .pending_endorsements
+                    .lock()
+                    .get_or_insert_mut(chunk_production_key, HashMap::new)
+                    .insert(endorsement.account_id().clone(), endorsement);
+                return Ok(());
+            }
+            Err(err) => {
+                return Err(err);
+            }
+        };
+
+        let store_update = tracker.record_chunk_endorsement_with_block(endorsement, &block)?;
+        store_update.commit()?;
+        tracker.try_sending_execution_result_endorsed(&block_hash)?;
+        Ok(())
     }
 
     pub fn get_execution_results_by_shard_id(
         &self,
         block: &Block,
-    ) -> HashMap<ShardId, ChunkExecutionResult> {
+    ) -> Result<HashMap<ShardId, Arc<ChunkExecutionResult>>, std::io::Error> {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
-        let mut tracker = self.write();
+        let tracker = self.read();
         let mut results = HashMap::new();
         for chunk in block.chunks().iter_raw() {
             let key = make_chunk_production_key(block, chunk);
-            let Some(result) = tracker.execution_results.get(&key) else {
+            let Some(result) = tracker.get_execution_result(&key)? else {
                 continue;
             };
             let shard_id = chunk.shard_id();
             results.insert(shard_id, result.clone());
         }
-        results
+        Ok(results)
     }
 
     /// Returns ChunkExecutionResult for all chunks or None if at least one execution result is
     /// missing;
-    pub fn get_block_execution_results(&self, block: &Block) -> Option<BlockExecutionResults> {
+    pub fn get_block_execution_results(
+        &self,
+        block: &Block,
+    ) -> Result<Option<BlockExecutionResults>, std::io::Error> {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
         if block.header().is_genesis() {
-            return Some(BlockExecutionResults(HashMap::new()));
+            return Ok(Some(BlockExecutionResults(HashMap::new())));
         }
 
-        let mut tracker = self.write();
+        let tracker = self.read();
         let mut results = HashMap::new();
         for chunk in block.chunks().iter_raw() {
             let key = make_chunk_production_key(block, chunk);
-            let Some(result) = tracker.execution_results.get(&key) else {
-                return None;
+            let Some(result) = tracker.get_execution_result(&key)? else {
+                return Ok(None);
             };
             results.insert(chunk.chunk_hash().clone(), result.clone());
         }
-        Some(BlockExecutionResults(results))
+        Ok(Some(BlockExecutionResults(results)))
     }
 
-    pub fn all_execution_results_exist(&self, block: &Block) -> bool {
+    pub fn all_execution_results_exist(&self, block: &Block) -> Result<bool, std::io::Error> {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
-        let mut tracker = self.write();
+        let tracker = self.read();
         tracker.all_execution_results_exist(block)
     }
 
@@ -319,93 +426,121 @@ impl CoreStatementsProcessor {
         }
         let block_hash = block_header.hash();
 
-        let mut tracker = self.write();
-        let uncertified_chunks =
-            tracker.uncertified_chunks.get(block_hash).cloned().unwrap_or_default();
+        let tracker = self.read();
+        let uncertified_chunks = tracker.get_uncertified_chunks(block_hash)?;
 
         let mut core_statements = Vec::new();
         for chunk_info in uncertified_chunks {
-            let Some(known_endorsements) =
-                tracker.endorsements.get(&chunk_info.chunk_production_key)
-            else {
-                continue;
-            };
             for account_id in chunk_info.missing_endorsements {
-                if let Some((signed_inner, signature)) = known_endorsements.get(&account_id) {
+                if let Some(endorsement) =
+                    tracker.get_endorsement(&chunk_info.chunk_production_key, &account_id)?
+                {
                     core_statements.push(SpiceCoreStatement::Endorsement {
                         chunk_production_key: chunk_info.chunk_production_key.clone(),
                         account_id,
-                        signed_inner: signed_inner.clone(),
-                        signature: signature.clone(),
+                        endorsement,
                     });
                 }
             }
 
             let Some(execution_result) =
-                tracker.execution_results.get(&chunk_info.chunk_production_key)
+                tracker.get_execution_result(&chunk_info.chunk_production_key)?
             else {
                 continue;
             };
             // Execution results are stored only for endorsed chunks.
             core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
                 chunk_production_key: chunk_info.chunk_production_key,
-                execution_result: execution_result.clone(),
+                execution_result: Arc::unwrap_or_clone(execution_result),
             });
         }
         Ok(core_statements)
     }
 
-    pub fn record_core_statements_from_block(&mut self, block: &Block) -> Result<(), Error> {
-        let mut tracker = self.write();
-        let mut block_execution_results = HashMap::new();
+    /// Sends notifications if an accepted block contains execution result endorsements.
+    pub fn send_execution_result_endorsements(&self, block: &Block) {
+        let mut execution_result_hashes = HashSet::new();
         let mut execution_result_original_block = HashMap::new();
+
+        for core_statement in block.spice_core_statements() {
+            match core_statement {
+                SpiceCoreStatement::Endorsement { endorsement, .. } => {
+                    execution_result_original_block.insert(
+                        &endorsement.inner.execution_result_hash,
+                        endorsement.inner.block_hash,
+                    );
+                }
+                SpiceCoreStatement::ChunkExecutionResult { execution_result, .. } => {
+                    execution_result_hashes.insert(execution_result.compute_hash());
+                }
+            };
+        }
+
+        let tracker = self.read();
+        for execution_result_hash in &execution_result_hashes {
+            // TODO(spice): to avoid this expect unite endorsements and execution results into a
+            // single struct with chunk production key, non-empty vector of endorsements and
+            // optional execution results.
+            let block_hash = execution_result_original_block.get(execution_result_hash).expect(
+                "block validation should make sure that each block contains at least one endorsement for each execution_result");
+
+            tracker
+                .try_sending_execution_result_endorsed(block_hash)
+                .expect("should fail only if failing to access store");
+        }
+    }
+
+    pub fn record_block(&self, block: &Block) -> Result<StoreUpdate, Error> {
+        let tracker = self.read();
+        let mut block_execution_results = HashMap::new();
         let mut endorsements = HashSet::new();
+        let mut store_update = tracker.chain_store.store().store_update();
         for core_statement in block.spice_core_statements() {
             match core_statement {
                 SpiceCoreStatement::Endorsement {
                     account_id,
-                    signature,
                     chunk_production_key,
-                    signed_inner,
+                    endorsement,
                 } => {
-                    tracker.save_endorsement(
-                        chunk_production_key.clone(),
-                        account_id.clone(),
-                        signed_inner.clone(),
-                        signature.clone(),
-                    );
+                    store_update.merge(tracker.save_endorsement(
+                        chunk_production_key,
+                        account_id,
+                        endorsement,
+                    )?);
                     endorsements.insert((chunk_production_key, account_id));
-                    execution_result_original_block
-                        .insert(&signed_inner.execution_result_hash, signed_inner.block_hash);
                 }
                 SpiceCoreStatement::ChunkExecutionResult {
                     chunk_production_key,
                     execution_result,
                 } => {
-                    tracker
-                        .execution_results
-                        .get_or_insert(chunk_production_key.clone(), || execution_result.clone());
-
+                    store_update.merge(
+                        tracker.save_execution_result(chunk_production_key, execution_result)?,
+                    );
                     block_execution_results
                         .insert(chunk_production_key, execution_result.compute_hash());
                 }
             };
         }
 
-        for (_, execution_result_hash) in &block_execution_results {
-            let block_hash = execution_result_original_block.get(execution_result_hash).expect(
-                "block validation should make sure that each block contains at least one endorsement for each execution_result");
-
-            if let Err(err) = tracker.try_sending_execution_result_endorsed(block_hash) {
-                // If we don't have a relevant previous block we can not be waiting for it's
-                // execution results.
-                if !matches!(err, Error::DBNotFoundErr(_)) {
-                    return Err(err);
-                }
+        store_update.merge(tracker.record_uncertified_chunks(
+            block,
+            &endorsements,
+            &block_execution_results,
+        )?);
+        for chunk in block.chunks().iter_raw() {
+            let key = make_chunk_production_key(block, chunk);
+            let Some(endorsements) = tracker.pending_endorsements.lock().pop(&key) else {
+                continue;
+            };
+            for endorsement in endorsements.into_values() {
+                match tracker.record_chunk_endorsement_with_block(endorsement, block) {
+                    Ok(update) => store_update.merge(update),
+                    Err(Error::InvalidChunkEndorsement) => continue,
+                    Err(err) => return Err(err),
+                };
             }
         }
-
-        tracker.record_uncertified_chunks(block, &endorsements, &block_execution_results)
+        Ok(store_update)
     }
 
     pub fn validate_core_statements_in_block(
@@ -414,7 +549,7 @@ impl CoreStatementsProcessor {
     ) -> Result<(), InvalidSpiceCoreStatementsError> {
         use InvalidSpiceCoreStatementsError::*;
 
-        let mut tracker = self.write();
+        let tracker = self.read();
 
         let prev_uncertified_chunks = tracker
             .get_uncertified_chunks(block.header().prev_hash())
@@ -433,7 +568,7 @@ impl CoreStatementsProcessor {
 
         let mut in_block_endorsements: HashMap<
             &ChunkProductionKey,
-            HashMap<&SpiceEndorsementSignedInner, HashMap<&AccountId, Signature>>,
+            HashMap<SpiceEndorsementSignedInner, HashMap<&AccountId, Signature>>,
         > = HashMap::new();
         let mut block_execution_results = HashMap::new();
         let mut max_endorsed_height_created = HashMap::new();
@@ -443,15 +578,17 @@ impl CoreStatementsProcessor {
                 SpiceCoreStatement::Endorsement {
                     chunk_production_key,
                     account_id,
-                    signature,
-                    signed_inner,
+                    endorsement,
                 } => {
                     let validator_info = tracker
                         .epoch_manager
                         .get_validator_by_account_id(&chunk_production_key.epoch_id, account_id)
                         .map_err(|error| NoValidatorForAccountId { index, error })?;
 
-                    if !signed_inner.verify(validator_info.public_key(), signature) {
+                    if !endorsement
+                        .inner
+                        .verify(validator_info.public_key(), &endorsement.signature)
+                    {
                         return Err(InvalidCoreStatement { index, reason: "invalid signature" });
                     }
                     // Checking that waiting_on_endorsements contains chunk_production_key makes
@@ -466,9 +603,9 @@ impl CoreStatementsProcessor {
                     if in_block_endorsements
                         .entry(chunk_production_key)
                         .or_default()
-                        .entry(signed_inner)
+                        .entry(endorsement.inner.clone())
                         .or_default()
-                        .insert(account_id, signature.clone())
+                        .insert(account_id, endorsement.signature.clone())
                         .is_some()
                     {
                         return Err(InvalidCoreStatement {
@@ -535,20 +672,20 @@ impl CoreStatementsProcessor {
                     height_created: chunk_production_key.height_created,
                     error,
                 })?;
-            let known_endorsements =
-                tracker.endorsements.get(chunk_production_key).cloned().unwrap_or_default();
             for (account_id, _) in chunk_validator_assignments.assignments() {
                 // It's not enough to only look at the known endorsements since the block
                 // and it's ancestry may not yet contain enough signatures for certification of
                 // chunk.
                 if !waiting_on_endorsements.contains(&(chunk_production_key, account_id)) {
-                    let (signed_inner, signature) = known_endorsements.get(account_id).expect(
+                    let endorsement = tracker.get_endorsement(chunk_production_key, account_id)
+                        .expect("we cannot recover from io error")
+                        .expect(
                         "if we aren't waiting for endorsement in this block it should be in ancestry and known"
                     );
                     on_chain_endorsements
-                        .entry(signed_inner)
+                        .entry(endorsement.inner)
                         .or_default()
-                        .insert(account_id, signature.clone());
+                        .insert(account_id, endorsement.signature.clone());
                 }
             }
             for (signed_inner, validator_signatures) in on_chain_endorsements {
