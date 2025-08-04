@@ -1530,16 +1530,23 @@ impl Trie {
                 self.retrieve_value(&value_ref.hash, operation_options)
             }
             OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
-                let value_hash = hash(value);
                 let arc_value: Arc<[u8]> = value.clone().into();
-                if operation_options.trie_access_tracker.track_mem_lookup(&value_hash).is_none() {
-                    operation_options
-                        .trie_access_tracker
-                        .track_disk_lookup(value_hash, arc_value.clone());
-                }
-                if operation_options.enable_state_witness_recording {
-                    if let Some(recorder) = &self.recorder {
-                        recorder.record(&value_hash, arc_value);
+                let use_tracking = !std::ptr::eq(
+                    operation_options.trie_access_tracker,
+                    AccessOptions::NO_SIDE_EFFECTS.trie_access_tracker,
+                ) || operation_options.enable_state_witness_recording;
+                if use_tracking {
+                    let value_hash = hash(value);
+                    if operation_options.trie_access_tracker.track_mem_lookup(&value_hash).is_none()
+                    {
+                        operation_options
+                            .trie_access_tracker
+                            .track_disk_lookup(value_hash, arc_value.clone());
+                    }
+                    if operation_options.enable_state_witness_recording {
+                        if let Some(recorder) = &self.recorder {
+                            recorder.record(&value_hash, arc_value);
+                        }
                     }
                 }
                 Ok(value.clone())
