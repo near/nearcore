@@ -360,7 +360,7 @@ def start_nodes(args, enable_tx_generator=False):
 def apply_network_config(args):
     """Apply network configuration optimizations."""
     logger.info("Applying network configuration optimizations")
-    
+
     run_cmd_args = copy.deepcopy(args)
 
     # This command does the following:
@@ -378,7 +378,7 @@ def apply_network_config(args):
         sudo ip route flush table main exact 0.0.0.0/0 2>/dev/null || true && \
         sudo ip route add default via $gw dev $dev metric 100 initcwnd 255 initrwnd 255 \
     "
-    
+
     run_remote_cmd(CommandContext(run_cmd_args))
 
 
