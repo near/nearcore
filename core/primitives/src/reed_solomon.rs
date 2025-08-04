@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
+use raptorq::{Decoder, Encoder, EncodingPacket, ObjectTransmissionInformation};
 use reed_solomon_erasure::Field;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
@@ -18,26 +19,22 @@ pub fn reed_solomon_encode<T: BorshSerialize>(
     rs: &ReedSolomon,
     data: &T,
 ) -> (Vec<ReedSolomonPart>, usize) {
-    let mut bytes = borsh::to_vec(data).unwrap();
+    let bytes = borsh::to_vec(data).unwrap();
     let encoded_length = bytes.len();
 
     let data_parts = rs.data_shard_count();
-    let part_length = reed_solomon_part_length(encoded_length, data_parts);
+    let repair_parts = rs.parity_shard_count() as u32;
 
-    // cspell:ignore b'aaabbbcccd'
-    // Pad the bytes to be a multiple of `part_length`
-    // Convert encoded data into `data_shard_count` number of parts and pad with `parity_shard_count` None values
-    // with 4 data_parts and 2 parity_parts
-    // b'aaabbbcccd' -> [Some(b'aaa'), Some(b'bbb'), Some(b'ccc'), Some(b'd00'), None, None]
-    bytes.resize(data_parts * part_length, 0);
-    let mut parts = bytes
-        .chunks_exact(part_length)
-        .map(|chunk| Some(chunk.to_vec().into_boxed_slice()))
-        .chain(itertools::repeat_n(None, rs.parity_shard_count()))
-        .collect_vec();
+    let mtu = (encoded_length + data_parts - 1) / data_parts;
 
-    // Fine to unwrap here as we just constructed the parts
-    rs.reconstruct(&mut parts).unwrap();
+    assert!(mtu <= u16::MAX as usize, "MTU is too large: {}", mtu); // for POC only
+
+    let encoder = Encoder::with_defaults(&bytes, mtu as u16);
+    let parts: Vec<Option<Box<[u8]>>> = encoder
+        .get_encoded_packets(repair_parts)
+        .iter()
+        .map(|symbol| Some(symbol.serialize().into_boxed_slice()))
+        .collect();
 
     (parts, encoded_length)
 }
@@ -50,18 +47,21 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
     parts: &mut [ReedSolomonPart],
     encoded_length: usize,
 ) -> Result<T, Error> {
-    if let Err(err) = rs.reconstruct(parts) {
-        return Err(Error::other(err));
+    let mtu = (encoded_length + rs.data_shard_count() - 1) / rs.data_shard_count();
+    let parts =
+        parts.iter().map(|part| EncodingPacket::deserialize(&part.as_ref().unwrap())).collect_vec();
+
+    let config = ObjectTransmissionInformation::with_defaults(encoded_length as u64, mtu as u16);
+    let mut decoder = Decoder::new(config);
+
+    for part in parts {
+        let decoded = decoder.decode(part);
+        if decoded.is_some() {
+            return Ok(T::try_from_slice(decoded.unwrap().as_slice()).unwrap());
+        }
     }
 
-    let encoded_data = parts
-        .iter()
-        .flat_map(|option| option.as_ref().expect("Missing shard").iter())
-        .cloned()
-        .take(encoded_length)
-        .collect_vec();
-
-    T::try_from_slice(&encoded_data)
+    Err(Error::other("Failed to decode part"))
 }
 
 pub fn reed_solomon_part_length(encoded_length: usize, data_parts: usize) -> usize {

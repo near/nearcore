@@ -359,6 +359,7 @@ rand_chacha = "0.3.1"
 rand_core = "0.5"
 rand_hc = "0.3.1"
 rand_xorshift = "0.3"
+raptorq = "2.0.0"
 rayon = "1.10"
 redis = "0.23.0"
 reed-solomon-erasure = { version = "6.0.0", features = ["simd-accel"] }
