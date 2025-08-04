@@ -344,7 +344,7 @@ pub enum DBCol {
     AllNextBlockHashes,
     /// For spice contains execution results endorsements.
     /// - *Rows*: ChunkProductionKeyWithAccount ([near_primitives::stateless_validation::ChunkProductionKey] || AccountId)
-    /// - *Content type*: ([near_primitives::stateless_validation::chunk_endorsement::SpiceEndorsementSignedInner], [near_crypto::Signature])
+    /// - *Content type*: [near_primitives::stateless_validation::chunk_endorsement::SpiceEndorsementWithSignature]
     #[cfg(feature = "protocol_feature_spice")]
     Endorsements,
     /// For spice contains execution results of applying the chunk.

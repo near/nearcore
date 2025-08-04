@@ -10,7 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsement, SpiceEndorsementSignedInner,
+    ChunkEndorsement, SpiceEndorsementSignedInner, SpiceEndorsementWithSignature,
 };
 use near_primitives::types::{
     AccountId, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, ShardId,
@@ -108,12 +108,11 @@ impl CoreStatementsTracker {
         &self,
         chunk_production_key: &ChunkProductionKey,
         account_id: &AccountId,
-        signed_inner: SpiceEndorsementSignedInner,
-        signature: Signature,
+        endorsement: &SpiceEndorsementWithSignature,
     ) -> Result<StoreUpdate, std::io::Error> {
         let key = get_endorsements_key(chunk_production_key, account_id);
         let mut store_update = self.chain_store.store().store_update();
-        store_update.set_ser(DBCol::endorsements(), &key, &(signed_inner, signature))?;
+        store_update.set_ser(DBCol::endorsements(), &key, endorsement)?;
         Ok(store_update)
     }
 
@@ -121,7 +120,7 @@ impl CoreStatementsTracker {
         &self,
         chunk_production_key: &ChunkProductionKey,
         account_id: &AccountId,
-    ) -> Result<Option<(SpiceEndorsementSignedInner, Signature)>, std::io::Error> {
+    ) -> Result<Option<SpiceEndorsementWithSignature>, std::io::Error> {
         self.chain_store.store().get_ser(
             DBCol::endorsements(),
             &get_endorsements_key(&chunk_production_key, &account_id),
@@ -273,8 +272,10 @@ impl CoreStatementsTracker {
         store_update.merge(self.save_endorsement(
             &chunk_production_key,
             &endorsement_account_id,
-            endorsement_signed_inner.clone(),
-            endorsement_signature.clone(),
+            &SpiceEndorsementWithSignature {
+                inner: endorsement_signed_inner.clone(),
+                signature: endorsement_signature.clone(),
+            },
         )?);
 
         let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
@@ -287,15 +288,14 @@ impl CoreStatementsTracker {
             HashMap::from([(&endorsement_account_id, endorsement_signature)]);
 
         for (account_id, _) in chunk_validator_assignments.assignments() {
-            let Some((signed_inner, signature)) =
-                self.get_endorsement(&chunk_production_key, &account_id)?
+            let Some(endorsement) = self.get_endorsement(&chunk_production_key, &account_id)?
             else {
                 continue;
             };
-            if signed_inner != endorsement_signed_inner {
+            if endorsement.inner != endorsement_signed_inner {
                 continue;
             }
-            validator_signatures.insert(account_id, signature);
+            validator_signatures.insert(account_id, endorsement.signature);
         }
 
         let endorsement_state =
@@ -432,14 +432,13 @@ impl CoreStatementsProcessor {
         let mut core_statements = Vec::new();
         for chunk_info in uncertified_chunks {
             for account_id in chunk_info.missing_endorsements {
-                if let Some((signed_inner, signature)) =
+                if let Some(endorsement) =
                     tracker.get_endorsement(&chunk_info.chunk_production_key, &account_id)?
                 {
                     core_statements.push(SpiceCoreStatement::Endorsement {
                         chunk_production_key: chunk_info.chunk_production_key.clone(),
                         account_id,
-                        signed_inner: signed_inner.clone(),
-                        signature: signature.clone(),
+                        endorsement,
                     });
                 }
             }
@@ -465,9 +464,11 @@ impl CoreStatementsProcessor {
 
         for core_statement in block.spice_core_statements() {
             match core_statement {
-                SpiceCoreStatement::Endorsement { signed_inner, .. } => {
-                    execution_result_original_block
-                        .insert(&signed_inner.execution_result_hash, signed_inner.block_hash);
+                SpiceCoreStatement::Endorsement { endorsement, .. } => {
+                    execution_result_original_block.insert(
+                        &endorsement.inner.execution_result_hash,
+                        endorsement.inner.block_hash,
+                    );
                 }
                 SpiceCoreStatement::ChunkExecutionResult { execution_result, .. } => {
                     execution_result_hashes.insert(execution_result.compute_hash());
@@ -498,15 +499,13 @@ impl CoreStatementsProcessor {
             match core_statement {
                 SpiceCoreStatement::Endorsement {
                     account_id,
-                    signature,
                     chunk_production_key,
-                    signed_inner,
+                    endorsement,
                 } => {
                     store_update.merge(tracker.save_endorsement(
                         chunk_production_key,
                         account_id,
-                        signed_inner.clone(),
-                        signature.clone(),
+                        endorsement,
                     )?);
                     endorsements.insert((chunk_production_key, account_id));
                 }
@@ -579,15 +578,17 @@ impl CoreStatementsProcessor {
                 SpiceCoreStatement::Endorsement {
                     chunk_production_key,
                     account_id,
-                    signature,
-                    signed_inner,
+                    endorsement,
                 } => {
                     let validator_info = tracker
                         .epoch_manager
                         .get_validator_by_account_id(&chunk_production_key.epoch_id, account_id)
                         .map_err(|error| NoValidatorForAccountId { index, error })?;
 
-                    if !signed_inner.verify(validator_info.public_key(), signature) {
+                    if !endorsement
+                        .inner
+                        .verify(validator_info.public_key(), &endorsement.signature)
+                    {
                         return Err(InvalidCoreStatement { index, reason: "invalid signature" });
                     }
                     // Checking that waiting_on_endorsements contains chunk_production_key makes
@@ -602,9 +603,9 @@ impl CoreStatementsProcessor {
                     if in_block_endorsements
                         .entry(chunk_production_key)
                         .or_default()
-                        .entry(signed_inner.clone())
+                        .entry(endorsement.inner.clone())
                         .or_default()
-                        .insert(account_id, signature.clone())
+                        .insert(account_id, endorsement.signature.clone())
                         .is_some()
                     {
                         return Err(InvalidCoreStatement {
@@ -676,15 +677,15 @@ impl CoreStatementsProcessor {
                 // and it's ancestry may not yet contain enough signatures for certification of
                 // chunk.
                 if !waiting_on_endorsements.contains(&(chunk_production_key, account_id)) {
-                    let (signed_inner, signature) = tracker.get_endorsement(chunk_production_key, account_id)
+                    let endorsement = tracker.get_endorsement(chunk_production_key, account_id)
                         .expect("we cannot recover from io error")
                         .expect(
                         "if we aren't waiting for endorsement in this block it should be in ancestry and known"
                     );
                     on_chain_endorsements
-                        .entry(signed_inner)
+                        .entry(endorsement.inner)
                         .or_default()
-                        .insert(account_id, signature.clone());
+                        .insert(account_id, endorsement.signature.clone());
                 }
             }
             for (signed_inner, validator_signatures) in on_chain_endorsements {
