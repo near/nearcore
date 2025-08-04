@@ -3,7 +3,6 @@ use borsh::BorshSerialize;
 use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::gas::Gas;
 use near_schema_checker_lib::ProtocolSchema;
-use serde_with::serde_as;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 

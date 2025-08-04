@@ -59,8 +59,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
-    /// let neargas = Gas::from_gas(12345);
-    /// assert_eq!(neargas.as_gas(), 12345);
+    /// let gas = Gas::from_gas(12345);
+    /// assert_eq!(gas.as_gas(), 12345);
     /// ```
     pub const fn as_gas(self) -> u64 {
         self.0.as_gas()
@@ -70,8 +70,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
-    /// let neargas = Gas::from_gas(1 * 1_000_000_000);
-    /// assert_eq!(neargas.as_ggas(), 1);
+    /// let gas = Gas::from_gas(1 * 1_000_000_000);
+    /// assert_eq!(gas.as_ggas(), 1);
     /// ```
     pub const fn as_ggas(self) -> u64 {
         self.0.as_ggas()
@@ -81,8 +81,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
-    /// let neargas = Gas::from_gas(1 * 1_000_000_000_000);
-    /// assert_eq!(neargas.as_tgas(), 1);
+    /// let gas = Gas::from_gas(1 * 1_000_000_000_000);
+    /// assert_eq!(gas.as_tgas(), 1);
     /// ```
     pub const fn as_tgas(self) -> u64 {
         self.0.as_tgas()

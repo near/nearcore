@@ -5,7 +5,6 @@ use near_primitives_core::gas::Gas;
 use near_primitives_core::serialize::dec_format;
 use near_primitives_core::types::Balance;
 use num_rational::Rational32;
-use serde_with::serde_as;
 
 /// View that preserves JSON format of the runtime config.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
