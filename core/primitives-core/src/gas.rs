@@ -5,7 +5,6 @@ use near_gas::NearGas;
     borsh::BorshSerialize,
     derive_more::Display,
     Debug,
-    serde::Serialize,
     serde::Deserialize,
     Clone,
     Copy,
@@ -138,10 +137,19 @@ impl Gas {
     }
 }
 
+impl serde::Serialize for Gas {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u64(self.as_gas())
+    }
+}
+
 #[cfg(feature = "schemars")]
 impl schemars::JsonSchema for Gas {
     fn schema_name() -> std::borrow::Cow<'static, str> {
-        "MyGas".to_string().into()
+        "NearGas".to_string().into()
     }
 
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
