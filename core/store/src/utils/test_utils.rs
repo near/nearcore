@@ -20,7 +20,7 @@ use near_primitives::types::StateRoot;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use rand::Rng;
 use rand::seq::SliceRandom;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::{FromStr, from_utf8};
 use std::sync::Arc;
 
@@ -136,8 +136,25 @@ impl TestTriesBuilder {
             StateSnapshotConfig::Disabled,
         );
         if self.enable_flat_storage {
+            // Make hash set of shard_uids that are already initialized
+            let mut initialized_shard_uids: HashSet<ShardUId> = HashSet::new();
+            for &shard_uid in &shard_uids {
+                if let FlatStorageStatus::Ready(FlatStorageReadyStatus { .. }) = tries
+                    .store()
+                    .flat_store()
+                    .get_flat_storage_status(shard_uid)
+                    .expect("Failed to get flat storage status")
+                {
+                    initialized_shard_uids.insert(shard_uid);
+                }
+            }
+
             let mut store_update = tries.store_update();
             for &shard_uid in &shard_uids {
+                if initialized_shard_uids.contains(&shard_uid) {
+                    continue; // Skip already initialized shards
+                }
+
                 let flat_head = BlockInfo::genesis(CryptoHash::default(), 0);
                 store_update.flat_store_update().set_flat_storage_status(
                     shard_uid,
@@ -148,6 +165,9 @@ impl TestTriesBuilder {
 
             let flat_storage_manager = tries.get_flat_storage_manager();
             for &shard_uid in &shard_uids {
+                if initialized_shard_uids.contains(&shard_uid) {
+                    continue; // Skip already initialized shards
+                }
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             }
         }
