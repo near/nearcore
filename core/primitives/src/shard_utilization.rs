@@ -89,6 +89,12 @@ pub struct ShardUtilizationV1 {
     gas_usage: Gas,
 }
 
+impl ShardUtilizationV1 {
+    pub const fn new(gas_usage: Gas) -> Self {
+        Self { gas_usage }
+    }
+}
+
 impl Add<Self> for ShardUtilizationV1 {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {

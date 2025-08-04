@@ -65,6 +65,15 @@ pub fn total_utilization(trie: &Trie) -> Result<ShardUtilization, StorageError> 
     }
 }
 
+/// Get shard utilization for the given account, and **all accounts that it is a prefix of**.
+pub fn account_utilization(
+    trie: &Trie,
+    account_id: &AccountId,
+) -> Result<ShardUtilization, StorageError> {
+    get(trie, &TrieKey::ShardUtilization { account_id_prefix: account_id.as_bytes().to_vec() })
+        .map(Option::unwrap_or_default)
+}
+
 // Two nibbles per byte, and the first two nibbles are discarded
 const MIN_NIBBLES_VALID_KEY: usize = AccountId::MIN_LEN * 2 + 2;
 
@@ -245,15 +254,18 @@ mod tests {
     use crate::trie::update::TrieUpdateResult;
     use crate::{Trie, TrieUpdate};
     use itertools::Itertools;
-    use near_primitives::shard_utilization::ShardUtilization;
+    use near_primitives::shard_utilization::{ShardUtilization, ShardUtilizationV1};
     use near_primitives::types::{AccountId, StateChangeCause};
     use rand::SeedableRng;
     use rand::distributions::Distribution;
     use rand::distributions::Uniform;
     use rand::rngs::StdRng;
 
-    fn test_trie_inner(
-        account_utilization: impl IntoIterator<Item = (AccountId, ShardUtilization)>,
+    const UTIL_0: ShardUtilization = ShardUtilization::V1(ShardUtilizationV1::new(0));
+    const UTIL_100: ShardUtilization = ShardUtilization::V1(ShardUtilizationV1::new(100));
+
+    fn test_trie_inner<'a>(
+        account_utilization: impl IntoIterator<Item = (&'a AccountId, ShardUtilization)>,
         shard_left_boundary: Option<&AccountId>,
     ) -> Trie {
         // Create a new test trie
@@ -267,7 +279,7 @@ mod tests {
         for (account_id, utilization) in account_utilization {
             update_shard_utilization(
                 &mut trie_update,
-                &account_id,
+                account_id,
                 utilization,
                 shard_left_boundary,
             )
@@ -283,14 +295,14 @@ mod tests {
         shard_tries.get_trie_for_shard(shard_uid, new_root)
     }
 
-    fn test_trie(
-        account_utilization: impl IntoIterator<Item = (AccountId, ShardUtilization)>,
+    fn test_trie<'a>(
+        account_utilization: impl IntoIterator<Item = (&'a AccountId, ShardUtilization)>,
     ) -> Trie {
         test_trie_inner(account_utilization, None)
     }
 
-    fn test_trie_custom_shard(
-        account_utilization: impl IntoIterator<Item = (AccountId, ShardUtilization)>,
+    fn test_trie_custom_shard<'a>(
+        account_utilization: impl IntoIterator<Item = (&'a AccountId, ShardUtilization)>,
         shard_left_boundary: &AccountId,
     ) -> Trie {
         test_trie_inner(account_utilization, Some(&shard_left_boundary))
@@ -312,31 +324,36 @@ mod tests {
     #[test]
     fn empty_trie() {
         let trie = test_trie(None);
+        assert_eq!(total_utilization(&trie).unwrap(), UTIL_0);
         let result = find_split_account(&trie).unwrap();
         assert!(result.is_none());
-        assert_eq!(total_utilization(&trie).unwrap(), ShardUtilization::V1(0.into()));
     }
 
     #[test]
-    fn account_outside_shard() {
-        let account_id: AccountId = "abcd".parse().unwrap();
-        let shard_left_boundary: AccountId = "bbb".parse().unwrap();
-        let utilization = ShardUtilization::V1(100.into());
-        let trie = test_trie_custom_shard(vec![(account_id, utilization)], &shard_left_boundary);
-        let result = find_split_account(&trie).unwrap();
+    fn account_outside_shard() -> anyhow::Result<()> {
+        let account_id: AccountId = "abcd".parse()?;
+        let shard_left_boundary: AccountId = "bbb".parse()?;
+        let trie = test_trie_custom_shard(vec![(&account_id, UTIL_100)], &shard_left_boundary);
+
+        assert_eq!(total_utilization(&trie)?, UTIL_0);
+        assert_eq!(account_utilization(&trie, &account_id)?, UTIL_0);
+
         // account lies outside the shard
+        let result = find_split_account(&trie)?;
         assert!(result.is_none());
-        assert_eq!(total_utilization(&trie).unwrap(), ShardUtilization::V1(0.into()));
+        Ok(())
     }
 
     #[test]
     fn single_account() -> anyhow::Result<()> {
         let account_id: AccountId = "abcd".parse()?;
-        let utilization = ShardUtilization::V1(100.into());
-        let trie = test_trie(vec![(account_id.clone(), utilization)]);
+        let trie = test_trie(vec![(&account_id, UTIL_100)]);
+
+        assert_eq!(total_utilization(&trie)?, UTIL_100);
+        assert_eq!(account_utilization(&trie, &account_id)?, UTIL_100);
+
         let result = find_split_account(&trie)?;
         assert_eq!(result, Some(account_id));
-        assert_eq!(total_utilization(&trie)?, ShardUtilization::V1(100.into()));
         Ok(())
     }
 
@@ -344,11 +361,14 @@ mod tests {
     fn two_accounts_common_prefix() -> anyhow::Result<()> {
         let account1: AccountId = "abcd".parse()?;
         let account2: AccountId = "abce".parse()?;
-        let utilization = ShardUtilization::V1(100.into());
-        let trie = test_trie(vec![(account1, utilization), (account2.clone(), utilization)]);
+        let trie = test_trie(vec![(&account1, UTIL_100), (&account2, UTIL_100)]);
+
+        assert_eq!(total_utilization(&trie)?, UTIL_100 * 2);
+        assert_eq!(account_utilization(&trie, &account1)?, UTIL_100);
+        assert_eq!(account_utilization(&trie, &account2)?, UTIL_100);
+
         let result = find_split_account(&trie)?;
         assert_eq!(result, Some(account2));
-        assert_eq!(total_utilization(&trie)?, ShardUtilization::V1(200.into()));
         Ok(())
     }
 
@@ -356,13 +376,16 @@ mod tests {
     fn two_accounts_no_common_prefix() -> anyhow::Result<()> {
         let account1: AccountId = "aaaa".parse()?;
         let account2: AccountId = "bbbb".parse()?;
-        let utilization = ShardUtilization::V1(100.into());
-        let trie = test_trie(vec![(account1, utilization), (account2, utilization)]);
-        let result = find_split_account(&trie)?;
+        let trie = test_trie(vec![(&account1, UTIL_100), (&account2, UTIL_100)]);
+
+        assert_eq!(total_utilization(&trie)?, UTIL_100 * 2);
+        assert_eq!(account_utilization(&trie, &account1)?, UTIL_100);
+        assert_eq!(account_utilization(&trie, &account2)?, UTIL_100);
+
         // "bb" is the shortest prefix of account 2 that is a valid account ID
+        let result = find_split_account(&trie)?;
         let split_account: AccountId = "bb".parse()?;
         assert_eq!(result, Some(split_account));
-        assert_eq!(total_utilization(&trie)?, ShardUtilization::V1(200.into()));
         Ok(())
     }
 
@@ -372,16 +395,22 @@ mod tests {
         let account2: AccountId = "aaaaa".parse()?;
         let account3: AccountId = "bb".parse()?;
         let account4: AccountId = "bbbbb".parse()?;
-        let utilization = ShardUtilization::V1(100.into());
         let trie = test_trie(vec![
-            (account1, utilization),
-            (account2, utilization),
-            (account3.clone(), utilization),
-            (account4, utilization),
+            (&account1, UTIL_100),
+            (&account2, UTIL_100),
+            (&account3, UTIL_100),
+            (&account4, UTIL_100),
         ]);
+
+        assert_eq!(total_utilization(&trie)?, UTIL_100 * 4);
+        // accounts 'aa' and 'bb' contain also utilization for 'aaaaa' and 'bbbbb' respectively
+        assert_eq!(account_utilization(&trie, &account1)?, UTIL_100 * 2);
+        assert_eq!(account_utilization(&trie, &account3)?, UTIL_100 * 2);
+        assert_eq!(account_utilization(&trie, &account2)?, UTIL_100);
+        assert_eq!(account_utilization(&trie, &account4)?, UTIL_100);
+
         let result = find_split_account(&trie)?;
         assert_eq!(result, Some(account3));
-        assert_eq!(total_utilization(&trie)?, ShardUtilization::V1(400.into()));
         Ok(())
     }
 
@@ -391,18 +420,23 @@ mod tests {
         let account2: AccountId = "bb".parse()?;
         let account3: AccountId = "cc".parse()?;
         let account4: AccountId = "dd".parse()?;
-        let utilization = ShardUtilization::V1(100.into());
         let trie = test_trie(vec![
-            (account1, utilization),
-            (account2, utilization),
-            (account3, utilization),
-            (account4.clone(), utilization),
-            (account4.clone(), utilization * 2),
+            (&account1, UTIL_100),
+            (&account2, UTIL_100),
+            (&account3, UTIL_100),
+            (&account4, UTIL_100),
+            (&account4, UTIL_100 * 2),
         ]);
-        let result = find_split_account(&trie)?;
+
+        assert_eq!(total_utilization(&trie)?, UTIL_100 * 6);
+        assert_eq!(account_utilization(&trie, &account1)?, UTIL_100);
+        assert_eq!(account_utilization(&trie, &account2)?, UTIL_100);
+        assert_eq!(account_utilization(&trie, &account3)?, UTIL_100);
+        assert_eq!(account_utilization(&trie, &account4)?, UTIL_100 * 3);
+
         // account4 has exactly half of the total utilization (100 + 200)
+        let result = find_split_account(&trie)?;
         assert_eq!(result, Some(account4));
-        assert_eq!(total_utilization(&trie)?, ShardUtilization::V1(600.into()));
         Ok(())
     }
 
@@ -439,7 +473,7 @@ mod tests {
 
         // Make sure the result is consistent
         let trie = test_trie(std::iter::zip(
-            accounts.into_iter(),
+            accounts.iter(),
             utilizations.into_iter().map(|u| ShardUtilization::V1(u.into())),
         ));
         let result = find_split_account(&trie)?;
