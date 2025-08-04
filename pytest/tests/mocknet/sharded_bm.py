@@ -362,14 +362,21 @@ def apply_network_config(args):
     logger.info("Applying network configuration optimizations")
     
     run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = f"\
+
+    # This command does the following:
+    # - Set overrides for some configs
+    # - Update default interface to use larger initial congestion window
+    run_cmd_args.cmd = "\
         sudo sysctl -w net.core.rmem_max=134217728 && \
         sudo sysctl -w net.core.wmem_max=134217728 && \
         sudo sysctl -w net.ipv4.tcp_rmem='10240 87380 134217728' && \
         sudo sysctl -w net.ipv4.tcp_wmem='4096 87380 134217728' && \
         sudo sysctl -w net.core.netdev_max_backlog=30000 && \
         sudo sysctl -w net.ipv4.tcp_no_metrics_save=1 && \
-        sudo ip route replace default via $(ip route | awk '/default/ {{print $3}}') dev $(ip route | awk '/default/ {{print $5}}') initcwnd 255 initrwnd 255 \
+        gw=$(ip route show default | head -1 | awk '{{print $3}}') && \
+        dev=$(ip route show default | head -1 | awk '{{print $5}}') && \
+        sudo ip route flush table main exact 0.0.0.0/0 2>/dev/null || true && \
+        sudo ip route add default via $gw dev $dev metric 100 initcwnd 255 initrwnd 255 \
     "
     
     run_remote_cmd(CommandContext(run_cmd_args))
