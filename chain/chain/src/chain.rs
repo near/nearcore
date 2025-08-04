@@ -18,11 +18,13 @@ use crate::signature_verification::{
     verify_chunk_header_signature_with_epoch_manager,
 };
 use crate::soft_realtime_thread_pool::ApplyChunksSpawner;
+use crate::spice_core::CoreStatementsProcessor;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
 };
+use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
 use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
@@ -92,6 +94,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
@@ -337,6 +340,8 @@ pub struct Chain {
     /// Manages all tasks related to resharding.
     pub resharding_manager: ReshardingManager,
     validator_signer: MutableValidatorSigner,
+    /// For spice keeps track of core statements.
+    pub spice_core_processor: CoreStatementsProcessor,
 }
 
 impl Drop for Chain {
@@ -410,6 +415,10 @@ impl Chain {
             noop().into_multi_sender(),
         );
         let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+        let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
+            store.chain_store(),
+            epoch_manager.clone(),
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -438,6 +447,7 @@ impl Chain {
             snapshot_callbacks: None,
             resharding_manager,
             validator_signer,
+            spice_core_processor,
         })
     }
 
@@ -453,6 +463,7 @@ impl Chain {
         apply_chunks_spawner: ApplyChunksSpawner,
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
+        spice_core_processor: CoreStatementsProcessor,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
@@ -600,6 +611,7 @@ impl Chain {
             snapshot_callbacks,
             resharding_manager,
             validator_signer,
+            spice_core_processor,
         })
     }
 
@@ -1285,7 +1297,8 @@ impl Chain {
             "process_optimistic_block",
             hash = ?block.hash(),
             height = ?block.height(),
-            tag_block_production = true
+            tag_block_production = true,
+            tag_optimistic = true
         )
         .entered();
 
@@ -1433,6 +1446,7 @@ impl Chain {
             self.epoch_manager.clone(),
             self.runtime_adapter.clone(),
             self.doomslug_threshold_mode,
+            self.spice_core_processor.clone(),
         )
     }
 
@@ -2357,6 +2371,18 @@ impl Chain {
 
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
+
+        if cfg!(feature = "protocol_feature_spice") {
+            self.spice_core_processor
+                .validate_core_statements_in_block(&block)
+                .map_err(Box::new)?;
+        } else {
+            if block.is_spice_block() {
+                return Err(Error::Other(
+                    "encountered spice block without spice feature enabled".to_string(),
+                ));
+            }
+        }
 
         let apply_chunk_work = self.apply_chunks_preprocessing(
             block,
@@ -3732,11 +3758,12 @@ pub struct BlockCatchUpResponse {
     pub results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
 }
 
-#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ChunkStateWitnessMessage {
     pub witness: ChunkStateWitness,
     pub raw_witness_size: ChunkStateWitnessSize,
+    pub processing_done_tracker: Option<ProcessingDoneTracker>,
 }
 
 /// Helper to track blocks catch up

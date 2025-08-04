@@ -13,6 +13,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::version::ProtocolFeature;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
@@ -74,7 +75,7 @@ pub fn validate_chunk_with_chunk_extra(
     prev_chunk_extra: &ChunkExtra,
     prev_chunk_height_included: BlockHeight,
     chunk_header: &ShardChunkHeader,
-) -> Result<(), Error> {
+) -> Result<Vec<Receipt>, Error> {
     let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
         epoch_manager,
         *prev_block_hash,
@@ -91,7 +92,48 @@ pub fn validate_chunk_with_chunk_extra(
         prev_chunk_extra,
         chunk_header,
         &outgoing_receipts_root,
-    )
+    )?;
+
+    Ok(outgoing_receipts)
+}
+
+pub fn validate_chunk_with_chunk_extra_and_roots(
+    chain_store: &ChainStore,
+    epoch_manager: &dyn EpochManagerAdapter,
+    prev_block_hash: &CryptoHash,
+    prev_chunk_extra: &ChunkExtra,
+    prev_chunk_height_included: BlockHeight,
+    chunk_header: &ShardChunkHeader,
+    new_transactions: &[SignedTransaction],
+    rs: &ReedSolomon,
+) -> Result<(), Error> {
+    let outgoing_receipts = validate_chunk_with_chunk_extra(
+        chain_store,
+        epoch_manager,
+        prev_block_hash,
+        prev_chunk_extra,
+        prev_chunk_height_included,
+        chunk_header,
+    )?;
+
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+    if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
+        let (tx_root, _) = merklize(new_transactions);
+        if &tx_root != chunk_header.tx_root() {
+            return Err(Error::InvalidTxRoot);
+        }
+
+        validate_chunk_with_encoded_merkle_root(
+            chunk_header,
+            outgoing_receipts,
+            new_transactions.to_vec(),
+            rs,
+            chunk_header.shard_id(),
+        )
+    } else {
+        Ok(())
+    }
 }
 
 /// Validate that all next chunk information matches previous chunk extra.

@@ -3,7 +3,6 @@ mod fetch_chain;
 mod network;
 
 use anyhow::{Context, anyhow};
-use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::IntoMultiSender;
 use near_async::messaging::IntoSender;
 use near_async::messaging::LateBoundSender;
@@ -54,7 +53,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         },
     )
     .context("PeerManagerActor::spawn()")?;
-    network_adapter.bind(network_actor.with_auto_span_context());
+    network_adapter.bind(network_actor);
     return Ok(network);
 }
 

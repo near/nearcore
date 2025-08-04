@@ -114,10 +114,9 @@ impl<'a> TrieChangesTracker<'a> {
 
     fn record<M: ArenaMemory>(&mut self, node: &MemTrieNodeView<'a, M>) {
         let node_hash = node.node_hash();
-        let raw_node_serialized = borsh::to_vec(&node.to_raw_trie_node_with_size()).unwrap();
         *self.refcount_deleted_hashes.entry(node_hash).or_default() += 1;
         if let Some(recorder) = self.recorder.as_mut() {
-            recorder.record(&node_hash, raw_node_serialized.into());
+            recorder.record_memtrie_node(node);
         }
     }
 

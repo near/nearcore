@@ -1,10 +1,12 @@
 use std::ops::{Deref, DerefMut};
 
 use actix::{Actor, SyncArbiter};
-use near_o11y::{WithSpanContext, handler_debug_span};
 
 use crate::futures::DelayedActionRunner;
 use crate::messaging;
+
+/// Compatibility layer for actix messages.
+impl<T: actix::Message> messaging::Message for T {}
 
 /// Wrapper on top of a generic actor to make it implement actix::Actor trait. The wrapped actor
 /// should implement the Handler trait for all the messages it would like to handle.
@@ -45,18 +47,16 @@ impl<T> DerefMut for ActixWrapper<T> {
     }
 }
 
-impl<M, T> actix::Handler<WithSpanContext<M>> for ActixWrapper<T>
+impl<M, T> actix::Handler<M> for ActixWrapper<T>
 where
     Self: actix::Actor,
     Self::Context: DelayedActionRunner<T>,
-    T: messaging::HandlerWithContext<M>,
+    T: messaging::HandlerWithContext<M, M::Result>,
     M: actix::Message,
-    <M as actix::Message>::Result:
-        actix::dev::MessageResponse<ActixWrapper<T>, WithSpanContext<M>> + Send,
+    <M as actix::Message>::Result: actix::dev::MessageResponse<ActixWrapper<T>, M> + Send,
 {
     type Result = M::Result;
-    fn handle(&mut self, msg: WithSpanContext<M>, ctx: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "actix_message_handler", msg);
+    fn handle(&mut self, msg: M, ctx: &mut Self::Context) -> Self::Result {
         self.actor.handle(msg, ctx)
     }
 }
@@ -78,17 +78,15 @@ where
     type Context = actix::SyncContext<Self>;
 }
 
-impl<M, T> actix::Handler<WithSpanContext<M>> for SyncActixWrapper<T>
+impl<M, T> actix::Handler<M> for SyncActixWrapper<T>
 where
     Self: actix::Actor,
-    T: messaging::Handler<M>,
+    T: messaging::Handler<M, M::Result>,
     M: actix::Message,
-    <M as actix::Message>::Result:
-        actix::dev::MessageResponse<SyncActixWrapper<T>, WithSpanContext<M>> + Send,
+    <M as actix::Message>::Result: actix::dev::MessageResponse<SyncActixWrapper<T>, M> + Send,
 {
     type Result = M::Result;
-    fn handle(&mut self, msg: WithSpanContext<M>, _ctx: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "actix_message_handler", msg);
+    fn handle(&mut self, msg: M, _ctx: &mut Self::Context) -> Self::Result {
         self.actor.handle(msg)
     }
 }

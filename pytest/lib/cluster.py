@@ -273,6 +273,13 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
+    def send_tx_and_wait_until(self, signed_tx, wait_until, timeout):
+        params = {
+            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
+            "wait_until": wait_until
+        }
+        return self.json_rpc('send_tx', params, timeout=timeout)
+
     def get_status(self,
                    check_storage: bool = True,
                    timeout: float = 4,
@@ -470,6 +477,10 @@ class BaseNode(object):
             max_retries=0,
         )
 
+    def get_block_effects(self, changes_in_block_request):
+        return self.json_rpc('block_effects', changes_in_block_request)
+
+    # `EXPERIMENTAL_changes_in_block` is deprecated as of 2.8, use `get_block_effects` instead
     def get_changes_in_block(self, changes_in_block_request):
         return self.json_rpc('EXPERIMENTAL_changes_in_block',
                              changes_in_block_request)

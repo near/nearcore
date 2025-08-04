@@ -16,7 +16,6 @@ use near_primitives::genesis::GenesisId;
 use near_network::PeerManagerActor;
 use near_network::config;
 use near_network::test_utils::{GetInfo, StopSignal, WaitOrTimeoutActor, convert_boot_nodes};
-use near_o11y::WithSpanContextExt;
 
 fn make_peer_manager(
     seed: &str,
@@ -79,7 +78,7 @@ fn stress_test() {
             })
             .collect();
 
-        pms[0].do_send(StopSignal::should_panic().with_span_context());
+        pms[0].do_send(StopSignal::should_panic());
 
         // States:
         // 0 -> Check other nodes health.
@@ -99,7 +98,7 @@ fn stress_test() {
                         if !flag.load(Ordering::Relaxed) {
                             let flag1 = flag.clone();
 
-                            let actor = pms[ix].send(GetInfo {}.with_span_context());
+                            let actor = pms[ix].send(GetInfo {});
                             let actor = actor.then(move |info| {
                                 if let Ok(info) = info {
                                     if info.num_connected_peers == num_nodes - 2 {
@@ -135,7 +134,7 @@ fn stress_test() {
                     let pm0 = pms[0].clone();
 
                     ctx.run_later(Duration::from_millis(10), move |_, _| {
-                        pm0.do_send(StopSignal::should_panic().with_span_context());
+                        pm0.do_send(StopSignal::should_panic());
                     });
 
                     let state1 = state.clone();

@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
 
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -19,7 +18,7 @@ use super::flexible_data::value::ValueView;
 use super::iter::{MemTrieIteratorInner, STMemTrieIterator};
 use super::lookup::memtrie_lookup;
 use super::memtrie_update::{MemTrieUpdate, TrackingMode, construct_root_from_changes};
-use super::node::{MemTrieNodeId, MemTrieNodePtr};
+use super::node::{MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
 
 /// `MemTries` (logically) owns the memory of multiple tries.
 /// Tries may share nodes with each other via refcounting. The way the
@@ -224,12 +223,12 @@ impl MemTries {
 
     /// Looks up a key in the memtrie with the given state_root and returns the value if found.
     /// Additionally, it returns a list of nodes that were accessed during the lookup.
-    pub fn lookup(
-        &self,
+    pub fn lookup<'a>(
+        &'a self,
         state_root: &CryptoHash,
         key: &[u8],
-        nodes_accessed: Option<&mut Vec<(CryptoHash, Arc<[u8]>)>>,
-    ) -> Result<Option<ValueView>, StorageError> {
+        nodes_accessed: Option<&mut Vec<MemTrieNodeView<'a, HybridArenaMemory>>>,
+    ) -> Result<Option<ValueView<'a>>, StorageError> {
         let root = self.get_root(state_root)?;
         Ok(memtrie_lookup(root, key, nodes_accessed))
     }

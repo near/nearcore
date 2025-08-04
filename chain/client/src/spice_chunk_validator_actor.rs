@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::ChunkStateWitnessMessage;
+use near_chain::spice_core::{CoreStatementsProcessor, ExecutionResultEndorsed};
 use near_chain::stateless_validation::chunk_validation::{
     MainStateTransitionCache, validate_chunk_state_witness,
 };
@@ -28,11 +27,10 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
-
-use crate::chunk_executor_actor::{ExecutionResultEndorsed, ProcessedBlock};
-use crate::spice_core::CoreStatementsProcessor;
-use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+
+use crate::chunk_executor_actor::ProcessedBlock;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,
@@ -50,11 +48,6 @@ pub struct SpiceChunkValidatorActor {
     main_state_transition_result_cache: MainStateTransitionCache,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
 
-    // TODO(spice): Dedup with ChunkExecutorActor logic by storing next block hashes in db to allow
-    // access from both places.
-    /// Next block hashes keyed by block hash.
-    next_block_hashes: LruCache<CryptoHash, Vec<CryptoHash>>,
-
     rs: Arc<ReedSolomon>,
 }
 
@@ -67,7 +60,6 @@ impl SpiceChunkValidatorActor {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_adapter: PeerManagerAdapter,
-        next_block_hashes_cache_capacity: NonZeroUsize,
         validator_signer: MutableValidatorSigner,
         core_processor: CoreStatementsProcessor,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
@@ -88,7 +80,6 @@ impl SpiceChunkValidatorActor {
             runtime_adapter,
             epoch_manager,
             network_adapter,
-            next_block_hashes: LruCache::new(next_block_hashes_cache_capacity),
             validator_signer,
             core_processor,
             chunk_endorsement_tracker,
@@ -108,9 +99,6 @@ impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
                 return;
             }
         };
-        let header = block.header();
-        let prev_block_hash = header.prev_hash();
-        self.next_block_hashes.get_or_insert_mut(*prev_block_hash, || Vec::new()).push(block_hash);
 
         if let Some(signer) = self.validator_signer.get() {
             if let Err(err) = self.process_ready_pending_state_witnesses(block, signer) {
@@ -123,14 +111,16 @@ impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
 impl Handler<ExecutionResultEndorsed> for SpiceChunkValidatorActor {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
         if let Some(signer) = self.validator_signer.get() {
-            let next_blocks = self.next_block_hashes.get(&block_hash).cloned();
-            for next_block_hash in next_blocks.into_iter().flatten() {
-                let block = self.chain_store.get_block(&next_block_hash).expect(
+            let next_block_hashes =
+                self.chain_store.get_all_next_block_hashes(&block_hash).unwrap();
+            for next_block_hash in next_block_hashes {
+                let next_block = self.chain_store.get_block(&next_block_hash).expect(
                     "block added to next blocks only after it's processed so it should be in store",
                 );
-                if let Err(err) = self.process_ready_pending_state_witnesses(block, signer.clone())
+                if let Err(err) =
+                    self.process_ready_pending_state_witnesses(next_block, signer.clone())
                 {
-                    tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "failed to process ready pending state witnesses");
+                    tracing::error!(target: "spice_chunk_validator", %next_block_hash, %block_hash, ?err, "failed to process ready pending state witnesses");
                 }
             }
         }
@@ -146,7 +136,7 @@ impl Handler<SpanWrapped<ChunkStateWitnessMessage>> for SpiceChunkValidatorActor
     #[perf]
     fn handle(&mut self, msg: SpanWrapped<ChunkStateWitnessMessage>) {
         let msg = msg.span_unwrap();
-        let ChunkStateWitnessMessage { witness, raw_witness_size } = msg;
+        let ChunkStateWitnessMessage { witness, raw_witness_size, .. } = msg;
         let Some(signer) = self.validator_signer.get() else {
             tracing::error!(target: "spice_chunk_validator", ?witness, "Received a chunk state witness but this is not a validator node.");
             return;
@@ -363,8 +353,8 @@ pub fn send_spice_chunk_endorsement(
     signer: &ValidatorSigner,
 ) {
     let block_hash = endorsement.block_hash().unwrap();
-    let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
-    let next_epoch_id = epoch_manager.get_next_epoch_id(&block_hash).unwrap();
+    let epoch_id = epoch_manager.get_epoch_id(block_hash).unwrap();
+    let next_epoch_id = epoch_manager.get_next_epoch_id(block_hash).unwrap();
 
     // Everyone should be aware of all core statements to make sure that execution can proceed
     // without waiting on endorsements appearing in consensus.

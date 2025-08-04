@@ -10,6 +10,7 @@ use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType,
 };
+use near_primitives::action::TransferAction;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
     MethodResolveError, TxExecutionError,
@@ -31,7 +32,9 @@ use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::gas::Gas;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils;
-use near_primitives::transaction::{Action, DeployContractAction, FunctionCallAction};
+use near_primitives::transaction::{
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
+};
 use testlib::fees_utils::FeeHelper;
 use testlib::runtime_utils::{
     alice_account, bob_account, eve_dot_alice_account, x_dot_y_dot_alice_account,
@@ -257,6 +260,43 @@ pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 0);
 }
 
+pub fn test_regression_nonce_update_with_mixed_transactions(node: impl Node) {
+    let signer_id = &node.account_id().unwrap();
+    let node_user = node.user();
+    let block_hash = node_user.get_best_block_hash().unwrap_or_default();
+    let receiver_id = bob_account();
+    let nonce = node_user.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default();
+    let fee_helper = fee_helper(&node);
+    let transfer_cost = fee_helper.transfer_cost();
+    // Is there any way to ensure all transactions fall into the same chunk?
+    let mut txs = vec![];
+    for i in 1..3 {
+        let valid_transfer_tx = SignedTransaction::from_actions(
+            nonce + i,
+            signer_id.clone(),
+            receiver_id.clone(),
+            &node_user.signer(),
+            vec![Action::Transfer(TransferAction { deposit: 100 })],
+            block_hash,
+            0,
+        );
+        txs.push(valid_transfer_tx);
+    }
+    txs.push(SignedTransaction::from_actions(
+        nonce + 20,
+        signer_id.clone(),
+        receiver_id,
+        &node_user.signer(),
+        vec![Action::Transfer(TransferAction {
+            deposit: TESTING_INIT_BALANCE - TESTING_INIT_STAKE - transfer_cost - 199,
+        })],
+        block_hash,
+        0,
+    ));
+    node_user.commit_all_transactions(txs).unwrap();
+    assert_eq!(node_user.get_access_key_nonce_for_signer(signer_id).unwrap(), nonce + 2);
+}
+
 pub fn test_upload_contract(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
@@ -360,7 +400,7 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     let num_expected_receipts =
-        if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
     assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -395,7 +435,7 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
 
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     let num_expected_receipts =
-        if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
     assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -545,7 +585,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
         )
     );
     let num_expected_receipts =
-        if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) { 2 } else { 3 };
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 2 } else { 3 };
     assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -1194,7 +1234,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     let num_expected_receipts =
-        if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
     assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let transaction_result =
         node_user.stake(eve_dot_alice_account(), node.block_signer().public_key(), 0).unwrap();
@@ -1290,7 +1330,7 @@ pub fn test_delete_account_fail(node: impl Node) {
         )
     );
     let num_expected_receipts =
-        if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
     assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     assert!(node.user().view_account(&bob_account()).is_ok());
     assert_eq!(
@@ -1314,7 +1354,7 @@ pub fn test_delete_account_no_account(node: impl Node) {
         )
     );
     let num_expected_receipts =
-        if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
     assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
 }
 

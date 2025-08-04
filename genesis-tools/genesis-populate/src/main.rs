@@ -38,7 +38,8 @@ fn main() {
     let store = near_store::NodeStorage::opener(
         home_dir,
         &near_config.config.store,
-        near_config.config.archival_config(),
+        near_config.config.cold_store.as_ref(),
+        near_config.config.cloud_storage.as_ref(),
     )
     .open()
     .unwrap()

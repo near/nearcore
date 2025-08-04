@@ -105,10 +105,7 @@ impl<'a> RuntimeExt<'a> {
             epoch_info_provider,
             current_protocol_version,
             storage_access_mode,
-            trie_access_tracker: AccountingAccessTracker {
-                allow_insert: true,
-                state: trie_access_tracker_state,
-            },
+            trie_access_tracker: AccountingAccessTracker { state: trie_access_tracker_state },
         }
     }
 
@@ -561,7 +558,6 @@ impl<'a> Contract for RuntimeContractExt<'a> {
 /// for value dereferences that ultimately go out to trie anyway.
 // FIXME(nagisa): equalize fees for different types of accesses and eventually remove this code.
 struct AccountingAccessTracker {
-    allow_insert: bool,
     state: Arc<AccountingState>,
 }
 
@@ -612,7 +608,6 @@ pub struct TrieNodesCount {
 impl Debug for AccountingAccessTracker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AccountingAccessTracker")
-            .field("allow_insert", &self.allow_insert)
             .field("db_reads", &self.state.db_reads)
             .field("mem_reads", &self.state.mem_reads)
             .field("cache.len", &self.state.cache.lock().len())
@@ -629,9 +624,7 @@ impl AccessTracker for AccountingAccessTracker {
 
     fn track_disk_lookup(&self, key: CryptoHash, value: Arc<[u8]>) {
         self.state.db_reads.fetch_add(1, Ordering::Relaxed);
-        if self.allow_insert {
-            self.state.cache.lock().insert(key, value);
-        }
+        self.state.cache.lock().insert(key, value);
     }
 }
 

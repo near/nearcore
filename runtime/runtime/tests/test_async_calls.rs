@@ -577,7 +577,7 @@ fn test_single_promise_with_callback_batch() {
             assert_eq!(function_call_action.deposit, 0);
         }
     );
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(receipts, [], "refund should have been avoided");
     } else {
         let [ref1] = &*receipts else { panic!("Incorrect number of refunds") };
@@ -646,7 +646,7 @@ fn test_simple_transfer() {
         }
     );
     // For gas price difference
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(refunds, [], "refund should have been avoided");
     } else {
         let [ref1] = &*refunds else { panic!("Incorrect number of refunds") };
@@ -728,7 +728,7 @@ fn test_create_account_with_transfer_and_full_key() {
     );
 
     // For gas price difference
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(refunds, [], "refund should have been avoided");
     } else {
         let [ref1] = &*refunds else { panic!("Incorrect number of refunds") };
@@ -834,7 +834,7 @@ fn test_account_factory() {
     );
     let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     // For gas price difference
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(refunds, [], "refund should have been avoided");
     } else {
         let [refund] = &refunds else { panic!("Incorrect number of refunds") };
@@ -1028,7 +1028,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
 
     let [r2, r3, refunds @ ..] = &receipts else { panic!("must have 2 outgoing receipts") };
     // For gas price difference
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(refunds, [], "refund should have been avoided");
     } else {
         let [refund] = &refunds else { panic!("Incorrect number of refunds") };
@@ -1044,7 +1044,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }
     );
     // For gas price difference
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(receipts[..], [], "refund should have been avoided");
     } else {
         let [refund] = &receipts[..] else { panic!("Incorrect number of refunds") };
@@ -1122,7 +1122,7 @@ fn test_transfer_64len_hex() {
        }
       );
 
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(refunds, [], "refund should have been avoided");
     } else {
         let [ref1] = &*refunds else { panic!("Incorrect number of refunds") };
@@ -1214,7 +1214,7 @@ fn test_create_transfer_64len_hex_fail() {
 fn assert_single_refund_prior_to_nep536(group: &RuntimeGroup, receipts: &[CryptoHash]) {
     use near_primitives::transaction::*;
 
-    if ProtocolFeature::reduced_gas_refunds_enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(receipts, [], "refund should have been avoided");
     } else {
         let [refund] = &receipts[..] else { panic!("Incorrect number of refunds") };

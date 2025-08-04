@@ -1,9 +1,13 @@
 use crate::challenge::Challenge;
 use crate::sharding::ShardChunkHeader;
+use crate::stateless_validation::ChunkProductionKey;
+use crate::stateless_validation::chunk_endorsement::SpiceEndorsementSignedInner;
+use crate::types::ChunkExecutionResult;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_crypto::vrf::{Proof, Value};
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
@@ -47,12 +51,41 @@ pub struct BlockBodyV2 {
 
 pub type ChunkEndorsementSignatures = Vec<Option<Box<Signature>>>;
 
+/// V2 -> V3: block body for spice:
+/// - replacing endorsements with core statements.
+/// - removing deprecated challenges.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+pub struct SpiceBlockBodyV3 {
+    pub chunks: Vec<ShardChunkHeader>,
+
+    // Data to confirm the correctness of randomness beacon output
+    pub vrf_value: Value,
+    pub vrf_proof: Proof,
+
+    pub core_statements: Vec<SpiceCoreStatement>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+pub enum SpiceCoreStatement {
+    Endorsement {
+        chunk_production_key: ChunkProductionKey,
+        signed_inner: SpiceEndorsementSignedInner,
+        account_id: AccountId,
+        signature: Signature,
+    },
+    ChunkExecutionResult {
+        chunk_production_key: ChunkProductionKey,
+        execution_result: ChunkExecutionResult,
+    },
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum BlockBody {
     V1(BlockBodyV1) = 0,
     V2(BlockBodyV2) = 1,
+    V3(SpiceBlockBodyV3) = 2,
 }
 
 impl BlockBody {
@@ -72,11 +105,21 @@ impl BlockBody {
         })
     }
 
+    pub fn new_for_spice(
+        chunks: Vec<ShardChunkHeader>,
+        vrf_value: Value,
+        vrf_proof: Proof,
+        core_statements: Vec<SpiceCoreStatement>,
+    ) -> Self {
+        BlockBody::V3(SpiceBlockBodyV3 { chunks, vrf_value, vrf_proof, core_statements })
+    }
+
     #[inline]
     pub fn chunks(&self) -> &[ShardChunkHeader] {
         match self {
             BlockBody::V1(body) => &body.chunks,
             BlockBody::V2(body) => &body.chunks,
+            BlockBody::V3(body) => &body.chunks,
         }
     }
 
@@ -85,6 +128,7 @@ impl BlockBody {
         match self {
             BlockBody::V1(body) => &body.vrf_value,
             BlockBody::V2(body) => &body.vrf_value,
+            BlockBody::V3(body) => &body.vrf_value,
         }
     }
 
@@ -93,6 +137,7 @@ impl BlockBody {
         match self {
             BlockBody::V1(body) => &body.vrf_proof,
             BlockBody::V2(body) => &body.vrf_proof,
+            BlockBody::V3(body) => &body.vrf_proof,
         }
     }
 
@@ -101,6 +146,23 @@ impl BlockBody {
         match self {
             BlockBody::V1(_) => &[],
             BlockBody::V2(body) => &body.chunk_endorsements,
+            BlockBody::V3(_) => &[],
+        }
+    }
+
+    #[inline]
+    pub fn spice_core_statements(&self) -> &[SpiceCoreStatement] {
+        match self {
+            BlockBody::V1(_) | BlockBody::V2(_) => &[],
+            BlockBody::V3(body) => &body.core_statements,
+        }
+    }
+
+    #[inline]
+    pub fn is_spice_block(&self) -> bool {
+        match self {
+            BlockBody::V1(_) | BlockBody::V2(_) => false,
+            BlockBody::V3(_) => true,
         }
     }
 

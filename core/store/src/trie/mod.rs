@@ -1328,22 +1328,31 @@ impl Trie {
         {
             let mut accessed_nodes = Vec::new();
             let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
-            if use_trie_accounting_cache {
-                for (node_hash, serialized_node) in &accessed_nodes {
-                    if access_options.trie_access_tracker.track_mem_lookup(node_hash).is_none() {
+            for node_view in accessed_nodes {
+                let node_hash = node_view.node_hash();
+                let mut serialized_node: Option<Arc<[u8]>> = None;
+                let mut get_serialized_node = || -> Arc<[u8]> {
+                    serialized_node
+                        .get_or_insert_with(|| {
+                            borsh::to_vec(&node_view.to_raw_trie_node_with_size()).unwrap().into()
+                        })
+                        .clone()
+                };
+
+                if use_trie_accounting_cache {
+                    if access_options.trie_access_tracker.track_mem_lookup(&node_hash).is_none() {
                         access_options
                             .trie_access_tracker
-                            .track_disk_lookup(*node_hash, Arc::clone(serialized_node));
+                            .track_disk_lookup(node_hash, get_serialized_node());
+                    }
+                }
+                if access_options.enable_state_witness_recording {
+                    if let Some(recorder) = &self.recorder {
+                        recorder.record_with(&node_hash, get_serialized_node);
                     }
                 }
             }
-            if access_options.enable_state_witness_recording {
-                if let Some(recorder) = &self.recorder {
-                    for (node_hash, serialized_node) in accessed_nodes {
-                        recorder.record(&node_hash, serialized_node);
-                    }
-                }
-            }
+
             mem_value
         } else {
             lock.lookup(&self.root, key, None)?

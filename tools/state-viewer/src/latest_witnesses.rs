@@ -137,7 +137,7 @@ impl GenerateWitnessesCmd {
             crate::cli::StorageSource::TrieFree,
             Some(start_height),
             Some(end_height),
-            self.shard_id,
+            vec![self.shard_id],
             false,
             None,
             home_dir,

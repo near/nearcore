@@ -101,7 +101,7 @@ where
 impl<M, R, A> CanSend<MessageWithCallback<M, R>> for TestLoopSender<A>
 where
     M: actix::Message<Result = R> + Debug + Send + 'static,
-    A: Actor + HandlerWithContext<M> + 'static,
+    A: Actor + HandlerWithContext<M, R> + 'static,
     R: 'static + Send,
 {
     fn send(&self, msg: MessageWithCallback<M, R>) {

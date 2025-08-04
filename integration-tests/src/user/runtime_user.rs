@@ -1,7 +1,5 @@
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-
+use super::CommitError;
+use crate::user::User;
 use itertools::Itertools;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
@@ -12,6 +10,7 @@ use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionIn
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta, MerkleHash, ShardId};
@@ -27,9 +26,9 @@ use node_runtime::SignedValidPeriodTransactions;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, state_viewer::ViewApplyState};
 use parking_lot::RwLock;
-
-use crate::user::User;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -352,6 +351,20 @@ impl User for RuntimeUser {
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
         self.apply_all(self.apply_state(), vec![], vec![transaction], true)?;
         Ok(())
+    }
+
+    fn commit_all_transactions(
+        &self,
+        signed_transactions: Vec<SignedTransaction>,
+    ) -> Result<Vec<Result<FinalExecutionOutcomeView, CommitError>>, ServerError> {
+        self.apply_all(self.apply_state(), vec![], signed_transactions.clone(), true)?;
+        Ok(signed_transactions
+            .into_iter()
+            .map(|t| {
+                let e = super::CommitError::OutcomeNotFound;
+                self.get_transaction_final_result(&t.get_hash()).ok_or(e)
+            })
+            .collect())
     }
 
     fn commit_transaction(

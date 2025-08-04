@@ -2,6 +2,7 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
+use crate::spice_core::CoreStatementsProcessor;
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
@@ -38,6 +39,7 @@ pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
+    spice_core_processor: CoreStatementsProcessor,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -46,9 +48,16 @@ impl<'a> ChainUpdate<'a> {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
+        spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = chain_store.store_update();
-        Self::new_impl(epoch_manager, runtime_adapter, doomslug_threshold_mode, chain_store_update)
+        Self::new_impl(
+            epoch_manager,
+            runtime_adapter,
+            doomslug_threshold_mode,
+            chain_store_update,
+            spice_core_processor,
+        )
     }
 
     fn new_impl(
@@ -56,8 +65,15 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_store_update: ChainStoreUpdate<'a>,
+        spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
-        ChainUpdate { epoch_manager, runtime_adapter, chain_store_update, doomslug_threshold_mode }
+        ChainUpdate {
+            epoch_manager,
+            runtime_adapter,
+            chain_store_update,
+            doomslug_threshold_mode,
+            spice_core_processor,
+        }
     }
 
     /// Commit changes to the chain into the database.
@@ -274,6 +290,12 @@ impl<'a> ChainUpdate<'a> {
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(Arc::clone(&block));
         self.chain_store_update.inc_block_refcount(prev_hash)?;
+
+        if cfg!(feature = "protocol_feature_spice") {
+            // TODO(spice): persist core statements for block in storage by returning StoreUpdate,
+            // same as in self.epoch_manager.add_validator_proposals call above.
+            self.spice_core_processor.record_core_statements_from_block(&block)?;
+        }
 
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;

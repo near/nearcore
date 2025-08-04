@@ -3,10 +3,7 @@ use std::sync::Arc;
 use actix::Addr;
 use futures::{FutureExt, TryFutureExt, future, future::LocalBoxFuture};
 use integration_tests::env::setup::setup_no_network_with_validity_period;
-use near_async::{
-    actix::AddrWithAutoSpanContextExt,
-    messaging::{IntoMultiSender, noop},
-};
+use near_async::messaging::{IntoMultiSender, noop};
 use near_chain_configs::GenesisConfig;
 use near_client::ViewClientActor;
 use near_jsonrpc::{RpcConfig, start_http};
@@ -59,9 +56,9 @@ pub fn start_all_with_validity_period(
     start_http(
         RpcConfig::new(addr),
         TEST_GENESIS_CONFIG.clone(),
-        actor_handles.client_actor.clone().with_auto_span_context().into_multi_sender(),
-        actor_handles.view_client_actor.clone().with_auto_span_context().into_multi_sender(),
-        actor_handles.rpc_handler_actor.clone().with_auto_span_context().into_multi_sender(),
+        actor_handles.client_actor.clone().into_multi_sender(),
+        actor_handles.view_client_actor.clone().into_multi_sender(),
+        actor_handles.rpc_handler_actor.clone().into_multi_sender(),
         noop().into_multi_sender(),
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
