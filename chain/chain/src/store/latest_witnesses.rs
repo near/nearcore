@@ -23,6 +23,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::db::{INVALID_WITNESSES_INFO, LATEST_WITNESSES_INFO};
+use parking_lot::Mutex;
+use parking_lot::const_mutex;
 use rand::RngCore;
 use rand::rngs::OsRng;
 
@@ -134,12 +136,17 @@ impl InvalidWitnessesInfo {
 impl ChainStore {
     /// Saves an observed `ChunkStateWitness` to the database for later analysis and debugging.
     /// The witness is stored in `DBCol::LatestChunkStateWitnesses`.
-    /// This function does a read-before-write. Don't call it in parallel on the same database,
-    /// or there will be race conditions.
+    /// This function does a read-before-write. It can be called in parallel on the same database
+    /// because operations are serialized by an internal lock.
     pub fn save_latest_chunk_state_witness(
-        &mut self,
+        &self,
         witness: &ChunkStateWitness,
     ) -> Result<(), std::io::Error> {
+        // Static lock to serialize access and prevent race conditions when multiple threads
+        // try to save witnesses concurrently.
+        static LOCK: Mutex<()> = const_mutex(());
+        let _guard = LOCK.lock();
+
         let start_time = std::time::Instant::now();
         let ChunkProductionKey { shard_id, epoch_id, height_created } =
             witness.chunk_production_key();

@@ -1,4 +1,3 @@
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
@@ -6,6 +5,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::runtime::NightshadeRuntime;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
@@ -17,11 +17,13 @@ use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
-use near_client::spice_core::CoreStatementsProcessor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
     StateRequestActor, ViewClientActorInner,
+};
+use near_client::{
+    ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -136,6 +138,8 @@ pub fn setup_client(
         test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
     ));
 
+    let chunk_validation_client_sender = LateBoundSender::<ChunkValidationSender>::new();
+
     let spice_core_processor = CoreStatementsProcessor::new(
         runtime_adapter.store().chain_store(),
         epoch_manager.clone(),
@@ -161,6 +165,7 @@ pub fn setup_client(
         Arc::new(test_loop.future_spawner(identifier)),
         client_adapter.as_multi_sender(),
         client_adapter.as_multi_sender(),
+        chunk_validation_client_sender.as_multi_sender(),
         upgrade_schedule.clone(),
         spice_core_processor.clone(),
     )
@@ -212,8 +217,8 @@ pub fn setup_client(
         runtime_adapter.clone(),
         epoch_manager.clone(),
         *view_client_actor.chain.genesis().hash(),
-        client_config.view_client_throttle_period,
-        client_config.view_client_num_state_requests_per_throttle_period,
+        client_config.state_request_throttle_period,
+        client_config.state_requests_per_throttle_period,
     );
 
     let head = client.chain.head().unwrap();
@@ -232,6 +237,20 @@ pub fn setup_client(
         Duration::milliseconds(100),
     );
 
+    let genesis_block = client.chain.genesis_block();
+    let chunk_validation_actor = ChunkValidationActorInner::new(
+        client.chain.chain_store().clone(),
+        genesis_block,
+        epoch_manager.clone(),
+        runtime_adapter.clone(),
+        network_adapter.as_sender(),
+        validator_signer.clone(),
+        client_config.save_latest_witnesses,
+        client_config.save_invalid_witnesses,
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        client_config.orphan_state_witness_pool_size,
+        client_config.orphan_state_witness_max_size.as_u64(),
+    );
     let chunk_executor_sender = if cfg!(feature = "protocol_feature_spice") {
         chunk_executor_adapter.as_sender()
     } else {
@@ -274,15 +293,18 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
     );
 
+    let chunk_validation_adapter = LateBoundSender::<ChunkValidationSenderForPartialWitness>::new();
+
     let partial_witness_actor = PartialWitnessActor::new(
         test_loop.clock(),
         network_adapter.as_multi_sender(),
-        client_adapter.as_multi_sender(),
+        chunk_validation_adapter.as_multi_sender(),
         validator_signer.clone(),
         epoch_manager.clone(),
         runtime_adapter.clone(),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))), // Heavy contract compilation
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
     );
 
     let peer_manager_actor = TestLoopPeerManagerActor::new(
@@ -344,7 +366,6 @@ pub fn setup_client(
         runtime_adapter.clone(),
         epoch_manager.clone(),
         network_adapter.as_multi_sender(),
-        NonZeroUsize::new(1000).unwrap(),
         validator_signer.clone(),
         spice_core_processor,
         client_actor.client.chunk_endorsement_tracker.clone(),
@@ -390,6 +411,23 @@ pub fn setup_client(
     test_loop.data.register_actor(identifier, state_snapshot, Some(state_snapshot_adapter));
     let resharding_sender =
         test_loop.data.register_actor(identifier, resharding_actor, Some(resharding_sender));
+
+    let chunk_validation_sender = test_loop.data.register_actor(
+        identifier,
+        chunk_validation_actor,
+        None, // No adapter needed, we'll bind directly
+    );
+
+    let chunk_validation_multi_sender = ChunkValidationSender {
+        chunk_state_witness: chunk_validation_sender.clone().into_sender(),
+        block_notification: chunk_validation_sender.into_sender(),
+    };
+
+    chunk_validation_client_sender.bind(chunk_validation_multi_sender.clone());
+
+    chunk_validation_adapter.bind(ChunkValidationSenderForPartialWitness {
+        chunk_state_witness: chunk_validation_multi_sender.chunk_state_witness,
+    });
 
     // State sync dumper is not an Actor, handle starting separately.
     let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();

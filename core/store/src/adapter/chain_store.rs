@@ -248,6 +248,11 @@ impl ChainStoreAdapter {
         self.store.exists(DBCol::Chunks, h.as_ref()).map_err(|e| e.into())
     }
 
+    /// Does this partial chunk exist?
+    pub fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        self.store.exists(DBCol::PartialChunks, h.as_ref()).map_err(|e| e.into())
+    }
+
     /// Returns encoded chunk if it's invalid otherwise None.
     pub fn is_invalid_chunk(
         &self,
@@ -387,6 +392,17 @@ impl ChainStoreAdapter {
         Ok(self
             .store
             .get_ser(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id))?
+            .unwrap_or_default())
+    }
+
+    /// Returns a vector of all known processed next block hashes.
+    pub fn get_all_next_block_hashes(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Vec<CryptoHash>, Error> {
+        Ok(self
+            .store
+            .get_ser(DBCol::all_next_block_hashes(), block_hash.as_ref())?
             .unwrap_or_default())
     }
 

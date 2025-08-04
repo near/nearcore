@@ -3,6 +3,7 @@ use crate::block::BlockValidityError::{
     InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
     InvalidTransactionRoot,
 };
+use crate::block_body::SpiceCoreStatement;
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::Challenge;
@@ -122,8 +123,10 @@ impl Block {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
+        core_statements: Vec<SpiceCoreStatement>,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
+
         let mut prev_validator_proposals = vec![];
         let mut gas_used = 0;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
@@ -218,7 +221,12 @@ impl Block {
         let chunk_headers_root = chunks_wrapper.compute_chunk_headers_root();
         let chunk_tx_root = chunks_wrapper.compute_chunk_tx_root();
         let outcome_root = chunks_wrapper.compute_outcome_root();
-        let body = BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements);
+
+        let body = if cfg!(feature = "protocol_feature_spice") {
+            BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, core_statements)
+        } else {
+            BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements)
+        };
 
         let header = BlockHeader::new(
             latest_protocol_version,
@@ -372,6 +380,22 @@ impl Block {
         match self {
             Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => &[],
             Block::BlockV4(block) => block.body.chunk_endorsements(),
+        }
+    }
+
+    #[inline]
+    pub fn spice_core_statements(&self) -> &[SpiceCoreStatement] {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => &[],
+            Block::BlockV4(block) => block.body.spice_core_statements(),
+        }
+    }
+
+    #[inline]
+    pub fn is_spice_block(&self) -> bool {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => false,
+            Block::BlockV4(block) => block.body.is_spice_block(),
         }
     }
 

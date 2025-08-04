@@ -498,7 +498,7 @@ fn test_validators_ordered() {
 #[test]
 fn test_genesis_config() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
+        let genesis_config = client.genesis_config().await.unwrap();
         if !cfg!(feature = "nightly") {
             assert_eq!(
                 genesis_config["protocol_version"].as_u64().unwrap(),

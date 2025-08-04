@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 
-use near_async::futures::ActixArbiterHandleFutureSpawner;
+use near_async::actix::futures::ActixArbiterHandleFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};

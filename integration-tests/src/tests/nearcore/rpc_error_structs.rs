@@ -11,7 +11,6 @@ use near_client::GetBlock;
 use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
 use near_network::test_utils::WaitOrTimeoutActor;
-use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
@@ -40,7 +39,7 @@ fn slow_test_block_unknown_block_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = view_client.send(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -99,7 +98,7 @@ fn slow_test_chunk_unknown_chunk_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = view_client.send(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -168,7 +167,7 @@ fn slow_test_protocol_config_unknown_block_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = view_client.send(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -231,7 +230,7 @@ fn slow_test_gas_price_unknown_block_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = view_client.send(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -290,7 +289,7 @@ fn slow_test_receipt_id_unknown_receipt_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = view_client.send(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -374,7 +373,7 @@ fn test_tx_invalid_tx_error() {
                 let transaction_copy = transaction.clone();
                 let tx_hash = transaction_copy.get_hash();
 
-                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = view_client.send(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 10 {

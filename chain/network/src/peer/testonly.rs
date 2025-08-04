@@ -23,7 +23,6 @@ use crate::types::{
 };
 use near_async::messaging::{IntoMultiSender, Sender};
 use near_async::time;
-use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
@@ -64,11 +63,7 @@ pub(crate) struct PeerHandle {
 
 impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
-        self.actix
-            .addr
-            .send(SendMessage { message: Arc::new(message) }.span_wrap().with_span_context())
-            .await
-            .unwrap();
+        self.actix.addr.send(SendMessage { message: Arc::new(message) }.span_wrap()).await.unwrap();
     }
 
     pub async fn complete_handshake(&mut self) {

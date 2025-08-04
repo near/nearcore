@@ -99,6 +99,8 @@ pub trait ChainStoreAccess {
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Does this chunk exist?
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
+    /// Does this partial chunk exist?
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error>;
     /// Get chunk extra info for given block hash + shard id.
@@ -262,10 +264,9 @@ pub fn filter_incoming_receipts_for_shard(
 }
 
 /// All chain-related database operations.
+#[derive(Clone)]
 pub struct ChainStore {
     store: ChainStoreAdapter,
-    // TODO(store): Use std::cell::OnceCell once OnceCell::get_or_try_init stabilizes.
-    latest_known: std::cell::Cell<Option<LatestKnown>>,
     /// save_trie_changes should be set to true iff
     /// - archive is false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
@@ -304,7 +305,6 @@ impl ChainStore {
     ) -> ChainStore {
         ChainStore {
             store: store.chain_store(),
-            latest_known: std::cell::Cell::new(None),
             save_trie_changes,
             save_tx_outcomes: true,
             transaction_validity_period,
@@ -557,15 +557,11 @@ impl ChainStore {
     /// Returns latest known height and time it was seen.
     /// TODO(store): What is this doing here? Cleanup
     pub fn get_latest_known(&self) -> Result<LatestKnown, Error> {
-        if let Some(latest_known) = self.latest_known.get() {
-            return Ok(latest_known);
-        }
         let latest_known: LatestKnown = option_to_not_found(
             self.store.store().caching_get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
             "LATEST_KNOWN_KEY",
         )
         .map(|v| *v)?;
-        self.latest_known.set(Some(latest_known));
         Ok(latest_known)
     }
 
@@ -574,7 +570,6 @@ impl ChainStore {
     pub fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
         let mut store_update = self.store.store().store_update();
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
-        self.latest_known.set(Some(latest_known));
         store_update.commit().map_err(|err| err.into())
     }
 
@@ -896,6 +891,10 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::chunk_exists(self, h)
     }
 
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        ChainStoreAdapter::partial_chunk_exists(self, h)
+    }
+
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         ChainStoreAdapter::get_previous_header(self, header)
@@ -1015,7 +1014,6 @@ pub(crate) struct ChainStoreCacheUpdate {
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, Arc<ArcedShardChunk>>,
     partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
-    block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     pub(crate) height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
@@ -1194,6 +1192,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
         Ok(self.chain_store_cache_update.chunks.contains_key(h)
             || self.chain_store.chunk_exists(h)?)
+    }
+
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        Ok(self.chain_store_cache_update.partial_chunks.contains_key(h)
+            || self.chain_store.partial_chunk_exists(h)?)
     }
 
     /// Get previous header.
@@ -1804,10 +1807,18 @@ impl<'a> ChainStoreUpdate<'a> {
                     &index_to_bytes(block.header().height()),
                     &map,
                 )?;
-                self.chain_store_cache_update
-                    .block_hash_per_height
-                    .insert(block.header().height(), map);
                 store_update.insert_ser(DBCol::Block, block.hash().as_ref(), block)?;
+                if cfg!(feature = "protocol_feature_spice") {
+                    let prev_hash = block.header().prev_hash();
+                    let mut prev_next_hashes =
+                        self.chain_store.get_all_next_block_hashes(prev_hash)?;
+                    prev_next_hashes.push(*block.hash());
+                    store_update.set_ser(
+                        DBCol::all_next_block_hashes(),
+                        prev_hash.as_ref(),
+                        &prev_next_hashes,
+                    )?;
+                }
             }
             // This is a BTreeMap because the update_sync_hashes() calls below must be done in order of height
             let mut headers_by_height: BTreeMap<BlockHeight, Vec<&BlockHeader>> = BTreeMap::new();

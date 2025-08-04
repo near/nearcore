@@ -35,7 +35,6 @@ use futures::FutureExt;
 use near_async::messaging::IntoMultiSender;
 use near_async::messaging::Sender;
 use near_async::time;
-use near_o11y::WithSpanContextExt;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::ShardStateSyncResponse;
 use near_primitives::state_sync::ShardStateSyncResponseV2;
@@ -190,7 +189,7 @@ impl ActorHandler {
         let stream = tcp::Stream::connect(&peer_info, tier, &config::SocketOptions::default())
             .await
             .unwrap();
-        addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
+        addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
     }
 
     pub fn connect_to(
@@ -207,7 +206,7 @@ impl ActorHandler {
                 .unwrap();
             let mut events = events.from_now();
             let stream_id = stream.id();
-            addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
+            addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
             events
                 .recv_until(|ev| match &ev {
                     Event::PeerManager(PME::HandshakeCompleted(ev))
@@ -288,9 +287,7 @@ impl ActorHandler {
             tcp::Stream::loopback(network_cfg.node_id(), tier).await;
         let stream_id = outbound_stream.id();
         let events = self.events.from_now();
-        self.actix.addr.do_send(
-            PeerManagerMessageRequest::OutboundTcpConnect(outbound_stream).with_span_context(),
-        );
+        self.actix.addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(outbound_stream));
         let conn = RawConnection {
             events,
             stream: inbound_stream,
@@ -421,10 +418,7 @@ impl ActorHandler {
     pub async fn announce_account(&self, aa: AnnounceAccount) {
         self.actix
             .addr
-            .send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(aa))
-                    .with_span_context(),
-            )
+            .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(aa)))
             .await
             .unwrap();
     }

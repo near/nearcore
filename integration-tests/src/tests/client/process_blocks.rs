@@ -28,7 +28,6 @@ use near_network::types::{
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerInfo, ReasonForBan};
-use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
@@ -127,9 +126,7 @@ fn receive_network_block() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = actor_handles
-            .view_client_actor
-            .send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -161,6 +158,7 @@ fn receive_network_block() {
                 Clock::real(),
                 None,
                 None,
+                vec![],
             );
             actor_handles.client_actor.do_send(
                 BlockResponse {
@@ -168,8 +166,7 @@ fn receive_network_block() {
                     peer_id: PeerInfo::random().id,
                     was_requested: false,
                 }
-                .span_wrap()
-                .with_span_context(),
+                .span_wrap(),
             );
             future::ready(())
         });
@@ -217,9 +214,7 @@ fn produce_block_with_approvals() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = actor_handles
-            .view_client_actor
-            .send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -254,6 +249,7 @@ fn produce_block_with_approvals() {
                 Clock::real(),
                 None,
                 None,
+                vec![],
             );
             actor_handles.client_actor.do_send(
                 BlockResponse {
@@ -261,8 +257,7 @@ fn produce_block_with_approvals() {
                     peer_id: PeerInfo::random().id,
                     was_requested: false,
                 }
-                .span_wrap()
-                .with_span_context(),
+                .span_wrap(),
             );
 
             for i in 3..11 {
@@ -279,9 +274,9 @@ fn produce_block_with_approvals() {
                     10, // the height at which "test1" is producing
                     &signer,
                 );
-                actor_handles.client_actor.do_send(
-                    BlockApproval(approval, PeerInfo::random().id).span_wrap().with_span_context(),
-                );
+                actor_handles
+                    .client_actor
+                    .do_send(BlockApproval(approval, PeerInfo::random().id).span_wrap());
             }
 
             future::ready(())
@@ -329,9 +324,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = actor_handles
-            .view_client_actor
-            .send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -363,6 +356,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 Clock::real(),
                 None,
                 None,
+                vec![],
             );
             // Send block with invalid chunk mask
             let mut block = valid_block.clone();
@@ -374,8 +368,7 @@ fn invalid_blocks_common(is_requested: bool) {
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
-                .span_wrap()
-                .with_span_context(),
+                .span_wrap(),
             );
 
             // Send blocks with invalid protocol version
@@ -388,8 +381,7 @@ fn invalid_blocks_common(is_requested: bool) {
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
-                .span_wrap()
-                .with_span_context(),
+                .span_wrap(),
             );
 
             // Send block with invalid chunk signature
@@ -414,8 +406,7 @@ fn invalid_blocks_common(is_requested: bool) {
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
-                .span_wrap()
-                .with_span_context(),
+                .span_wrap(),
             );
 
             // Send proper block.
@@ -426,8 +417,7 @@ fn invalid_blocks_common(is_requested: bool) {
                     peer_id: PeerInfo::random().id,
                     was_requested: is_requested,
                 }
-                .span_wrap()
-                .with_span_context(),
+                .span_wrap(),
             );
             if is_requested {
                 let mut block3 = block2;
@@ -439,8 +429,7 @@ fn invalid_blocks_common(is_requested: bool) {
                         peer_id: PeerInfo::random().id,
                         was_requested: is_requested,
                     }
-                    .span_wrap()
-                    .with_span_context(),
+                    .span_wrap(),
                 );
             }
             future::ready(())
@@ -552,8 +541,7 @@ fn client_sync_headers() {
                 tier1_accounts_keys: vec![],
                 tier1_accounts_data: vec![],
             })
-            .span_wrap()
-            .with_span_context(),
+            .span_wrap(),
         );
         wait_or_panic(2000);
     });

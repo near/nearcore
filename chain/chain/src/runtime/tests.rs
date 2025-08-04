@@ -1,4 +1,5 @@
 use super::*;
+use crate::spice_core::CoreStatementsProcessor;
 use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
@@ -741,11 +742,17 @@ fn test_state_sync() {
     root_node_wrong.data = std::sync::Arc::new([123]);
     assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
     assert!(!new_env.runtime.validate_state_part(
+        ShardId::new(0),
         &Trie::EMPTY_ROOT,
         PartId::new(0, 1),
         &state_part
     ));
-    new_env.runtime.validate_state_part(&env.state_roots[0], PartId::new(0, 1), &state_part);
+    new_env.runtime.validate_state_part(
+        ShardId::new(0),
+        &env.state_roots[0],
+        PartId::new(0, 1),
+        &state_part,
+    );
     let epoch_id = &new_env.head.epoch_id;
     new_env
         .runtime
@@ -1379,6 +1386,10 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        CoreStatementsProcessor::new_with_noop_senders(
+            env.runtime.store().chain_store(),
+            env.epoch_manager.clone(),
+        ),
     )
     .unwrap();
 

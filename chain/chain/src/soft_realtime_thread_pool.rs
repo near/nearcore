@@ -81,7 +81,7 @@ impl ThreadPool {
             .priority(self.priority)
             .spawn(move |res| {
                 if let Err(err) = res {
-                    debug!(target: "chain::apply_chunks_thread_pool", name = name, err = %err, "Setting scheduler policy failed");
+                    debug!(target: "chain::soft_realtime_thread_pool", name = name, err = %err, "Setting scheduler policy failed");
                 };
                 run_worker(job, idle_timeout, idle_queue, counter_guard)
             }).expect("Failed to spawn thread");
@@ -116,7 +116,7 @@ impl WorkerCounter {
         let num_threads = self.num_threads.fetch_add(1, Ordering::SeqCst);
         if num_threads > self.limit {
             debug!(
-                target: "chain::apply_chunks_thread_pool",
+                target: "chain::soft_realtime_thread_pool",
                 name = self.name,
                 limit = self.limit,
                 num_threads = num_threads,
@@ -187,6 +187,36 @@ impl ApplyChunksSpawner {
             }
             ApplyChunksSpawner::Custom(spawner) => spawner,
         }
+    }
+}
+
+/// High-priority thread pool for validating partial chunk witnesses.
+pub struct PartialWitnessValidationThreadPool(ThreadPool);
+
+impl PartialWitnessValidationThreadPool {
+    pub fn new() -> Self {
+        Self(ThreadPool::new("partial_witness_validation", Duration::from_secs(30), 2, 70))
+    }
+}
+
+impl AsyncComputationSpawner for PartialWitnessValidationThreadPool {
+    fn spawn_boxed(&self, _name: &str, job: Box<dyn FnOnce() + Send>) {
+        self.0.spawn_boxed(job)
+    }
+}
+
+/// High-priority thread pool for creating chunk witnesses.
+pub struct WitnessCreationThreadPool(ThreadPool);
+
+impl WitnessCreationThreadPool {
+    pub fn new() -> Self {
+        Self(ThreadPool::new("witness_creation", Duration::from_secs(30), 1, 70))
+    }
+}
+
+impl AsyncComputationSpawner for WitnessCreationThreadPool {
+    fn spawn_boxed(&self, _name: &str, job: Box<dyn FnOnce() + Send>) {
+        self.0.spawn_boxed(job)
     }
 }
 

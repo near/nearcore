@@ -7,7 +7,6 @@ use futures::stream::StreamExt;
 use tracing::warn;
 
 use near_indexer_primitives::IndexerExecutionOutcomeWithOptionalReceipt;
-use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::{types, views};
 
@@ -21,11 +20,7 @@ pub(crate) async fn fetch_status(
 ) -> Result<near_primitives::views::StatusResponse, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching status");
     client
-        .send(
-            near_client::Status { is_health_check: false, detailed: false }
-                .span_wrap()
-                .with_span_context(),
-        )
+        .send(near_client::Status { is_health_check: false, detailed: false }.span_wrap())
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -38,12 +33,9 @@ pub(crate) async fn fetch_latest_block(
 ) -> Result<views::BlockView, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching latest block");
     client
-        .send(
-            near_client::GetBlock(near_primitives::types::BlockReference::Finality(
-                finality.clone(),
-            ))
-            .with_span_context(),
-        )
+        .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
+            finality.clone(),
+        )))
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -55,10 +47,7 @@ pub(crate) async fn fetch_block_by_height(
 ) -> Result<views::BlockView, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching block by height: {}", height);
     client
-        .send(
-            near_client::GetBlock(near_primitives::types::BlockId::Height(height).into())
-                .with_span_context(),
-        )
+        .send(near_client::GetBlock(near_primitives::types::BlockId::Height(height).into()))
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -70,10 +59,7 @@ pub(crate) async fn fetch_block(
 ) -> Result<views::BlockView, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching block by hash: {}", hash);
     client
-        .send(
-            near_client::GetBlock(near_primitives::types::BlockId::Hash(hash).into())
-                .with_span_context(),
-        )
+        .send(near_client::GetBlock(near_primitives::types::BlockId::Hash(hash).into()))
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -85,10 +71,7 @@ pub(crate) async fn fetch_state_changes(
 ) -> Result<HashMap<near_primitives::types::ShardId, views::StateChangesView>, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching state changes for block: {}, epoch_id: {:?}", block_hash, epoch_id);
     client
-        .send(
-            near_client::GetStateChangesWithCauseInBlockForTrackedShards { block_hash, epoch_id }
-                .with_span_context(),
-        )
+        .send(near_client::GetStateChangesWithCauseInBlockForTrackedShards { block_hash, epoch_id })
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -104,7 +87,7 @@ pub(crate) async fn fetch_outcomes(
 > {
     tracing::debug!(target: INDEXER, "Fetching outcomes for block: {}", block_hash);
     let outcomes = client
-        .send(near_client::GetExecutionOutcomesForBlock { block_hash }.with_span_context())
+        .send(near_client::GetExecutionOutcomesForBlock { block_hash })
         .await?
         .map_err(FailedToFetchData::String)?;
 
@@ -145,7 +128,7 @@ async fn fetch_receipt_by_id(
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching receipt by id: {}", receipt_id);
     client
-        .send(near_client::GetReceipt { receipt_id }.with_span_context())
+        .send(near_client::GetReceipt { receipt_id })
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -158,7 +141,7 @@ async fn fetch_single_chunk(
 ) -> Result<views::ChunkView, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching chunk by hash: {}", chunk_hash);
     client
-        .send(near_client::GetChunk::ChunkHash(chunk_hash.into()).with_span_context())
+        .send(near_client::GetChunk::ChunkHash(chunk_hash.into()))
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
@@ -193,12 +176,9 @@ pub(crate) async fn fetch_protocol_config(
 ) -> Result<near_chain_configs::ProtocolConfigView, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching protocol config for block: {}", block_hash);
     Ok(client
-        .send(
-            near_client::GetProtocolConfig(types::BlockReference::from(types::BlockId::Hash(
-                block_hash,
-            )))
-            .with_span_context(),
-        )
+        .send(near_client::GetProtocolConfig(types::BlockReference::from(types::BlockId::Hash(
+            block_hash,
+        ))))
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))?)
 }

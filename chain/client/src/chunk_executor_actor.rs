@@ -14,6 +14,8 @@ use near_chain::chain::{
 };
 use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
+use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::spice_core::ExecutionResultEndorsed;
 use near_chain::types::ApplyChunkResult;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
@@ -59,7 +61,6 @@ use node_runtime::SignedValidPeriodTransactions;
 use tracing::instrument;
 
 use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
-use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct ChunkExecutorActor {
@@ -71,10 +72,6 @@ pub struct ChunkExecutorActor {
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     myself_sender: Sender<ExecutorApplyChunksDone>,
 
-    /// Next block hashes keyed by block hash.
-    /// TODO(spice): test that this map is properly maintained or
-    /// replace it with DB
-    pending_next_blocks: HashMap<CryptoHash, HashSet<CryptoHash>>,
     blocks_in_execution: HashSet<CryptoHash>,
 
     // Hash of the genesis block.
@@ -110,7 +107,6 @@ impl ChunkExecutorActor {
             network_adapter,
             apply_chunks_spawner,
             myself_sender,
-            pending_next_blocks: HashMap::new(),
             blocks_in_execution: HashSet::new(),
             genesis_hash,
             validator_signer,
@@ -137,13 +133,6 @@ pub struct ExecutorIncomingReceipts {
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ProcessedBlock {
-    pub block_hash: CryptoHash,
-}
-
-/// Message that should be sent once executions results for all chunks in a block are endorsed.
-#[derive(actix::Message, Debug, Clone)]
-#[rtype(result = "()")]
-pub struct ExecutionResultEndorsed {
     pub block_hash: CryptoHash,
 }
 
@@ -175,9 +164,9 @@ impl Handler<ProcessedBlock> for ChunkExecutorActor {
         match self.try_apply_chunks(&block_hash) {
             Ok(TryApplyChunksOutcome::Scheduled) => {}
             Ok(TryApplyChunksOutcome::NotReady) => {
-                if let Err(err) = self.add_pending_block(block_hash) {
-                    tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to add pending block");
-                }
+                // We will retry applying it by looking at all next blocks after receiving
+                // additional execution result endorsements or receipts.
+                tracing::debug!(target: "chunk_executor", %block_hash, "not yet ready for processing");
             }
             Ok(TryApplyChunksOutcome::BlockAlreadyAccepted) => {
                 tracing::warn!(
@@ -238,11 +227,14 @@ impl ChunkExecutorActor {
         let store = self.chain_store.store();
         let prev_block = self.chain_store.get_block(prev_block_hash)?;
         let prev_block_is_genesis = *prev_block_hash == self.genesis_hash;
-        if !prev_block_is_genesis && !self.core_processor.all_execution_results_exist(&prev_block) {
+        if !prev_block_is_genesis
+            && !self.core_processor.all_execution_results_exist(&prev_block)?
+        {
             tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing execution results to allow validating receipts");
             return Ok(TryApplyChunksOutcome::NotReady);
         }
-        let execution_results = self.core_processor.get_execution_results_by_shard_id(&prev_block);
+        let execution_results =
+            self.core_processor.get_execution_results_by_shard_id(&prev_block)?;
 
         let mut all_receipts: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
@@ -310,41 +302,21 @@ impl ChunkExecutorActor {
         Ok(TryApplyChunksOutcome::Scheduled)
     }
 
-    fn add_pending_block(&mut self, block_hash: CryptoHash) -> Result<(), Error> {
-        let block = self.chain_store.get_block(&block_hash)?;
-        let prev_block_hash = block.header().prev_hash();
-        self.pending_next_blocks.entry(*prev_block_hash).or_default().insert(block_hash);
-        Ok(())
-    }
-
     fn try_process_next_blocks(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let Some(next_block_hashes) = self.pending_next_blocks.get(block_hash) else {
+        let next_block_hashes = self.chain_store.get_all_next_block_hashes(block_hash)?;
+        if next_block_hashes.is_empty() {
             // Next block wasn't received yet.
             tracing::debug!(target: "chunk_executor", %block_hash, "no next block hash is available");
             return Ok(());
-        };
-        let mut processed_blocks = HashSet::new();
-        for next_block_hash in next_block_hashes.clone() {
-            match self.try_apply_chunks(&next_block_hash)? {
-                TryApplyChunksOutcome::Scheduled => {
-                    processed_blocks.insert(next_block_hash);
-                }
-                TryApplyChunksOutcome::NotReady => {}
-                TryApplyChunksOutcome::BlockAlreadyAccepted => {
-                    tracing::warn!(
-                        target: "chunk_executor",
-                        ?block_hash,
-                        "not expected already executed block to be in the pending blocks"
-                    );
-                    // Still consider that block as processed to clean the state
-                    processed_blocks.insert(next_block_hash);
-                }
-            }
         }
-        let remaining_blocks = self.pending_next_blocks.get_mut(block_hash).unwrap();
-        remaining_blocks.retain(|hash| !processed_blocks.contains(hash));
-        if remaining_blocks.is_empty() {
-            self.pending_next_blocks.remove(&block_hash);
+        for next_block_hash in next_block_hashes {
+            match self.try_apply_chunks(&next_block_hash)? {
+                TryApplyChunksOutcome::Scheduled => {}
+                TryApplyChunksOutcome::NotReady => {
+                    tracing::debug!(target: "chunk_executor", %next_block_hash, "not yet ready for processing");
+                }
+                TryApplyChunksOutcome::BlockAlreadyAccepted => {}
+            }
         }
         Ok(())
     }
@@ -494,7 +466,7 @@ impl ChunkExecutorActor {
     }
 
     fn distribute_witness(
-        &mut self,
+        &self,
         block: &Arc<Block>,
         my_signer: Arc<ValidatorSigner>,
         new_chunk_result: &NewChunkResult,
@@ -733,6 +705,7 @@ impl ChunkExecutorActor {
             self.runtime_adapter.clone(),
             // Since we don't produce blocks, this argument is irrelevant.
             DoomslugThresholdMode::NoApprovals,
+            self.core_processor.clone(),
         )
     }
 
