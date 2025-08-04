@@ -386,8 +386,6 @@ class NeardRunner:
         config['tracked_shards'] = [0, 1, 2, 3]
         config['log_summary_style'] = 'plain'
         config['network']['skip_sync_wait'] = False
-        if self.legacy_records:
-            config['genesis_records_file'] = 'records.json'
         config['rpc']['enable_debug_rpc'] = True
         config['consensus']['min_block_production_delay']['secs'] = 1
         config['consensus']['min_block_production_delay']['nanos'] = 300000000
