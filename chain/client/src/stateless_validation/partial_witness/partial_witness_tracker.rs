@@ -195,7 +195,9 @@ impl CacheEntry {
             .entered()
         };
         match parts.insert_part(part_ord, part, Some(Box::new(create_decode_span))) {
-            InsertPartResult::Accepted => {}
+            InsertPartResult::Accepted => {
+                tracing::debug!(target: "client", ?key, part_ord, "QQP QQP Accepted witness part");
+            }
             InsertPartResult::PartAlreadyAvailable => {
                 tracing::warn!(
                     target: "client",
@@ -213,6 +215,7 @@ impl CacheEntry {
                 );
             }
             InsertPartResult::Decoded(decode_result) => {
+                tracing::debug!(target: "client", ?key, part_ord, "QQP QQP Decoded witness part: {:?}", decode_result);
                 self.witness_parts =
                     WitnessPartsState::Decoded { decode_result, decoded_at: Instant::now() };
                 metrics::DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT
@@ -445,6 +448,8 @@ impl PartialEncodedStateWitnessTracker {
                 (None, entry.created_at)
             }
         };
+
+        tracing::info!(target: "client", ?entry_update_result, ?entry_created_at, "QQP QQP entry_update_result");
 
         let total_size: usize = if let Some((decode_result, accessed_contracts)) =
             entry_update_result

@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
-use raptorq::{Decoder, Encoder, EncodingPacket, ObjectTransmissionInformation};
+use raptorq::{Decoder, EncoderBuilder, EncodingPacket, ObjectTransmissionInformation};
 use reed_solomon_erasure::Field;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
@@ -19,7 +19,7 @@ pub fn reed_solomon_encode<T: BorshSerialize>(
     rs: &ReedSolomon,
     data: &T,
 ) -> (Vec<ReedSolomonPart>, usize) {
-    let bytes = borsh::to_vec(data).unwrap();
+    let mut bytes = borsh::to_vec(data).unwrap();
     let encoded_length = bytes.len();
 
     let data_parts = rs.data_shard_count();
@@ -29,9 +29,22 @@ pub fn reed_solomon_encode<T: BorshSerialize>(
 
     assert!(mtu <= u16::MAX as usize, "MTU is too large: {}", mtu); // for POC only
 
-    let encoder = Encoder::with_defaults(&bytes, mtu as u16);
+    let padded_len = data_parts * mtu;
+    bytes.resize(padded_len, 0);
+
+    // let encoder = Encoder::with_defaults(&bytes, mtu as u16);
+    let mut encoder = EncoderBuilder::new();
+    encoder.set_max_packet_size(mtu as u16);
+    encoder.set_decoder_memory_requirement(u64::MAX);
+    let encoder = encoder.build(&bytes);
+
+    let config = encoder.get_config();
+    let symbol_size = config.symbol_size() as usize;
+    let k = (padded_len + symbol_size - 1) / symbol_size;
+    let repairs = data_parts + repair_parts as usize - k;
+
     let parts: Vec<Option<Box<[u8]>>> = encoder
-        .get_encoded_packets(repair_parts)
+        .get_encoded_packets(repairs as u32)
         .iter()
         .map(|symbol| Some(symbol.serialize().into_boxed_slice()))
         .collect();
@@ -42,22 +55,28 @@ pub fn reed_solomon_encode<T: BorshSerialize>(
 // Decode function is the reverse of encode function. It takes parts and length of encoded data
 // and returns the deserialized object.
 // Return an error if the reed solomon decoding fails or borsh deserialization fails.
-pub fn reed_solomon_decode<T: BorshDeserialize>(
+pub fn reed_solomon_decode<T: BorshDeserialize + BorshSerialize>(
     rs: &ReedSolomon,
-    parts: &mut [ReedSolomonPart],
+    parts: &mut Vec<ReedSolomonPart>,
     encoded_length: usize,
 ) -> Result<T, Error> {
     let mtu = (encoded_length + rs.data_shard_count() - 1) / rs.data_shard_count();
-    let parts =
-        parts.iter().map(|part| EncodingPacket::deserialize(&part.as_ref().unwrap())).collect_vec();
+    let packets = parts
+        .iter()
+        .filter_map(|part| part.as_ref().map(|part| EncodingPacket::deserialize(&part)))
+        .collect_vec();
 
     let config = ObjectTransmissionInformation::with_defaults(encoded_length as u64, mtu as u16);
     let mut decoder = Decoder::new(config);
 
-    for part in parts {
+    for part in packets {
         let decoded = decoder.decode(part);
         if decoded.is_some() {
-            return Ok(T::try_from_slice(decoded.unwrap().as_slice()).unwrap());
+            let res = T::try_from_slice(decoded.unwrap().as_slice());
+            if res.is_ok() {
+                *parts = reed_solomon_encode(rs, res.as_ref().unwrap()).0;
+            }
+            return res;
         }
     }
 
@@ -134,9 +153,9 @@ impl ReedSolomonEncoder {
         }
     }
 
-    pub fn decode<T: ReedSolomonEncoderDeserialize>(
+    pub fn decode<T: ReedSolomonEncoderDeserialize + ReedSolomonEncoderSerialize>(
         &self,
-        parts: &mut [ReedSolomonPart],
+        parts: &mut Vec<ReedSolomonPart>,
         encoded_length: usize,
     ) -> Result<T, std::io::Error> {
         match self.rs {
@@ -195,7 +214,7 @@ pub enum InsertPartResult<T> {
     Decoded(std::io::Result<T>),
 }
 
-impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
+impl<T: ReedSolomonEncoderDeserialize + ReedSolomonEncoderSerialize> ReedSolomonPartsTracker<T> {
     pub fn new(encoder: Arc<ReedSolomonEncoder>, encoded_length: usize) -> Self {
         Self {
             data_parts_present: 0,

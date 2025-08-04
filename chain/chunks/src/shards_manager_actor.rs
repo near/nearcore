@@ -1139,18 +1139,21 @@ impl ShardsManagerActor {
         }
 
         let encoded_length = chunk.encoded_length();
-        if let Err(err) = reed_solomon_decode::<TransactionReceipt>(
+        let _res = match reed_solomon_decode::<TransactionReceipt>(
             &self.rs,
-            chunk.content_mut().parts.as_mut_slice(),
+            &mut chunk.content_mut().parts,
             encoded_length as usize,
         ) {
-            debug!(target: "chunks", ?err, "Invalid: Failed to decode");
-            return ChunkStatus::Invalid;
-        }
+            Ok(res) => res,
+            Err(err) => {
+                debug!(target: "chunks", ?err, "Invalid: Failed to decode");
+                return ChunkStatus::Invalid;
+            }
+        };
 
         let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
         if &merkle_root != chunk.encoded_merkle_root() {
-            debug!(target: "chunks", ?merkle_root, chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(), "Invalid: Wrong merkle root");
+            warn!(target: "chunks", ?merkle_root, chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(), "QQP QQP Invalid: Wrong merkle root");
             return ChunkStatus::Invalid;
         }
 
