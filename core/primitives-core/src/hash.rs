@@ -25,6 +25,11 @@ use std::io::Write;
 #[as_mut(forward)]
 pub struct CryptoHash(pub [u8; 32]);
 
+// Atomic variable to count the number of hashes created.
+pub static HASH_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static HASH_NANOS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub const HASH_MEASURE_PER: usize = 32;
+
 impl CryptoHash {
     pub const LENGTH: usize = 32;
 
@@ -34,7 +39,17 @@ impl CryptoHash {
 
     /// Calculates hash of given bytes.
     pub fn hash_bytes(bytes: &[u8]) -> CryptoHash {
-        CryptoHash(sha2::Sha256::digest(bytes).into())
+        let count = HASH_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count % HASH_MEASURE_PER != 0 {
+            return CryptoHash(sha2::Sha256::digest(bytes).into());
+        }
+
+        let time = std::time::Instant::now();
+        let hash = CryptoHash(sha2::Sha256::digest(bytes).into());
+        HASH_NANOS
+            .fetch_add(time.elapsed().as_nanos() as usize, std::sync::atomic::Ordering::Relaxed);
+        hash
+        //CryptoHash(sha2::Sha256::digest(bytes).into())
     }
 
     /// Calculates hash of borsh-serialized representation of an object.
