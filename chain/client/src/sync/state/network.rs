@@ -12,9 +12,11 @@ use near_network::types::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
+use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -256,9 +258,8 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         );
         fut.map(|response| {
             response.and_then(|response| {
-                response
-                    .take_header()
-                    .ok_or_else(|| near_chain::Error::Other("Expected header".to_owned()))
+                let (header, _) = response.into_header_and_part();
+                header.ok_or_else(|| near_chain::Error::Other("Expected header".to_owned()))
             })
         })
         .instrument(tracing::debug_span!("StateSyncDownloadSourcePeer::download_shard_header"))
@@ -272,7 +273,8 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<'static, Result<Vec<u8>, near_chain::Error>> {
+        _protocol_version: ProtocolVersion,
+    ) -> BoxFuture<'static, Result<StatePart, near_chain::Error>> {
         let key =
             PendingPeerRequestKey { shard_id, sync_hash, kind: PartIdOrHeader::Part { part_id } };
         let fut = Self::try_download(
@@ -287,9 +289,8 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         );
         fut.map(|response| {
             response.and_then(|response| {
-                response
-                    .take_part()
-                    .ok_or_else(|| near_chain::Error::Other("Expected part".to_owned()))
+                let (_, part) = response.into_header_and_part();
+                part.ok_or_else(|| near_chain::Error::Other("Expected part".to_owned()))
                     .map(|(_, part)| part)
             })
         })

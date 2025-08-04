@@ -324,6 +324,8 @@ pub enum ProtocolFeature {
     RefTypesBulkMemory,
     SaturatingFloatToInt,
     ChunkPartChecks,
+    StatePartsVersioning,
+    StatePartsCompression,
 }
 
 impl ProtocolFeature {
@@ -430,6 +432,8 @@ impl ProtocolFeature {
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::RefTypesBulkMemory => 149,
             // Place features that are not yet in Nightly below this line.
+            ProtocolFeature::StatePartsVersioning => 150,
+            ProtocolFeature::StatePartsCompression => 151,
         }
     }
 

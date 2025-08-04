@@ -8,9 +8,11 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use near_async::time::{Clock, Duration};
 use near_primitives::hash::CryptoHash;
+use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::ShardId;
 use near_store::Store;
+use near_vm_runner::logic::ProtocolVersion;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -130,7 +132,8 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<Vec<u8>, near_chain::Error>> {
+        protocol_version: ProtocolVersion,
+    ) -> BoxFuture<Result<StatePart, near_chain::Error>> {
         let clock = self.clock.clone();
         let timeout = self.timeout;
         let backoff = self.backoff;
@@ -165,7 +168,8 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
             )
             .await?;
             increment_download_count(shard_id, "part", "external", "success");
-            Ok(data)
+            let state_part = StatePart::from_bytes(data, protocol_version)?;
+            Ok(state_part)
         }
         .instrument(tracing::debug_span!("StateSyncDownloadSourceExternal::download_shard_part"))
         .boxed()

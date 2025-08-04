@@ -15,7 +15,7 @@ use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::sharding::{
     ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::{
     ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
     StateHeaderKey, StatePartKey, get_num_state_parts,
@@ -25,6 +25,7 @@ use near_primitives::views::RequestedStatePartsView;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_vm_runner::logic::ProtocolVersion;
 use std::collections::HashSet;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
@@ -279,7 +280,8 @@ impl ChainStateSyncAdapter {
         shard_id: ShardId,
         part_id: u64,
         sync_hash: CryptoHash,
-    ) -> Result<Vec<u8>, Error> {
+        protocol_version: ProtocolVersion,
+    ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "sync",
             "get_state_response_part",
@@ -289,9 +291,10 @@ impl ChainStateSyncAdapter {
         .entered();
         // Check cache
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-        if let Ok(Some(state_part)) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
+        if let Ok(Some(bytes)) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
             metrics::STATE_PART_CACHE_HIT.inc();
-            return Ok(state_part.into());
+            let state_part = StatePart::from_bytes(bytes.to_vec(), protocol_version)?;
+            return Ok(state_part);
         }
         metrics::STATE_PART_CACHE_MISS.inc();
 
@@ -342,7 +345,8 @@ impl ChainStateSyncAdapter {
 
         // Saving the part data
         let mut store_update = self.chain_store.store().store_update();
-        store_update.set(DBCol::StateParts, &key, &state_part);
+        let bytes = state_part.to_bytes(protocol_version);
+        store_update.set(DBCol::StateParts, &key, &bytes);
         store_update.commit()?;
 
         Ok(state_part)
@@ -524,12 +528,13 @@ impl ChainStateSyncAdapter {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: PartId,
-        data: &[u8],
+        part: &StatePart,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();
-        if !self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, data) {
+        if !self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, part) {
             byzantine_assert!(false);
             return Err(Error::Other(format!(
                 "set_state_part failed: validate_state_part failed. state_root={:?}",
@@ -540,7 +545,8 @@ impl ChainStateSyncAdapter {
         // Saving the part data.
         let mut store_update = self.chain_store.store().store_update();
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
-        store_update.set(DBCol::StateParts, &key, data);
+        let bytes = part.to_bytes(protocol_version);
+        store_update.set(DBCol::StateParts, &key, &bytes);
         store_update.commit()?;
         Ok(())
     }
