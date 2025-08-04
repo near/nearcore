@@ -337,23 +337,6 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
     return validators, boot_nodes
 
 
-def new_genesis_timestamp(node):
-    version = node.neard_runner_version()
-    err = version.get('error')
-    if err is not None:
-        if err['code'] != -32601:
-            sys.exit(
-                f'bad response calling version RPC on {node.name()}: {err}')
-        return None
-    genesis_time = None
-    result = version.get('result')
-    if result is not None:
-        if result.get('node_setup_version') == '1':
-            genesis_time = datetime.datetime.now(
-                tz=datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-    return genesis_time
-
-
 def _apply_stateless_config(args, node):
     """Applies configuration changes to the node for stateless validation,
     including changing config.json file and updating TCP buffer size at OS level."""
@@ -453,8 +436,8 @@ def new_test_cmd(ctx: CommandContext):
             f'--num-validators is {args.num_validators} but only found {len(nodes)} under test'
         )
 
-    ref_node = traffic_generator if traffic_generator else nodes[0]
-    genesis_time = new_genesis_timestamp(ref_node)
+    genesis_time = datetime.datetime.now(
+        tz=datetime.timezone.utc).isoformat().replace("`+00:00", "Z")
 
     targeted = nodes + to_list(traffic_generator)
 

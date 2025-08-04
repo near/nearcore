@@ -48,8 +48,6 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
         self.dispatcher.add_method(server.neard_runner.do_update_config,
                                    name="update_config")
         self.dispatcher.add_method(server.neard_runner.do_ready, name="ready")
-        self.dispatcher.add_method(server.neard_runner.do_version,
-                                   name="version")
         self.dispatcher.add_method(server.neard_runner.do_start, name="start")
         self.dispatcher.add_method(server.neard_runner.do_stop, name="stop")
         self.dispatcher.add_method(server.neard_runner.do_reset, name="reset")
@@ -177,7 +175,8 @@ class NeardRunner:
                 'backups': {},
                 'state_data': None,
             }
-        self.legacy_records = self.is_legacy()
+        # TODO: remove legacy records code
+        self.legacy_records = False
         # protects self.data, and its representation on disk,
         # because both the rpc server and the main loop touch them concurrently
         # TODO: consider locking the TestState variable separately, since there
@@ -230,27 +229,6 @@ class NeardRunner:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-        )
-
-    def is_legacy(self):
-        if os.path.exists(os.path.join(
-                self.neard_home, 'setup', 'records.json')) and os.path.exists(
-                    os.path.join(self.neard_home, 'setup', 'genesis.json')):
-            if os.path.exists(os.path.join(self.neard_home, 'setup', 'data')):
-                logging.warning(
-                    f'found both records.json and data/ in {os.path.join(self.neard_home, "setup")}'
-                )
-            return True
-        if self.is_traffic_generator():
-            target_dir = os.path.join(self.neard_home, 'target', 'setup')
-        else:
-            target_dir = os.path.join(self.neard_home, 'setup')
-        if os.path.exists(target_dir) and os.path.exists(
-                os.path.join(target_dir, 'data')) and os.path.exists(
-                    os.path.join(target_dir, 'config.json')):
-            return False
-        sys.exit(
-            f'did not find either records.json and genesis.json in {os.path.join(self.neard_home, "setup")} or neard home in {target_dir}'
         )
 
     def is_traffic_generator(self):
@@ -772,13 +750,6 @@ class NeardRunner:
                 self.set_state(TestState.ERROR)
                 self.save_data()
             logging.info('update binaries finished')
-
-    def do_version(self):
-        if self.legacy_records:
-            node_setup_version = '0'
-        else:
-            node_setup_version = '1'
-        return {'node_setup_version': node_setup_version}
 
     def do_ready(self):
         with self.lock:
