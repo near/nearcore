@@ -12,7 +12,7 @@ use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, AccountContract, FunctionCallPermission};
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;

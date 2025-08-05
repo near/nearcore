@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};

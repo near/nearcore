@@ -10,7 +10,6 @@ use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::borsh::BorshDeserialize;
-use near_primitives::gas::Gas as TypedGas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV1};
 use near_primitives::transaction::FunctionCallAction;
@@ -240,7 +239,7 @@ impl TrieViewer {
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
             args: args.to_vec(),
-            gas: TypedGas::from_gas(self.max_gas_burnt_view),
+            gas: self.max_gas_burnt_view,
             deposit: 0,
         };
         let action_receipt = ActionReceipt {

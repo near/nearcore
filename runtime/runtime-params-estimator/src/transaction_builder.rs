@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use genesis_populate::get_account_id;
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::AccountId;

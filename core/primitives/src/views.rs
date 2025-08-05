@@ -49,7 +49,6 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::account::{AccountContract, GasKey};
-use near_primitives_core::gas::Gas as TypedGas;
 use near_primitives_core::types::NonceIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
@@ -1090,8 +1089,8 @@ pub struct ChunkHeaderView {
     pub height_created: BlockHeight,
     pub height_included: BlockHeight,
     pub shard_id: ShardId,
-    pub gas_used: TypedGas,
-    pub gas_limit: TypedGas,
+    pub gas_used: Gas,
+    pub gas_limit: Gas,
     /// TODO(2271): deprecated.
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
@@ -1133,8 +1132,8 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             height_created: inner.height_created(),
             height_included,
             shard_id: inner.shard_id(),
-            gas_used: TypedGas::from_gas(inner.prev_gas_used()),
-            gas_limit: TypedGas::from_gas(inner.gas_limit()),
+            gas_used: inner.prev_gas_used(),
+            gas_limit: inner.gas_limit(),
             rent_paid: 0,
             validator_reward: 0,
             balance_burnt: inner.prev_balance_burnt(),
@@ -1161,8 +1160,8 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                         encoded_length: view.encoded_length,
                         height_created: view.height_created,
                         shard_id: view.shard_id,
-                        prev_gas_used: view.gas_used.as_gas(),
-                        gas_limit: view.gas_limit.as_gas(),
+                        prev_gas_used: view.gas_used,
+                        gas_limit: view.gas_limit,
                         prev_balance_burnt: view.balance_burnt,
                         prev_outgoing_receipts_root: view.outgoing_receipts_root,
                         tx_root: view.tx_root,
@@ -1191,8 +1190,8 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                         encoded_length: view.encoded_length,
                         height_created: view.height_created,
                         shard_id: view.shard_id,
-                        prev_gas_used: view.gas_used.as_gas(),
-                        gas_limit: view.gas_limit.as_gas(),
+                        prev_gas_used: view.gas_used,
+                        gas_limit: view.gas_limit,
                         prev_balance_burnt: view.balance_burnt,
                         prev_outgoing_receipts_root: view.outgoing_receipts_root,
                         tx_root: view.tx_root,
@@ -1220,8 +1219,8 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                         encoded_length: view.encoded_length,
                         height_created: view.height_created,
                         shard_id: view.shard_id,
-                        prev_gas_used: view.gas_used.as_gas(),
-                        gas_limit: view.gas_limit.as_gas(),
+                        prev_gas_used: view.gas_used,
+                        gas_limit: view.gas_limit,
                         prev_balance_burnt: view.balance_burnt,
                         prev_outgoing_receipts_root: view.outgoing_receipts_root,
                         tx_root: view.tx_root,
@@ -1316,7 +1315,7 @@ pub enum ActionView {
     FunctionCall {
         method_name: String,
         args: FunctionArgs,
-        gas: TypedGas,
+        gas: Gas,
         #[serde(with = "dec_format")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         deposit: Balance,
@@ -1711,7 +1710,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 for ext_cost in ExtCosts::iter() {
                     costs.push(CostGasUsed::wasm_host(
                         format!("{:?}", ext_cost).to_ascii_uppercase(),
-                        profile_data.get_ext_cost(ext_cost),
+                        profile_data.get_ext_cost(Gas::from_gas(ext_cost)),
                     ));
                 }
 
@@ -1723,7 +1722,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
                     .filter_map(|cost| {
                         let gas_used = profile.get_action_cost(cost);
-                        (gas_used > 0).then(|| {
+                        (gas_used > Gas::from_gas(0)).then(|| {
                             CostGasUsed::action(
                                 format!("{:?}", cost).to_ascii_uppercase(),
                                 gas_used,
@@ -1734,7 +1733,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
 
                 // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
                 let wasm_gas_used = profile.get_wasm_cost();
-                if wasm_gas_used > 0 {
+                if wasm_gas_used > Gas::from_gas(0) {
                     costs.push(CostGasUsed::wasm_host(
                         "WASM_INSTRUCTION".to_string(),
                         wasm_gas_used,
@@ -1744,7 +1743,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 // ext costs are 1-to-1
                 for ext_cost in ExtCosts::iter() {
                     let gas_used = profile.get_ext_cost(ext_cost);
-                    if gas_used > 0 {
+                    if gas_used > Gas::from_gas(0) {
                         costs.push(CostGasUsed::wasm_host(
                             format!("{:?}", ext_cost).to_ascii_uppercase(),
                             gas_used,
@@ -1798,7 +1797,7 @@ pub struct ExecutionOutcomeView {
     /// Receipt IDs generated by this transaction or receipt.
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
-    pub gas_burnt: TypedGas,
+    pub gas_burnt: Gas,
     /// The amount of tokens burnt corresponding to the burnt gas amount.
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
@@ -1822,7 +1821,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
         Self {
             logs: outcome.logs,
             receipt_ids: outcome.receipt_ids,
-            gas_burnt: TypedGas::from_gas(outcome.gas_burnt),
+            gas_burnt: outcome.gas_burnt,
             tokens_burnt: outcome.tokens_burnt,
             executor_id: outcome.executor_id,
             status: outcome.status.into(),
@@ -1835,7 +1834,7 @@ impl From<&ExecutionOutcomeView> for PartialExecutionOutcome {
     fn from(outcome: &ExecutionOutcomeView) -> Self {
         Self {
             receipt_ids: outcome.receipt_ids.clone(),
-            gas_burnt: outcome.gas_burnt.as_gas(),
+            gas_burnt: outcome.gas_burnt,
             tokens_burnt: outcome.tokens_burnt,
             executor_id: outcome.executor_id.clone(),
             status: outcome.status.clone().into(),

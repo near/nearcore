@@ -4,7 +4,7 @@ use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
 use near_parameters::ExtCosts;
 use near_parameters::vm::{Config as VMConfig, VMKind};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };

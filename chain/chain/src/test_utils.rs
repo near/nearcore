@@ -16,7 +16,7 @@ use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::Block;
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::stateless_validation::ChunkProductionKey;

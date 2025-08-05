@@ -2,7 +2,7 @@ use crate::runtime_group_tools::RuntimeGroup;
 
 use near_crypto::InMemorySigner;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
 use near_primitives::serialize::to_base64;

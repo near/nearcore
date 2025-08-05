@@ -269,7 +269,7 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::cost::ActionCosts;
-    use near_primitives_core::gas::Gas;
+    use near_primitives_core::types::Gas;
     use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;

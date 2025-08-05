@@ -6,7 +6,7 @@ use near_parameters::{
     AccountCreationConfig, ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost,
     RuntimeConfig, RuntimeConfigStore, RuntimeFeesConfig,
 };
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
 

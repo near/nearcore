@@ -12,7 +12,7 @@ use near_primitives::account::{
 use near_primitives::errors::{
     ActionError, ActionErrorKind, InvalidAccessKeyError, TxExecutionError,
 };
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::test_utils::{
     create_user_test_signer, eth_implicit_test_account, near_implicit_test_account,
 };

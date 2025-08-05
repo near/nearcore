@@ -23,7 +23,7 @@ use near_primitives::block::Tip;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;

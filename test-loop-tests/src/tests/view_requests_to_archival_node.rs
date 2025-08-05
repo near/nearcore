@@ -13,7 +13,7 @@ use near_client::{
 };
 use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{

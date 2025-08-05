@@ -17,7 +17,7 @@ use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, BlockId, BlockReference, EpochId, ShardId, SyncCheckpoint,

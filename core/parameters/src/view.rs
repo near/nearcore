@@ -1,7 +1,7 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
-use near_primitives_core::gas::Gas;
+use near_primitives_core::types::Gas;
 use near_primitives_core::serialize::dec_format;
 use near_primitives_core::types::Balance;
 use num_rational::Rational32;
@@ -496,168 +496,121 @@ pub struct ExtCostsConfigView {
 impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
     fn from(config: crate::ExtCostsConfig) -> Self {
         Self {
-            base: Gas::from_gas(config.gas_cost(ExtCosts::base)),
-            contract_loading_base: Gas::from_gas(config.gas_cost(ExtCosts::contract_loading_base)),
-            contract_loading_bytes: Gas::from_gas(
+            base: config.gas_cost(ExtCosts::base),
+            contract_loading_base: config.gas_cost(ExtCosts::contract_loading_base),
+            contract_loading_bytes:
                 config.gas_cost(ExtCosts::contract_loading_bytes),
-            ),
-            read_memory_base: Gas::from_gas(config.gas_cost(ExtCosts::read_memory_base)),
-            read_memory_byte: Gas::from_gas(config.gas_cost(ExtCosts::read_memory_byte)),
-            write_memory_base: Gas::from_gas(config.gas_cost(ExtCosts::write_memory_base)),
-            write_memory_byte: Gas::from_gas(config.gas_cost(ExtCosts::write_memory_byte)),
-            read_register_base: Gas::from_gas(config.gas_cost(ExtCosts::read_register_base)),
-            read_register_byte: Gas::from_gas(config.gas_cost(ExtCosts::read_register_byte)),
-            write_register_base: Gas::from_gas(config.gas_cost(ExtCosts::write_register_base)),
-            write_register_byte: Gas::from_gas(config.gas_cost(ExtCosts::write_register_byte)),
-            utf8_decoding_base: Gas::from_gas(config.gas_cost(ExtCosts::utf8_decoding_base)),
-            utf8_decoding_byte: Gas::from_gas(config.gas_cost(ExtCosts::utf8_decoding_byte)),
-            utf16_decoding_base: Gas::from_gas(config.gas_cost(ExtCosts::utf16_decoding_base)),
-            utf16_decoding_byte: Gas::from_gas(config.gas_cost(ExtCosts::utf16_decoding_byte)),
-            sha256_base: Gas::from_gas(config.gas_cost(ExtCosts::sha256_base)),
-            sha256_byte: Gas::from_gas(config.gas_cost(ExtCosts::sha256_byte)),
-            keccak256_base: Gas::from_gas(config.gas_cost(ExtCosts::keccak256_base)),
-            keccak256_byte: Gas::from_gas(config.gas_cost(ExtCosts::keccak256_byte)),
-            keccak512_base: Gas::from_gas(config.gas_cost(ExtCosts::keccak512_base)),
-            keccak512_byte: Gas::from_gas(config.gas_cost(ExtCosts::keccak512_byte)),
-            ripemd160_base: Gas::from_gas(config.gas_cost(ExtCosts::ripemd160_base)),
-            ripemd160_block: Gas::from_gas(config.gas_cost(ExtCosts::ripemd160_block)),
-            ed25519_verify_base: Gas::from_gas(config.gas_cost(ExtCosts::ed25519_verify_base)),
-            ed25519_verify_byte: Gas::from_gas(config.gas_cost(ExtCosts::ed25519_verify_byte)),
-            ecrecover_base: Gas::from_gas(config.gas_cost(ExtCosts::ecrecover_base)),
-            log_base: Gas::from_gas(config.gas_cost(ExtCosts::log_base)),
-            log_byte: Gas::from_gas(config.gas_cost(ExtCosts::log_byte)),
-            storage_write_base: Gas::from_gas(config.gas_cost(ExtCosts::storage_write_base)),
-            storage_write_key_byte: Gas::from_gas(
+            read_memory_base: config.gas_cost(ExtCosts::read_memory_base),
+            read_memory_byte: config.gas_cost(ExtCosts::read_memory_byte),
+            write_memory_base: config.gas_cost(ExtCosts::write_memory_base),
+            write_memory_byte: config.gas_cost(ExtCosts::write_memory_byte),
+            read_register_base: config.gas_cost(ExtCosts::read_register_base),
+            read_register_byte: config.gas_cost(ExtCosts::read_register_byte),
+            write_register_base: config.gas_cost(ExtCosts::write_register_base),
+            write_register_byte: config.gas_cost(ExtCosts::write_register_byte),
+            utf8_decoding_base: config.gas_cost(ExtCosts::utf8_decoding_base),
+            utf8_decoding_byte: config.gas_cost(ExtCosts::utf8_decoding_byte),
+            utf16_decoding_base: config.gas_cost(ExtCosts::utf16_decoding_base),
+            utf16_decoding_byte: config.gas_cost(ExtCosts::utf16_decoding_byte),
+            sha256_base: config.gas_cost(ExtCosts::sha256_base),
+            sha256_byte: config.gas_cost(ExtCosts::sha256_byte),
+            keccak256_base: config.gas_cost(ExtCosts::keccak256_base),
+            keccak256_byte: config.gas_cost(ExtCosts::keccak256_byte),
+            keccak512_base: config.gas_cost(ExtCosts::keccak512_base),
+            keccak512_byte: config.gas_cost(ExtCosts::keccak512_byte),
+            ripemd160_base: config.gas_cost(ExtCosts::ripemd160_base),
+            ripemd160_block: config.gas_cost(ExtCosts::ripemd160_block),
+            ed25519_verify_base: config.gas_cost(ExtCosts::ed25519_verify_base),
+            ed25519_verify_byte: config.gas_cost(ExtCosts::ed25519_verify_byte),
+            ecrecover_base: config.gas_cost(ExtCosts::ecrecover_base),
+            log_base: config.gas_cost(ExtCosts::log_base),
+            log_byte: config.gas_cost(ExtCosts::log_byte),
+            storage_write_base: config.gas_cost(ExtCosts::storage_write_base),
+            storage_write_key_byte: 
                 config.gas_cost(ExtCosts::storage_write_key_byte),
-            ),
-            storage_write_value_byte: Gas::from_gas(
+            storage_write_value_byte: 
                 config.gas_cost(ExtCosts::storage_write_value_byte),
-            ),
-            storage_write_evicted_byte: Gas::from_gas(
+            storage_write_evicted_byte: 
                 config.gas_cost(ExtCosts::storage_write_evicted_byte),
-            ),
-            storage_read_base: Gas::from_gas(config.gas_cost(ExtCosts::storage_read_base)),
-            storage_read_key_byte: Gas::from_gas(config.gas_cost(ExtCosts::storage_read_key_byte)),
-            storage_read_value_byte: Gas::from_gas(
+            storage_read_base: config.gas_cost(ExtCosts::storage_read_base),
+            storage_read_key_byte: config.gas_cost(ExtCosts::storage_read_key_byte),
+            storage_read_value_byte: 
                 config.gas_cost(ExtCosts::storage_read_value_byte),
-            ),
-            storage_large_read_overhead_base: Gas::from_gas(
+            storage_large_read_overhead_base: 
                 config.gas_cost(ExtCosts::storage_large_read_overhead_base),
-            ),
-            storage_large_read_overhead_byte: Gas::from_gas(
+            storage_large_read_overhead_byte: 
                 config.gas_cost(ExtCosts::storage_large_read_overhead_byte),
+            storage_remove_base: config.gas_cost(ExtCosts::storage_remove_base),
+            storage_remove_key_byte:                 config.gas_cost(ExtCosts::storage_remove_key_byte,
             ),
-            storage_remove_base: Gas::from_gas(config.gas_cost(ExtCosts::storage_remove_base)),
-            storage_remove_key_byte: Gas::from_gas(
-                config.gas_cost(ExtCosts::storage_remove_key_byte),
+            storage_remove_ret_value_byte:                 config.gas_cost(ExtCosts::storage_remove_ret_value_byte,
             ),
-            storage_remove_ret_value_byte: Gas::from_gas(
-                config.gas_cost(ExtCosts::storage_remove_ret_value_byte),
+            storage_has_key_base: config.gas_cost(ExtCosts::storage_has_key_base),
+            storage_has_key_byte: config.gas_cost(ExtCosts::storage_has_key_byte),
+            storage_iter_create_prefix_base:                 config.gas_cost(ExtCosts::storage_iter_create_prefix_base,
             ),
-            storage_has_key_base: Gas::from_gas(config.gas_cost(ExtCosts::storage_has_key_base)),
-            storage_has_key_byte: Gas::from_gas(config.gas_cost(ExtCosts::storage_has_key_byte)),
-            storage_iter_create_prefix_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::storage_iter_create_prefix_base),
+            storage_iter_create_prefix_byte:                 config.gas_cost(ExtCosts::storage_iter_create_prefix_byte,
             ),
-            storage_iter_create_prefix_byte: Gas::from_gas(
-                config.gas_cost(ExtCosts::storage_iter_create_prefix_byte),
+            storage_iter_create_range_base:                 config.gas_cost(ExtCosts::storage_iter_create_range_base,
             ),
-            storage_iter_create_range_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::storage_iter_create_range_base),
+            storage_iter_create_from_byte:                 config.gas_cost(ExtCosts::storage_iter_create_from_byte,
             ),
-            storage_iter_create_from_byte: Gas::from_gas(
-                config.gas_cost(ExtCosts::storage_iter_create_from_byte),
+            storage_iter_create_to_byte:                 config.gas_cost(ExtCosts::storage_iter_create_to_byte,
             ),
-            storage_iter_create_to_byte: Gas::from_gas(
-                config.gas_cost(ExtCosts::storage_iter_create_to_byte),
+            storage_iter_next_base:                 config.gas_cost(ExtCosts::storage_iter_next_base,
             ),
-            storage_iter_next_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::storage_iter_next_base),
+            storage_iter_next_key_byte:                 config.gas_cost(ExtCosts::storage_iter_next_key_byte,
             ),
-            storage_iter_next_key_byte: Gas::from_gas(
-                config.gas_cost(ExtCosts::storage_iter_next_key_byte),
+            storage_iter_next_value_byte:                 config.gas_cost(ExtCosts::storage_iter_next_value_byte,
             ),
-            storage_iter_next_value_byte: Gas::from_gas(
-                config.gas_cost(ExtCosts::storage_iter_next_value_byte),
+            touching_trie_node: config.gas_cost(ExtCosts::touching_trie_node),
+            read_cached_trie_node: config.gas_cost(ExtCosts::read_cached_trie_node),
+            promise_and_base: config.gas_cost(ExtCosts::promise_and_base),
+            promise_and_per_promise:                 config.gas_cost(ExtCosts::promise_and_per_promise,
             ),
-            touching_trie_node: Gas::from_gas(config.gas_cost(ExtCosts::touching_trie_node)),
-            read_cached_trie_node: Gas::from_gas(config.gas_cost(ExtCosts::read_cached_trie_node)),
-            promise_and_base: Gas::from_gas(config.gas_cost(ExtCosts::promise_and_base)),
-            promise_and_per_promise: Gas::from_gas(
-                config.gas_cost(ExtCosts::promise_and_per_promise),
+            promise_return: config.gas_cost(ExtCosts::promise_return),
+            validator_stake_base: config.gas_cost(ExtCosts::validator_stake_base),
+            validator_total_stake_base:                 config.gas_cost(ExtCosts::validator_total_stake_base,
             ),
-            promise_return: Gas::from_gas(config.gas_cost(ExtCosts::promise_return)),
-            validator_stake_base: Gas::from_gas(config.gas_cost(ExtCosts::validator_stake_base)),
-            validator_total_stake_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::validator_total_stake_base),
+            alt_bn128_g1_multiexp_base:                 config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_base,
             ),
-            alt_bn128_g1_multiexp_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_base),
+            alt_bn128_g1_multiexp_element:                 config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_element,
             ),
-            alt_bn128_g1_multiexp_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_element),
+            alt_bn128_g1_sum_base: config.gas_cost(ExtCosts::alt_bn128_g1_sum_base),
+            alt_bn128_g1_sum_element:                 config.gas_cost(ExtCosts::alt_bn128_g1_sum_element,
             ),
-            alt_bn128_g1_sum_base: Gas::from_gas(config.gas_cost(ExtCosts::alt_bn128_g1_sum_base)),
-            alt_bn128_g1_sum_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::alt_bn128_g1_sum_element),
+            alt_bn128_pairing_check_base:                 config.gas_cost(ExtCosts::alt_bn128_pairing_check_base,
             ),
-            alt_bn128_pairing_check_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::alt_bn128_pairing_check_base),
+            alt_bn128_pairing_check_element:                 config.gas_cost(ExtCosts::alt_bn128_pairing_check_element,
             ),
-            alt_bn128_pairing_check_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::alt_bn128_pairing_check_element),
+            yield_create_base: config.gas_cost(ExtCosts::yield_create_base),
+            yield_create_byte: config.gas_cost(ExtCosts::yield_create_byte),
+            yield_resume_base: config.gas_cost(ExtCosts::yield_resume_base),
+            yield_resume_byte: config.gas_cost(ExtCosts::yield_resume_byte),
+            bls12381_p1_sum_base: config.gas_cost(ExtCosts::bls12381_p1_sum_base),
+            bls12381_p1_sum_element:                 config.gas_cost(ExtCosts::bls12381_p1_sum_element),
+            bls12381_p2_sum_base: config.gas_cost(ExtCosts::bls12381_p2_sum_base),
+            bls12381_p2_sum_element:                 config.gas_cost(ExtCosts::bls12381_p2_sum_element),
+            bls12381_g1_multiexp_base:                 config.gas_cost(ExtCosts::bls12381_g1_multiexp_base),
+            bls12381_g1_multiexp_element:                 config.gas_cost(ExtCosts::bls12381_g1_multiexp_element),
+            bls12381_g2_multiexp_base:                 config.gas_cost(ExtCosts::bls12381_g2_multiexp_base),
+            bls12381_g2_multiexp_element:                 config.gas_cost(ExtCosts::bls12381_g2_multiexp_element),
+            bls12381_map_fp_to_g1_base:                 config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_base),
+            bls12381_map_fp_to_g1_element:                 config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_element),
+            bls12381_map_fp2_to_g2_base:                 config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_base,
             ),
-            yield_create_base: Gas::from_gas(config.gas_cost(ExtCosts::yield_create_base)),
-            yield_create_byte: Gas::from_gas(config.gas_cost(ExtCosts::yield_create_byte)),
-            yield_resume_base: Gas::from_gas(config.gas_cost(ExtCosts::yield_resume_base)),
-            yield_resume_byte: Gas::from_gas(config.gas_cost(ExtCosts::yield_resume_byte)),
-            bls12381_p1_sum_base: Gas::from_gas(config.gas_cost(ExtCosts::bls12381_p1_sum_base)),
-            bls12381_p1_sum_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_p1_sum_element),
+            bls12381_map_fp2_to_g2_element:                 config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_element,
             ),
-            bls12381_p2_sum_base: Gas::from_gas(config.gas_cost(ExtCosts::bls12381_p2_sum_base)),
-            bls12381_p2_sum_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_p2_sum_element),
+            bls12381_pairing_base: config.gas_cost(ExtCosts::bls12381_pairing_base),
+            bls12381_pairing_element:                 config.gas_cost(ExtCosts::bls12381_pairing_element,
             ),
-            bls12381_g1_multiexp_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_g1_multiexp_base),
+            bls12381_p1_decompress_base:                 config.gas_cost(ExtCosts::bls12381_p1_decompress_base,
             ),
-            bls12381_g1_multiexp_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_g1_multiexp_element),
+            bls12381_p1_decompress_element:                 config.gas_cost(ExtCosts::bls12381_p1_decompress_element,
             ),
-            bls12381_g2_multiexp_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_g2_multiexp_base),
+            bls12381_p2_decompress_base:                 config.gas_cost(ExtCosts::bls12381_p2_decompress_base,
             ),
-            bls12381_g2_multiexp_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_g2_multiexp_element),
-            ),
-            bls12381_map_fp_to_g1_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_base),
-            ),
-            bls12381_map_fp_to_g1_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_element),
-            ),
-            bls12381_map_fp2_to_g2_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_base),
-            ),
-            bls12381_map_fp2_to_g2_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_element),
-            ),
-            bls12381_pairing_base: Gas::from_gas(config.gas_cost(ExtCosts::bls12381_pairing_base)),
-            bls12381_pairing_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_pairing_element),
-            ),
-            bls12381_p1_decompress_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_p1_decompress_base),
-            ),
-            bls12381_p1_decompress_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_p1_decompress_element),
-            ),
-            bls12381_p2_decompress_base: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_p2_decompress_base),
-            ),
-            bls12381_p2_decompress_element: Gas::from_gas(
-                config.gas_cost(ExtCosts::bls12381_p2_decompress_element),
+            bls12381_p2_decompress_element:                 config.gas_cost(ExtCosts::bls12381_p2_decompress_element,
             ),
             // removed parameters
             contract_compile_base: Gas::from_gas(0),
@@ -755,7 +708,7 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::bls12381_p2_decompress_base => view.bls12381_p2_decompress_base,
                 ExtCosts::bls12381_p2_decompress_element => view.bls12381_p2_decompress_element,
         }
-        .map(|_, value| ParameterCost { gas: value.as_gas(), compute: value.as_gas() });
+        .map(|_, value| ParameterCost { gas: value, compute: value.as_gas() });
         Self { costs }
     }
 }
@@ -857,15 +810,15 @@ pub struct CongestionControlConfigView {
 impl From<CongestionControlConfig> for CongestionControlConfigView {
     fn from(other: CongestionControlConfig) -> Self {
         Self {
-            max_congestion_incoming_gas: Gas::from_gas(other.max_congestion_incoming_gas),
-            max_congestion_outgoing_gas: Gas::from_gas(other.max_congestion_outgoing_gas),
+            max_congestion_incoming_gas: other.max_congestion_incoming_gas,
+            max_congestion_outgoing_gas: other.max_congestion_outgoing_gas,
             max_congestion_memory_consumption: other.max_congestion_memory_consumption,
             max_congestion_missed_chunks: other.max_congestion_missed_chunks,
-            max_outgoing_gas: Gas::from_gas(other.max_outgoing_gas),
-            min_outgoing_gas: Gas::from_gas(other.min_outgoing_gas),
-            allowed_shard_outgoing_gas: Gas::from_gas(other.allowed_shard_outgoing_gas),
-            max_tx_gas: Gas::from_gas(other.max_tx_gas),
-            min_tx_gas: Gas::from_gas(other.min_tx_gas),
+            max_outgoing_gas: other.max_outgoing_gas,
+            min_outgoing_gas: other.min_outgoing_gas,
+            allowed_shard_outgoing_gas: other.allowed_shard_outgoing_gas,
+            max_tx_gas: other.max_tx_gas,
+            min_tx_gas: other.min_tx_gas,
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
             outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
             outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
@@ -876,15 +829,15 @@ impl From<CongestionControlConfig> for CongestionControlConfigView {
 impl From<CongestionControlConfigView> for CongestionControlConfig {
     fn from(other: CongestionControlConfigView) -> Self {
         Self {
-            max_congestion_incoming_gas: other.max_congestion_incoming_gas.as_gas(),
-            max_congestion_outgoing_gas: other.max_congestion_outgoing_gas.as_gas(),
+            max_congestion_incoming_gas: other.max_congestion_incoming_gas,
+            max_congestion_outgoing_gas: other.max_congestion_outgoing_gas,
             max_congestion_memory_consumption: other.max_congestion_memory_consumption,
             max_congestion_missed_chunks: other.max_congestion_missed_chunks,
-            max_outgoing_gas: other.max_outgoing_gas.as_gas(),
-            min_outgoing_gas: other.min_outgoing_gas.as_gas(),
-            allowed_shard_outgoing_gas: other.allowed_shard_outgoing_gas.as_gas(),
-            max_tx_gas: other.max_tx_gas.as_gas(),
-            min_tx_gas: other.min_tx_gas.as_gas(),
+            max_outgoing_gas: other.max_outgoing_gas,
+            min_outgoing_gas: other.min_outgoing_gas,
+            allowed_shard_outgoing_gas: other.allowed_shard_outgoing_gas,
+            max_tx_gas: other.max_tx_gas,
+            min_tx_gas: other.min_tx_gas,
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
             outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
             outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,

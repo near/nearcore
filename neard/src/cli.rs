@@ -20,7 +20,6 @@ use near_o11y::{
 };
 use near_ping::PingCommand;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::gas::Gas as TypedGas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
@@ -525,7 +524,7 @@ impl RunCmd {
         }
         if self.max_gas_burnt_view.is_some() {
             near_config.client_config.max_gas_burnt_view =
-                self.max_gas_burnt_view.map(TypedGas::from_gas);
+                self.max_gas_burnt_view.map(Gas::from_gas);
         }
 
         #[cfg(feature = "sandbox")]

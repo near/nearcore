@@ -1,7 +1,7 @@
 use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
 use near_chain_configs::{NEAR_BASE, test_utils::TESTING_INIT_BALANCE};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
     transaction::{

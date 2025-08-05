@@ -1123,7 +1123,7 @@ mod tests {
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
-    use near_primitives::gas::Gas;
+    use near_primitives::types::Gas;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;

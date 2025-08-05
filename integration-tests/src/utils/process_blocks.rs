@@ -6,7 +6,7 @@ use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;

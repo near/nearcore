@@ -634,7 +634,7 @@ mod tests {
     use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
     use borsh::BorshDeserialize;
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
-    use near_primitives::gas::Gas;
+    use near_primitives::types::Gas;
 
     #[test]
     fn test_verify_transaction() {

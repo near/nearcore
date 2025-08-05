@@ -23,7 +23,6 @@ use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutio
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
-use near_primitives_core::gas::Gas as TypedGas;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
@@ -114,7 +113,7 @@ impl Transaction {
         self.actions_mut().push(Action::FunctionCall(Box::new(FunctionCallAction {
             method_name,
             args,
-            gas: TypedGas::from_gas(gas),
+            gas: Gas::from_gas(gas),
             deposit,
         })));
         self
@@ -370,7 +369,7 @@ impl SignedTransaction {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 args,
                 method_name,
-                gas: TypedGas::from_gas(gas),
+                gas: Gas::from_gas(gas),
                 deposit,
             }))],
             block_hash,

@@ -35,7 +35,7 @@ use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::{Approval, Chunks};
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{PartialMerkleTree, verify_hash};

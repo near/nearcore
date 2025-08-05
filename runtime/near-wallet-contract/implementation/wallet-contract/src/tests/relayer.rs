@@ -10,7 +10,7 @@ use crate::{
     types::{Action, ExecuteResponse},
 };
 use aurora_engine_types::types::{Address, Wei};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_sdk::NearToken;
 use near_workspaces::{
     network::Sandbox,

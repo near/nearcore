@@ -6,7 +6,6 @@ use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccessKey;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
-use near_primitives::gas::Gas as TypedGas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::create_user_test_signer;
@@ -176,7 +175,7 @@ pub trait User {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: method_name.to_string(),
                 args,
-                gas: TypedGas::from_gas(gas),
+                gas: Gas::from_gas(gas),
                 deposit,
             }))],
         )

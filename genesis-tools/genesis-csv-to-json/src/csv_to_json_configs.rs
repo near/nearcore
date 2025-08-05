@@ -6,7 +6,7 @@ use near_chain_configs::{
     PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
     TrackedShardsConfig,
 };
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;

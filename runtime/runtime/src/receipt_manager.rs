@@ -5,7 +5,6 @@ use near_primitives::action::{
     TransferAction, UseGlobalContractAction,
 };
 use near_primitives::errors::RuntimeError;
-use near_primitives::gas::Gas as TypedGas;
 use near_primitives::receipt::DataReceiver;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
@@ -342,7 +341,7 @@ impl ReceiptManager {
                 method_name: String::from_utf8(method_name)
                     .map_err(|_| HostError::InvalidMethodName)?,
                 args,
-                gas: TypedGas::from_gas(prepaid_gas),
+                gas: Gas::from_gas(prepaid_gas),
                 deposit: attached_deposit,
             })),
         );
@@ -546,7 +545,7 @@ impl ReceiptManager {
                 );
             };
             let to_assign = (unused_gas as u128 * weight.0 as u128 / gas_weight_sum) as u64;
-            action.gas = action.gas.checked_add(TypedGas::from_gas(to_assign)).unwrap();
+            action.gas = action.gas.checked_add(Gas::from_gas(to_assign)).unwrap();
             distributed = distributed
                 .checked_add(to_assign)
                 .unwrap_or_else(|| panic!("gas computation overflowed"));
@@ -555,7 +554,7 @@ impl ReceiptManager {
                 distributed = distributed
                     .checked_add(remainder)
                     .unwrap_or_else(|| panic!("gas computation overflowed"));
-                action.gas = action.gas.checked_add(TypedGas::from_gas(remainder)).unwrap();
+                action.gas = action.gas.checked_add(Gas::from_gas(remainder)).unwrap();
             }
         }
         assert_eq!(unused_gas, distributed);
@@ -565,8 +564,7 @@ impl ReceiptManager {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::gas::Gas as TypedGas;
-    use near_primitives::transaction::Action;
+        use near_primitives::transaction::Action;
     use near_primitives_core::types::{Gas, GasWeight};
 
     #[track_caller]
@@ -599,13 +597,13 @@ mod tests {
         };
 
         // Assert expected amount of gas was associated with the action
-        let mut function_call_gas = TypedGas::from_gas(0);
+        let mut function_call_gas = Gas::from_gas(0);
         let mut function_calls_iter = function_calls.iter();
         for receipt in receipt_manager.action_receipts {
             for action in receipt.actions {
                 if let Action::FunctionCall(function_call_action) = action {
                     let reference = function_calls_iter.next().unwrap();
-                    assert_eq!(function_call_action.gas, TypedGas::from_gas(accessor(reference)));
+                    assert_eq!(function_call_action.gas, Gas::from_gas(accessor(reference)));
                     function_call_gas =
                         function_call_gas.checked_add(function_call_action.gas).unwrap();
                 }

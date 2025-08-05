@@ -1,5 +1,5 @@
 use near_parameters::{Fee, RuntimeConfig, RuntimeFeesConfig, StorageUsageConfig};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::num_rational::Rational32;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use rand::{Rng, RngCore, thread_rng};

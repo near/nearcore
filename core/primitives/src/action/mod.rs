@@ -4,7 +4,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
     account::AccessKey,
-    gas::Gas as TypedGas,
     hash::CryptoHash,
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
@@ -253,7 +252,7 @@ pub struct FunctionCallAction {
     #[serde_as(as = "Base64")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub args: Vec<u8>,
-    pub gas: TypedGas,
+    pub gas: Gas,
     #[serde(with = "dec_format")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub deposit: Balance,
@@ -354,8 +353,8 @@ const _: () = assert!(
 impl Action {
     pub fn get_prepaid_gas(&self) -> Gas {
         match self {
-            Action::FunctionCall(a) => a.gas.as_gas(),
-            _ => 0,
+            Action::FunctionCall(a) => a.gas,
+            _ => Gas::from_gas(0),
         }
     }
     pub fn get_deposit_balance(&self) -> Balance {

@@ -1,7 +1,7 @@
 use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
 use near_primitives_core::config::AccountIdValidityRulesVersion;
-use near_primitives_core::gas::Gas;
+use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -198,7 +198,7 @@ impl Config {
     pub fn make_free(&mut self) {
         self.ext_costs = ExtCostsConfig {
             costs: near_primitives_core::enum_map::enum_map! {
-                _ => ParameterCost { gas: 0, compute: 0 }
+                _ => ParameterCost { gas: Gas::from_gas(0), compute: 0 }
             },
         };
         self.grow_mem_cost = 0;

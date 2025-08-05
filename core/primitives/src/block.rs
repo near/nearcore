@@ -308,12 +308,12 @@ impl Block {
         max_gas_price: Balance,
     ) -> Balance {
         // If block was skipped, the price does not change.
-        if gas_limit == 0 {
+        if gas_limit == Gas::from_gas(0) {
             return gas_price;
         }
 
-        let gas_used = u128::from(gas_used);
-        let gas_limit = u128::from(gas_limit);
+        let gas_used = u128::from(gas_used.as_gas());
+        let gas_limit = u128::from(gas_limit.as_gas());
         let adjustment_rate_numer = *gas_price_adjustment_rate.numer() as u128;
         let adjustment_rate_denom = *gas_price_adjustment_rate.denom() as u128;
 
@@ -643,11 +643,11 @@ impl<'a> Chunks<'a> {
     }
 
     pub fn compute_gas_used(&self) -> Gas {
-        self.iter_new().fold(0, |acc, chunk| acc + chunk.prev_gas_used())
+        self.iter_new().fold(Gas::from_gas(0), |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
     }
 
     pub fn compute_gas_limit(&self) -> Gas {
-        self.iter_new().fold(0, |acc, chunk| acc + chunk.gas_limit())
+        self.iter_new().fold(Gas::from_gas(0), |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
     }
 }
 

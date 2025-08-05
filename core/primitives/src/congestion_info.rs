@@ -86,10 +86,10 @@ impl CongestionControl {
             if sender_shard == ShardId::from(self.info.allowed_shard()) {
                 self.config.allowed_shard_outgoing_gas
             } else {
-                0
+                Gas::from_gas(0)
             }
         } else {
-            mix(self.config.max_outgoing_gas, self.config.min_outgoing_gas, congestion)
+            Gas::from_gas(mix(self.config.max_outgoing_gas.as_gas(), self.config.min_outgoing_gas.as_gas(), congestion))
         }
     }
 
@@ -104,17 +104,17 @@ impl CongestionControl {
     pub fn outgoing_size_limit(&self, sender_shard: ShardId) -> Gas {
         if sender_shard == ShardId::from(self.info.allowed_shard()) {
             // The allowed shard is allowed to send more data to us.
-            self.config.outgoing_receipts_big_size_limit
+            Gas::from_gas(self.config.outgoing_receipts_big_size_limit)
         } else {
             // Other shards have a low standard limit.
-            self.config.outgoing_receipts_usual_size_limit
+            Gas::from_gas(self.config.outgoing_receipts_usual_size_limit)
         }
     }
 
     /// How much gas we accept for executing new transactions going to any
     /// uncongested shards.
     pub fn process_tx_limit(&self) -> Gas {
-        mix(self.config.max_tx_gas, self.config.min_tx_gas, self.incoming_congestion())
+        Gas::from_gas(mix(self.config.max_tx_gas.as_gas(), self.config.min_tx_gas.as_gas(), self.incoming_congestion()))
     }
 
     /// Whether we can accept new transaction with the receiver set to this shard.
@@ -269,7 +269,7 @@ impl CongestionInfo {
         match self {
             CongestionInfo::V1(inner) => {
                 inner.delayed_receipts_gas =
-                    inner.delayed_receipts_gas.checked_add(gas as u128).ok_or_else(|| {
+                    inner.delayed_receipts_gas.checked_add(gas.as_gas() as u128).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("add_delayed_receipt_gas".into())
                     })?;
             }
@@ -281,7 +281,7 @@ impl CongestionInfo {
         match self {
             CongestionInfo::V1(inner) => {
                 inner.delayed_receipts_gas =
-                    inner.delayed_receipts_gas.checked_sub(gas as u128).ok_or_else(|| {
+                    inner.delayed_receipts_gas.checked_sub(gas.as_gas() as u128).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("remove_delayed_receipt_gas".into())
                     })?;
             }
@@ -293,7 +293,7 @@ impl CongestionInfo {
         match self {
             CongestionInfo::V1(inner) => {
                 inner.buffered_receipts_gas =
-                    inner.buffered_receipts_gas.checked_add(gas as u128).ok_or_else(|| {
+                    inner.buffered_receipts_gas.checked_add(gas.as_gas() as u128).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("add_buffered_receipt_gas".into())
                     })?;
             }
@@ -324,11 +324,11 @@ impl CongestionInfo {
     }
 
     pub fn incoming_congestion(&self, config: &CongestionControlConfig) -> f64 {
-        clamped_f64_fraction(self.delayed_receipts_gas(), config.max_congestion_incoming_gas)
+        clamped_f64_fraction(self.delayed_receipts_gas(), config.max_congestion_incoming_gas.as_gas())
     }
 
     pub fn outgoing_congestion(&self, config: &CongestionControlConfig) -> f64 {
-        clamped_f64_fraction(self.buffered_receipts_gas(), config.max_congestion_outgoing_gas)
+        clamped_f64_fraction(self.buffered_receipts_gas(), config.max_congestion_outgoing_gas.as_gas())
     }
 
     pub fn memory_congestion(&self, config: &CongestionControlConfig) -> f64 {

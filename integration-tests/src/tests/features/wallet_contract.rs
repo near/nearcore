@@ -9,7 +9,7 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::test_utils::{create_user_test_signer, eth_implicit_test_account};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,

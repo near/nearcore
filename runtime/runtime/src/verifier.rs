@@ -9,7 +9,7 @@ use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,

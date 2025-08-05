@@ -5,7 +5,7 @@ use crate::logic::mocks::mock_external::{MockAction, MockedExternal};
 use crate::logic::types::ReturnData;
 use crate::runner::VMKindExt;
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::gas::Gas;
+use near_primitives_core::types::Gas;
 use near_primitives_core::types::Balance;
 use std::mem::size_of;
 use std::sync::Arc;

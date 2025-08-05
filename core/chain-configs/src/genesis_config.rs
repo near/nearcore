@@ -19,11 +19,10 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::StateRoot;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::{
-    gas::Gas,
     hash::CryptoHash,
     serialize::dec_format,
     state_record::StateRecord,
-    types::{AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats},
+    types::{AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, Gas},
     version::ProtocolVersion,
 };
 use num_rational::Rational32;

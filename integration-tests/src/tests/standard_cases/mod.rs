@@ -29,7 +29,7 @@ use std::sync::Arc;
 use crate::node::Node;
 use crate::user::{CommitError, User};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_primitives::gas::Gas;
+use near_primitives::types::Gas;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils;
 use near_primitives::transaction::{

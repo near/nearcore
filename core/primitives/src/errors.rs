@@ -6,7 +6,7 @@ use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::gas::Gas;
+use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::serde_as;
