@@ -102,8 +102,6 @@ class RpcServer(http.server.HTTPServer):
 class TestState(Enum):
     NONE = 1
     AWAITING_NETWORK_INIT = 2
-    AMEND_GENESIS = 3
-    STATE_ROOTS = 4
     RUNNING = 5
     STOPPED = 6
     RESETTING = 7
@@ -544,7 +542,7 @@ class NeardRunner:
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32600, message='boot_nodes argument must not be empty')
 
-        if not self.legacy_records and genesis_time is None:
+        if genesis_time is None:
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32600,
                 message=
@@ -1052,39 +1050,6 @@ class NeardRunner:
         backup_data = {'backup_id': backup_id, 'description': description}
         self.set_state(TestState.MAKING_BACKUP, data=backup_data)
 
-    def deprecated_set_validators(self, network_init_params, new_chain_id):
-        cmd = [
-            self.data['binaries'][0]['system_path'],
-            'amend-genesis',
-            '--genesis-file-in',
-            self.setup_path('genesis.json'),
-            '--records-file-in',
-            self.setup_path('records.json'),
-            '--genesis-file-out',
-            self.target_near_home_path('genesis.json'),
-            '--records-file-out',
-            self.target_near_home_path('records.json'),
-            '--validators',
-            self.home_path('validators.json'),
-            '--chain-id',
-            new_chain_id if new_chain_id is not None else 'mocknet',
-            '--transaction-validity-period',
-            '10000',
-            '--epoch-length',
-            str(network_init_params['epoch_length']),
-            '--num-seats',
-            str(network_init_params['num_seats']),
-            '--protocol-reward-rate',
-            '1/10',
-        ]
-        if network_init_params['protocol_version'] is not None:
-            cmd.append('--protocol-version')
-            cmd.append(str(network_init_params['protocol_version']))
-
-        self.run_neard(cmd)
-        self.set_state(TestState.AMEND_GENESIS)
-        self.save_data()
-
     def network_init(self):
         # wait til we get a network_init RPC
         if not os.path.exists(self.home_path('validators.json')):
@@ -1106,10 +1071,6 @@ class NeardRunner:
             config = json.dump(config, f, indent=2)
 
         new_chain_id = n.get('new_chain_id')
-
-        if self.legacy_records and n['state_source'] == 'dump':
-            self.deprecated_set_validators(n, new_chain_id)
-            return
 
         if n['state_source'] == 'empty':
             self.remove_data_dir()
@@ -1186,79 +1147,6 @@ class NeardRunner:
                     f'neard fork-network finalize succeeded. Node is ready')
                 self.make_initial_backup()
 
-    def check_amend_genesis(self):
-        path, running, exit_code = self.poll_neard()
-        if path is None:
-            logging.error(
-                'state is AMEND_GENESIS, but no amend-genesis process is known')
-            self.set_state(TestState.AWAITING_NETWORK_INIT)
-            self.save_data()
-        elif not running:
-            if exit_code is not None and exit_code != 0:
-                logging.error(
-                    f'neard amend-genesis exited with code {exit_code}')
-                # for now just set the state to ERROR, and if this ever happens, the
-                # test operator will have to intervene manually. Probably shouldn't
-                # really happen in practice
-                self.set_state(TestState.ERROR)
-                self.save_data()
-            else:
-                # TODO: if exit_code is None then we were interrupted and restarted after starting
-                # the amend-genesis command. We assume here that the command was successful. Ok for now since
-                # the command probably won't fail. But should somehow check that it was OK
-
-                logging.info('setting use_production_config to true')
-                genesis_path = self.target_near_home_path('genesis.json')
-                with open(genesis_path, 'r') as f:
-                    genesis_config = json.load(f)
-                with open(genesis_path, 'w') as f:
-                    genesis_config['use_production_config'] = True
-                    # with the normal min_gas_price (10x higher than this one)
-                    # many mirrored mainnet transactions fail with too little balance
-                    # One way to fix that would be to increase everybody's balances in
-                    # the amend-genesis command. But we can also just make this change here.
-                    genesis_config['min_gas_price'] = 10000000
-                    # protocol_versions in range [56, 63] need to have these
-                    # genesis parameters, otherwise nodes get stuck because at
-                    # some point it produces an incompatible EpochInfo.
-                    # TODO: remove these changes once mocknet tests will probably
-                    # only ever be run with binaries including https://github.com/near/nearcore/pull/10722
-                    genesis_config['num_block_producer_seats'] = 100
-                    genesis_config['num_block_producer_seats_per_shard'] = [
-                        100, 100, 100, 100
-                    ]
-                    genesis_config['block_producer_kickout_threshold'] = 80
-                    genesis_config['chunk_producer_kickout_threshold'] = 80
-                    genesis_config['shard_layout'] = {
-                        'V1': {
-                            'boundary_accounts': [
-                                'aurora', 'aurora-0',
-                                'kkuuue2akv_1630967379.near'
-                            ],
-                            'shards_split_map': [[0, 1, 2, 3]],
-                            'to_parent_shard_map': [0, 0, 0, 0],
-                            'version': 1
-                        }
-                    }
-                    genesis_config['num_chunk_only_producer_seats'] = 200
-                    genesis_config['max_kickout_stake_perc'] = 30
-                    json.dump(genesis_config, f, indent=2)
-                initlog_path = os.path.join(self.neard_logs_dir, 'initlog.txt')
-                with open(initlog_path, 'ab') as out:
-                    cmd = [
-                        self.data['binaries'][0]['system_path'],
-                        '--home',
-                        self.target_near_home_path(),
-                        '--unsafe-fast-startup',
-                        'run',
-                    ]
-                    self.run_neard(
-                        cmd,
-                        out_file=out,
-                    )
-                self.set_state(TestState.STATE_ROOTS)
-                self.save_data()
-
     def make_backup(self):
         now = str(datetime.datetime.now())
         backup_data = self.data['state_data']
@@ -1320,25 +1208,6 @@ class NeardRunner:
         self.save_data()
         self.make_backup()
 
-    def check_genesis_state(self):
-        path, running, exit_code = self.poll_neard()
-        if not running:
-            logging.error(
-                f'neard exited with code {exit_code} on the first run')
-            # For now just set the state to ERROR, because if this happens, there is something pretty wrong with
-            # the setup, so a human needs to investigate and fix the bug
-            self.set_state(TestState.ERROR)
-            self.save_data()
-        try:
-            r = requests.get(f'http://{self.data["neard_addr"]}/status',
-                             timeout=5)
-        except requests.exceptions.ConnectionError:
-            return
-        if r.status_code == 200:
-            logging.info('neard finished computing state roots')
-            self.kill_neard()
-            self.make_initial_backup()
-
     def run_restore_from_backup_cmd(self, backup_path):
         logging.info(f'restoring data dir from backup at {backup_path}')
         neard_path = os.path.join(backup_path, "neard")
@@ -1374,12 +1243,8 @@ class NeardRunner:
                 state = self.get_state()
                 if state == TestState.AWAITING_NETWORK_INIT:
                     self.network_init()
-                elif state == TestState.AMEND_GENESIS:
-                    self.check_amend_genesis()
                 elif state == TestState.SET_VALIDATORS:
                     self.check_set_validators()
-                elif state == TestState.STATE_ROOTS:
-                    self.check_genesis_state()
                 elif state == TestState.RUNNING:
                     self.check_upgrade_neard()
                 elif state == TestState.RESETTING:
