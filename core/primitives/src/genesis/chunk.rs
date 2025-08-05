@@ -87,7 +87,7 @@ fn genesis_chunk(
         rs,
     );
     let encoded_chunk = chunk.into_parts().1;
-    let chunk = encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk");
+    let chunk = encoded_chunk.decode_chunk(&rs).expect("Failed to decode genesis chunk");
     if cfg!(feature = "protocol_feature_spice") {
         chunk.into_spice_chunk_with_execution(&ChunkExtra::new(
             &state_root,

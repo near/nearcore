@@ -3,6 +3,7 @@ use crate::congestion_info::CongestionInfo;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash, merklize, verify_path};
 use crate::receipt::Receipt;
+use crate::reed_solomon::raptorq_decode_immut;
 use crate::transaction::SignedTransaction;
 #[cfg(feature = "solomon")]
 use crate::transaction::ValidatedTransaction;
@@ -1287,26 +1288,34 @@ impl EncodedShardChunk {
     fn decode_transaction_receipts(
         parts: &[Option<Box<[u8]>>],
         encoded_length: u64,
+        rs: &reed_solomon_erasure::galois_8::ReedSolomon,
     ) -> Result<TransactionReceipt, std::io::Error> {
-        let mut crap = vec![];
-        for part in parts {
-            if part.is_none() {
-                crap.push("None");
-            } else {
-                crap.push("Some");
-            }
-        }
-        tracing::info!("QQP QQP CRAP: {:?} | encoded_length: {}", crap, encoded_length);
-        let encoded_data = parts
-            .iter()
-            .flat_map(|option| option.as_ref().expect("Missing shard").iter())
-            .cloned()
-            .take(encoded_length as usize)
-            .collect::<Vec<u8>>();
+        // let mut crap = vec![];
+        // for part in parts {
+        //     if part.is_none() {
+        //         crap.push("None");
+        //     } else {
+        //         crap.push("Some");
+        //     }
+        // }
+        // tracing::info!("QQP QQP CRAP: {:?} | encoded_length: {}", crap, encoded_length);
+        // let encoded_data = parts
+        //     .iter()
+        //     .flat_map(|option| option.as_ref().expect("Missing shard").iter())
+        //     .cloned()
+        //     .take(encoded_length as usize)
+        //     .collect::<Vec<u8>>();
 
-        tracing::info!("QQP QQP CRAP encoded_data: {:?}", encoded_data.len());
+        // tracing::info!("QQP QQP CRAP encoded_data: {:?}", encoded_data.len());
 
-        TransactionReceipt::try_from_slice(&encoded_data)
+        let thing = raptorq_decode_immut::<TransactionReceipt>(
+            rs,
+            &parts.to_vec(),
+            encoded_length as usize,
+        );
+
+        // TransactionReceipt::try_from_slice(&encoded_data)
+        thing
     }
 
     pub fn chunk_hash(&self) -> &ChunkHash {
@@ -1376,7 +1385,10 @@ impl EncodedShardChunk {
         PartialEncodedChunkWithArcReceipts { header, parts, prev_outgoing_receipts }
     }
 
-    pub fn decode_chunk(&self) -> Result<ShardChunk, std::io::Error> {
+    pub fn decode_chunk(
+        &self,
+        rs: &reed_solomon_erasure::galois_8::ReedSolomon,
+    ) -> Result<ShardChunk, std::io::Error> {
         let _span = debug_span!(
             target: "sharding",
             "decode_chunk",
@@ -1386,7 +1398,7 @@ impl EncodedShardChunk {
         .entered();
 
         let transaction_receipts =
-            Self::decode_transaction_receipts(&self.content().parts, self.encoded_length())
+            Self::decode_transaction_receipts(&self.content().parts, self.encoded_length(), rs)
                 .expect("QQP QQP");
         match self {
             Self::V1(chunk) => Ok(ShardChunk::V1(ShardChunkV1 {
@@ -1470,8 +1482,11 @@ impl ShardChunkWithEncoding {
         (Self { shard_chunk, bytes: encoded_shard_chunk }, merkle_paths)
     }
 
-    pub fn from_encoded_shard_chunk(bytes: EncodedShardChunk) -> Result<Self, std::io::Error> {
-        let shard_chunk = bytes.decode_chunk()?;
+    pub fn from_encoded_shard_chunk(
+        bytes: EncodedShardChunk,
+        rs: &reed_solomon_erasure::galois_8::ReedSolomon,
+    ) -> Result<Self, std::io::Error> {
+        let shard_chunk = bytes.decode_chunk(rs)?;
         Ok(Self { shard_chunk, bytes })
     }
 

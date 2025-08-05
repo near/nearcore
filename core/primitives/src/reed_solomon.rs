@@ -140,6 +140,32 @@ pub fn raptorq_decode<T: BorshDeserialize + BorshSerialize>(
     Err(Error::other("Failed to decode part"))
 }
 
+pub fn raptorq_decode_immut<T: BorshDeserialize + BorshSerialize>(
+    rs: &ReedSolomon,
+    parts: &Vec<ReedSolomonPart>,
+    encoded_length: usize,
+) -> Result<T, Error> {
+    let data_parts = rs.data_shard_count();
+    let mtu = raptorq_part_length(encoded_length, data_parts);
+
+    let packets = parts
+        .iter()
+        .filter_map(|part| part.as_ref().map(|part| EncodingPacket::deserialize(&part)))
+        .collect_vec();
+
+    let config = ObjectTransmissionInformation::with_defaults(encoded_length as u64, mtu as u16);
+    let mut decoder = Decoder::new(config);
+
+    for part in packets {
+        let decoded = decoder.decode(part);
+        if decoded.is_some() {
+            return T::try_from_slice(decoded.unwrap().as_slice());
+        }
+    }
+
+    Err(Error::other("Failed to decode part"))
+}
+
 pub fn reed_solomon_part_length(encoded_length: usize, data_parts: usize) -> usize {
     (encoded_length + data_parts - 1) / data_parts
 }
