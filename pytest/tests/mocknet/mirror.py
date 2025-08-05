@@ -364,9 +364,16 @@ def _apply_stateless_config(args, node):
         do_update_config(node, 'tracked_shards=[]')
         do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
     if not args.local_test:
-        node.run_cmd(
-            "sudo sysctl -w net.core.rmem_max=8388608 && sudo sysctl -w net.core.wmem_max=8388608 && sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0"
-        )
+        # Apply baseline network configuration (same as defined in set_kernel_params.sh)
+        node.run_cmd("sudo sysctl -w net.core.rmem_max=8388608 && "
+                     "sudo sysctl -w net.core.wmem_max=8388608 && "
+                     "sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && "
+                     "sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && "
+                     "sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0 && "
+                     "sudo sysctl -w net.ipv4.tcp_congestion_control=bbr && "
+                     "sudo sysctl -w net.core.default_qdisc=fq && "
+                     "sudo sysctl -w net.ipv4.tcp_mtu_probing=1 && "
+                     "sudo sysctl -w net.ipv4.tcp_max_syn_backlog=8096")
 
 
 def _apply_config_changes(node, state_sync_location):
