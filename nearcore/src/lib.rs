@@ -10,9 +10,7 @@ use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
-use near_async::actix::wrapper::{
-    ActixWrapper, SyncActixWrapper, spawn_actix_actor, spawn_sync_actix_actor,
-};
+use near_async::actix::wrapper::{ActixWrapper, SyncActixWrapper, spawn_sync_actix_actor};
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
@@ -393,7 +391,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
     );
-    let (state_snapshot_addr, state_snapshot_arbiter) = spawn_actix_actor(state_snapshot_actor);
+    let state_snapshot_addr = actor_system.spawn_tokio_actor(state_snapshot_actor);
     state_snapshot_sender.bind(state_snapshot_addr.clone());
 
     let delete_snapshot_callback: Arc<dyn Fn() + Sync + Send> =
@@ -404,20 +402,19 @@ pub fn start_with_config_and_synchronization(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (partial_witness_actor, partial_witness_arbiter) =
-        spawn_actix_actor(PartialWitnessActor::new(
-            Clock::real(),
-            network_adapter.as_multi_sender(),
-            client_adapter_for_partial_witness_actor.as_multi_sender(),
-            config.validator_signer.clone(),
-            epoch_manager.clone(),
-            runtime.clone(),
-            Arc::new(RayonAsyncComputationSpawner),
-            Arc::new(PartialWitnessValidationThreadPool::new()),
-            Arc::new(WitnessCreationThreadPool::new()),
-        ));
+    let partial_witness_actor = actor_system.spawn_tokio_actor(PartialWitnessActor::new(
+        Clock::real(),
+        network_adapter.as_multi_sender(),
+        client_adapter_for_partial_witness_actor.as_multi_sender(),
+        config.validator_signer.clone(),
+        epoch_manager.clone(),
+        runtime.clone(),
+        Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(PartialWitnessValidationThreadPool::new()),
+        Arc::new(WitnessCreationThreadPool::new()),
+    ));
 
-    let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
+    let _gc_actor = actor_system.spawn_tokio_actor(GCActor::new(
         runtime.store().clone(),
         &chain_genesis,
         runtime.clone(),
@@ -428,13 +425,12 @@ pub fn start_with_config_and_synchronization(
     ));
 
     let resharding_handle = ReshardingHandle::new();
-    let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
+    let resharding_sender = actor_system.spawn_tokio_actor(ReshardingActor::new(
         epoch_manager.clone(),
         runtime.clone(),
         resharding_handle.clone(),
         config.client_config.resharding_config.clone(),
     ));
-    let resharding_sender = resharding_sender_addr;
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
@@ -446,7 +442,7 @@ pub fn start_with_config_and_synchronization(
         chunk_validation_actor,
     } = start_client(
         Clock::real(),
-        actor_system,
+        actor_system.clone(),
         config.client_config.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
@@ -471,7 +467,8 @@ pub fn start_with_config_and_synchronization(
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
         chunk_state_witness: chunk_validation_actor.into_sender(),
     });
-    let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
+    let shards_manager_actor = start_shards_manager(
+        actor_system,
         epoch_manager.clone(),
         view_epoch_manager.clone(),
         shard_tracker.clone(),
@@ -574,13 +571,7 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let mut arbiters = vec![
-        shards_manager_arbiter_handle,
-        trie_metrics_arbiter,
-        state_snapshot_arbiter,
-        gc_arbiter,
-        partial_witness_arbiter,
-    ];
+    let mut arbiters = vec![trie_metrics_arbiter];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }
