@@ -5,7 +5,7 @@
 use crate::utils::peer_manager_mock::PeerManagerMock;
 use actix::{Actor, Addr, Context};
 use near_async::actix::futures::ActixFutureSpawner;
-use near_async::actix::wrapper::{ActixWrapper, spawn_actix_actor};
+use near_async::actix::wrapper::ActixWrapper;
 use near_async::messaging::{
     IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
 };
@@ -18,7 +18,7 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 
-use near_async::tokio::TokioRuntimeHandle;
+use near_async::tokio::{TokioRuntimeHandle, spawn_tokio_actor};
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
     MutableValidatorSigner, ReshardingConfig, ReshardingHandle, TrackedShardsConfig,
@@ -170,7 +170,7 @@ fn setup(
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
-    let (partial_witness_adapter, _) = spawn_actix_actor(PartialWitnessActor::new(
+    let partial_witness_adapter = spawn_tokio_actor(PartialWitnessActor::new(
         clock.clone(),
         network_adapter.clone(),
         client_adapter_for_partial_witness_actor.as_multi_sender(),
@@ -186,7 +186,7 @@ fn setup(
         distribute_chunk_state_witness: partial_witness_adapter.clone().into_sender(),
     };
 
-    let (resharding_sender, _) = spawn_actix_actor(ReshardingActor::new(
+    let resharding_sender = spawn_tokio_actor(ReshardingActor::new(
         epoch_manager.clone(),
         runtime.clone(),
         ReshardingHandle::new(),
@@ -242,7 +242,7 @@ fn setup(
     );
 
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
-    let (shards_manager_adapter, _) = start_shards_manager(
+    let shards_manager_adapter = start_shards_manager(
         epoch_manager.clone(),
         epoch_manager,
         shard_tracker,

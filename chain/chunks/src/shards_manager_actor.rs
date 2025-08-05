@@ -87,12 +87,11 @@ use crate::logic::{
 };
 use crate::metrics;
 use ::time::ext::InstantExt as _;
-use actix::Actor;
-use near_async::actix::wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
 use near_async::time::{self, Clock};
+use near_async::tokio::{TokioRuntimeHandle, spawn_tokio_actor};
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::signature_verification::{
@@ -336,8 +335,7 @@ pub fn start_shards_manager(
     validator_signer: MutableValidatorSigner,
     store: Store,
     chunk_request_retry_period: Duration,
-) -> (actix::Addr<ActixWrapper<ShardsManagerActor>>, actix::ArbiterHandle) {
-    let shards_manager_arbiter = actix::Arbiter::new().handle();
+) -> TokioRuntimeHandle<ShardsManagerActor> {
     // TODO: make some better API for accessing chain properties like head.
     let chain_head = store
         .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
@@ -361,11 +359,7 @@ pub fn start_shards_manager(
         chunk_request_retry_period,
     );
 
-    let shards_manager_addr =
-        ActixWrapper::<ShardsManagerActor>::start_in_arbiter(&shards_manager_arbiter, move |_| {
-            ActixWrapper::new(shards_manager)
-        });
-    (shards_manager_addr, shards_manager_arbiter)
+    spawn_tokio_actor(shards_manager)
 }
 
 impl ShardsManagerActor {
