@@ -151,3 +151,56 @@ pub struct StatePartRequest {
     /// Public address of the node making the request
     pub addr: std::net::SocketAddr,
 }
+
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Hash,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    ProtocolSchema,
+)]
+pub enum HeaderOrPartId {
+    Header,
+    Part(u64),
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Hash,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    ProtocolSchema,
+)]
+pub enum StateRequestAckBody {
+    WillRespond,
+    Busy,
+}
+
+/// Message used to acknowledge a StateHeaderRequest or StatePartRequest.
+///
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Hash,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    ProtocolSchema,
+)]
+pub struct StateRequestAck {
+    /// Requested shard id
+    pub shard_id: ShardId,
+    /// Sync block hash
+    pub sync_hash: CryptoHash,
+    /// Requested header or part id
+    pub header_or_part_id: u64,
+    /// Ack contents
+    pub body: StateRequestAckBody,
+}

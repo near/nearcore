@@ -633,6 +633,9 @@ impl TieredMessageBody {
             RoutedMessageBody::StateHeaderRequest(state_header_request) => {
                 T2MessageBody::StateHeaderRequest(state_header_request).into()
             }
+            RoutedMessageBody::StateRequestAck(state_request_ack) => {
+                T2MessageBody::StateRequestAck(state_request_ack).into()
+            }
             RoutedMessageBody::_UnusedQueryRequest
             | RoutedMessageBody::_UnusedQueryResponse
             | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
@@ -730,6 +733,7 @@ pub enum T2MessageBody {
     StatePartRequest(StatePartRequest),
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
     StateHeaderRequest(StateHeaderRequest),
+    StateRequestAck(StateRequestAck),
 }
 
 impl T2MessageBody {
@@ -789,6 +793,7 @@ pub enum RoutedMessageBody {
     ContractCodeResponse(ContractCodeResponse),
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
     StateHeaderRequest(StateHeaderRequest),
+    StateRequestAck(StateRequestAck),
 }
 
 impl RoutedMessageBody {
@@ -916,6 +921,11 @@ impl fmt::Debug for RoutedMessageBody {
                 "StateHeaderRequest(sync_hash={:?}, shard_id={:?})",
                 request.sync_hash, request.shard_id,
             ),
+            RoutedMessageBody::StateRequestAck(ack) => write!(
+                f,
+                "StateRequestAck(sync_hash={:?}, shard_id={:?}, header_or_part_id={:?}, body={:?})",
+                ack.sync_hash, ack.shard_id, ack.header_or_part_id, ack.body,
+            ),
         }
     }
 }
@@ -987,6 +997,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 }
                 T2MessageBody::StateHeaderRequest(state_header_request) => {
                     RoutedMessageBody::StateHeaderRequest(state_header_request)
+                }
+                T2MessageBody::StateRequestAck(state_request_ack) => {
+                    RoutedMessageBody::StateRequestAck(state_request_ack)
                 }
             },
         }
