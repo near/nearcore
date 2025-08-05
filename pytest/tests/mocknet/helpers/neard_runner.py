@@ -173,8 +173,6 @@ class NeardRunner:
                 'backups': {},
                 'state_data': None,
             }
-        # TODO: remove legacy records code
-        self.legacy_records = False
         # protects self.data, and its representation on disk,
         # because both the rpc server and the main loop touch them concurrently
         # TODO: consider locking the TestState variable separately, since there
@@ -328,7 +326,7 @@ class NeardRunner:
             self.save_data()
 
     def setup_path(self, *args):
-        if not self.is_traffic_generator() or self.legacy_records:
+        if not self.is_traffic_generator():
             args = ('setup',) + args
         else:
             args = (
@@ -440,9 +438,8 @@ class NeardRunner:
         for path in paths:
             shutil.move(self.tmp_near_home_path(path),
                         self.target_near_home_path(path))
-        if not self.legacy_records:
-            shutil.copyfile(self.setup_path('genesis.json'),
-                            self.target_near_home_path('genesis.json'))
+        shutil.copyfile(self.setup_path('genesis.json'),
+                        self.target_near_home_path('genesis.json'))
 
     # This RPC method tells to stop neard and re-initialize its home dir. This returns the
     # validator and node key that resulted from the initialization. We can't yet call amend-genesis
@@ -911,10 +908,7 @@ class NeardRunner:
             logging.warn(
                 'source_near_home_path() called on non-traffic-generator node')
             return self.neard_home
-        if self.legacy_records:
-            return self.neard_home
-        else:
-            return os.path.join(self.neard_home, 'source')
+        return os.path.join(self.neard_home, 'source')
 
     # If this is a regular node, starts neard run. If it's a traffic generator, starts neard mirror run
     def start_neard(self, batch_interval_millis=None):
