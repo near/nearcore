@@ -22,6 +22,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
+    /// use near_primitives_core::gas::Gas;
+    ///
     /// let tera_gas = Gas::from_tgas(5);
     ///
     /// assert_eq!(tera_gas.as_gas(), 5 * 1_000_000_000_000);
@@ -34,6 +36,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
+    /// use near_primitives_core::gas::Gas;
+    ///    
     /// let giga_gas = Gas::from_ggas(5);
     ///
     /// assert_eq!(giga_gas.as_gas(), 5 * 1_000_000_000);
@@ -46,6 +50,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
+    /// use near_primitives_core::gas::Gas;
+    ///
     /// let gas = Gas::from_gas(5 * 1_000_000_000_000);
     ///
     /// assert_eq!(gas.as_tgas(), 5);
@@ -58,6 +64,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
+    /// use near_primitives_core::gas::Gas;
+    ///
     /// let gas = Gas::from_gas(12345);
     /// assert_eq!(gas.as_gas(), 12345);
     /// ```
@@ -69,6 +77,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
+    /// use near_primitives_core::gas::Gas;
+    ///
     /// let gas = Gas::from_gas(1 * 1_000_000_000);
     /// assert_eq!(gas.as_ggas(), 1);
     /// ```
@@ -80,6 +90,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
+    /// use near_primitives_core::gas::Gas;
+    ///
     /// let gas = Gas::from_gas(1 * 1_000_000_000_000);
     /// assert_eq!(gas.as_tgas(), 1);
     /// ```
@@ -91,7 +103,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
-    /// use std::u64;
+    /// use near_primitives_core::gas::Gas;
+    ///
     /// assert_eq!(Gas::from_gas(u64::MAX -2).checked_add(Gas::from_gas(2)), Some(Gas::from_gas(u64::MAX)));
     /// assert_eq!(Gas::from_gas(u64::MAX -2).checked_add(Gas::from_gas(3)), None);
     /// ```
@@ -103,6 +116,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
+    /// use near_primitives_core::gas::Gas;
+    ///
     /// assert_eq!(Gas::from_gas(2).checked_sub(Gas::from_gas(2)), Some(Gas::from_gas(0)));
     /// assert_eq!(Gas::from_gas(2).checked_sub(Gas::from_gas(3)), None);
     /// ```
@@ -114,6 +129,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
+    /// use near_primitives_core::gas::Gas;
+    ///
     /// use std::u64;
     /// assert_eq!(Gas::from_gas(2).checked_mul(2), Some(Gas::from_gas(4)));
     /// assert_eq!(Gas::from_gas(u64::MAX).checked_mul(2), None)
@@ -125,6 +142,8 @@ impl Gas {
     ///
     /// # Examples
     /// ```
+    /// use near_primitives_core::gas::Gas;
+    ///
     /// assert_eq!(Gas::from_gas(10).checked_div(2), Some(Gas::from_gas(5)));
     /// assert_eq!(Gas::from_gas(2).checked_div(0), None);
     /// ```
