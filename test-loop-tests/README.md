@@ -15,34 +15,34 @@ Here's a step-by-step guide on how to create a test.
 
 ## 1. Build the environment
 
+See `test_cross_shard_token_transfer` for the minimalistic test setup example.
+
 Most important parameters are configured through the genesis.
 The main part of building the environment involves constructing genesis data,
 including the initial state, using `TestGenesisBuilder`:
 
 ```rust
-let builder = TestLoopBuilder::new();
-
-let initial_balance = 10000 * ONE_NEAR;
-let accounts = (0..NUM_ACCOUNTS)
-    .map(|i| format!("account{}", i).parse().unwrap())
-    .collect::<Vec<AccountId>>();
-
-let mut genesis_builder = TestGenesisBuilder::new();
-genesis_builder
-    .genesis_time_from_clock(&builder.clock())
-    .protocol_version_latest()
-    .genesis_height(10000)
-    .epoch_length(EPOCH_LENGTH)
-    .shard_layout_simple_v1(&["account2", "account4", "account6"])
-    // ...more configuration if needed...
-
-for account in &accounts {
-    genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-}
-let (genesis, epoch_config_store) = genesis_builder.build();
-
-let TestLoopEnv { mut test_loop, datas: node_datas } =
-    builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(client_accounts).build();
+let shard_layout = ShardLayout::multi_shard_custom(create_account_ids(["account0"]).to_vec(), 1);
+let validators_spec = create_validator_spec(shard_layout.num_shards() as usize, 0);
+let clients = validator_spec_clients(&validators_spec);
+let genesis = TestLoopBuilder::new_genesis_builder()
+    .shard_layout(shard_layout)
+    .validators_spec(validators_spec)
+    // ...more configuration if needed
+    // for example `add_user_accounts_simple`, `epoch_length`, etc.
+    .build();
+let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+// Or alternatively when more epoch config configuration is needed:
+// let epoch_config_store = TestEpochConfigBuilder.from_genesis(&genesis)
+//    .shuffle_shard_assignment_for_chunk_producers(true)
+//    ...more configuration
+//    .build_store_for_single_version();
+let mut test_loop_env = TestLoopBuilder::new()
+    .genesis(genesis)
+    .epoch_config_store(epoch_config_store)
+    .clients(clients)
+    .build()
+    .warmup();
 ```
 
 ## 2. Trigger and execute events
