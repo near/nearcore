@@ -1,3 +1,4 @@
+use near_async::tokio::GLOBAL_TOKIO_RUNTIME_SHUTDOWN_SIGNAL_FOR_LEGACY_TESTS;
 use parking_lot::Mutex;
 use std::sync::LazyLock;
 
@@ -86,6 +87,7 @@ pub fn run_actix<F: std::future::Future>(f: F) {
         *value -= 1;
         if *value == 0 {
             // If we're the last instance - make sure to wait for all RocksDB handles to be dropped.
+            GLOBAL_TOKIO_RUNTIME_SHUTDOWN_SIGNAL_FOR_LEGACY_TESTS.cancel();
             near_store::db::RocksDB::block_until_all_instances_are_dropped();
         }
     }
