@@ -1290,32 +1290,7 @@ impl EncodedShardChunk {
         encoded_length: u64,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
     ) -> Result<TransactionReceipt, std::io::Error> {
-        // let mut crap = vec![];
-        // for part in parts {
-        //     if part.is_none() {
-        //         crap.push("None");
-        //     } else {
-        //         crap.push("Some");
-        //     }
-        // }
-        // tracing::info!("QQP QQP CRAP: {:?} | encoded_length: {}", crap, encoded_length);
-        // let encoded_data = parts
-        //     .iter()
-        //     .flat_map(|option| option.as_ref().expect("Missing shard").iter())
-        //     .cloned()
-        //     .take(encoded_length as usize)
-        //     .collect::<Vec<u8>>();
-
-        // tracing::info!("QQP QQP CRAP encoded_data: {:?}", encoded_data.len());
-
-        let thing = raptorq_decode_immut::<TransactionReceipt>(
-            rs,
-            &parts.to_vec(),
-            encoded_length as usize,
-        );
-
-        // TransactionReceipt::try_from_slice(&encoded_data)
-        thing
+        raptorq_decode_immut::<TransactionReceipt>(rs, &parts.to_vec(), encoded_length as usize)
     }
 
     pub fn chunk_hash(&self) -> &ChunkHash {

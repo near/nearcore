@@ -1139,16 +1139,13 @@ impl ShardsManagerActor {
         }
 
         let encoded_length = chunk.encoded_length();
-        let _res = match raptorq_decode::<TransactionReceipt>(
+        if let Err(err) = raptorq_decode::<TransactionReceipt>(
             &self.rs,
             &mut chunk.content_mut().parts,
             encoded_length as usize,
         ) {
-            Ok(res) => res,
-            Err(err) => {
-                debug!(target: "chunks", ?err, "Invalid: Failed to decode");
-                return ChunkStatus::Invalid;
-            }
+            debug!(target: "chunks", ?err, "Invalid: Failed to decode");
+            return ChunkStatus::Invalid;
         };
 
         let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();

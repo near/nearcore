@@ -21,8 +21,6 @@ pub fn raptorq_encode<T: BorshSerialize>(
     let mut bytes = borsh::to_vec(data).unwrap();
     let encoded_length = bytes.len();
 
-    tracing::info!("QQP QQP encoded_length: {}", encoded_length);
-
     let data_parts = rs.data_shard_count();
     let repair_parts = rs.parity_shard_count() as u32;
 
