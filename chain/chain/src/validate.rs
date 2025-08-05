@@ -203,7 +203,7 @@ pub fn validate_chunk_with_encoded_merkle_root(
         .start_timer();
 
     let (transaction_receipts_parts, encoded_length) =
-        near_primitives::reed_solomon::reed_solomon_encode(
+        near_primitives::reed_solomon::raptorq_encode(
             rs,
             &TransactionReceipt(new_transactions, outgoing_receipts.to_vec()),
         );

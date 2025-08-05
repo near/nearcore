@@ -1288,12 +1288,23 @@ impl EncodedShardChunk {
         parts: &[Option<Box<[u8]>>],
         encoded_length: u64,
     ) -> Result<TransactionReceipt, std::io::Error> {
+        let mut crap = vec![];
+        for part in parts {
+            if part.is_none() {
+                crap.push("None");
+            } else {
+                crap.push("Some");
+            }
+        }
+        tracing::info!("QQP QQP CRAP: {:?} | encoded_length: {}", crap, encoded_length);
         let encoded_data = parts
             .iter()
             .flat_map(|option| option.as_ref().expect("Missing shard").iter())
             .cloned()
             .take(encoded_length as usize)
             .collect::<Vec<u8>>();
+
+        tracing::info!("QQP QQP CRAP encoded_data: {:?}", encoded_data.len());
 
         TransactionReceipt::try_from_slice(&encoded_data)
     }
@@ -1427,8 +1438,7 @@ impl ShardChunkWithEncoding {
         let signed_txs =
             validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
         let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
-        let (parts, encoded_length) =
-            crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
+        let (parts, encoded_length) = crate::reed_solomon::raptorq_encode(rs, &transaction_receipt);
         let TransactionReceipt(signed_txs, prev_outgoing_receipts) = transaction_receipt;
         let content = EncodedShardChunkBody { parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();

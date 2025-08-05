@@ -4,7 +4,7 @@ use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
 
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
-use crate::reed_solomon::reed_solomon_encode;
+use crate::reed_solomon::raptorq_encode;
 use crate::sharding::{
     EncodedShardChunkBody, ShardChunk, ShardChunkHeaderV1, ShardChunkV1, ShardChunkWithEncoding,
     TransactionReceipt,
@@ -115,7 +115,7 @@ pub fn prod_genesis_chunks(
 
     let rs = ShardChunkReedSolomon::new(1, 2).unwrap();
     let (transaction_receipts_parts, encoded_length) =
-        reed_solomon_encode(&rs, &TransactionReceipt(vec![], vec![]));
+        raptorq_encode(&rs, &TransactionReceipt(vec![], vec![]));
     let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
     let (encoded_merkle_root, _) = content.get_merkle_hash_and_paths();
 
