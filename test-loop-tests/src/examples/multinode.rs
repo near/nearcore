@@ -1,81 +1,68 @@
-use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::AccountId;
+use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::transaction::SignedTransaction;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
+use crate::utils::account::{
+    create_account_ids, create_validator_spec, rpc_account_id, validator_spec_clients_with_rpc,
+};
 use crate::utils::client_queries::ClientQueries;
-use crate::utils::transactions::execute_money_transfers;
+use crate::utils::transactions::{get_shared_block_hash, run_tx};
+use crate::utils::{ONE_NEAR, retrieve_all_clients, run_for_number_of_blocks};
 
-const NUM_CLIENTS: usize = 4;
-
+// Example on how to send tokens between accounts
 #[test]
-fn slow_test_client_with_multi_test_loop() {
+fn test_cross_shard_token_transfer() {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
 
-    let accounts =
-        (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
-
-    let epoch_length = 10;
-    let boundary_accounts =
-        ["account3", "account5", "account7"].iter().map(|&a| a.parse().unwrap()).collect();
+    let boundary_accounts = create_account_ids(["account01"]).to_vec();
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
-    let validators_spec =
-        ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
+    let user_accounts = create_account_ids(["account0", "account1"]);
+    let initial_balance = 1_000_000 * ONE_NEAR;
+    let validators_spec = create_validator_spec(shard_layout.num_shards() as usize, 0);
+    let clients = validator_spec_clients_with_rpc(&validators_spec);
+    let rpc = rpc_account_id();
+
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
-        .genesis_height(10000)
-        .transaction_validity_period(1000)
+        .add_user_accounts_simple(&user_accounts, initial_balance)
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
-        .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+    let mut test_loop_env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .build()
         .warmup();
 
-    let first_epoch_tracked_shards = {
-        let clients = node_datas
-            .iter()
-            .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-            .collect_vec();
-        clients.tracked_shards_for_each_client()
-    };
-    tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
+    let sender_account = &user_accounts[0];
+    let receiver_account = &user_accounts[1];
+    let transfer_amount = 42 * ONE_NEAR;
 
-    execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
-
-    // Make sure the chain progresses for several epochs.
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
-        |test_loop_data| {
-            test_loop_data.get(&client_handle).client.chain.head().unwrap().height > 10050
-        },
-        Duration::seconds(10),
+    let block_hash =
+        get_shared_block_hash(&test_loop_env.node_datas, &test_loop_env.test_loop.data);
+    let nonce = 1;
+    let tx = SignedTransaction::send_money(
+        nonce,
+        sender_account.clone(),
+        receiver_account.clone(),
+        &create_user_test_signer(&sender_account),
+        transfer_amount,
+        block_hash,
     );
+    run_tx(&mut test_loop_env.test_loop, &rpc, tx, &test_loop_env.node_datas, Duration::seconds(5));
+    // Run for 1 more block for the transfer to be reflected in chunks prev state root.
+    run_for_number_of_blocks(&mut test_loop_env, &rpc, 1);
 
-    let clients = node_datas
-        .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
-    let later_epoch_tracked_shards = clients.tracked_shards_for_each_client();
-    tracing::info!("Later epoch tracked shards: {:?}", later_epoch_tracked_shards);
-    assert_ne!(first_epoch_tracked_shards, later_epoch_tracked_shards);
+    let clients = retrieve_all_clients(&test_loop_env.node_datas, &test_loop_env.test_loop.data);
+    assert_eq!(clients.query_balance(sender_account), initial_balance - transfer_amount);
+    assert_eq!(clients.query_balance(receiver_account), initial_balance + transfer_amount);
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    test_loop_env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
