@@ -344,11 +344,7 @@ pub fn safe_verify_batch(
         }
     }
 
-    // Convert the H(R || A || M) values into scalars
-    let hrams: Vec<Scalar> = hrams
-        .iter()
-        .map(Scalar::from_bytes_mod_order_wide)
-        .collect();
+
 
     // Select a random 128-bit scalar for each signature.
     let zs: Vec<Scalar> = signatures
@@ -364,12 +360,18 @@ pub fn safe_verify_batch(
         .map(|(s, z)| z * s)
         .sum();
 
-    // Multiply each H(R || A || M) by the random value
-    let zhrams = hrams.iter().zip(zs.iter()).map(|(hram, z)| hram * z);
+    // Convert the H(R || A || M) values into scalars
+    let hrams: Vec<Scalar> = hrams
+        .iter()
+        .map(Scalar::from_bytes_mod_order_wide)
+        .collect();
 
     let Rs = internal_signatures.iter().map(|sig| sig.R.decompress());
     let As = verifying_keys.iter().map(|pk| Some(pk.point));
     let B = once(Some(constants::ED25519_BASEPOINT_POINT));
+
+    // Multiply each H(R || A || M) by the random value
+    let zhrams = hrams.iter().zip(zs.iter()).map(|(hram, z)| hram * z);
 
     // Compute (-∑ z[i]s[i] (mod l)) B + ∑ z[i]R[i] + ∑ (z[i]H(R||A||M)[i] (mod l)) A[i] = 0
     let tmp_point = EdwardsPoint::optional_multiscalar_mul(

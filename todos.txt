@@ -1,0 +1,24 @@
+Function to use for batch verification is called safe_verify_batch from batch.rs
+
+Potential Optimizations:
+* In file batch.rs on line 329 we use is_weak function which currently can be lifted to the moment a public key is added on the chain
+    [careful old public keys that do not validate this condition should be deleted from the chain as they might be created maliciously]
+* In file batch.rs on line 338 we use is_canonical_y function which currently can be lifted to the moment a public key is added on the chain
+    [careful old public keys that do not validate this condition should be deleted from the chain as they might be created maliciously]
+* In file batch.rs add some parallellizations to lines:
+    thread 1: 355-361
+    thread 2: 363-368
+    thread 3: 369-371
+
+**Estimated** improvement for first two optimization is around 5% less computation time
+**Estimated** improvement for third optimization is around 5% less computation time
+
+Improvements:
+* file ed25519.rs the copyright should be amended as extra safe_verify_batch_extensive_security has been added
+* ed25519_benchmarks should be cleaned up adding notes to the compiler to allow using deprecated functions.
+* ed25519_benchmarks test what would be the threshold at which safe_verify_batch would be slower than normal verification
+* instead of importing the whole dalek folder, potentially call the library and add the necessary functions, tests and benchmarks?
+
+Careful:
+* core/primitives/src/errors.rs has changed and could cause conflicts when merging
+* runtime/runtime/src/verifier.rs might have to go completely to the trash (tries to apply validate_batch_transaction) and could/will cause conflicts on merge
