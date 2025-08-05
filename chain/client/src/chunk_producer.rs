@@ -169,7 +169,11 @@ impl ChunkProducer {
                 )
                 .entered();
 
+                let start_time = std::time::Instant::now();
                 while pool_tx_count < min_tx_count {
+                    if start_time.elapsed().as_secs() >= 60 {
+                        break;
+                    }
                     std::thread::sleep(std::time::Duration::from_millis(10));
                     pool_tx_count = self.sharded_tx_pool.lock().pool_len(shard_uid);
                 }
