@@ -102,6 +102,10 @@ impl ShardedTransactionPool {
             .join("; ")
     }
 
+    pub fn pool_len(&self, shard_uid: ShardUId) -> usize {
+        self.tx_pools.get(&shard_uid).map_or(0, |pool| pool.len())
+    }
+
     /// Reintroduces transactions back during the chain reorg. Returns the number of transactions
     /// that were added or are already present in the pool.
     pub fn reintroduce_transactions(

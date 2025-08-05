@@ -152,6 +152,30 @@ impl ChunkProducer {
             return Ok(None);
         }
 
+        // Wait for minimum transaction count (default 26000)
+        let min_tx_count =
+            std::env::var("CHUNK_TXS").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(26000);
+
+        if min_tx_count > 0 {
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
+            let mut pool_tx_count = self.sharded_tx_pool.lock().pool_len(shard_uid);
+
+            if pool_tx_count < min_tx_count {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "wait_for_transactions",
+                    min_tx_count,
+                    tag_block_production = true
+                )
+                .entered();
+
+                while pool_tx_count < min_tx_count {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    pool_tx_count = self.sharded_tx_pool.lock().pool_len(shard_uid);
+                }
+            }
+        }
+
         #[cfg(feature = "test_features")]
         if self.should_skip_chunk_production(next_height, shard_id) {
             debug!(target: "client", "skip chunk production");
