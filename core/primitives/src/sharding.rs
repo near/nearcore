@@ -1398,8 +1398,7 @@ impl EncodedShardChunk {
         .entered();
 
         let transaction_receipts =
-            Self::decode_transaction_receipts(&self.content().parts, self.encoded_length(), rs)
-                .expect("QQP QQP");
+            Self::decode_transaction_receipts(&self.content().parts, self.encoded_length(), rs)?;
         match self {
             Self::V1(chunk) => Ok(ShardChunk::V1(ShardChunkV1 {
                 chunk_hash: chunk.header.chunk_hash().clone(),

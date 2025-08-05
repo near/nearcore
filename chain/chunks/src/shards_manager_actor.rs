@@ -1134,7 +1134,7 @@ impl ShardsManagerActor {
 
         let data_parts = self.epoch_manager.num_data_parts();
         if chunk.content().num_fetched_parts() < data_parts {
-            debug!(target: "chunks", num_fetched_parts = chunk.content().num_fetched_parts(), data_parts, "QQP QQP Incomplete: fetched {} | total {} | data_parts {}", chunk.content().num_fetched_parts(), self.epoch_manager.num_total_parts(), data_parts);
+            debug!(target: "chunks", num_fetched_parts = chunk.content().num_fetched_parts(), data_parts, "Incomplete");
             return ChunkStatus::Incomplete;
         }
 
@@ -1146,14 +1146,14 @@ impl ShardsManagerActor {
         ) {
             Ok(res) => res,
             Err(err) => {
-                debug!(target: "chunks", ?err, "Invalid: Failed to decode: fetched {} | total {} | data_parts {}", chunk.content().num_fetched_parts(), self.epoch_manager.num_total_parts(), data_parts);
+                debug!(target: "chunks", ?err, "Invalid: Failed to decode");
                 return ChunkStatus::Invalid;
             }
         };
 
         let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
         if &merkle_root != chunk.encoded_merkle_root() {
-            warn!(target: "chunks", ?merkle_root, chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(), "QQP QQP Invalid: Wrong merkle root");
+            debug!(target: "chunks", ?merkle_root, chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(), "Invalid: Wrong merkle root");
             return ChunkStatus::Invalid;
         }
 
@@ -1198,30 +1198,21 @@ impl ShardsManagerActor {
                 if !validate_chunk_proofs(chunk.to_shard_chunk(), self.epoch_manager.as_ref())? {
                     return Err(Error::InvalidChunk);
                 }
-                let partial_chunk = create_partial_chunk(
+                match create_partial_chunk(
                     &chunk,
                     merkle_paths,
                     me,
                     self.epoch_manager.as_ref(),
                     &self.shard_tracker,
-                )
-                .expect("QQP QQP 2");
-                Ok(Some((chunk.into_parts().0, partial_chunk)))
-                // match create_partial_chunk(
-                //     &chunk,
-                //     merkle_paths,
-                //     me,
-                //     self.epoch_manager.as_ref(),
-                //     &self.shard_tracker,
-                // ) {
-                //     Ok(partial_encoded_chunk) => {
-                //         Ok(Some((chunk.into_parts().0, partial_encoded_chunk)))
-                //     }
-                //     Err(err) => {
-                //         self.encoded_chunks.remove(&chunk.to_encoded_shard_chunk().chunk_hash());
-                //         Err(err)
-                //     }
-                // }
+                ) {
+                    Ok(partial_encoded_chunk) => {
+                        Ok(Some((chunk.into_parts().0, partial_encoded_chunk)))
+                    }
+                    Err(err) => {
+                        self.encoded_chunks.remove(&chunk.to_encoded_shard_chunk().chunk_hash());
+                        Err(err)
+                    }
+                }
             }
             ChunkStatus::Incomplete => Ok(None),
             ChunkStatus::Invalid => {
@@ -1359,8 +1350,7 @@ impl ShardsManagerActor {
             parts: forward.parts,
             prev_outgoing_receipts: Vec::new(),
         });
-        self.process_partial_encoded_chunk(MaybeValidated::from_validated(partial_chunk), me)
-            .unwrap();
+        self.process_partial_encoded_chunk(MaybeValidated::from_validated(partial_chunk), me)?;
         Ok(())
     }
 
@@ -1659,7 +1649,7 @@ impl ShardsManagerActor {
         self.insert_header_if_not_exists_and_process_cached_chunk_forwards(&header);
 
         // 5. Check if the chunk is complete; requesting more if not.
-        let result = self.try_process_chunk_parts_and_receipts(&header, me).expect("QQP QQP");
+        let result = self.try_process_chunk_parts_and_receipts(&header, me)?;
         match result {
             ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => {
                 // This may be the first time we see this chunk, so mark it in the request pool.
@@ -1825,8 +1815,7 @@ impl ShardsManagerActor {
             }
 
             let (shard_chunk, partial_chunk) = self
-                .decode_encoded_chunk_if_complete(encoded_chunk, me)
-                .expect("QQP QQP")
+                .decode_encoded_chunk_if_complete(encoded_chunk, me)?
                 .expect("decoding shouldn't fail");
 
             // For consistency, only persist shard_chunk if we actually care about the shard.
