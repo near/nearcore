@@ -68,6 +68,7 @@ use near_store::{DBCol, TrieChanges, get};
 use parking_lot::RwLock;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::{HashSet, VecDeque};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -1978,7 +1979,11 @@ fn test_validate_chunk_extra() {
     let chunk_header = encoded_chunk.cloned_header();
     let signer = env.clients[0].validator_signer.get();
     let validator_id = signer.as_ref().unwrap().validator_id().clone();
-    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
+    let total_parts = env.clients[0].chain.epoch_manager.num_total_parts();
+    let data_parts = env.clients[0].chain.epoch_manager.num_data_parts();
+    let parity_parts = total_parts - data_parts;
+    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk, &rs).unwrap();
     env.clients[0]
         .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
