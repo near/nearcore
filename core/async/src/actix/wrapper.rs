@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use actix::{Actor, SyncArbiter};
+use actix::SyncArbiter;
 
 use crate::futures::DelayedActionRunner;
 use crate::messaging;
@@ -89,18 +89,6 @@ where
     fn handle(&mut self, msg: M, _ctx: &mut Self::Context) -> Self::Result {
         self.actor.handle(msg)
     }
-}
-
-/// Spawns an actix actor with the given actor. Returns the address of the actor and the arbiter
-/// Note that the actor should implement the Handler trait for all the messages it would like to handle.
-pub fn spawn_actix_actor<T>(actor: T) -> (actix::Addr<ActixWrapper<T>>, actix::ArbiterHandle)
-where
-    T: messaging::Actor + Unpin + Send + 'static,
-{
-    let actix_wrapper = ActixWrapper::new(actor);
-    let arbiter = actix::Arbiter::new().handle();
-    let addr = ActixWrapper::<T>::start_in_arbiter(&arbiter, |_| actix_wrapper);
-    (addr, arbiter)
 }
 
 /// Spawns the actor returned by the factory function in a SyncArbiter,
