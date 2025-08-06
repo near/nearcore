@@ -1,8 +1,8 @@
 use crate::client::{StateRequestHeader, StateRequestPart, StateResponse};
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
-    SignedAccountData,
+    Disconnect, Encoding, Handshake, HandshakeFailureReason, HeaderOrPartId, PeerMessage,
+    RoutingTableUpdate, SignedAccountData, StateRequestAckBody,
 };
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
@@ -260,6 +260,14 @@ pub enum NetworkRequests {
         sync_hash: CryptoHash,
         sync_prev_prev_hash: CryptoHash,
         part_id: u64,
+    },
+    /// Respond to state header request or state part request.
+    StateRequestAck {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        header_or_part_id: HeaderOrPartId,
+        body: StateRequestAckBody,
+        peer_id: PeerId,
     },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },

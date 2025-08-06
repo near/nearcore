@@ -153,6 +153,7 @@ pub struct StatePartRequest {
 }
 
 #[derive(
+    Copy,
     Clone,
     Debug,
     Eq,
@@ -168,6 +169,7 @@ pub enum HeaderOrPartId {
 }
 
 #[derive(
+    Copy,
     Clone,
     Debug,
     Eq,
@@ -180,6 +182,7 @@ pub enum HeaderOrPartId {
 pub enum StateRequestAckBody {
     WillRespond,
     Busy,
+    Error,
 }
 
 /// Message used to acknowledge a StateHeaderRequest or StatePartRequest.
@@ -200,7 +203,7 @@ pub struct StateRequestAck {
     /// Sync block hash
     pub sync_hash: CryptoHash,
     /// Requested header or part id
-    pub header_or_part_id: u64,
+    pub header_or_part_id: HeaderOrPartId,
     /// Ack contents
     pub body: StateRequestAckBody,
 }
