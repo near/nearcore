@@ -18,6 +18,7 @@ pub(crate) mod resharding;
 pub(crate) mod rotating_validators_runner;
 pub(crate) mod setups;
 pub(crate) mod sharding;
+pub(crate) mod test_loop_env;
 pub(crate) mod transactions;
 pub(crate) mod trie_sanity;
 pub(crate) mod validators;

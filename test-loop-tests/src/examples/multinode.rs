@@ -6,12 +6,11 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::utils::ONE_NEAR;
 use crate::utils::account::{
     create_account_ids, create_validator_spec, rpc_account_id, validator_spec_clients_with_rpc,
 };
-use crate::utils::client_queries::ClientQueries;
-use crate::utils::transactions::{get_shared_block_hash, run_tx};
-use crate::utils::{ONE_NEAR, retrieve_all_clients, run_for_number_of_blocks};
+use crate::utils::test_loop_env::TestLoopEnvExt;
 
 // Example on how to send tokens between accounts
 #[test]
@@ -43,8 +42,8 @@ fn test_cross_shard_token_transfer() {
     let receiver_account = &user_accounts[1];
     let transfer_amount = 42 * ONE_NEAR;
 
-    let block_hash =
-        get_shared_block_hash(&test_loop_env.node_datas, &test_loop_env.test_loop.data);
+    let mut rpc_client = test_loop_env.client(rpc.clone());
+    let block_hash = rpc_client.head().last_block_hash;
     let nonce = 1;
     let tx = SignedTransaction::send_money(
         nonce,
@@ -54,13 +53,18 @@ fn test_cross_shard_token_transfer() {
         transfer_amount,
         block_hash,
     );
-    run_tx(&mut test_loop_env.test_loop, &rpc, tx, &test_loop_env.node_datas, Duration::seconds(5));
+    rpc_client.run_tx(tx, Duration::seconds(5));
     // Run for 1 more block for the transfer to be reflected in chunks prev state root.
-    run_for_number_of_blocks(&mut test_loop_env, &rpc, 1);
+    rpc_client.run_for_number_of_blocks(1);
 
-    let clients = retrieve_all_clients(&test_loop_env.node_datas, &test_loop_env.test_loop.data);
-    assert_eq!(clients.query_balance(sender_account), initial_balance - transfer_amount);
-    assert_eq!(clients.query_balance(receiver_account), initial_balance + transfer_amount);
+    assert_eq!(
+        rpc_client.view_account_query(&sender_account).amount,
+        initial_balance - transfer_amount
+    );
+    assert_eq!(
+        rpc_client.view_account_query(&receiver_account).amount,
+        initial_balance + transfer_amount
+    );
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
