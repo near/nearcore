@@ -422,7 +422,10 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkPartChecks
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
-            ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
+            ProtocolFeature::IncreaseMaxCongestionMissedChunks
+            | ProtocolFeature::StatePartsVersioning
+            // `StatePartsVersioning` must be enabled if `StatePartsCompression` is enabled
+            | ProtocolFeature::StatePartsCompression => 79,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -431,9 +434,6 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::RefTypesBulkMemory => 149,
-            ProtocolFeature::StatePartsVersioning
-            // `StatePartsVersioning` must be enabled if `StatePartsCompression` is enabled
-            | ProtocolFeature::StatePartsCompression => 150,
             // Place features that are not yet in Nightly below this line.
         }
     }
