@@ -11,9 +11,9 @@ on:
 
   workflow_dispatch:
     inputs:
-      branch:
+      ref:
         default: 'master'
-        description: "Nearcore branch to build and publish"
+        description: "nearcore ref to build and publish (branch-name, `refs/pull/$PR/head`, commit hash...)"
         type: string
         required: true
 
@@ -29,17 +29,17 @@ jobs:
             os: warp-ubuntu-2204-x64-16x
           - name: ARM Linux Ubuntu
             os: warp-ubuntu-2404-arm64-16x
-          
+
     environment: deploy
     permissions:
       id-token: write # required to use OIDC authentication
 
     steps:
-      - name: Checkout ${{ github.event.inputs.branch }} branch
+      - name: Checkout ${{ github.event.inputs.ref }}
         if: ${{ github.event_name == 'workflow_dispatch'}}
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event.inputs.ref }}
 
       - name: Checkout nearcore release
         # for release events we need to checkout all branches to be able to determine
@@ -83,13 +83,13 @@ jobs:
           if [ -z "$BRANCH" ]; then
             BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
-        
+
           curl -L -X POST -H "Accept: application/vnd.github+json" \
           -H "Authorization: Bearer ${{ secrets.PAGODAPLATFORM_GITHUB_TOKEN }}" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
           https://api.github.com/repos/PagodaPlatform/pkr-node/dispatches \
           -d '{"event_type":"packer-build","client_payload":{"image-name":"near-node-${BRANCH}-${SHORT_SHA}","neard-binary-s3-uri":"s3://build.nearprotocol.com/nearcore/Linux/${BRANCH}/${COMMIT}/neard"}}'
-      
+
       - name: Trigger release metadata update workflow
         if: github.event_name != 'workflow_dispatch' && github.event_name == 'release'
         run: |
@@ -104,11 +104,11 @@ jobs:
     runs-on: warp-ubuntu-2204-x64-2x
     environment: deploy
     steps:
-      - name: Checkout ${{ github.event.inputs.branch }} branch
+      - name: Checkout ${{ github.event.inputs.ref }}
         if: ${{ github.event_name == 'workflow_dispatch'}}
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event.inputs.ref }}
 
       - name: Checkout nearcore release
         # for release events we need to checkout all branches to be able to determine
@@ -128,7 +128,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKER_PAT_TOKEN }}
-  
+
       - name: Prepare dockerhub tags
         run: |
           COMMIT=$(git rev-parse HEAD)
@@ -155,6 +155,6 @@ jobs:
           push: true
           file: Dockerfile
           build-args: |
-            make_target=neard-release 
+            make_target=neard-release
           tags: ${{ env.DOCKER_TAGS }}
-  
+
