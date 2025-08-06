@@ -17,8 +17,6 @@ use near_primitives::stateless_validation::contract_distribution::ContractCodeRe
 use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::version::ProtocolFeature;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -1521,14 +1519,9 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessage {
         let author = PeerId::new(node_key.public_key());
-        let signature =
-            if ProtocolFeature::UnsignedT1Messages.enabled(PROTOCOL_VERSION) && self.body.is_t1() {
-                None
-            } else {
-                let body = RoutedMessageBody::from(self.body.clone());
-                let hash = RoutedMessage::build_hash(&self.target, &author, &body);
-                Some(node_key.sign(hash.as_ref()))
-            };
+        let body = RoutedMessageBody::from(self.body.clone());
+        let hash = RoutedMessage::build_hash(&self.target, &author, &body);
+        let signature = Some(node_key.sign(hash.as_ref()));
         RoutedMessage::V3(RoutedMessageV3 {
             target: self.target,
             author,
