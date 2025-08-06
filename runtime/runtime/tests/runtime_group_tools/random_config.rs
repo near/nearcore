@@ -29,7 +29,7 @@ pub fn random_config() -> RuntimeConfig {
             ),
             refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
             gas_refund_penalty: Rational32::new(rng.gen_range(0..=i32::MAX), i32::MAX),
-            min_gas_refund_penalty: rng.next_u64(),
+            min_gas_refund_penalty: Gas::from_gas(rng.next_u64()),
         }),
         ..RuntimeConfig::test()
     }

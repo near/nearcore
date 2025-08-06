@@ -89,10 +89,8 @@ pub struct LimitConfig {
     pub max_number_logs: u64,
     /// Maximum total length in bytes of all log messages.
     pub max_total_log_length: u64,
-
     /// Max total prepaid gas for all function call actions per receipt.
     pub max_total_prepaid_gas: Gas,
-
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u64,
     /// Max total length of all method names (including terminating character) for a function call
@@ -203,7 +201,7 @@ impl Config {
         };
         self.grow_mem_cost = 0;
         self.regular_op_cost = 0;
-        self.limit_config.max_gas_burnt = Gas::gas_limit();
+        self.limit_config.max_gas_burnt = Gas::from_gas(u64::MAX);
     }
 
     pub fn enable_all_features(&mut self) {

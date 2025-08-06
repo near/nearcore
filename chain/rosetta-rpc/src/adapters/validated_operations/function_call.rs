@@ -27,7 +27,7 @@ impl ValidatedOperation for FunctionCallOperation {
             metadata: Some(crate::models::OperationMetadata {
                 method_name: Some(self.method_name),
                 args: Some(self.args.into()),
-                attached_gas: Some(self.attached_gas.into()),
+                attached_gas: Some(self.attached_gas.as_gas().into()),
                 ..Default::default()
             }),
 
@@ -52,9 +52,9 @@ impl TryFrom<crate::models::Operation> for FunctionCallOperation {
         let metadata = operation.metadata.ok_or_else(required_fields_error)?;
         let method_name = metadata.method_name.ok_or_else(required_fields_error)?;
         let args = metadata.args.ok_or_else(required_fields_error)?.into_inner();
-        let attached_gas = metadata.attached_gas.ok_or_else(required_fields_error)?;
-        let attached_gas = if attached_gas.is_positive() {
-            attached_gas.absolute_difference()
+        let attached_gas_diff = metadata.attached_gas.ok_or_else(required_fields_error)?;
+        let attached_gas = if attached_gas_diff.is_positive() {
+            near_primitives::types::Gas::from_gas(attached_gas_diff.absolute_difference())
         } else {
             return Err(crate::errors::ErrorKind::InvalidInput(
                 "FUNCTION_CALL operation requires `attached_gas` to be positive".into(),

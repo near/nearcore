@@ -6,6 +6,7 @@ pub mod scenario_builder;
 
 pub use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
 pub use crate::scenario_builder::ScenarioBuilder;
+use near_primitives::types::Gas;
 
 #[test]
 // Use this test as a base for creating reproducers.
@@ -22,8 +23,8 @@ fn scenario_smoke_test() {
     let mut scenario = Scenario {
         network_config: NetworkConfig { seeds },
         runtime_config: RuntimeConfig {
-            max_total_prepaid_gas: 300 * 10u64.pow(12),
-            gas_limit: 1_000_000_000_000_000,
+            max_total_prepaid_gas: Gas::from_gas(300 * 10u64.pow(12)),
+            gas_limit: Gas::from_gas(1_000_000_000_000_000),
             epoch_length: 500,
         },
         blocks: Vec::new(),

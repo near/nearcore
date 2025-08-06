@@ -250,7 +250,7 @@ impl<'a> ViewClientTester<'a> {
 
         let mut get_and_check_shard_chunk = |request: GetShardChunk| {
             let shard_chunk = self.send(request, ARCHIVAL_CLIENT).unwrap();
-            assert_eq!(shard_chunk.take_header().gas_limit(), 1_000_000_000_000_000);
+            assert_eq!(shard_chunk.take_header().gas_limit(), Gas::from_gas(1_000_000_000_000_000));
         };
 
         let chunk_by_height = GetShardChunk::Height(6, shard_id);

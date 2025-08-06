@@ -18,6 +18,8 @@ use near_gas::NearGas;
 pub struct Gas(NearGas);
 
 impl Gas {
+    /// Maximum value for Gas (u64::MAX)
+    pub const MAX: Gas = Gas::from_gas(u64::MAX);
     /// Creates a new `Gas` from the specified number of whole tera Gas.
     ///
     /// # Examples

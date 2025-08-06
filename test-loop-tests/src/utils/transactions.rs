@@ -22,7 +22,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, Gas};
 use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -385,7 +385,7 @@ pub fn call_contract(
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
     let signer = create_user_test_signer(sender_id);
-    let attach_gas = 300 * TGAS;
+    let attach_gas = Gas::from_gas(300 * TGAS);
     let deposit = 0;
 
     let tx = SignedTransaction::call(

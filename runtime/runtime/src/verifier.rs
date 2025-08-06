@@ -377,9 +377,9 @@ pub(crate) fn validate_actions(
 
     let total_prepaid_gas =
         total_prepaid_gas(actions).map_err(|_| ActionsValidationError::IntegerOverflow)?;
-    if total_prepaid_gas > limit_config.max_total_prepaid_gas.as_gas() {
+    if total_prepaid_gas > limit_config.max_total_prepaid_gas {
         return Err(ActionsValidationError::TotalPrepaidGasExceeded {
-            total_prepaid_gas: Gas::from_gas(total_prepaid_gas),
+            total_prepaid_gas,
             limit: limit_config.max_total_prepaid_gas,
         });
     }
@@ -907,11 +907,11 @@ mod tests {
         )
         .expect("valid transaction");
         // Should not be free. Burning for sending
-        assert!(verification_result.gas_burnt > 0);
+        assert!(verification_result.gas_burnt > Gas::from_gas(0));
         // All burned gas goes to the validators at current gas price
         assert_eq!(
             verification_result.burnt_amount,
-            Balance::from(verification_result.gas_burnt) * gas_price
+            Balance::from(verification_result.gas_burnt.as_gas()) * gas_price
         );
 
         let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
@@ -919,7 +919,7 @@ mod tests {
         assert_eq!(
             account.amount(),
             TESTING_INIT_BALANCE
-                - Balance::from(verification_result.gas_remaining)
+                - Balance::from(verification_result.gas_remaining.as_gas())
                     * verification_result.receipt_gas_price
                 - verification_result.burnt_amount
                 - deposit
@@ -1240,8 +1240,8 @@ mod tests {
             PROTOCOL_VERSION,
         )
         .unwrap();
-        assert_eq!(verification_result.gas_burnt, 0);
-        assert_eq!(verification_result.gas_remaining, 0);
+        assert_eq!(verification_result.gas_burnt, Gas::from_gas(0));
+        assert_eq!(verification_result.gas_remaining, Gas::from_gas(0));
         assert_eq!(verification_result.burnt_amount, 0);
     }
 

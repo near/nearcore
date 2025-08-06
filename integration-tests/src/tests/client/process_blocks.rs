@@ -1573,10 +1573,10 @@ fn test_gas_price_change() {
     let transaction_costs = RuntimeConfig::test().fees;
 
     let send_money_total_gas = transaction_costs.fee(ActionCosts::transfer).send_fee(false)
-        + transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false)
-        + transaction_costs.fee(ActionCosts::transfer).exec_fee()
-        + transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
-    let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
+        .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false)).unwrap()
+        .checked_add(transaction_costs.fee(ActionCosts::transfer).exec_fee()).unwrap()
+        .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee()).unwrap();
+    let min_gas_price = target_num_tokens_left / send_money_total_gas.as_gas() as u128;
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Ratio::new(1, 10);
 
@@ -1595,7 +1595,7 @@ fn test_gas_price_change() {
         &signer,
         TESTING_INIT_BALANCE
             - target_num_tokens_left
-            - send_money_total_gas as u128 * min_gas_price,
+            - send_money_total_gas.as_gas() as u128 * min_gas_price,
         genesis_hash,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -2409,9 +2409,10 @@ fn test_execution_metadata() {
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
 
     // Total costs for creating a function call receipt.
-    let expected_receipt_cost = config.fees.fee(ActionCosts::new_action_receipt).execution.as_gas()
-        + config.fees.fee(ActionCosts::function_call_base).exec_fee()
-        + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
+    let expected_receipt_cost = Gas::from_gas(config.fees.fee(ActionCosts::new_action_receipt).execution.as_gas())
+        .checked_add(config.fees.fee(ActionCosts::function_call_base).exec_fee()).unwrap()
+        .checked_add(config.fees.fee(ActionCosts::function_call_byte).exec_fee().checked_mul("main".len() as u64).unwrap()).unwrap()
+        .as_gas();
 
     // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
     // operand stack (8 bytes worth to hold the return value.)
@@ -2448,14 +2449,15 @@ fn test_execution_metadata() {
     let actual_profile = serde_json::to_value(&metadata.gas_profile).unwrap();
     assert_eq!(expected_profile, actual_profile);
 
-    let actual_receipt_cost = outcome.gas_burnt.as_gas()
-        - metadata
+    let actual_receipt_cost = outcome.gas_burnt.checked_sub(
+        metadata
             .gas_profile
             .clone()
             .unwrap_or_default()
             .into_iter()
             .map(|it| it.gas_used)
-            .sum::<u64>();
+            .fold(Gas::from_gas(0), |acc, gas| acc.checked_add(gas).unwrap())
+    ).unwrap().as_gas();
 
     assert_eq!(expected_receipt_cost, actual_receipt_cost)
 }

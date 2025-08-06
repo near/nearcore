@@ -283,8 +283,9 @@ impl NightshadeRuntime {
             })?;
         let elapsed = instant.elapsed();
 
-        let total_gas_burnt =
-            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+        let total_gas_burnt = Gas::from_gas(
+            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt.as_gas()).sum()
+        );
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
@@ -448,7 +449,7 @@ impl NightshadeRuntime {
 fn format_total_gas_burnt(gas: Gas) -> String {
     // Rounds up the amount of teragas to hundreds of Tgas.
     // For example 123 Tgas gets rounded up to "200".
-    format!("{:.0}", ((gas as f64) / 1e14).ceil() * 100.0)
+    format!("{:.0}", ((gas.as_gas() as f64) / 1e14).ceil() * 100.0)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -716,7 +717,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Ok(cost) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         state_update.commit(StateChangeCause::NotWritableToDisk);
-                        total_gas_burnt += cost.gas_burnt;
+                        total_gas_burnt += cost.gas_burnt.as_gas();
                         total_size += validated_tx.get_size();
                         result.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
@@ -1242,7 +1243,7 @@ fn chunk_tx_gas_limit(
         own_congestion.congestion_info,
         own_congestion.missed_chunks_count,
     );
-    congestion_control.process_tx_limit()
+    congestion_control.process_tx_limit().as_gas()
 }
 
 /// Returns true if the transaction passes the congestion control checks. The

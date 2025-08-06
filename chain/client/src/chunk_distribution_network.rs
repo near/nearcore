@@ -220,6 +220,7 @@ mod tests {
         time::Clock,
     };
     use near_primitives::{
+        gas::Gas,
         bandwidth_scheduler::BandwidthRequests,
         congestion_info::CongestionInfo,
         hash::hash,
@@ -407,8 +408,8 @@ mod tests {
             encoded_length: 0,
             height_created: height,
             shard_id,
-            prev_gas_used: 0,
-            gas_limit: 0,
+            prev_gas_used: Gas::from_gas(0),
+            gas_limit: Gas::from_gas(0),
             prev_balance_burnt: 0,
             prev_outgoing_receipts_root: mock_hashes.next().unwrap(),
             tx_root: mock_hashes.next().unwrap(),

@@ -7,7 +7,7 @@ use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{Action, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_code_key;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Gas};
 use near_store::trie::AccessOptions;
 use near_store::trie::ops::iter::TrieTraversalItem;
 use near_store::{DBCol, StorageError, Store, Trie};
@@ -686,7 +686,7 @@ mod tests {
             outcome: ExecutionOutcome {
                 logs: vec![],
                 receipt_ids,
-                gas_burnt: 100,
+                gas_burnt: Gas::from_gas(100),
                 compute_usage: Some(200),
                 tokens_burnt: 2000,
                 executor_id: "someone.near".parse().unwrap(),

@@ -101,7 +101,7 @@ impl Genesis {
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-            gas_limit: Gas::from_gas(INITIAL_GAS_LIMIT),
+            gas_limit: INITIAL_GAS_LIMIT,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             min_gas_price: MIN_GAS_PRICE,
 

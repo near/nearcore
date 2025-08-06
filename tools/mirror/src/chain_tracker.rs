@@ -95,16 +95,17 @@ impl Ord for TxId {
 }
 
 fn gas_pretty(gas: Gas) -> String {
-    if gas < 1000 {
-        format!("{} gas", gas)
-    } else if gas < 1_000_000 {
-        format!("{} Kgas", gas / 1000)
-    } else if gas < 1_000_000_000 {
-        format!("{} Mgas", gas / 1_000_000)
-    } else if gas < 1_000_000_000_000 {
-        format!("{} Ggas", gas / 1_000_000_000)
+    let gas_value = gas.as_gas();
+    if gas_value < 1000 {
+        format!("{} gas", gas_value)
+    } else if gas_value < 1_000_000 {
+        format!("{} Kgas", gas_value / 1000)
+    } else if gas_value < 1_000_000_000 {
+        format!("{} Mgas", gas_value / 1_000_000)
+    } else if gas_value < 1_000_000_000_000 {
+        format!("{} Ggas", gas_value / 1_000_000_000)
     } else {
-        format!("{} Tgas", gas / 1_000_000_000_000)
+        format!("{} Tgas", gas_value / 1_000_000_000_000)
     }
 }
 
@@ -570,7 +571,7 @@ impl TxTracker {
                         log_message,
                         "-------- shard {} gas used: {} ---------\n",
                         s.shard_id,
-                        gas_pretty(c.header.gas_used.as_gas())
+                        gas_pretty(c.header.gas_used)
                     )
                     .unwrap();
                     for tx in &c.transactions {

@@ -12,7 +12,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
@@ -175,8 +175,9 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     }
 
     let gas_limit = prev_chunk_extra.gas_limit();
-    if chunk_header.gas_limit() < gas_limit - gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
-        || chunk_header.gas_limit() > gas_limit + gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+    let adjustment = gas_limit.checked_div(GAS_LIMIT_ADJUSTMENT_FACTOR).unwrap_or(Gas::from_gas(0));
+    if chunk_header.gas_limit() < gas_limit.checked_sub(adjustment).unwrap_or(Gas::from_gas(0))
+        || chunk_header.gas_limit() > gas_limit.checked_add(adjustment).unwrap()
     {
         return Err(Error::InvalidGasLimit);
     }

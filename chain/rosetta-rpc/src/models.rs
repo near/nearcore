@@ -805,7 +805,7 @@ pub(crate) struct OperationMetadata {
     pub args: Option<BlobInHexString<Vec<u8>>>,
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
+    pub attached_gas: Option<crate::utils::SignedDiff<u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub predecessor_id: Option<AccountIdentifier>,
     #[serde(skip_serializing_if = "Option::is_none")]

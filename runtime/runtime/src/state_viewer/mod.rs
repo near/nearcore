@@ -61,7 +61,7 @@ impl Default for TrieViewer {
         let config_store = RuntimeConfigStore::new(None);
         let latest_runtime_config = config_store.get_config(PROTOCOL_VERSION);
         let max_gas_burnt = latest_runtime_config.wasm_config.limit_config.max_gas_burnt;
-        Self { state_size_limit: None, max_gas_burnt_view: max_gas_burnt.as_gas() }
+        Self { state_size_limit: None, max_gas_burnt_view: max_gas_burnt }
     }
 }
 

@@ -411,7 +411,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         account: receiver_account_identifier.clone(),
                         method_name: action.method_name,
                         args: action.args,
-                        attached_gas: action.gas.as_gas(),
+                        attached_gas: action.gas,
                         attached_amount: action.deposit,
                     }
                     .into_related_operation(

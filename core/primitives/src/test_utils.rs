@@ -113,7 +113,7 @@ impl Transaction {
         self.actions_mut().push(Action::FunctionCall(Box::new(FunctionCallAction {
             method_name,
             args,
-            gas: Gas::from_gas(gas),
+            gas,
             deposit,
         })));
         self
@@ -369,7 +369,7 @@ impl SignedTransaction {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 args,
                 method_name,
-                gas: Gas::from_gas(gas),
+                gas,
                 deposit,
             }))],
             block_hash,

@@ -1696,21 +1696,21 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 let mut costs: Vec<CostGasUsed> = profile_data
                     .legacy_action_costs()
                     .into_iter()
-                    .filter(|&(_, gas)| gas > 0)
+                    .filter(|&(_, gas)| gas > Gas::from_gas(0))
                     .map(|(name, gas)| CostGasUsed::action(name.to_string(), gas))
                     .collect();
 
                 // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
                 costs.push(CostGasUsed::wasm_host(
                     "WASM_INSTRUCTION".to_string(),
-                    profile_data.get_wasm_cost(),
+                    Gas::from_gas(profile_data.get_wasm_cost()),
                 ));
 
                 // ext costs are 1-to-1, except for those added later which we will display as 0
                 for ext_cost in ExtCosts::iter() {
                     costs.push(CostGasUsed::wasm_host(
                         format!("{:?}", ext_cost).to_ascii_uppercase(),
-                        profile_data.get_ext_cost(Gas::from_gas(ext_cost)),
+                        Gas::from_gas(profile_data.get_ext_cost(ext_cost)),
                     ));
                 }
 

@@ -702,7 +702,7 @@ pub(crate) fn print_chain(
                                     "{}: {} {: >3} Tgas {: >10}",
                                     shard_id,
                                     format_hash(chunk_hash.0, show_full_hashes),
-                                    chunk.cloned_header().prev_gas_used() / (1_000_000_000_000),
+                                    chunk.cloned_header().prev_gas_used().as_gas() / (1_000_000_000_000),
                                     chunk_producer
                                 ));
                             } else {

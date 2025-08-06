@@ -1,5 +1,6 @@
 use crate::node::{Node, RuntimeNode};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::types::Gas;
 use near_primitives::views::FinalExecutionStatus;
 
 /// Initial balance used in tests.
@@ -9,7 +10,7 @@ pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
 pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 
 /// Max prepaid amount of gas.
-const MAX_GAS: u64 = 300_000_000_000_000;
+const MAX_GAS: Gas = Gas::from_gas(300_000_000_000_000);
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".parse().unwrap());

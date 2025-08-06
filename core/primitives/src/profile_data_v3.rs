@@ -367,26 +367,26 @@ mod test {
     #[test]
     fn test_no_panic_on_overflow() {
         let mut profile_data = ProfileDataV3::default();
-        profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
-        profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, Gas::from_gas(u64::MAX));
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, Gas::from_gas(u64::MAX));
 
         let res = profile_data.get_action_cost(ActionCosts::add_full_access_key);
-        assert_eq!(res, u64::MAX);
+        assert_eq!(res, Gas::from_gas(u64::MAX));
     }
 
     #[test]
     fn test_merge() {
         let mut profile_data = ProfileDataV3::default();
-        profile_data.add_action_cost(ActionCosts::add_full_access_key, 111);
-        profile_data.add_ext_cost(ExtCosts::storage_read_base, 11);
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, Gas::from_gas(111));
+        profile_data.add_ext_cost(ExtCosts::storage_read_base, Gas::from_gas(11));
 
         let mut profile_data2 = ProfileDataV3::default();
-        profile_data2.add_action_cost(ActionCosts::add_full_access_key, 222);
-        profile_data2.add_ext_cost(ExtCosts::storage_read_base, 22);
+        profile_data2.add_action_cost(ActionCosts::add_full_access_key, Gas::from_gas(222));
+        profile_data2.add_ext_cost(ExtCosts::storage_read_base, Gas::from_gas(22));
 
         profile_data.merge(&profile_data2);
-        assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), 333);
-        assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), 33);
+        assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), Gas::from_gas(333));
+        assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), Gas::from_gas(33));
     }
 
     #[test]
@@ -395,17 +395,17 @@ mod test {
         let mut profile_data = ProfileDataV3::default();
         profile_data.add_ext_cost(
             ExtCosts::storage_read_base,
-            2 * ExtCosts::storage_read_base.gas(&ext_costs_config),
+            ExtCosts::storage_read_base.gas(&ext_costs_config).checked_mul(2).unwrap(),
         );
         profile_data.add_ext_cost(
             ExtCosts::storage_write_base,
-            5 * ExtCosts::storage_write_base.gas(&ext_costs_config),
+            ExtCosts::storage_write_base.gas(&ext_costs_config).checked_mul(5).unwrap(),
         );
-        profile_data.add_action_cost(ActionCosts::function_call_base, 100);
+        profile_data.add_action_cost(ActionCosts::function_call_base, Gas::from_gas(100));
 
         assert_eq!(
             profile_data.total_compute_usage(&ext_costs_config),
-            3 * profile_data.host_gas() + profile_data.action_gas()
+            profile_data.host_gas().checked_mul(3).unwrap().checked_add(profile_data.action_gas()).unwrap().as_gas()
         );
     }
 
@@ -414,10 +414,10 @@ mod test {
     fn test_borsh_ser_deser() {
         let mut profile_data = ProfileDataV3::default();
         for (i, cost) in ExtCosts::iter().enumerate() {
-            profile_data.add_ext_cost(cost, i as Gas);
+            profile_data.add_ext_cost(cost, Gas::from_gas(i as u64));
         }
         for (i, cost) in ActionCosts::iter().enumerate() {
-            profile_data.add_action_cost(cost, i as Gas + 1000);
+            profile_data.add_action_cost(cost, Gas::from_gas(i as u64 + 1000));
         }
         let buf = borsh::to_vec(&profile_data).expect("failed serializing a normal profile");
 
@@ -437,13 +437,13 @@ mod test {
         let profile: ProfileDataV3 = BorshDeserialize::deserialize(&mut input.as_slice())
             .expect("should be able to parse a profile with less entries");
 
-        assert_eq!(50, profile.get_action_cost(ActionCosts::create_account));
-        assert_eq!(60, profile.get_action_cost(ActionCosts::delete_account));
-        assert_eq!(0, profile.get_action_cost(ActionCosts::deploy_contract_base));
+        assert_eq!(Gas::from_gas(50), profile.get_action_cost(ActionCosts::create_account));
+        assert_eq!(Gas::from_gas(60), profile.get_action_cost(ActionCosts::delete_account));
+        assert_eq!(Gas::from_gas(0), profile.get_action_cost(ActionCosts::deploy_contract_base));
 
-        assert_eq!(100, profile.get_ext_cost(ExtCosts::base));
-        assert_eq!(200, profile.get_ext_cost(ExtCosts::contract_loading_base));
-        assert_eq!(0, profile.get_ext_cost(ExtCosts::contract_loading_bytes));
+        assert_eq!(Gas::from_gas(100), profile.get_ext_cost(ExtCosts::base));
+        assert_eq!(Gas::from_gas(200), profile.get_ext_cost(ExtCosts::contract_loading_base));
+        assert_eq!(Gas::from_gas(0), profile.get_ext_cost(ExtCosts::contract_loading_bytes));
     }
 
     #[test]
@@ -458,14 +458,14 @@ mod test {
         );
 
         for action in ActionCosts::iter() {
-            assert_eq!(1234, profile.get_action_cost(action), "{action:?}");
+            assert_eq!(Gas::from_gas(1234), profile.get_action_cost(action), "{action:?}");
         }
 
         for ext in ExtCosts::iter() {
-            assert_eq!(5678, profile.get_ext_cost(ext), "{ext:?}");
+            assert_eq!(Gas::from_gas(5678), profile.get_ext_cost(ext), "{ext:?}");
         }
 
-        assert_eq!(90, profile.wasm_gas);
+        assert_eq!(Gas::from_gas(90), profile.wasm_gas);
     }
 
     #[track_caller]

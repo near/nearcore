@@ -48,8 +48,8 @@ impl ScenarioBuilder {
     pub fn new() -> Self {
         let network_config = NetworkConfig { seeds: (0..4).map(id_to_seed).collect() };
         let runtime_config = RuntimeConfig {
-            max_total_prepaid_gas: 300 * 10u64.pow(12),
-            gas_limit: 1_000_000_000_000_000,
+            max_total_prepaid_gas: Gas::from_gas(300 * 10u64.pow(12)),
+            gas_limit: Gas::from_gas(1_000_000_000_000_000),
             epoch_length: 500,
         };
 

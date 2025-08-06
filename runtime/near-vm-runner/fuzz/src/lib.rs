@@ -1,4 +1,5 @@
 use near_vm_runner::ContractCode;
+use near_primitives::types::Gas;
 use near_vm_runner::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use near_vm_runner::logic::VMContext;
 
@@ -44,7 +45,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         account_locked_balance: 0,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(14),
+        prepaid_gas: Gas::from_gas(10_u64.pow(14)),
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],

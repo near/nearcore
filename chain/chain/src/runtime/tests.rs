@@ -219,7 +219,7 @@ impl TestEnv {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let state_root = self.state_roots[shard_index];
-        let gas_limit = u64::MAX;
+        let gas_limit = Gas::from_gas(u64::MAX);
         let height = self.head.height + 1;
         let block_timestamp = 0;
         let gas_price = self.runtime.genesis_config.min_gas_price;

@@ -80,7 +80,7 @@ pub(crate) fn execute_function_call(
         account_locked_balance: runtime_ext.account().locked(),
         storage_usage: runtime_ext.account().storage_usage(),
         attached_deposit: function_call.deposit,
-        prepaid_gas: function_call.gas.as_gas(),
+        prepaid_gas: function_call.gas,
         random_seed,
         view_config,
         output_data_receivers,
@@ -134,7 +134,7 @@ pub(crate) fn execute_function_call(
     };
 
     if !context.view_config.is_some() {
-        let unused_gas = function_call.gas.as_gas().saturating_sub(outcome.used_gas);
+        let unused_gas = function_call.gas.checked_sub(outcome.used_gas).unwrap_or(Gas::from_gas(0));
         let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
         outcome.used_gas = safe_add_gas(outcome.used_gas, distributed)?;
     }
@@ -822,7 +822,7 @@ pub(crate) fn apply_delegate_action(
     result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
     result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
     // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-    result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees)?;
+    result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees.as_gas())?;
     result.new_receipts.push(new_receipt);
 
     Ok(())
@@ -849,7 +849,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
         }
         ReceiptEnum::GlobalContractDistribution(_)
         | ReceiptEnum::Data(_)
-        | ReceiptEnum::PromiseResume(_) => 0,
+        | ReceiptEnum::PromiseResume(_) => Gas::from_gas(0),
     })
 }
 

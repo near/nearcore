@@ -68,7 +68,7 @@ decl_test_bytes!(test_input, input, ctx, ctx.input);
 decl_test_u64!(test_block_index, block_index, ctx, ctx.block_height);
 decl_test_u64!(test_block_timestamp, block_timestamp, ctx, ctx.block_timestamp);
 decl_test_u64!(test_storage_usage, storage_usage, ctx, ctx.storage_usage);
-decl_test_u64!(test_prepaid_gas, prepaid_gas, ctx, ctx.prepaid_gas);
+decl_test_u64!(test_prepaid_gas, prepaid_gas, ctx, ctx.prepaid_gas.as_gas());
 
 decl_test_u128!(
     test_account_balance,
@@ -92,7 +92,7 @@ fn test_attached_deposit_view() {
         let mut logic_builder = VMLogicBuilder::default();
         let context = &mut logic_builder.context;
         context.view_config = Some(ViewConfig {
-            max_gas_burnt: test_vm_config(None).limit_config.max_gas_burnt.as_gas(),
+            max_gas_burnt: test_vm_config(None).limit_config.max_gas_burnt,
         });
         context.account_balance = 0;
         context.attached_deposit = amount;

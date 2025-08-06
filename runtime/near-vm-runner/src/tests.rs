@@ -13,6 +13,7 @@ use crate::logic::VMContext;
 use near_parameters::RuntimeConfigStore;
 use near_parameters::vm::VMKind;
 use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::types::Gas;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -60,7 +61,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         account_locked_balance: 0,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(14),
+        prepaid_gas: Gas::from_gas(10_u64.pow(14)),
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],

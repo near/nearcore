@@ -441,7 +441,7 @@ fn apply_block_from_range(
         outcome_root,
         apply_result.validator_proposals.clone(),
         apply_result.total_gas_burnt,
-        genesis.config.gas_limit.as_gas(),
+        genesis.config.gas_limit,
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
         apply_result.bandwidth_requests.clone(),
@@ -501,7 +501,7 @@ fn apply_block_from_range(
             apply_result.trie_changes.state_changes().len(),
         ),
     );
-    progress_reporter.inc_and_report_progress(height, apply_result.total_gas_burnt);
+    progress_reporter.inc_and_report_progress(height, apply_result.total_gas_burnt.as_gas());
 
     // See documentation for `ApplyRangeMode` variants.
     //
@@ -822,7 +822,7 @@ fn benchmark_chunk_application(
         let chunk_application_start_time = Instant::now();
         let apply_result = apply_chunk_from_input(cur_input, &*runtime_adapter);
         total_chunk_application_time += chunk_application_start_time.elapsed();
-        total_gas_burned += apply_result.total_gas_burnt as u128;
+        total_gas_burned += apply_result.total_gas_burnt.as_gas() as u128;
 
         if i == 1 || last_report_time.elapsed() >= report_interval {
             println!(

@@ -175,7 +175,7 @@ pub trait User {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: method_name.to_string(),
                 args,
-                gas: Gas::from_gas(gas),
+                gas,
                 deposit,
             }))],
         )
