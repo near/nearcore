@@ -187,7 +187,7 @@ pub fn persist_chunk(
     store: &mut ChainStore,
 ) -> Result<(), Error> {
     let mut update = store.store_update();
-    if update.get_partial_chunk(&partial_chunk.chunk_hash()).is_err() {
+    if !update.partial_chunk_exists(&partial_chunk.chunk_hash())? {
         update.save_partial_chunk(partial_chunk);
     }
     if let Some(shard_chunk) = shard_chunk {

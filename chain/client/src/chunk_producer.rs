@@ -124,14 +124,6 @@ impl ChunkProducer {
         }
     }
 
-    #[instrument(target = "client", level = "debug", "produce_chunk", skip_all, fields(
-        %next_height,
-        %shard_id,
-        ?epoch_id,
-        prev_block_hash = ?prev_block.header().hash(),
-        chunk_hash = tracing::field::Empty,
-        tag_block_production = true
-    ))]
     pub fn produce_chunk(
         &mut self,
         prev_block: &Block,
@@ -224,6 +216,14 @@ impl ChunkProducer {
         Ok(receipts_root)
     }
 
+    #[instrument(target = "client", level = "debug", "produce_chunk_internal", skip_all, fields(
+        height=%next_height,
+        %shard_id,
+        ?epoch_id,
+        prev_block_hash = ?prev_block.header().hash(),
+        chunk_hash = tracing::field::Empty,
+        tag_block_production = true
+    ))]
     fn produce_chunk_internal(
         &mut self,
         prev_block: &Block,

@@ -99,7 +99,7 @@ The detailed description of it is provided in the [profiling](./profiling.md) se
 To evaluate the number of rate of processing the transactions one may query the stats as described above.
 
 ### Multi-Node setup
-For benchmarking multi-node sharded networks, there is a comprehensive toolset in the [sharded-bm](https://github.com/near/nearcore/tree/pytest/tests/mocknet/sharded_bm.py). This framework allows testing various network configurations with different numbers of shards, validators and traffic profiles.
+For benchmarking multi-node sharded networks, there is a comprehensive toolset in the [sharded-bm](https://github.com/near/nearcore/blob/master/pytest/tests/mocknet/sharded_bm.py). This framework allows testing various network configurations with different numbers of shards, validators and traffic profiles.
 
 The sharded benchmark framework supports both localnet testing on a single machine and forknet deployments. Forknet is particularly useful as it allows creating a network running on multiple VMs, providing real-world conditions for performance testing.
 
