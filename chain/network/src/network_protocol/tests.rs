@@ -274,13 +274,6 @@ fn test_t1_is_signed() {
     assert!(message.signature().is_some());
 }
 
-#[cfg(feature = "nightly")]
-#[test]
-fn test_t1_is_unsigned() {
-    let message = make_block_approval_message();
-    assert!(message.signature().is_none());
-}
-
 #[test]
 fn test_t2_is_signed() {
     let message = make_chunk_request_message();
