@@ -185,6 +185,9 @@ def handle_init(args):
     )
     new_test_cmd(CommandContext(new_test_cmd_args))
 
+    # Must be run after new_test to override some OS settings
+    apply_network_config(args)
+
     status_cmd_args = copy.deepcopy(args)
     status_cmd_ctx = CommandContext(status_cmd_args)
     targeted_nodes = status_cmd_ctx.get_targeted()
@@ -352,6 +355,31 @@ def start_nodes(args, enable_tx_generator=False):
     start_nodes_cmd_args = copy.deepcopy(args)
     start_nodes_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
     start_nodes_cmd(CommandContext(start_nodes_cmd_args))
+
+
+def apply_network_config(args):
+    """Apply network configuration optimizations."""
+    logger.info("Applying network configuration optimizations")
+
+    run_cmd_args = copy.deepcopy(args)
+
+    # This command does the following:
+    # - Set overrides for some configs
+    # - Update default interface to use larger initial congestion window
+    run_cmd_args.cmd = "\
+        sudo sysctl -w net.core.rmem_max=134217728 && \
+        sudo sysctl -w net.core.wmem_max=134217728 && \
+        sudo sysctl -w net.ipv4.tcp_rmem='10240 87380 134217728' && \
+        sudo sysctl -w net.ipv4.tcp_wmem='4096 87380 134217728' && \
+        sudo sysctl -w net.core.netdev_max_backlog=30000 && \
+        sudo sysctl -w net.ipv4.tcp_no_metrics_save=1 && \
+        gw=$(ip route show default | head -1 | awk '{{print $3}}') && \
+        dev=$(ip route show default | head -1 | awk '{{print $5}}') && \
+        sudo ip route flush table main exact 0.0.0.0/0 2>/dev/null || true && \
+        sudo ip route add default via $gw dev $dev metric 100 initcwnd 255 initrwnd 255 \
+    "
+
+    run_remote_cmd(CommandContext(run_cmd_args))
 
 
 def handle_get_traces(args):
