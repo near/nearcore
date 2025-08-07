@@ -31,6 +31,9 @@ class RemoteNeardRunner:
     def name(self):
         return self.node.instance_name
 
+    def get_label(self, label_name: str) -> str:
+        return self.node.get_label(label_name)
+
     def ip_addr(self):
         return self.node.machine.ip
 

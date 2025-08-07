@@ -25,7 +25,7 @@ import base58
 
 # Google Cloud Compute API imports
 from google.cloud import compute_v1
-from google.cloud.compute_v1.types import AggregatedListInstancesRequest
+from google.cloud.compute_v1.types import AggregatedListInstancesRequest, Instance
 
 import network
 from configured_logger import logger
@@ -842,9 +842,13 @@ class GCloudNode(BaseNode):
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
 
-    def with_instance_info(self, instance):
+    def with_instance_info(self, instance: Instance):
         self.gcloud_instance = instance
         return self
+
+    def get_label(self, label_name: str) -> str:
+        #TODO: make it error resistant
+        return self.gcloud_instance.labels.get(label_name)
 
     @retry(wait_fixed=1000, stop_max_attempt_number=3)
     def _download_binary(self, binary):
