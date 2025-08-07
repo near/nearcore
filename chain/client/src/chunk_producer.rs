@@ -241,6 +241,7 @@ impl ChunkProducer {
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let prev_block_hash = *prev_block.hash();
+        let prev_prev_block_hash = *prev_block.header().prev_hash();
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
             let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
             // If we are to start new epoch, check if the previous block is
@@ -263,9 +264,39 @@ impl ChunkProducer {
             // TODO(spice): using default values as a placeholder is a temporary hack
             Arc::new(ChunkExtra::new_with_only_state_root(&Default::default()))
         } else {
+            // Note 1: Changing this to prev_prev_block_hash will break many (>150) tests.
+            // Failed to start chunk witness validation err=InvalidStateRoot seems to be the most common error.
             self.chain
                 .get_chunk_extra(&prev_block_hash, &shard_uid)
                 .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
+        };
+
+        let state_root = if cfg!(feature = "protocol_feature_spice") {
+            // TODO(spice): using default values as a placeholder is a temporary hack
+            CryptoHash::default()
+        } else {
+            // Note 2: Just using the state root from the previous block
+            // causes only few tests to fail (~5), likely prev_prev_block_hash is genesis.
+            // self.chain
+            //     .get_chunk_extra(&prev_prev_block_hash, &shard_uid)
+            //     .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
+            //     .state_root()
+            //     .clone()
+
+            // Note 3: Using the state root from the previous block's chunk extra
+            // only if it's available seems to pass
+            // cargo nextest run --all --no-fail-fast
+            match self.chain.get_chunk_extra(&prev_prev_block_hash, &shard_uid) {
+                Ok(chunk_extra) => *chunk_extra.state_root(),
+                Err(err) => {
+                    tracing::warn!(
+                        %prev_prev_block_hash,
+                        %err,
+                        "No chunk extra available for previous block",
+                    );
+                    *chunk_extra.state_root()
+                }
+            }
         };
 
         let prepared_transactions = {
@@ -274,15 +305,12 @@ impl ChunkProducer {
                 Some(AdvProduceChunksMode::ProduceWithoutTx) => {
                     PreparedTransactions { transactions: Vec::new(), limited_by: None }
                 }
-                _ => self.prepare_transactions(
-                    shard_uid,
-                    prev_block,
-                    chunk_extra.as_ref(),
-                    chain_validate,
-                )?,
+                _ => {
+                    self.prepare_transactions(shard_uid, prev_block, state_root, chain_validate)?
+                }
             }
             #[cfg(not(feature = "test_features"))]
-            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref(), chain_validate)?
+            self.prepare_transactions(shard_uid, prev_block, state_root, chain_validate)?
         };
 
         #[cfg(feature = "test_features")]
@@ -380,7 +408,7 @@ impl ChunkProducer {
         &self,
         shard_uid: ShardUId,
         prev_block: &Block,
-        chunk_extra: &ChunkExtra,
+        state_root: CryptoHash,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
@@ -397,7 +425,7 @@ impl ChunkProducer {
             }
 
             let storage_config = RuntimeStorageConfig {
-                state_root: *chunk_extra.state_root(),
+                state_root,
                 use_flat_storage: true,
                 source: near_chain::types::StorageDataSource::Db,
                 state_patch: Default::default(),
