@@ -68,8 +68,6 @@ Generates a pair of configs with a local directory configured for dumping state 
     - config_dump: a node which generates snapshots and dumps headers and parts to the local directory
     - config_sync: a node configured to use the local directory as a data source for state sync
 """
-
-
 def get_state_sync_configs_pair(tracked_shards_config='AllShards'):
     state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
 
