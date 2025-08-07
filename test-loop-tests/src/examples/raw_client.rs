@@ -3,7 +3,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainGenesis;
 use near_chain::spice_core::CoreStatementsProcessor;
-use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
@@ -16,11 +16,10 @@ use near_primitives::network::PeerId;
 
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::AccountId;
-use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
+use near_primitives::version::get_protocol_upgrade_schedule;
 use near_store::adapter::StoreAdapter;
 
-use crate::utils::ONE_NEAR;
+use crate::utils::account::{create_account_ids, create_validators_spec, validators_spec_clients};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
@@ -32,8 +31,9 @@ pub const MIN_BLOCK_PROD_TIME: Duration = Duration::milliseconds(100);
 /// max block production time in milliseconds
 pub const MAX_BLOCK_PROD_TIME: Duration = Duration::milliseconds(200);
 
+// Demonstrates raw set up for single Client to be used with test loop
 #[test]
-fn test_client_with_simple_test_loop() {
+fn test_raw_client_test_loop_setup() {
     init_test_logger();
     let mut test_loop = TestLoopV2::new();
 
@@ -46,24 +46,15 @@ fn test_client_with_simple_test_loop() {
         true,
         false,
     );
-    let initial_balance = 10000 * ONE_NEAR;
-    let accounts =
-        (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
 
-    let boundary_accounts =
-        ["account3", "account5", "account7"].iter().map(|&a| a.parse().unwrap()).collect();
+    let validators_spec = create_validators_spec(1, 0);
+    let validator_id = validators_spec_clients(&validators_spec).remove(0);
 
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&test_loop.clock())
-        .protocol_version(PROTOCOL_VERSION)
-        .genesis_height(10000)
-        .shard_layout(ShardLayout::multi_shard_custom(boundary_accounts, 1))
-        .transaction_validity_period(1000)
-        .epoch_length(10)
-        .validators_spec(ValidatorsSpec::desired_roles(&["account0"], &[]))
-        .add_user_accounts_simple(&accounts, initial_balance)
+        .shard_layout(ShardLayout::multi_shard_custom(create_account_ids(["account1"]).to_vec(), 1))
+        .validators_spec(validators_spec)
         .build();
-
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
 
@@ -76,7 +67,7 @@ fn test_client_with_simple_test_loop() {
         epoch_manager.clone(),
     );
     let validator_signer = MutableConfigValue::new(
-        Some(Arc::new(create_test_signer(accounts[0].as_str()))),
+        Some(Arc::new(create_test_signer(validator_id.as_str()))),
         "validator_signer",
     );
     let shard_tracker = ShardTracker::new(

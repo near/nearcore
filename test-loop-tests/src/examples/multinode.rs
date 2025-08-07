@@ -1,5 +1,4 @@
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
@@ -8,11 +7,12 @@ use near_primitives::transaction::SignedTransaction;
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::ONE_NEAR;
 use crate::utils::account::{
-    create_account_ids, create_validator_spec, rpc_account_id, validator_spec_clients_with_rpc,
+    create_account_ids, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
 };
-use crate::utils::test_loop_env::TestLoopEnvExt;
+use crate::utils::node::TestLoopNode;
 
-// Example on how to send tokens between accounts
+// Demonstrates the most basic multinode test loop setup
+// and sends tokens between accounts
 #[test]
 fn test_cross_shard_token_transfer() {
     init_test_logger();
@@ -21,29 +21,26 @@ fn test_cross_shard_token_transfer() {
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let user_accounts = create_account_ids(["account0", "account1"]);
     let initial_balance = 1_000_000 * ONE_NEAR;
-    let validators_spec = create_validator_spec(shard_layout.num_shards() as usize, 0);
-    let clients = validator_spec_clients_with_rpc(&validators_spec);
-    let rpc = rpc_account_id();
-
+    let validators_spec = create_validators_spec(shard_layout.num_shards() as usize, 0);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&user_accounts, initial_balance)
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut test_loop_env = TestLoopBuilder::new()
+    let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
+        .epoch_config_store_from_genesis()
         .clients(clients)
         .build()
         .warmup();
+    let rpc_node = TestLoopNode::for_account(&env.node_datas, &rpc_account_id());
 
     let sender_account = &user_accounts[0];
     let receiver_account = &user_accounts[1];
     let transfer_amount = 42 * ONE_NEAR;
 
-    let mut rpc_client = test_loop_env.client(rpc.clone());
-    let block_hash = rpc_client.head().last_block_hash;
+    let block_hash = rpc_node.head(env.test_loop_data()).last_block_hash;
     let nonce = 1;
     let tx = SignedTransaction::send_money(
         nonce,
@@ -53,20 +50,20 @@ fn test_cross_shard_token_transfer() {
         transfer_amount,
         block_hash,
     );
-    rpc_client.run_tx(tx, Duration::seconds(5));
+    rpc_node.run_tx(&mut env.test_loop, tx, Duration::seconds(5));
     // Run for 1 more block for the transfer to be reflected in chunks prev state root.
-    rpc_client.run_for_number_of_blocks(1);
+    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
 
     assert_eq!(
-        rpc_client.view_account_query(&sender_account).amount,
+        rpc_node.view_account_query(env.test_loop_data(), &sender_account).amount,
         initial_balance - transfer_amount
     );
     assert_eq!(
-        rpc_client.view_account_query(&receiver_account).amount,
+        rpc_node.view_account_query(env.test_loop_data(), &receiver_account).amount,
         initial_balance + transfer_amount
     );
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    test_loop_env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

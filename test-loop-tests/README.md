@@ -22,24 +22,23 @@ The main part of building the environment involves constructing genesis data,
 including the initial state, using `TestGenesisBuilder`:
 
 ```rust
-let shard_layout = ShardLayout::multi_shard_custom(create_account_ids(["account0"]).to_vec(), 1);
-let validators_spec = create_validator_spec(shard_layout.num_shards() as usize, 0);
+let validators_spec = create_validator_spec(4, 0);
 let clients = validator_spec_clients(&validators_spec);
 let genesis = TestLoopBuilder::new_genesis_builder()
-    .shard_layout(shard_layout)
     .validators_spec(validators_spec)
     // ...more configuration if needed
     // for example `add_user_accounts_simple`, `epoch_length`, etc.
     .build();
-let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+let mut env = TestLoopBuilder::new()
+    .genesis(genesis)
+    .epoch_config_store_from_genesis()
 // Or alternatively when more epoch config configuration is needed:
 // let epoch_config_store = TestEpochConfigBuilder.from_genesis(&genesis)
 //    .shuffle_shard_assignment_for_chunk_producers(true)
 //    ...more configuration
 //    .build_store_for_single_version();
-let mut test_loop_env = TestLoopBuilder::new()
-    .genesis(genesis)
-    .epoch_config_store(epoch_config_store)
+//  and then use it as part of test loop builder:
+//  .epoch_config_store(epoch_config_store)
     .clients(clients)
     .build()
     .warmup();
@@ -47,36 +46,22 @@ let mut test_loop_env = TestLoopBuilder::new()
 
 ## 2. Trigger and execute events
 
-First, query the clients for desired chain information, such as which nodes are
-responsible for tracking specific shards. Refer to the `ClientQueries` implementation
-for more details on available queries.
+`TestLoopNode` can be used to interact with the cluster performing actions such as
+executing transactions or waiting for blocks to be produced.
 
 ```rust
-let first_epoch_tracked_shards = {
-    let clients = node_datas
-        .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
-    clients.tracked_shards_for_each_client()
-};
+let validator_node = TestLoopNode::for_account(&env.node_datas, &clients[0]);
+validator_node.run_tx(&mut env.test_loop, ..);
+validator_node.run_until_head_height(&mut env.test_loop, ..);
 ```
 
-Perform the actions you want to test, such as money transfers, contract
-deployment and execution, specific validator selection, etc. See
-`execute_money_transfers` implementation for inspiration.
-
-```rust
-execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
-```
-
-Then, use the `run_until` method to progress the blockchain until a certain
+Also `run_until` method can be used to progress the blockchain until a certain
 condition is met:
 
 ```rust
-let client_handle = node_datas[0].client_sender.actor_handle();
 test_loop.run_until(
     |test_loop_data| {
-        test_loop_data.get(&client_handle).client.chain.head().unwrap().height > 10020
+        validator_node.head(test_loop_data).epoch_id == expected_epoch_id
     },
     Duration::seconds(20),
 );
@@ -88,24 +73,17 @@ run quickly while still accurately modeling time-dependent blockchain behavior.
 
 ## 3. Assert expected outcomes
 
-Verify that the test produced the expected results. For example, if your test
-environment is designed to have nodes change the shards they track, you can
-assert this behavior as follows:
+Verify that the test produced the expected results.
 
 ```rust
-let clients = node_datas
-    .iter()
-    .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-    .collect_vec();
-let later_epoch_tracked_shards = clients.tracked_shards_for_each_client();
-assert_ne!(first_epoch_tracked_shards, later_epoch_tracked_shards);
+let account = validator_node.query_account(env.test_loop_data(), ..);
+assert_eq!(account.balance, 42 * ONE_NEAR);
 ```
 
 After that, properly shut down the test environment:
 
 ```rust
-TestLoopEnv { test_loop, datas: node_datas }
-    .shutdown_and_drain_remaining_events(Duration::seconds(20));
+env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 ```
 
 ## Migration

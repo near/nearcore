@@ -146,4 +146,8 @@ impl TestLoopEnv {
     ) -> Option<&NodeExecutionData> {
         self.node_datas.iter().find(|data| &data.account_id == account_id)
     }
+
+    pub fn test_loop_data(&self) -> &TestLoopData {
+        &self.test_loop.data
+    }
 }

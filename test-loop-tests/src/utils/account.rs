@@ -21,7 +21,7 @@ pub fn rpc_account_id() -> AccountId {
     "rpc".parse().unwrap()
 }
 
-pub fn create_validator_spec(
+pub fn create_validators_spec(
     num_block_and_chunk_producers: usize,
     num_chunk_validators_only: usize,
 ) -> ValidatorsSpec {
@@ -34,7 +34,7 @@ pub fn create_validator_spec(
     ValidatorsSpec::DesiredRoles { block_and_chunk_producers, chunk_validators_only }
 }
 
-pub fn validator_spec_clients(spec: &ValidatorsSpec) -> Vec<AccountId> {
+pub fn validators_spec_clients(spec: &ValidatorsSpec) -> Vec<AccountId> {
     let mut clients = vec![];
     match spec {
         ValidatorsSpec::DesiredRoles { block_and_chunk_producers, chunk_validators_only } => {
@@ -48,8 +48,8 @@ pub fn validator_spec_clients(spec: &ValidatorsSpec) -> Vec<AccountId> {
     clients
 }
 
-pub fn validator_spec_clients_with_rpc(spec: &ValidatorsSpec) -> Vec<AccountId> {
-    let mut clients = validator_spec_clients(spec);
+pub fn validators_spec_clients_with_rpc(spec: &ValidatorsSpec) -> Vec<AccountId> {
+    let mut clients = validators_spec_clients(spec);
     clients.push(rpc_account_id());
     clients
 }
