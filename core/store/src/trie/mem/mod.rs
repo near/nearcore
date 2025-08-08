@@ -12,6 +12,7 @@ pub mod metrics;
 pub(crate) mod nibbles_utils;
 pub mod node;
 mod parallel_loader;
+mod split;
 
 pub(crate) use arena::ArenaMemory;
 
