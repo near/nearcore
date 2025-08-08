@@ -27,7 +27,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::{self, TransactionRunner};
-use crate::utils::{ONE_NEAR, TGAS};
+use crate::utils::{ONE_NEAR, TGAS, retrieve_all_clients};
 
 const GAS_PRICE: Balance = 1;
 
@@ -528,11 +528,7 @@ impl GlobalContractsTestEnv {
     }
 
     fn clients(&self) -> Vec<&Client> {
-        self.env
-            .node_datas
-            .iter()
-            .map(|data| &self.env.test_loop.data.get(&data.client_sender.actor_handle()).client)
-            .collect()
+        retrieve_all_clients(&self.env.node_datas, &self.env.test_loop.data)
     }
 
     fn shutdown(self) {
