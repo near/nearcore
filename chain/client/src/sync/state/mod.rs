@@ -25,9 +25,11 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::ShardId;
 use near_store::Store;
+use near_vm_runner::logic::ProtocolVersion;
 use network::{StateSyncDownloadSourcePeer, StateSyncDownloadSourcePeerSharedState};
 use parking_lot::Mutex;
 use shard::{StateSyncShardHandle, run_state_sync_for_shard};
@@ -316,7 +318,8 @@ pub(self) trait StateSyncDownloadSource: Send + Sync + 'static {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<Vec<u8>, near_chain::Error>>;
+        protocol_version: ProtocolVersion,
+    ) -> BoxFuture<Result<StatePart, near_chain::Error>>;
 }
 
 /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.

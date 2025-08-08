@@ -36,6 +36,7 @@ use near_async::messaging::IntoMultiSender;
 use near_async::messaging::Sender;
 use near_async::time;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_part::StatePartV0;
 use near_primitives::state_sync::ShardStateSyncResponse;
 use near_primitives::state_sync::ShardStateSyncResponseV2;
 use near_primitives::types::AccountId;
@@ -617,7 +618,7 @@ pub(crate) async fn start(
                     match event {
                         StateRequestSenderForNetworkMessage::_state_request_part(msg) => {
                             let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
-                            let part = Some((part_id, vec![]));
+                            let part = Some((part_id, StatePartV0::empty()));
                             let state_response =
                                 ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
                                     header: None,
