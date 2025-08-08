@@ -769,6 +769,7 @@ pub struct TestBlockBuilder {
     next_bp_hash: CryptoHash,
     approvals: Vec<Option<Box<near_crypto::Signature>>>,
     block_merkle_root: CryptoHash,
+    chunks: Vec<ShardChunkHeader>,
 }
 
 #[cfg(feature = "clock")]
@@ -791,6 +792,7 @@ impl TestBlockBuilder {
             next_bp_hash: *prev.header().next_bp_hash(),
             approvals: vec![],
             block_merkle_root: tree.root(),
+            chunks: prev.chunks().iter_raw().cloned().collect(),
         }
     }
     pub fn height(mut self, height: u64) -> Self {
@@ -824,17 +826,23 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn chunks(mut self, chunks: Vec<ShardChunkHeader>) -> Self {
+        self.chunks = chunks;
+        self
+    }
+
     pub fn build(self) -> Arc<Block> {
         use crate::version::PROTOCOL_VERSION;
 
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
+        let chunks_len = self.chunks.len();
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
             self.prev.header(),
             self.height,
             self.prev.header().block_ordinal() + 1,
-            self.prev.chunks().iter_raw().cloned().collect(),
-            vec![vec![]; self.prev.chunks().len()],
+            self.chunks,
+            vec![vec![]; chunks_len],
             self.epoch_id,
             self.next_epoch_id,
             None,

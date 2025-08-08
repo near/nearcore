@@ -351,7 +351,7 @@ pub fn setup_client(
         client_actor.client.chunk_endorsement_tracker.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
         chunk_executor_adapter.as_sender(),
-        client_config.clone(),
+        client_config.save_latest_witnesses,
     );
 
     let chunk_executor_sender = test_loop.data.register_actor(
