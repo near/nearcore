@@ -304,6 +304,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 75, "75.json"),
     include_config!("mainnet", 76, "76.json"),
     include_config!("mainnet", 78, "78.json"),
+    include_config!("mainnet", 80, "80.json"),
     include_config!("mainnet", 143, "143.json"),
     // Epoch configs for testnet (genesis protocol version is 29).
     include_config!("testnet", 29, "29.json"),
@@ -318,6 +319,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 75, "75.json"),
     include_config!("testnet", 76, "76.json"),
     include_config!("testnet", 78, "78.json"),
+    include_config!("testnet", 80, "80.json"),
     include_config!("testnet", 143, "143.json"),
 ];
 
@@ -521,6 +523,15 @@ mod tests {
             EpochConfigStore::load_epoch_config_from_file_system(tmp_dir.path().to_str().unwrap()),
         );
         assert_ne!(loaded_epoch_configs.store, loaded_after_insert_epoch_configs.store);
+    }
+
+    #[test]
+    fn test_protocol_upgrade_80() {
+        for chain_id in ["mainnet", "testnet"] {
+            let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
+            let epoch_config = epoch_configs.get_config(80);
+            assert_eq!(epoch_config.num_chunk_validator_seats, 500);
+        }
     }
 
     fn parse_config_file(chain_id: &str, protocol_version: ProtocolVersion) -> Option<EpochConfig> {
