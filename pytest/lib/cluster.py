@@ -791,6 +791,8 @@ class GCloudNode(BaseNode):
     def __init__(self, *args, username=None, project=None, ssh_key_path=None):
         self.port = 24567
         self.rpc_port = 3030
+        # Everything you need to know about the GCloud instance
+        self.gcloud_instance = None
         if len(args) == 1:
             # Get existing instance assume it's ready to run.
             if isinstance(args[0], Machine):
@@ -847,8 +849,25 @@ class GCloudNode(BaseNode):
         return self
 
     def get_label(self, label_name: str) -> str:
-        #TODO: make it error resistant
-        return self.gcloud_instance.labels.get(label_name)
+        """
+        Get a specific label value.
+        This is the cached information from the GCloud instance.
+
+        Args:
+            label_name: The name of the label to retrieve
+
+        Returns:
+            The label value as a string, or None if the label doesn't exist
+        """
+        try:
+            if self.gcloud_instance and hasattr(self.gcloud_instance, 'labels'):
+                # labels is MutableMapping[str, str] - access like a dictionary
+                return self.gcloud_instance.labels.get(label_name)
+            return None
+        except Exception as e:
+            logger.error(
+                f"Failed to get label '{label_name}' from instance: {e}")
+            return None
 
     @retry(wait_fixed=1000, stop_max_attempt_number=3)
     def _download_binary(self, binary):
