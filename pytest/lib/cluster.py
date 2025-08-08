@@ -18,9 +18,14 @@ import traceback
 import typing
 import uuid
 from rc import gcloud
+from rc.machine import Machine
 from retrying import retry
 
 import base58
+
+# Google Cloud Compute API imports
+from google.cloud import compute_v1
+from google.cloud.compute_v1.types import AggregatedListInstancesRequest, Instance
 
 import network
 from configured_logger import logger
@@ -723,24 +728,88 @@ class LocalNode(BaseNode):
 
 class GCloudNode(BaseNode):
 
+    @staticmethod
+    def get_nodes_by_mocknet_id(mocknet_id,
+                                project,
+                                username,
+                                ssh_key_path=None):
+        """
+        Get all instances with the specified mocknet_id label.
+
+        Args:
+            mocknet_id: The mocknet_id label value to filter by
+            project: Google Cloud project ID
+            username: SSH username for the instances
+            ssh_key_path: Path to SSH key file
+
+        Returns:
+            List of GCloudNode instances
+        """
+        if ssh_key_path is None:
+            ssh_key_path = gcloud.SSH_KEY_PATH
+
+        # Initialize the Compute Engine client
+        client = compute_v1.InstancesClient()
+
+        # Use aggregated list to search across all zones efficiently
+        request = compute_v1.AggregatedListInstancesRequest(
+            project=project, filter=f'labels.mocknet_id={mocknet_id}')
+
+        instances = []
+        try:
+            logger.info(
+                f"Searching for instances with mocknet_id={mocknet_id} in project={project} (all zones)"
+            )
+
+            # Use the aggregated list iterator to handle pagination automatically
+            for zone_name, zone_data in client.aggregated_list(request=request):
+                # aggregated_list returns (zone_name, zone_data) tuples
+                if hasattr(zone_data, 'instances') and zone_data.instances:
+                    for instance in zone_data.instances:
+                        logger.info(
+                            f"Found instance: {instance.name} in zone: {zone_name}"
+                        )
+                        machine = Machine(
+                            name=instance.name,
+                            provider=gcloud.gcloud_provider,
+                            ip=instance.network_interfaces[0].access_configs[0].
+                            nat_i_p if instance.network_interfaces else None,
+                            username=username,
+                            project=project,
+                            ssh_key_path=ssh_key_path)
+                        instances.append(
+                            GCloudNode(machine).with_instance_info(instance))
+        except Exception as e:
+            logger.error(
+                f"Failed to list instances with mocknet_id {mocknet_id}: {e}")
+            return []
+
+        logger.info(
+            f"Found {len(instances)} instances with mocknet_id={mocknet_id}")
+        return instances
+
     def __init__(self, *args, username=None, project=None, ssh_key_path=None):
+        self.port = 24567
+        self.rpc_port = 3030
+        # Everything you need to know about the GCloud instance
+        self.gcloud_instance = None
         if len(args) == 1:
-            name = args[0]
             # Get existing instance assume it's ready to run.
-            self.instance_name = name
-            self.port = 24567
-            self.rpc_port = 3030
-            self.machine = gcloud.get(name,
-                                      username=username,
-                                      project=project,
-                                      ssh_key_path=ssh_key_path)
+            if isinstance(args[0], Machine):
+                self.machine = args[0]
+            elif isinstance(args[0], str):
+                name = args[0]
+                self.machine = gcloud.get(name,
+                                          username=username,
+                                          project=project,
+                                          ssh_key_path=ssh_key_path)
+            self.instance_name = self.machine.name
             self.ip = self.machine.ip
         elif len(args) == 4:
             # Create new instance from scratch
             instance_name, zone, node_dir, binary = args
             self.instance_name = instance_name
-            self.port = 24567
-            self.rpc_port = 3030
+
             self.node_dir = node_dir
             self.machine = gcloud.create(
                 name=instance_name,
@@ -774,6 +843,31 @@ class GCloudNode(BaseNode):
             os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
+
+    def with_instance_info(self, instance: Instance):
+        self.gcloud_instance = instance
+        return self
+
+    def get_label(self, label_name: str) -> str:
+        """
+        Get a specific label value.
+        This is the cached information from the GCloud instance.
+
+        Args:
+            label_name: The name of the label to retrieve
+
+        Returns:
+            The label value as a string, or None if the label doesn't exist
+        """
+        try:
+            if self.gcloud_instance and hasattr(self.gcloud_instance, 'labels'):
+                # labels is MutableMapping[str, str] - access like a dictionary
+                return self.gcloud_instance.labels.get(label_name)
+            return None
+        except Exception as e:
+            logger.error(
+                f"Failed to get label '{label_name}' from instance: {e}")
+            return None
 
     @retry(wait_fixed=1000, stop_max_attempt_number=3)
     def _download_binary(self, binary):
