@@ -2108,6 +2108,7 @@ impl Chain {
 
     /// Update flat storage and memtrie for given `shard_id` and newly
     /// processed `block`.
+    #[tracing::instrument(level = "debug", target = "chain", skip(self, block), fields(shard_id = %shard_id))]
     fn update_flat_storage_and_memtrie(
         &self,
         block: &Block,
@@ -2554,6 +2555,7 @@ impl Chain {
     }
 
     /// Drop all downloaded or generated state parts and headers.
+    #[tracing::instrument(level = "debug", target = "chain", skip_all)]
     pub fn clear_all_downloaded_parts(&mut self) -> Result<(), Error> {
         tracing::debug!(target: "state_sync", "Clear old state parts");
         let mut store_update = self.chain_store.store().store_update();

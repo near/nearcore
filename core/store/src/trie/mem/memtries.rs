@@ -170,6 +170,7 @@ impl MemTries {
     /// `block_height`. This internally manages refcounts. If a trie root
     /// is expired but is still used at a higher height, it will still be
     /// valid until all references to that root expires.
+    #[tracing::instrument(level = "debug", target = "chain", skip_all, fields(block_height))]
     pub fn delete_until_height(&mut self, block_height: BlockHeight) {
         let mut to_delete = vec![];
         self.heights.retain(|height, state_roots| {

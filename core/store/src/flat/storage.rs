@@ -438,6 +438,7 @@ impl FlatStorage {
     /// in memory and on disk and updating the flat state to reflect the state
     /// at the new head. If updating to given head is not possible, returns an
     /// error.
+    #[tracing::instrument(level = "debug", target = "chain", skip(self, block_hash), fields(block_hash = %block_hash))]
     pub fn update_flat_head(&self, block_hash: &CryptoHash) -> Result<(), FlatStorageError> {
         self.update_flat_head_impl(block_hash, true)
     }

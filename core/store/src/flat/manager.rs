@@ -142,6 +142,7 @@ impl FlatStorageManager {
     /// `new_flat_head`;
     /// - update flat storage head to the new one;
     /// - remove info about unreachable blocks from memory.
+    #[tracing::instrument(level = "debug", target = "chain", skip(self), fields(shard_uid = ?shard_uid, new_flat_head = %new_flat_head))]
     pub fn update_flat_storage_for_shard(
         &self,
         shard_uid: ShardUId,
