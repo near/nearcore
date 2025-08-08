@@ -64,7 +64,10 @@ pub fn get_protocol_upgrade_schedule(chain_id: &str) -> ProtocolUpgradeVotingSch
             schedule
         }
         _ => {
-            let schedule = vec![];
+            let v2_protocol_version = 79;
+            let v2_datetime =
+                ProtocolUpgradeVotingSchedule::parse_datetime("2025-08-08 23:00:00").unwrap();
+            let schedule = vec![(v2_datetime, v2_protocol_version)];
             schedule
         }
     };
