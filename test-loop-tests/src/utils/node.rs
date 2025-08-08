@@ -19,6 +19,10 @@ use near_primitives::views::{
 use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::TransactionRunner;
 
+/// Represents single node in multinode test loop setup. It simplifies
+/// access to Client and other actors by providing more user friendly API.
+/// It serves as a main interface for test actions such as sending
+/// transactions, waiting for blocks to be produces, querying state, etc.
 pub struct TestLoopNode<'a> {
     data: &'a NodeExecutionData,
 }
