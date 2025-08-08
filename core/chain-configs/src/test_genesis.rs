@@ -585,7 +585,7 @@ struct DerivedValidatorSetup {
     num_chunk_validator_seats: NumSeats,
 }
 
-const ONE_NEAR: Balance = 1_000_000_000_000_000_000_000_000;
+pub const ONE_NEAR: Balance = 1_000_000_000_000_000_000_000_000;
 
 fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
     match specs {

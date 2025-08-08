@@ -123,7 +123,10 @@ impl Block {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
-        core_statements: Vec<SpiceCoreStatement>,
+        // TODO(spice): Change type to Vec<SpiceCoreStatement> once spice feature is tied to
+        // protocol version. We use option for now to indicate whether spice feature is enabled to
+        // allow creating non-spice blocks for tests.
+        core_statements: Option<Vec<SpiceCoreStatement>>,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
 
@@ -222,7 +225,7 @@ impl Block {
         let chunk_tx_root = chunks_wrapper.compute_chunk_tx_root();
         let outcome_root = chunks_wrapper.compute_outcome_root();
 
-        let body = if cfg!(feature = "protocol_feature_spice") {
+        let body = if let Some(core_statements) = core_statements {
             BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, core_statements)
         } else {
             BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements)

@@ -251,7 +251,7 @@ pub fn create_chunk(
         client.clock.clone(),
         None,
         None,
-        vec![],
+        None,
     ));
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
