@@ -89,7 +89,7 @@ struct InitCmd {
     /// - no_override: Use the shard layout from the source chain
     /// - file:<path>: Use the shard layout defined in the given file
     /// - pv:<version>: Use the shard layout from the given protocol version
-    #[clap(long, value_parser = parse_shard_override, default_value = "no_override")]
+    #[clap(long, value_parser = parse_shard_override, default_value = "pv:78")]
     pub shard_layout_override: ShardLayoutOverride,
 }
 
