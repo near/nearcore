@@ -472,7 +472,7 @@ fn generate_delegate_actions(deposit: u128, n: u64) -> Vec<Receipt> {
             let inner_actions = [Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "foo".to_string(),
                 args: b"arg".to_vec(),
-                gas: MAX_ATTACHED_GAS,
+                gas: Gas::from_gas(MAX_ATTACHED_GAS),
                 deposit,
             }))];
 
@@ -520,7 +520,8 @@ fn test_apply_delayed_receipts_local_tx() {
     let receipt_exec_gas_fee = 1000;
     let mut free_config = RuntimeConfig::free();
     let fees = Arc::make_mut(&mut free_config.fees);
-    fees.action_fees[ActionCosts::new_action_receipt].execution = receipt_exec_gas_fee;
+    fees.action_fees[ActionCosts::new_action_receipt].execution =
+        Gas::from_gas(receipt_exec_gas_fee);
     apply_state.config = Arc::new(free_config);
     // This allows us to execute 3 receipts per apply.
     apply_state.gas_limit = Some(receipt_exec_gas_fee * 3);
@@ -824,7 +825,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
     let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "hello".to_string(),
         args: b"world".to_vec(),
-        gas,
+        gas: Gas::from_gas(gas),
         deposit: 0,
     }))];
 
@@ -906,7 +907,7 @@ fn test_apply_deficit_gas_for_function_call_partial() {
     let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "hello".to_string(),
         args: b"world".to_vec(),
-        gas,
+        gas: Gas::from_gas(gas),
         deposit: 0,
     }))];
 
@@ -982,7 +983,7 @@ fn test_apply_surplus_gas_for_function_call() {
     let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "hello".to_string(),
         args: b"world".to_vec(),
-        gas,
+        gas: Gas::from_gas(gas),
         deposit: 0,
     }))];
 
@@ -1275,7 +1276,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -1363,7 +1364,7 @@ fn test_main_storage_proof_size_soft_limit() {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: 1,
+                gas: Gas::from_gas(1),
                 deposit: 0,
             }))],
         )
@@ -1480,7 +1481,7 @@ fn test_exclude_contract_code_from_witness() {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: Vec::new(),
-                gas: 1,
+                gas: Gas::from_gas(1),
                 deposit: 0,
             }))],
         )
@@ -1681,7 +1682,7 @@ fn test_deploy_and_call_different_contracts() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -1700,7 +1701,7 @@ fn test_deploy_and_call_different_contracts() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -1806,7 +1807,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -1891,7 +1892,7 @@ fn test_deploy_and_call_in_apply() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -1910,7 +1911,7 @@ fn test_deploy_and_call_in_apply() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -1989,7 +1990,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -2044,7 +2045,7 @@ fn test_deploy_existing_contract_to_different_account() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -2086,7 +2087,7 @@ fn test_deploy_existing_contract_to_different_account() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -2134,7 +2135,7 @@ fn test_deploy_and_call_in_same_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: 1,
+                gas: Gas::from_gas(1),
                 deposit: 0,
             })),
         ],
@@ -2183,7 +2184,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: 1,
+                gas: Gas::from_gas(1),
                 deposit: 0,
             })),
         ],
@@ -2220,7 +2221,7 @@ fn test_call_account_without_contract() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -2264,7 +2265,7 @@ fn test_contract_accesses_when_validating_chunk() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: 1,
+            gas: Gas::from_gas(1),
             deposit: 0,
         }))],
     );
@@ -2867,7 +2868,7 @@ fn test_deploy_and_call_local_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS / 2,
+                gas: Gas::from_gas(MAX_ATTACHED_GAS / 2),
                 deposit: 0,
             })),
             Action::DeployContract(DeployContractAction {
@@ -2876,7 +2877,7 @@ fn test_deploy_and_call_local_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS / 2,
+                gas: Gas::from_gas(MAX_ATTACHED_GAS / 2),
                 deposit: 0,
             })),
         ],
@@ -2938,7 +2939,7 @@ fn test_deploy_and_call_local_receipts() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS / 2,
+                gas: Gas::from_gas(MAX_ATTACHED_GAS / 2),
                 deposit: 0,
             })),
             Action::DeployContract(DeployContractAction {
@@ -2947,7 +2948,7 @@ fn test_deploy_and_call_local_receipts() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS / 2,
+                gas: Gas::from_gas(MAX_ATTACHED_GAS / 2),
                 deposit: 0,
             })),
         ],

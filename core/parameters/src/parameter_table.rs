@@ -7,6 +7,7 @@ use crate::parameter::{FeeParameter, Parameter};
 use crate::vm::VMKind;
 use crate::vm::{Config, StorageGetMode};
 use near_primitives_core::account::id::ParseAccountError;
+use near_primitives_core::types::Gas;
 use near_primitives_core::types::AccountId;
 use num_rational::Rational32;
 use std::collections::BTreeMap;
@@ -121,14 +122,25 @@ impl TryFrom<&ParameterValue> for ParameterCost {
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
             ParameterValue::ParameterCost { gas, compute } => {
-                Ok(ParameterCost { gas: *gas, compute: *compute })
+                Ok(ParameterCost { gas: Gas::from_gas(*gas), compute: *compute })
             }
             // If not specified, compute costs default to gas costs.
-            &ParameterValue::U64(v) => Ok(ParameterCost { gas: v, compute: v }),
+            &ParameterValue::U64(v) => Ok(ParameterCost { gas: Gas::from_gas(v), compute: v }),
             _ => Err(ValueConversionError::ParseType(
                 std::any::type_name::<ParameterCost>(),
                 value.clone(),
             )),
+        }
+    }
+}
+
+impl TryFrom<&ParameterValue> for Gas {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::U64(v) => Ok(Gas::from_gas(u64::from(*v))),
+            _ => Err(ValueConversionError::ParseType(std::any::type_name::<Gas>(), value.clone())),
         }
     }
 }
@@ -138,9 +150,11 @@ impl TryFrom<&ParameterValue> for Fee {
 
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
-            &ParameterValue::Fee { send_sir, send_not_sir, execution } => {
-                Ok(Fee { send_sir, send_not_sir, execution })
-            }
+            &ParameterValue::Fee { send_sir, send_not_sir, execution } => Ok(Fee {
+                send_sir: Gas::from_gas(send_sir),
+                send_not_sir: Gas::from_gas(send_not_sir),
+                execution: Gas::from_gas(execution),
+            }),
             _ => Err(ValueConversionError::ParseType(std::any::type_name::<Fee>(), value.clone())),
         }
     }

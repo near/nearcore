@@ -48,21 +48,21 @@ impl ProfileDataV2 {
     /// This is used to display old gas profiles on the RPC API and in debug output.
     pub fn legacy_action_costs(&self) -> Vec<(&'static str, Gas)> {
         vec![
-            ("CREATE_ACCOUNT", self.data[0]),
-            ("DELETE_ACCOUNT", self.data[1]),
-            ("DEPLOY_CONTRACT", self.data[2]), // contains per byte and base cost
-            ("FUNCTION_CALL", self.data[3]),   // contains per byte and base cost
-            ("TRANSFER", self.data[4]),
-            ("STAKE", self.data[5]),
-            ("ADD_KEY", self.data[6]), // contains base + per byte cost for function call keys and full access keys
-            ("DELETE_KEY", self.data[7]),
-            ("NEW_DATA_RECEIPT_BYTE", self.data[8]), // contains the per-byte cost for sending back a data dependency
-            ("NEW_RECEIPT", self.data[9]), // contains base cost for data receipts and action receipts
+            ("CREATE_ACCOUNT", Gas::from_gas(self.data[0])),
+            ("DELETE_ACCOUNT", Gas::from_gas(self.data[1])),
+            ("DEPLOY_CONTRACT", Gas::from_gas(self.data[2])), // contains per byte and base cost
+            ("FUNCTION_CALL", Gas::from_gas(self.data[3])),   // contains per byte and base cost
+            ("TRANSFER", Gas::from_gas(self.data[4])),
+            ("STAKE", Gas::from_gas(self.data[5])),
+            ("ADD_KEY", Gas::from_gas(self.data[6])), // contains base + per byte cost for function call keys and full access keys
+            ("DELETE_KEY", Gas::from_gas(self.data[7])),
+            ("NEW_DATA_RECEIPT_BYTE", Gas::from_gas(self.data[8])), // contains the per-byte cost for sending back a data dependency
+            ("NEW_RECEIPT", Gas::from_gas(self.data[9])), // contains base cost for data receipts and action receipts
         ]
     }
 
     pub fn action_gas(&self) -> u64 {
-        self.legacy_action_costs().iter().map(|(_name, cost)| *cost).fold(0, u64::saturating_add)
+        self.legacy_action_costs().iter().map(|(_name, cost)| *cost).fold(Gas::from_gas(0), |acc: Gas, cost: Gas| acc.checked_add(cost).unwrap()).as_gas()
     }
 
     /// Test instance with unique numbers in each field.
@@ -70,10 +70,10 @@ impl ProfileDataV2 {
         let mut profile_data = ProfileDataV2::default();
         let num_legacy_actions = 10;
         for i in 0..num_legacy_actions {
-            profile_data.data.0[i] = i as Gas + 1000;
+            profile_data.data.0[i] = Gas::from_gas(i as u64).checked_add(Gas::from_gas(1000)).unwrap().as_gas();
         }
         for i in num_legacy_actions..DataArray::LEN {
-            profile_data.data.0[i] = (i - num_legacy_actions) as Gas;
+            profile_data.data.0[i] = (i - num_legacy_actions) as u64;
         }
         profile_data
     }
@@ -102,7 +102,7 @@ impl fmt::Debug for ProfileDataV2 {
         }
         writeln!(f, "------ Actions --------")?;
         for (cost, gas) in self.legacy_action_costs() {
-            if gas != 0 {
+            if gas != Gas::from_gas(0) {
                 writeln!(f, "{} -> {}", cost.to_ascii_lowercase(), gas)?;
             }
         }

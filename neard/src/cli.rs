@@ -523,7 +523,8 @@ impl RunCmd {
             near_config.client_config.archive = true;
         }
         if self.max_gas_burnt_view.is_some() {
-            near_config.client_config.max_gas_burnt_view = self.max_gas_burnt_view;
+            near_config.client_config.max_gas_burnt_view =
+                self.max_gas_burnt_view.map(Gas::from_gas);
         }
 
         #[cfg(feature = "sandbox")]

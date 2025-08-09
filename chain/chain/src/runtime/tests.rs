@@ -23,6 +23,7 @@ use near_primitives::block::Tip;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
+use near_primitives::types::Gas;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -1502,7 +1503,7 @@ fn test_storage_proof_garbage() {
                 FunctionCallAction {
                     method_name: format!("internal_record_storage_garbage_{garbage_size_mb}"),
                     args: vec![],
-                    gas: 300000000000000,
+                    gas: Gas::from_gas(300000000000000),
                     deposit: 300000000000000,
                 }
                 .into(),

@@ -40,13 +40,13 @@ fn process_transaction(
             Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[0u64, 10u64]),
                 method_name: "write_key_value".to_string(),
-                gas,
+                gas: Gas::from_gas(gas),
                 deposit: 0,
             })),
             Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[1u64, 20u64]),
                 method_name: "write_key_value".to_string(),
-                gas,
+                gas: Gas::from_gas(gas),
                 deposit: 0,
             })),
         ],

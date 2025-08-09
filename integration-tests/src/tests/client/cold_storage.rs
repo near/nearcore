@@ -6,6 +6,7 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
+use near_primitives::types::Gas;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
@@ -90,7 +91,7 @@ fn create_tx_function_call(
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "write_random_value".to_string(),
         args: vec![],
-        gas: 100_000_000_000_000,
+        gas: Gas::from_gas(100_000_000_000_000),
         deposit: 0,
     }));
     SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash, 0)

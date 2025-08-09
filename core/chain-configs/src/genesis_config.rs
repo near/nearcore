@@ -22,15 +22,14 @@ use near_primitives::{
     hash::CryptoHash,
     serialize::dec_format,
     state_record::StateRecord,
-    types::{
-        AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
-    },
+    types::{AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, Gas},
     version::ProtocolVersion,
 };
 use num_rational::Rational32;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
+use serde_with::serde_as;
 use sha2::digest::Digest;
 use smart_default::SmartDefault;
 use std::collections::HashSet;
@@ -111,6 +110,7 @@ fn default_genesis_time() -> DateTime<Utc> {
     DateTime::from_timestamp(time.unix_timestamp(), time.nanosecond()).unwrap_or_default()
 }
 
+#[serde_as]
 #[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct GenesisConfig {
@@ -814,6 +814,7 @@ impl GenesisChangeConfig {
 // TODO: Consider replacing tens of fields with a combination of `GenesisConfig`
 // and `EpochConfig` fields, similar to how `RuntimeConfig` is represented as a
 // separate struct and not inlined.
+#[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ProtocolConfigView {

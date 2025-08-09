@@ -1076,6 +1076,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
 }
 
 /// Contains main info about the chunk.
+#[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChunkHeaderView {
@@ -1709,7 +1710,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 for ext_cost in ExtCosts::iter() {
                     costs.push(CostGasUsed::wasm_host(
                         format!("{:?}", ext_cost).to_ascii_uppercase(),
-                        profile_data.get_ext_cost(ext_cost),
+                        profile_data.get_ext_cost(Gas::from_gas(ext_cost)),
                     ));
                 }
 
@@ -1721,7 +1722,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
                     .filter_map(|cost| {
                         let gas_used = profile.get_action_cost(cost);
-                        (gas_used > 0).then(|| {
+                        (gas_used > Gas::from_gas(0)).then(|| {
                             CostGasUsed::action(
                                 format!("{:?}", cost).to_ascii_uppercase(),
                                 gas_used,
@@ -1732,7 +1733,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
 
                 // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
                 let wasm_gas_used = profile.get_wasm_cost();
-                if wasm_gas_used > 0 {
+                if wasm_gas_used > Gas::from_gas(0) {
                     costs.push(CostGasUsed::wasm_host(
                         "WASM_INSTRUCTION".to_string(),
                         wasm_gas_used,
@@ -1742,7 +1743,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 // ext costs are 1-to-1
                 for ext_cost in ExtCosts::iter() {
                     let gas_used = profile.get_ext_cost(ext_cost);
-                    if gas_used > 0 {
+                    if gas_used > Gas::from_gas(0) {
                         costs.push(CostGasUsed::wasm_host(
                             format!("{:?}", ext_cost).to_ascii_uppercase(),
                             gas_used,
@@ -1778,6 +1779,7 @@ impl CostGasUsed {
     }
 }
 
+#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,

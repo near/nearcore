@@ -268,7 +268,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                 actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "init".to_string(),
                     args,
-                    gas: INIT_GAS,
+                    gas: Gas::from_gas(INIT_GAS),
                     deposit: 0,
                 }))],
             }),

@@ -16,6 +16,7 @@ use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::Block;
+use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -146,7 +147,7 @@ pub fn setup_with_tx_validity_period(
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = tx_validity_period;
-    genesis.config.gas_limit = 1_000_000;
+    genesis.config.gas_limit = Gas::from_gas(1_000_000);
     genesis.config.min_gas_price = 100;
     genesis.config.max_gas_price = 1_000_000_000;
     genesis.config.total_supply = 1_000_000_000;

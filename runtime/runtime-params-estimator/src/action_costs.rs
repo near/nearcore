@@ -747,7 +747,7 @@ fn function_call_action(size: ActionSize) -> Action {
     Action::FunctionCall(Box::new(near_primitives::transaction::FunctionCallAction {
         method_name,
         args: vec![1u8; arg_len],
-        gas: 3 * 10u64.pow(12), // 3 Tgas, to allow 100 copies in the same receipt
+        gas: Gas::from_gas(3 * 10u64.pow(12)), // 3 Tgas, to allow 100 copies in the same receipt
         deposit: 10u128.pow(24),
     }))
 }
