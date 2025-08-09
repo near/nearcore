@@ -6,9 +6,9 @@ on:
 
   workflow_dispatch:
     inputs:
-      branch:
+      ref:
         default: 'master'
-        description: "Nearcore branch to build and publish"
+        description: "nearcore ref to build and publish (branch-name, `refs/pull/$PR/head`, commit hash...)"
         type: string
         required: true
 
@@ -27,11 +27,11 @@ jobs:
           role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
           aws-region: us-west-1
 
-      - name: Checkout ${{ github.event.inputs.branch }} branch
+      - name: Checkout ${{ github.event.inputs.ref }}
         if: ${{ github.event_name == 'workflow_dispatch'}}
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event.inputs.ref }}
 
       - name: Checkout nearcore repository
         if: ${{ github.event_name != 'workflow_dispatch'}}
