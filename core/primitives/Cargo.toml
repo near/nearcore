@@ -33,6 +33,7 @@ ordered-float.workspace = true
 primitive-types.workspace = true
 rand = { workspace = true, optional = true }
 rand_chacha = { workspace = true, optional = true }
+raptorq.workspace = true
 reed-solomon-erasure = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true

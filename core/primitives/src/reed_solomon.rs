@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
+use raptorq::{Decoder, EncoderBuilder, EncodingPacket, ObjectTransmissionInformation};
 use reed_solomon_erasure::Field;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
@@ -12,9 +13,8 @@ use tracing::span::EnteredSpan;
 pub type ReedSolomonPart = Option<Box<[u8]>>;
 
 pub const REED_SOLOMON_MAX_PARTS: usize = reed_solomon_erasure::galois_8::Field::ORDER;
-
 // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
-pub fn reed_solomon_encode<T: BorshSerialize>(
+pub fn raptorq_encode<T: BorshSerialize>(
     rs: &ReedSolomon,
     data: &T,
 ) -> (Vec<ReedSolomonPart>, usize) {
@@ -22,22 +22,33 @@ pub fn reed_solomon_encode<T: BorshSerialize>(
     let encoded_length = bytes.len();
 
     let data_parts = rs.data_shard_count();
-    let part_length = reed_solomon_part_length(encoded_length, data_parts);
+    let repair_parts = rs.parity_shard_count() as u32;
 
-    // cspell:ignore b'aaabbbcccd'
-    // Pad the bytes to be a multiple of `part_length`
-    // Convert encoded data into `data_shard_count` number of parts and pad with `parity_shard_count` None values
-    // with 4 data_parts and 2 parity_parts
-    // b'aaabbbcccd' -> [Some(b'aaa'), Some(b'bbb'), Some(b'ccc'), Some(b'd00'), None, None]
-    bytes.resize(data_parts * part_length, 0);
-    let mut parts = bytes
-        .chunks_exact(part_length)
-        .map(|chunk| Some(chunk.to_vec().into_boxed_slice()))
-        .chain(itertools::repeat_n(None, rs.parity_shard_count()))
-        .collect_vec();
+    let mtu = raptorq_part_length(encoded_length, data_parts);
 
-    // Fine to unwrap here as we just constructed the parts
-    rs.reconstruct(&mut parts).unwrap();
+    assert!(mtu <= u16::MAX as usize, "MTU is too large: {}", mtu); // for POC only
+
+    let padded_len = data_parts * mtu;
+    bytes.resize(padded_len, 0);
+
+    let mut encoder = EncoderBuilder::new();
+    encoder.set_max_packet_size(mtu as u16);
+    encoder.set_decoder_memory_requirement(u64::MAX);
+    let encoder = encoder.build(&bytes);
+
+    let tmp = encoder.get_encoded_packets(0);
+    assert_eq!(tmp.len(), data_parts);
+
+    // let config = encoder.get_config();
+    // let symbol_size = config.symbol_size() as usize;
+    // let k = (padded_len + symbol_size - 1) / symbol_size;
+    // let repairs = data_parts + repair_parts as usize - k;
+
+    let parts: Vec<Option<Box<[u8]>>> = encoder
+        .get_encoded_packets(repair_parts as u32)
+        .iter()
+        .map(|symbol| Some(symbol.serialize().into_boxed_slice()))
+        .collect();
 
     (parts, encoded_length)
 }
@@ -45,27 +56,69 @@ pub fn reed_solomon_encode<T: BorshSerialize>(
 // Decode function is the reverse of encode function. It takes parts and length of encoded data
 // and returns the deserialized object.
 // Return an error if the reed solomon decoding fails or borsh deserialization fails.
-pub fn reed_solomon_decode<T: BorshDeserialize>(
+pub fn raptorq_decode<T: BorshDeserialize + BorshSerialize>(
     rs: &ReedSolomon,
-    parts: &mut [ReedSolomonPart],
+    parts: &mut Vec<ReedSolomonPart>,
     encoded_length: usize,
 ) -> Result<T, Error> {
-    if let Err(err) = rs.reconstruct(parts) {
-        return Err(Error::other(err));
-    }
+    let data_parts = rs.data_shard_count();
+    let mtu = raptorq_part_length(encoded_length, data_parts);
 
-    let encoded_data = parts
+    let packets = parts
         .iter()
-        .flat_map(|option| option.as_ref().expect("Missing shard").iter())
-        .cloned()
-        .take(encoded_length)
+        .filter_map(|part| part.as_ref().map(|part| EncodingPacket::deserialize(&part)))
         .collect_vec();
 
-    T::try_from_slice(&encoded_data)
+    let config = ObjectTransmissionInformation::with_defaults(encoded_length as u64, mtu as u16);
+    let mut decoder = Decoder::new(config);
+
+    for part in packets {
+        let decoded = decoder.decode(part);
+        if decoded.is_some() {
+            let res = T::try_from_slice(decoded.unwrap().as_slice());
+            if res.is_ok() {
+                *parts = raptorq_encode(rs, res.as_ref().unwrap()).0;
+            }
+            return res;
+        }
+    }
+
+    Err(Error::other("Failed to decode part"))
+}
+
+pub fn raptorq_decode_immut<T: BorshDeserialize + BorshSerialize>(
+    rs: &ReedSolomon,
+    parts: &Vec<ReedSolomonPart>,
+    encoded_length: usize,
+) -> Result<T, Error> {
+    let data_parts = rs.data_shard_count();
+    let mtu = raptorq_part_length(encoded_length, data_parts);
+
+    let packets = parts
+        .iter()
+        .filter_map(|part| part.as_ref().map(|part| EncodingPacket::deserialize(&part)))
+        .collect_vec();
+
+    let config = ObjectTransmissionInformation::with_defaults(encoded_length as u64, mtu as u16);
+    let mut decoder = Decoder::new(config);
+
+    for part in packets {
+        let decoded = decoder.decode(part);
+        if decoded.is_some() {
+            return T::try_from_slice(decoded.unwrap().as_slice());
+        }
+    }
+
+    Err(Error::other("Failed to decode part"))
 }
 
 pub fn reed_solomon_part_length(encoded_length: usize, data_parts: usize) -> usize {
     (encoded_length + data_parts - 1) / data_parts
+}
+
+pub fn raptorq_part_length(encoded_length: usize, data_parts: usize) -> usize {
+    let mtu = (encoded_length + data_parts - 1) / data_parts;
+    mtu + 8 - mtu % 8
 }
 
 pub fn reed_solomon_num_data_parts(total_parts: usize, ratio_data_parts: f64) -> usize {
@@ -125,7 +178,7 @@ impl ReedSolomonEncoder {
         data: &T,
     ) -> (Vec<ReedSolomonPart>, usize) {
         match self.rs {
-            Some(ref rs) => reed_solomon_encode(rs, data),
+            Some(ref rs) => raptorq_encode(rs, data),
             None => {
                 let bytes = T::serialize_single_part(&data).unwrap();
                 let size = bytes.len();
@@ -134,13 +187,13 @@ impl ReedSolomonEncoder {
         }
     }
 
-    pub fn decode<T: ReedSolomonEncoderDeserialize>(
+    pub fn decode<T: ReedSolomonEncoderDeserialize + ReedSolomonEncoderSerialize>(
         &self,
-        parts: &mut [ReedSolomonPart],
+        parts: &mut Vec<ReedSolomonPart>,
         encoded_length: usize,
     ) -> Result<T, std::io::Error> {
         match self.rs {
-            Some(ref rs) => reed_solomon_decode(rs, parts, encoded_length),
+            Some(ref rs) => raptorq_decode(rs, parts, encoded_length),
             None => {
                 if parts.len() != 1 {
                     return Err(std::io::Error::other(format!(
@@ -195,7 +248,7 @@ pub enum InsertPartResult<T> {
     Decoded(std::io::Result<T>),
 }
 
-impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
+impl<T: ReedSolomonEncoderDeserialize + ReedSolomonEncoderSerialize> ReedSolomonPartsTracker<T> {
     pub fn new(encoder: Arc<ReedSolomonEncoder>, encoded_length: usize) -> Self {
         Self {
             data_parts_present: 0,
@@ -254,5 +307,137 @@ impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
         } else {
             InsertPartResult::Accepted
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
+    pub fn reed_solomon_encode<T: BorshSerialize>(
+        rs: &ReedSolomon,
+        data: &T,
+    ) -> (Vec<ReedSolomonPart>, usize) {
+        let mut bytes = borsh::to_vec(data).unwrap();
+        let encoded_length = bytes.len();
+
+        let data_parts = rs.data_shard_count();
+        let part_length = reed_solomon_part_length(encoded_length, data_parts);
+
+        // cspell:ignore b'aaabbbcccd'
+        // Pad the bytes to be a multiple of `part_length`
+        // Convert encoded data into `data_shard_count` number of parts and pad with `parity_shard_count` None values
+        // with 4 data_parts and 2 parity_parts
+        // b'aaabbbcccd' -> [Some(b'aaa'), Some(b'bbb'), Some(b'ccc'), Some(b'd00'), None, None]
+        bytes.resize(data_parts * part_length, 0);
+        let mut parts = bytes
+            .chunks_exact(part_length)
+            .map(|chunk| Some(chunk.to_vec().into_boxed_slice()))
+            .chain(itertools::repeat_n(None, rs.parity_shard_count()))
+            .collect_vec();
+
+        // Fine to unwrap here as we just constructed the parts
+        rs.reconstruct(&mut parts).unwrap();
+
+        (parts, encoded_length)
+    }
+
+    // Decode function is the reverse of encode function. It takes parts and length of encoded data
+    // and returns the deserialized object.
+    // Return an error if the reed solomon decoding fails or borsh deserialization fails.
+    pub fn reed_solomon_decode<T: BorshDeserialize>(
+        rs: &ReedSolomon,
+        parts: &mut [ReedSolomonPart],
+        encoded_length: usize,
+    ) -> Result<T, Error> {
+        if let Err(err) = rs.reconstruct(parts) {
+            return Err(Error::other(err));
+        }
+
+        let encoded_data = parts
+            .iter()
+            .flat_map(|option| option.as_ref().expect("Missing shard").iter())
+            .cloned()
+            .take(encoded_length)
+            .collect_vec();
+
+        T::try_from_slice(&encoded_data)
+    }
+
+    #[test]
+    fn test_raptorq_matches_reed_solomon_no_loss() {
+        let n = 100000;
+        let mut data = vec![];
+        for _ in 0..n {
+            data.push(rand::random::<u8>());
+        }
+
+        let rs = ReedSolomon::new(10, 6).unwrap();
+
+        let (mut parts1, encoded_length1) = reed_solomon_encode(&rs, &data);
+        let (mut parts2, encoded_length2) = raptorq_encode(&rs, &data);
+
+        assert_eq!(encoded_length1, encoded_length2);
+        assert_eq!(parts1.len(), parts2.len());
+        for (part1, part2) in parts1.iter().zip(parts2.iter()) {
+            assert!(part1.is_some());
+            assert!(part2.is_some());
+        }
+
+        let thing1 = reed_solomon_decode::<Vec<u8>>(&rs, &mut parts1, encoded_length1).unwrap();
+        let thing2 = raptorq_decode::<Vec<u8>>(&rs, &mut parts2, encoded_length2).unwrap();
+
+        assert_eq!(thing1, data);
+        assert_eq!(thing1, thing2);
+        assert_eq!(thing1.len(), data.len());
+        assert_eq!(thing2.len(), data.len());
+    }
+
+    #[test]
+    fn test_raptorq_matches_reed_solomon_with_loss() {
+        let n = 100000;
+        let mut data = vec![];
+        for _ in 0..n {
+            data.push(rand::random::<u8>());
+        }
+
+        let rs = ReedSolomon::new(10, 6).unwrap();
+
+        let (mut parts1, encoded_length1) = reed_solomon_encode(&rs, &data);
+        let (mut parts2, encoded_length2) = raptorq_encode(&rs, &data);
+
+        assert_eq!(encoded_length1, encoded_length2);
+        assert_eq!(parts1.len(), parts2.len());
+        for (part1, part2) in parts1.iter().zip(parts2.iter()) {
+            assert!(part1.is_some());
+            assert!(part2.is_some());
+        }
+
+        let loss = 6;
+        for i in 0..loss {
+            parts1[i] = None;
+            parts2[i] = None;
+        }
+
+        let thing1 = reed_solomon_decode::<Vec<u8>>(&rs, &mut parts1, encoded_length1).unwrap();
+        let thing2 = raptorq_decode::<Vec<u8>>(&rs, &mut parts2, encoded_length2).unwrap();
+
+        assert_eq!(thing1, data);
+        assert_eq!(thing1, thing2);
+        assert_eq!(thing1.len(), data.len());
+        assert_eq!(thing2.len(), data.len());
+    }
+
+    #[test]
+    fn test_1_blob_fits_in_1_part() {
+        let blob: Vec<u8> = vec![0; 1000];
+        let rs = ReedSolomon::new(1, 1).unwrap();
+        let (mut parts, encoded_length) = raptorq_encode(&rs, &blob);
+        assert_eq!(parts.len(), 2); // 1 data part and 1 parity part
+
+        parts[1] = None;
+        let res = raptorq_decode::<Vec<u8>>(&rs, &mut parts, encoded_length).unwrap();
+        assert_eq!(res, blob);
     }
 }
