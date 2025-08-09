@@ -15,6 +15,7 @@ workspace = true
 actix-rt.workspace = true
 parking_lot.workspace = true
 
+near-async.workspace = true
 near-store.workspace = true
 
 [features]

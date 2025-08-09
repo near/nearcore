@@ -4153,6 +4153,7 @@ name = "near-actix-test-utils"
 version = "0.0.0"
 dependencies = [
  "actix-rt",
+ "near-async",
  "near-store",
  "parking_lot 0.12.1",
 ]
@@ -4590,6 +4591,7 @@ dependencies = [
  "actix",
  "anyhow",
  "futures",
+ "near-async",
  "near-chain-configs",
  "near-client",
  "near-config-utils",
@@ -5053,6 +5055,7 @@ dependencies = [
  "hex",
  "insta",
  "near-account-id",
+ "near-async",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",

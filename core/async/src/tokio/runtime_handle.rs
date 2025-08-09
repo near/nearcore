@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 
 use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::messaging::Actor;
+use tokio_util::sync::CancellationToken;
 
 /// TokioRuntimeMessage is a type alias for a boxed function that can be sent to the Tokio runtime.
 pub(super) struct TokioRuntimeMessage<A> {
@@ -80,13 +81,31 @@ where
     runtime_handle.runtime.spawn(async move {
         actor.start_actor(&mut runtime_handle_clone);
         loop {
-            let Some(message) = receiver.recv().await else {
-                break;
-            };
-            tracing::debug!(target: "tokio_runtime", "Executing message: {}", message.description);
-            (message.function)(&mut actor, &mut runtime_handle_clone);
+            tokio::select! {
+                _ = GLOBAL_TOKIO_RUNTIME_SHUTDOWN_SIGNAL_FOR_LEGACY_TESTS.cancelled() => {
+                    tracing::info!(target: "tokio_runtime", "Shutting down Tokio runtime");
+                    break;
+                }
+                message = receiver.recv() => {
+                    if let Some(message) = message {
+                        tracing::debug!(target: "tokio_runtime", "Executing message: {}", message.description);
+                        (message.function)(&mut actor, &mut runtime_handle_clone);
+                    } else {
+                        tracing::warn!(target: "tokio_runtime", "Exiting event loop");
+                        break;
+                    }
+                }
+            }
         }
     });
 
     runtime_handle
 }
+
+/// TODO(#14005): We need this temporary hack to maintain compatibility with actix-based
+/// tests that rely on shutdown using "System::current().stop()", which globally stops all
+/// actix actors. But that doesn't affect tokio runtime actors, so here we have a global
+/// signal to allow these tests to still shutdown properly.
+pub static GLOBAL_TOKIO_RUNTIME_SHUTDOWN_SIGNAL_FOR_LEGACY_TESTS: std::sync::LazyLock<
+    CancellationToken,
+> = std::sync::LazyLock::new(|| CancellationToken::new());

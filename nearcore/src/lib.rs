@@ -31,9 +31,9 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
-    ChunkValidationSenderForPartialWitness, ClientActor, ConfigUpdater, PartialWitnessActor,
-    RpcHandlerActor, RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
-    ViewClientActorInner, spawn_rpc_handler_actor, start_client,
+    ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
+    RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor, ViewClientActorInner,
+    spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -64,6 +64,8 @@ mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
 pub mod state_sync;
+use near_async::tokio::TokioRuntimeHandle;
+use near_client::client_actor::ClientActorInner;
 #[cfg(feature = "tx_generator")]
 use near_transactions_generator::actix_actor::TxGeneratorActor;
 
@@ -217,7 +219,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 }
 
 pub struct NearNode {
-    pub client: Addr<ClientActor>,
+    pub client: TokioRuntimeHandle<ClientActorInner>,
     pub view_client: Addr<ViewClientActor>,
     // TODO(darioush): Remove once we migrate `slow_test_state_sync_headers` and
     // `slow_test_state_sync_headers_no_tracked_shards` to testloop.
@@ -433,7 +435,6 @@ pub fn start_with_config_and_synchronization(
     let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone()));
     let StartClientResult {
         client_actor,
-        client_arbiter_handle,
         tx_pool,
         chunk_endorsement_tracker,
         chunk_validation_actor,
@@ -567,7 +568,6 @@ pub fn start_with_config_and_synchronization(
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
     let mut arbiters = vec![
-        client_arbiter_handle,
         shards_manager_arbiter_handle,
         trie_metrics_arbiter,
         state_snapshot_arbiter,
