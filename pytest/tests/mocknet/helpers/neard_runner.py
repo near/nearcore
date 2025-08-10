@@ -399,27 +399,26 @@ class NeardRunner:
 
     def reset_starting_data_dir(self):
         self.remove_data_dir()
-        if not self.legacy_records:
-            cmd = [
-                self.data['binaries'][0]['system_path'],
-                '--home',
-                self.setup_path(),
-                'database',
-                'run-migrations',
-            ]
-            logging.info(f'running {" ".join(cmd)}')
-            self.execute_neard_subcmd(cmd)
-            cmd = [
-                self.data['binaries'][0]['system_path'],
-                '--home',
-                self.setup_path(),
-                'database',
-                'make-snapshot',
-                '--destination',
-                self.target_near_home_path(),
-            ]
-            logging.info(f'running {" ".join(cmd)}')
-            self.execute_neard_subcmd(cmd)
+        cmd = [
+            self.data['binaries'][0]['system_path'],
+            '--home',
+            self.setup_path(),
+            'database',
+            'run-migrations',
+        ]
+        logging.info(f'running {" ".join(cmd)}')
+        self.execute_neard_subcmd(cmd)
+        cmd = [
+            self.data['binaries'][0]['system_path'],
+            '--home',
+            self.setup_path(),
+            'database',
+            'make-snapshot',
+            '--destination',
+            self.target_near_home_path(),
+        ]
+        logging.info(f'running {" ".join(cmd)}')
+        self.execute_neard_subcmd(cmd)
 
     def move_init_files(self):
         try:
