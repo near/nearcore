@@ -18,7 +18,6 @@ def get_available_test_cases_impl():
                     test_cases[name] = obj
     return test_cases
 
-
 def get_test_case(test_case_name, args):
     """
     Get a test case instance by name.
