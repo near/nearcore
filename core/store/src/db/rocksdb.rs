@@ -533,6 +533,8 @@ fn common_rocksdb_options() -> Options {
     opts.set_bytes_per_sync(bytesize::MIB);
     // Sync WAL roughly every 1 MiB to smooth I/O and reduce latency spikes from large fsync bursts
     opts.set_wal_bytes_per_sync(bytesize::MIB);
+    // Reduce write stall latency by enabling pipelined write path
+    opts.set_enable_pipelined_write(true);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
 
@@ -634,6 +636,8 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
 
     // Larger target file size reduces number of files and compactions
     opts.set_target_file_size_base(128 * bytesize::MIB);
+    // Help compaction read sequentially by adding readahead on the device
+    opts.set_compaction_readahead_size(4 * bytesize::MIB as usize);
     if temp == Temperature::Hot && col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
