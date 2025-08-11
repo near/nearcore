@@ -259,9 +259,7 @@ impl ForkNetworkCommand {
                     if let Some(file) = shard_layout_file {
                         ShardLayoutOverride::UseShardLayoutFromFile(file.clone())
                     } else if let Some(protocol_version) = shard_layout_protocol_version {
-                        ShardLayoutOverride::UseShardLayoutFromProtocolVersion(
-                            protocol_version.clone(),
-                        )
+                        ShardLayoutOverride::UseShardLayoutFromProtocolVersion(*protocol_version)
                     } else {
                         ShardLayoutOverride::NoOverride
                     }
