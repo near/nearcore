@@ -85,12 +85,12 @@ enum SubCommand {
 
 #[derive(clap::Parser)]
 struct InitCmd {
-    /// Shard layout override option. Available options:
-    /// - no_override: Use the shard layout from the source chain
-    /// - file:<path>: Use the shard layout defined in the given file
-    /// - pv:<version>: Use the shard layout from the given protocol version
-    #[clap(long, value_parser = parse_shard_override, default_value = "no_override")]
-    pub shard_layout_override: ShardLayoutOverride,
+    /// If given, the shard layout in this file will be used to generate the forked genesis state
+    #[arg(short = 'f', long, conflicts_with = "shard_layout_protocol_version")]
+    pub shard_layout_file: Option<PathBuf>,
+    /// Shard layout protocol version. If given, the shard layout from the given protocol version will be used to generate the forked genesis state
+    #[arg(short = 'p', long)]
+    pub shard_layout_protocol_version: Option<ProtocolVersion>,
 }
 
 #[derive(Clone, Debug)]
@@ -98,30 +98,6 @@ enum ShardLayoutOverride {
     NoOverride,
     UseShardLayoutFromFile(PathBuf),
     UseShardLayoutFromProtocolVersion(ProtocolVersion),
-}
-
-// Custom parser for the enum because some variants carry data.
-fn parse_shard_override(s: &str) -> Result<ShardLayoutOverride, String> {
-    // Expected formats:
-    // no_override
-    // file:path/to/file
-    // protocol-version:42
-
-    let lower = s.to_lowercase();
-    if lower == "no_override" {
-        Ok(ShardLayoutOverride::NoOverride)
-    } else if lower.starts_with("file:") {
-        let path = s["file:".len()..].to_string();
-        Ok(ShardLayoutOverride::UseShardLayoutFromFile(PathBuf::from(path)))
-    } else if lower.starts_with("pv:") {
-        let ver_str = &s["pv:".len()..];
-        let ver = ver_str
-            .parse::<ProtocolVersion>()
-            .map_err(|e| format!("Invalid protocol version: {}", e))?;
-        Ok(ShardLayoutOverride::UseShardLayoutFromProtocolVersion(ver))
-    } else {
-        Err(format!("Invalid shard layout override: {}", s))
-    }
 }
 
 #[derive(clap::Parser)]
@@ -278,8 +254,19 @@ impl ForkNetworkCommand {
         near_config.config.store.disable_state_snapshot();
 
         match &self.command {
-            SubCommand::Init(InitCmd { shard_layout_override }) => {
-                self.init(near_config, home_dir, shard_layout_override)?;
+            SubCommand::Init(InitCmd { shard_layout_file, shard_layout_protocol_version }) => {
+                let shard_layout_override = {
+                    if let Some(file) = shard_layout_file {
+                        ShardLayoutOverride::UseShardLayoutFromFile(file.clone())
+                    } else if let Some(protocol_version) = shard_layout_protocol_version {
+                        ShardLayoutOverride::UseShardLayoutFromProtocolVersion(
+                            protocol_version.clone(),
+                        )
+                    } else {
+                        ShardLayoutOverride::NoOverride
+                    }
+                };
+                self.init(near_config, home_dir, &shard_layout_override)?;
             }
             SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size }) => {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
