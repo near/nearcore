@@ -257,7 +257,7 @@ impl TrieUpdate {
     /// in any other way as desired.
     #[tracing::instrument(
         level = "debug",
-        target = "store::trie",
+        target = "chain",
         "TrieUpdate::finalize",
         skip_all,
         fields(committed.len = self.committed.len())
