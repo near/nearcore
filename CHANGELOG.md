@@ -8,6 +8,13 @@
 ### Non-protocol Changes
 **No Changes**
 
+## [2.8.0]
+
+### Protocol Changes
+* Increased validators number to 500 and validator mandates per shard to 105: [#14033](https://github.com/near/nearcore/pull/14033)
+
+### Non-protocol Changes
+
 ## [2.7.0]
 
 ### Protocol Changes
