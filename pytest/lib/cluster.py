@@ -766,9 +766,6 @@ class GCloudNode(BaseNode):
                 # aggregated_list returns (zone_name, zone_data) tuples
                 if hasattr(zone_data, 'instances') and zone_data.instances:
                     for instance in zone_data.instances:
-                        logger.info(
-                            f"Found instance: {instance.name} in zone: {zone_name}"
-                        )
                         machine = Machine(
                             name=instance.name,
                             provider=gcloud.gcloud_provider,
