@@ -280,6 +280,7 @@
         "QUIC",
         "RAII",
         "RCPTS",
+        "readahead",
         "readwrite",
         "rebalance",
         "rebalances",
