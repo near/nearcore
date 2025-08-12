@@ -16,7 +16,7 @@ jobs:
       - name: Install jq json processor
         run: sudo apt-get update && sudo apt-get install jq
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Install all the required tools
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
