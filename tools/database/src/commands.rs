@@ -7,7 +7,7 @@ use crate::analyze_high_load::HighLoadStatsCommand;
 use crate::compact::RunCompactionCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
-use crate::memtrie::{FindCoundaryAccountCommand, LoadMemTrieCommand, SplitShardTrieCommand};
+use crate::memtrie::{FindBoundaryAccountCommand, LoadMemTrieCommand, SplitShardTrieCommand};
 use crate::run_migrations::RunMigrationsCommand;
 use crate::set_version::SetVersionCommand;
 use crate::state_perf::StatePerfCommand;
@@ -56,7 +56,7 @@ enum SubCommand {
     /// RAM usage of the child shards.
     SplitShardTrie(SplitShardTrieCommand),
     /// Find a split account for the given shard based on `memory_usage` stored in trie nodes.
-    FindBoundaryAccount(FindCoundaryAccountCommand),
+    FindBoundaryAccount(FindBoundaryAccountCommand),
 
     /// Write CryptoHash to DB
     WriteCryptoHash(WriteCryptoHashCommand),

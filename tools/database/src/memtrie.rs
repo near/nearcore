@@ -276,12 +276,12 @@ impl<'a, 'b> MemtrieSizeCalculator<'a, 'b> {
 }
 
 #[derive(clap::Parser)]
-pub struct FindCoundaryAccountCommand {
+pub struct FindBoundaryAccountCommand {
     #[clap(long, help = "ID of the shard to split")]
     shard_uid: ShardUId,
 }
 
-impl FindCoundaryAccountCommand {
+impl FindBoundaryAccountCommand {
     pub fn run(
         &self,
         home: &Path,
