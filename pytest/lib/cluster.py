@@ -778,7 +778,6 @@ class GCloudNode(BaseNode):
                     instances.append(
                         GCloudNode(machine).with_instance_info(instance))
 
-
         logger.info(
             f"Found {len(instances)} instances with mocknet_id={mocknet_id}")
         return instances
