@@ -206,9 +206,7 @@ impl From<&VerifyingKey> for VerifyingKeyInternal {
         let compressed_bytes = verifying_key.as_bytes();
         let compressed_point = CompressedEdwardsY::from_slice(compressed_bytes)
             .expect("VerifyingKey should always be a valid compressed point");
-        let point = compressed_point
-            .decompress()
-            .expect("VerifyingKey should always be a valid compressed point");
+        let point = verifying_key.to_edwards();
         Self { compressed: compressed_point, point }
     }
 }
