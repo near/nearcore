@@ -1704,7 +1704,11 @@ impl Trie {
     /// constructed afterward. This is needed because memtries are not
     /// thread-safe.
     pub fn lock_for_iter(&self) -> TrieWithReadLock<'_> {
-        TrieWithReadLock { trie: self, memtries: self.memtries.as_ref().map(|m| m.read()) }
+        TrieWithReadLock { trie: self, memtries: self.lock_memtries() }
+    }
+
+    pub fn lock_memtries(&self) -> Option<RwLockReadGuard<'_, MemTries>> {
+        self.memtries.as_ref().map(|m| m.read())
     }
 
     /// Splits the trie, separating entries by the boundary account.

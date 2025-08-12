@@ -251,3 +251,22 @@ impl TrieSplit {
 pub fn find_trie_split<M: ArenaMemory>(trie_ptr: MemTrieNodePtr<M>) -> TrieSplit {
     TrieDescent::new(trie_ptr).find_mem_usage_split()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn middle_child() {
+        let children_mem_usage = [0u64; NUM_CHILDREN];
+        let threshold = 10;
+        assert_eq!(find_middle_child(&children_mem_usage, threshold), None);
+
+        let children_mem_usage = [100u64; NUM_CHILDREN];
+        let threshold = 2000;
+        assert_eq!(find_middle_child(&children_mem_usage, threshold), None);
+
+        let threshold = 1050;
+        assert_eq!(find_middle_child(&children_mem_usage, threshold), Some((10, 1000)));
+    }
+}
