@@ -87,11 +87,16 @@ impl<'a> PrepareContext<'a> {
                 }
                 wp::Payload::MemorySection(reader) => {
                     // We do not want to include the implicit memory anymore as we normalized it by
-                    // importing the memory instead.
+                    // importing the memory instead in NearVm.
                     self.ensure_import_section();
                     self.validator
                         .memory_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
+                    if self.config.vm_kind == VMKind::Wasmtime {
+                        wasm_encoder::MemorySection::new()
+                            .memory(self.memory_type())
+                            .append_to(&mut self.output_code);
+                    }
                 }
                 wp::Payload::GlobalSection(reader) => {
                     self.ensure_import_section();
@@ -225,7 +230,9 @@ impl<'a> PrepareContext<'a> {
             };
             new_section.import(import.module, import.name, new_type);
         }
-        new_section.import("env", "memory", self.memory_import());
+        if self.config.vm_kind != VMKind::Wasmtime {
+            new_section.import("env", "memory", self.memory_type());
+        }
         // wasm_encoder a section with all imports and the imported standardized memory.
         new_section.append_to(&mut self.output_code);
         Ok(())
@@ -235,20 +242,22 @@ impl<'a> PrepareContext<'a> {
         if self.before_import_section {
             self.before_import_section = false;
             let mut new_section = wasm_encoder::ImportSection::new();
-            new_section.import("env", "memory", self.memory_import());
+            if self.config.vm_kind != VMKind::Wasmtime {
+                new_section.import("env", "memory", self.memory_type());
+            }
             // wasm_encoder a section with all imports and the imported standardized memory.
             new_section.append_to(&mut self.output_code);
         }
     }
 
-    fn memory_import(&self) -> wasm_encoder::EntityType {
-        wasm_encoder::EntityType::Memory(wasm_encoder::MemoryType {
+    fn memory_type(&self) -> wasm_encoder::MemoryType {
+        wasm_encoder::MemoryType {
             minimum: u64::from(self.config.limit_config.initial_memory_pages),
             maximum: Some(u64::from(self.config.limit_config.max_memory_pages)),
             memory64: false,
             shared: false,
             page_size_log2: None,
-        })
+        }
     }
 
     fn copy_section(
