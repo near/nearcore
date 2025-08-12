@@ -191,9 +191,11 @@ impl<'a, M: ArenaMemory> TrieDescent<'a, M> {
         self.middle_memory = middle_child_memory;
 
         // Update descent stages for all subtrees
+        let middle_child = middle_child as u8;
         let subtree_stages = std::mem::take(&mut self.subtree_stages);
         self.subtree_stages =
-            subtree_stages.into_iter().map(|subtree| subtree.descend(middle_child as u8)).collect();
+            subtree_stages.into_iter().map(|subtree| subtree.descend(middle_child)).collect();
+        self.nibbles.push(middle_child);
     }
 }
 
