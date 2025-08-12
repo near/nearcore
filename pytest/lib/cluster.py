@@ -729,6 +729,7 @@ class LocalNode(BaseNode):
 class GCloudNode(BaseNode):
 
     @staticmethod
+    @retry(wait_fixed=500, stop_max_attempt_number=6)
     def get_nodes_by_mocknet_id(mocknet_id,
                                 project,
                                 username,
@@ -756,30 +757,26 @@ class GCloudNode(BaseNode):
             project=project, filter=f'labels.mocknet_id={mocknet_id}')
 
         instances = []
-        try:
-            logger.info(
-                f"Searching for instances with mocknet_id={mocknet_id} in project={project} (all zones)"
-            )
 
-            # Use the aggregated list iterator to handle pagination automatically
-            for zone_name, zone_data in client.aggregated_list(request=request):
-                # aggregated_list returns (zone_name, zone_data) tuples
-                if hasattr(zone_data, 'instances') and zone_data.instances:
-                    for instance in zone_data.instances:
-                        machine = Machine(
-                            name=instance.name,
-                            provider=gcloud.gcloud_provider,
-                            ip=instance.network_interfaces[0].access_configs[0].
-                            nat_i_p if instance.network_interfaces else None,
-                            username=username,
-                            project=project,
-                            ssh_key_path=ssh_key_path)
-                        instances.append(
-                            GCloudNode(machine).with_instance_info(instance))
-        except Exception as e:
-            logger.error(
-                f"Failed to list instances with mocknet_id {mocknet_id}: {e}")
-            return []
+        logger.info(
+            f"Searching for instances with mocknet_id={mocknet_id} in project={project} (all zones)"
+        )
+
+        # Use the aggregated list iterator to handle pagination automatically
+        for zone_name, zone_data in client.aggregated_list(request=request):
+            # aggregated_list returns (zone_name, zone_data) tuples
+            if hasattr(zone_data, 'instances') and zone_data.instances:
+                for instance in zone_data.instances:
+                    machine = Machine(
+                        name=instance.name,
+                        provider=gcloud.gcloud_provider,
+                        ip=instance.network_interfaces[0].access_configs[0].
+                        nat_i_p if instance.network_interfaces else None,
+                        username=username,
+                        project=project,
+                        ssh_key_path=ssh_key_path)
+                    instances.append(
+                        GCloudNode(machine).with_instance_info(instance))
 
         logger.info(
             f"Found {len(instances)} instances with mocknet_id={mocknet_id}")
