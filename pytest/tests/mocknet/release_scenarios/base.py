@@ -61,8 +61,10 @@ class TestSetup:
         hard_reset_cmd(CommandContext(init_args))
 
         # Traffic node should always run the latest binary to avoid restarting it.
-        if self.neard_upgrade_binary_url != '':
-            logger.info(f"Amending binaries on traffic node.")
+        if self.neard_upgrade_binary_url is not None and self.neard_upgrade_binary_url != '':
+            logger.info(
+                f"Amending binaries on traffic node with url: {self.neard_upgrade_binary_url}"
+            )
             amend_binaries_args = copy.deepcopy(self.args)
             amend_binaries_args.binary_idx = 0
             amend_binaries_args.epoch_height = None

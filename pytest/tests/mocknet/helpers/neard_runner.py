@@ -692,7 +692,11 @@ class NeardRunner:
             logging.error(
                 f'Update binaries failed. Wrong params: url: {neard_binary_url}, height:{epoch_height}, idx:{binary_idx}'
             )
-            raise jsonrpc.exceptions.JSONRPCInvalidParams()
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32602,
+                message=
+                f'Invalid binary params: url: {neard_binary_url}, height:{epoch_height}, idx:{binary_idx}'
+            )
 
         if 'binaries' not in self.config:
             self.config['binaries'] = []
