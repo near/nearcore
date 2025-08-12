@@ -531,6 +531,10 @@ fn common_rocksdb_options() -> Options {
     opts.set_use_fsync(false);
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
+    // Sync WAL roughly every 1 MiB to smooth I/O and reduce latency spikes from large fsync bursts
+    opts.set_wal_bytes_per_sync(bytesize::MIB);
+    // Reduce write stall latency by enabling pipelined write path
+    opts.set_enable_pipelined_write(true);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
 
@@ -620,10 +624,20 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     // the rest use LZ4 compression.
     // See the implementation here:
     //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
-    let memtable_memory_budget = 128 * bytesize::MIB as usize;
+    // Increase memory budget to reduce flush/compaction frequency under heavy write load
+    let memtable_memory_budget = 1024 * bytesize::MIB as usize;
     opts.optimize_level_style_compaction(memtable_memory_budget);
+    // Relax L0 triggers so background compaction interferes less with foreground writes
+    opts.set_level_zero_file_num_compaction_trigger(8);
+    opts.set_level_zero_slowdown_writes_trigger(32);
+    opts.set_level_zero_stop_writes_trigger(64);
+    // Allow more memtables in flight to absorb bursts
+    opts.set_max_write_buffer_number(8);
 
-    opts.set_target_file_size_base(64 * bytesize::MIB);
+    // Larger target file size reduces number of files and compactions
+    opts.set_target_file_size_base(128 * bytesize::MIB);
+    // Help compaction read sequentially by adding readahead on the device
+    opts.set_compaction_readahead_size(4 * bytesize::MIB as usize);
     if temp == Temperature::Hot && col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
