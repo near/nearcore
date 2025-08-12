@@ -328,6 +328,7 @@ pub fn safe_verify_batch(
         internal_signatures.push(InternalSignature::try_from(signature)?);
     }
 
+    let Rs: Vec<_> = internal_signatures.iter().map(|sig| sig.R.decompress()).collect();
     // perform extra checks as safe_verify
     // these checks are performed at this point (not earlier) for efficiency
     // performing the checks earlier do not impact the correctness or security
@@ -342,11 +343,7 @@ pub fn safe_verify_batch(
             return Err(InternalError::Verify.into());
         };
 
-        // not too efficient decompression as this is called twice in this function
-        let signature_R = internal_signatures[i]
-            .R
-            .decompress()
-            .ok_or_else(|| SignatureError::from(InternalError::Verify))?;
+        let signature_R = Rs[i].ok_or_else(|| SignatureError::from(InternalError::Verify))?;
         // check public key is not of low order
         if signature_R.is_small_order() || verifying_keys[i].is_weak() {
             // for an extra optimization comment out the previous line and uncomment the next line
@@ -378,7 +375,6 @@ pub fn safe_verify_batch(
     // Convert the H(R || A || M) values into scalars
     let hrams: Vec<Scalar> = hrams.iter().map(Scalar::from_bytes_mod_order_wide).collect();
 
-    let Rs = internal_signatures.iter().map(|sig| sig.R.decompress());
     let As = verifying_keys.iter().map(|pk| Some(pk.point));
     let B = once(Some(constants::ED25519_BASEPOINT_POINT));
 
