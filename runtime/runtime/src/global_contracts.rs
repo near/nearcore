@@ -12,6 +12,7 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
+use near_store::state_update::StateUpdateOperation;
 use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, StorageError, TrieAccess as _, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
@@ -60,7 +61,7 @@ pub(crate) fn action_deploy_global_contract(
 }
 
 pub(crate) fn action_use_global_contract(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     account_id: &AccountId,
     account: &mut Account,
     action: &UseGlobalContractAction,
@@ -69,7 +70,7 @@ pub(crate) fn action_use_global_contract(
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
     let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
-    if !state_update.contains_key(&key, AccessOptions::DEFAULT)? {
+    if !state_update.contains_key(&key)? {
         result.result = Err(ActionErrorKind::GlobalContractDoesNotExist {
             identifier: action.contract_identifier.clone(),
         }
@@ -107,7 +108,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     receipt: &Receipt,
     apply_state: &ApplyState,
     epoch_info_provider: &dyn EpochInfoProvider,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     receipt_sink: &mut ReceiptSink,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(
@@ -196,7 +197,7 @@ fn forward_distribution_next_shard(
     global_contract_data: &GlobalContractDistributionReceipt,
     apply_state: &ApplyState,
     epoch_info_provider: &dyn EpochInfoProvider,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     receipt_sink: &mut ReceiptSink,
 ) -> Result<(), RuntimeError> {
     let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;

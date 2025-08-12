@@ -9,8 +9,9 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfo
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
+use near_store::state_update::StateUpdateOperation;
 use near_store::trie::{AccessOptions, AccessTracker};
-use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
+use near_store::{KeyLookupMode, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
     GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
@@ -25,7 +26,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub struct RuntimeExt<'a> {
-    pub(crate) trie_update: &'a mut TrieUpdate,
+    pub(crate) update_op: &'a mut StateUpdateOperation<'a>,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
     account_id: AccountId,
     account: Account,
@@ -81,7 +82,7 @@ impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
 
 impl<'a> RuntimeExt<'a> {
     pub fn new(
-        trie_update: &'a mut TrieUpdate,
+        update_op: &'a mut StateUpdateOperation<'a>,
         receipt_manager: &'a mut ReceiptManager,
         account_id: AccountId,
         account: Account,
@@ -94,7 +95,7 @@ impl<'a> RuntimeExt<'a> {
         trie_access_tracker_state: Arc<AccountingState>,
     ) -> Self {
         RuntimeExt {
-            trie_update,
+            update_op,
             receipt_manager,
             account_id,
             account,
@@ -156,8 +157,10 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         let options = AccessOptions::contract_runtime(&self.trie_access_tracker);
         let evicted_ptr = self
-            .trie_update
-            .get_ref(&storage_key, KeyLookupMode::MemOrTrie, options)
+            .update_op
+            .get_ref_or(storage_key, |t, k| {
+                t.get_optimized_ref(&k.to_vec(), KeyLookupMode::MemOrTrie, options)
+            })
             .map_err(wrap_storage_error)?;
         let evicted = match evicted_ptr {
             None => None,
@@ -178,7 +181,7 @@ impl<'a> External for RuntimeExt<'a> {
             tn_mem_reads = _delta.mem_reads,
             tn_db_reads = _delta.db_reads,
         );
-        self.trie_update.set(storage_key, Vec::from(value));
+        self.update_op.set(storage_key, Vec::from(value));
         Ok(evicted)
     }
 
@@ -197,8 +200,8 @@ impl<'a> External for RuntimeExt<'a> {
         // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
         // fail for the evicted values, this will record the TTN fees unconditionally.
         let result = self
-            .trie_update
-            .get_ref(&storage_key, mode, deref_options)
+            .update_op
+            .get_ref_or(storage_key, |t, k| t.get_optimized_ref(&k.to_vec(), mode, deref_options))
             .map_err(wrap_storage_error)
             .map(|option| {
                 option.map(|value_ptr| {
@@ -241,8 +244,10 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         let options = AccessOptions::contract_runtime(&self.trie_access_tracker);
         let removed = self
-            .trie_update
-            .get_ref(&storage_key, KeyLookupMode::MemOrTrie, options)
+            .update_op
+            .get_ref_or(storage_key.clone(), |t, k| {
+                t.get_optimized_ref(&k.to_vec(), KeyLookupMode::MemOrTrie, options)
+            })
             .map_err(wrap_storage_error)?;
         let removed = match removed {
             None => None,
@@ -251,7 +256,7 @@ impl<'a> External for RuntimeExt<'a> {
                 Some(ptr.deref_value(options).map_err(wrap_storage_error)?)
             }
         };
-        self.trie_update.remove(storage_key);
+        self.update_op.remove(storage_key);
         let _delta =
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
         #[cfg(feature = "io_trace")]
@@ -278,9 +283,16 @@ impl<'a> External for RuntimeExt<'a> {
             StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
             StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
         };
+        // FIXME: why isn't this using contains_key??
         let result = self
-            .trie_update
-            .get_ref(&storage_key, mode, AccessOptions::contract_runtime(&self.trie_access_tracker))
+            .update_op
+            .get_ref_or(storage_key, |t, k| {
+                t.get_optimized_ref(
+                    &k.to_vec(),
+                    mode,
+                    AccessOptions::contract_runtime(&self.trie_access_tracker),
+                )
+            })
             .map(|x| x.is_some())
             .map_err(wrap_storage_error);
         let _delta =
@@ -312,7 +324,7 @@ impl<'a> External for RuntimeExt<'a> {
         // so we use the `upper_bound` version to estimate how much storage proof
         // could've been generated by the receipt. As long as upper bound is
         // under the limit we can be sure that the actual value is also under the limit.
-        self.trie_update.trie().recorded_storage_size_upper_bound()
+        self.update_op.trie().recorded_storage_size_upper_bound()
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
@@ -354,9 +366,9 @@ impl<'a> External for RuntimeExt<'a> {
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError> {
         // If the yielded promise was created by a previous transaction, we'll find it in the trie
-        if has_promise_yield_receipt(self.trie_update, self.account_id.clone(), data_id)
-            .map_err(wrap_storage_error)?
-        {
+        let receiver_id = self.account_id.clone();
+        let key = TrieKey::PromiseYieldReceipt { receiver_id, data_id };
+        if self.update_op.contains_key(&key) {
             self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
             return Ok(true);
         }

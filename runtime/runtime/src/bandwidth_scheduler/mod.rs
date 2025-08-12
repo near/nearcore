@@ -9,6 +9,7 @@ use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex, StateChangeCause};
+use near_store::state_update::{StateUpdate, StateUpdateOperation};
 use near_store::{TrieUpdate, get_bandwidth_scheduler_state, set_bandwidth_scheduler_state};
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
@@ -45,7 +46,7 @@ impl BandwidthSchedulerOutput {
 /// of outgoing receipts can be sent between shards at the current height.
 pub fn run_bandwidth_scheduler(
     apply_state: &ApplyState,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     epoch_info_provider: &dyn EpochInfoProvider,
     stats: &mut BandwidthSchedulerStats,
 ) -> Result<BandwidthSchedulerOutput, RuntimeError> {

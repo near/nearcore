@@ -14,8 +14,9 @@ use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Gas};
 use near_store::contract::ContractStorage;
+use near_store::state_update::StateUpdateOperation;
 use near_store::trie::AccessOptions;
-use near_store::{KeyLookupMode, TrieUpdate, get_pure};
+use near_store::KeyLookupMode;
 use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
@@ -115,7 +116,7 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn submit(
         &mut self,
         receipt: &Receipt,
-        state_update: &TrieUpdate,
+        state_update: &StateUpdateOperation,
         view_config: Option<ViewConfig>,
     ) -> bool {
         let account_id = receipt.receiver_id();
@@ -146,7 +147,7 @@ impl ReceiptPreparationPipeline {
                         account
                     } else {
                         let key = TrieKey::Account { account_id: account_id.clone() };
-                        let Ok(Some(receiver)) = get_pure::<Account>(state_update, &key) else {
+                        let Some(receiver) = state_update.get_pure::<Account>(&key) else {
                             // Most likely reason this can happen is because the receipt is for
                             // an account that does not yet exist. This is a routine occurrence
                             // as accounts are created by sending some NEAR to a name that's

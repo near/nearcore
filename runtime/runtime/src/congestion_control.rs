@@ -16,6 +16,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
+use near_store::state_update::StateUpdateOperation;
 use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
@@ -162,7 +163,7 @@ impl ReceiptSink {
         &mut self,
         receipt: Receipt,
         apply_state: &ApplyState,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
     ) -> Result<(), RuntimeError> {
         match self {
             ReceiptSink::V2(sink_with_info) => {
@@ -820,7 +821,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
 
     pub(crate) fn push(
         &mut self,
-        trie_update: &mut TrieUpdate,
+        update_op: &mut StateUpdateOperation,
         receipt: &Receipt,
         apply_state: &ApplyState,
     ) -> Result<(), RuntimeError> {

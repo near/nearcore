@@ -12,12 +12,14 @@ use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+    ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
+    ReceiptPriority, ReceiptV0,
 };
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
 };
+use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
@@ -27,11 +29,8 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
-use near_store::{
-    StorageError, TrieAccess, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
-    get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
-    set_promise_yield_indices,
-};
+use near_store::StorageError;
+use near_store::state_update::StateUpdateOperation;
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
@@ -143,7 +142,7 @@ pub(crate) fn execute_function_call(
 }
 
 pub(crate) fn action_function_call(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     apply_state: &ApplyState,
     account: &mut Account,
     receipt: &Receipt,
@@ -262,7 +261,8 @@ pub(crate) fn action_function_call(
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
         // Fetch metadata for PromiseYield timeout queue
-        let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap_or_default();
+        let mut promise_yield_indices =
+            state_update.get(TrieKey::PromiseYieldIndices)?.cloned().unwrap_or_default();
         let initial_promise_yield_indices = promise_yield_indices.clone();
 
         let mut new_receipts: Vec<_> = receipt_manager
@@ -271,14 +271,16 @@ pub(crate) fn action_function_call(
             .map(|receipt| {
                 // If the newly created receipt is a PromiseYield, enqueue a timeout for it
                 if receipt.is_promise_yield {
-                    enqueue_promise_yield_timeout(
-                        state_update,
-                        &mut promise_yield_indices,
-                        account_id.clone(),
-                        receipt.input_data_ids[0],
-                        apply_state.block_height
-                            + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
-                    );
+                    let account_id = account_id.clone();
+                    let data_id = receipt.input_data_ids[0];
+                    let expires_at = apply_state.block_height
+                                            + config.wasm_config.limit_config.yield_timeout_length_in_blocks;
+                    let key = TrieKey::PromiseYieldTimeout { index: promise_yield_indices.next_available_index };
+                    state_update.set(key, PromiseYieldTimeout { account_id, data_id, expires_at });
+                    promise_yield_indices.next_available_index = promise_yield_indices
+                        .next_available_index
+                        .checked_add(1)
+                        .expect("Next available index for PromiseYield timeout queue exceeded the integer limit");
                 }
 
                 let new_action_receipt = ActionReceipt {
@@ -325,9 +327,8 @@ pub(crate) fn action_function_call(
 
         // Commit metadata for yielded promises queue
         if promise_yield_indices != initial_promise_yield_indices {
-            set_promise_yield_indices(state_update, &promise_yield_indices);
+            state_update.set(TrieKey::PromiseYieldIndices, promise_yield_indices);
         }
-
         account.set_amount(outcome.balance);
         account.set_storage_usage(outcome.storage_usage);
         result.result = Ok(outcome.return_data);
@@ -392,12 +393,13 @@ pub(crate) fn action_stake(
 
 /// Tries to refunds the allowance of the access key for a gas refund action.
 pub(crate) fn try_refund_allowance(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     account_id: &AccountId,
     public_key: &PublicKey,
     deposit: Balance,
 ) -> Result<(), StorageError> {
-    if let Some(mut access_key) = get_access_key(state_update, account_id, public_key)? {
+    let key = TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() };
+    if let Some(mut access_key) = state_update.get::<AccessKey>(key.clone())?.cloned() {
         let mut updated = false;
         if let AccessKeyPermission::FunctionCall(function_call_permission) =
             &mut access_key.permission
@@ -411,7 +413,7 @@ pub(crate) fn try_refund_allowance(
             }
         }
         if updated {
-            set_access_key(state_update, account_id.clone(), public_key.clone(), &access_key);
+            state_update.set(key, access_key);
         }
     }
     Ok(())
@@ -471,7 +473,7 @@ pub(crate) fn action_create_account(
 
 /// Can only be used for implicit accounts.
 pub(crate) fn action_implicit_account_creation_transfer(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     apply_state: &ApplyState,
     fee_config: &RuntimeFeesConfig,
     account: &mut Option<Account>,
@@ -502,8 +504,8 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + borsh::object_length(&access_key).unwrap() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record,
             ));
-
-            set_access_key(state_update, account_id.clone(), public_key, &access_key);
+            let key = TrieKey::AccessKey { account_id: account_id.clone(), public_key };
+            state_update.set(key, access_key);
         }
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
@@ -526,7 +528,10 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 AccountContract::from_local_code_hash(contract_hash),
                 storage_usage,
             ));
-            state_update.set_code(account_id.clone(), &magic_bytes);
+            state_update.set(
+                TrieKey::ContractCode { account_id: account_id.clone() },
+                magic_bytes.code().to_vec(),
+            );
 
             // Precompile Wallet Contract and store result (compiled code or error) in the database.
             // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
@@ -545,7 +550,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
 }
 
 pub(crate) fn action_deploy_contract(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
@@ -570,12 +575,13 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_contract(AccountContract::Local(*code.hash()));
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
     // that the contracts are written to The State.
-    state_update.set_code(account_id.clone(), &code);
+    account.set_contract(AccountContract::Local(*code.hash()));
+    state_update
+        .set(TrieKey::ContractCode { account_id: account_id.clone() }, code.code().to_vec());
     // Precompile the contract and store result (compiled code or error) in the contract runtime
     // cache.
     // Note, that contract compilation costs are already accounted in deploy cost using special
@@ -589,7 +595,7 @@ pub(crate) fn action_deploy_contract(
 }
 
 pub(crate) fn action_delete_account(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
@@ -628,7 +634,14 @@ pub(crate) fn action_delete_account(
             ReceiptPriority::NoPriority,
         ));
     }
-    remove_account(state_update, account_id)?;
+    state_update.remove(TrieKey::Account { account_id: account_id.clone() });
+    state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+    state_update.remove_prefix(near_store::state_update::TrieKeyPrefix::AccessKey {
+        account_id: account_id.clone(),
+    });
+    state_update.remove_prefix(near_store::state_update::TrieKeyPrefix::ContractData {
+        account_id: account_id.clone(),
+    });
     *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())
@@ -641,17 +654,29 @@ pub(crate) fn action_delete_account(
 /// If `ExcludeExistingCodeFromWitnessForCodeLen` is enabled then the code-length is obtained without reading
 /// the code but from the value-ref in the trie leaf node, otherwise it reads the code and returns its size.
 fn get_code_len_or_default(
-    state_update: &TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     account_id: AccountId,
     code_hash: CryptoHash,
     protocol_version: ProtocolVersion,
 ) -> Result<StorageUsage, StorageError> {
+    let key = TrieKey::ContractCode { account_id };
     let code_len =
         if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(protocol_version) {
-            state_update.get_code_len(account_id, code_hash)?
+            state_update.get_ref(key)?.map(|code_ref| {
+                debug_assert_eq!(
+                    code_hash,
+                    code_ref.value_hash(),
+                    "Code-hash in trie does not match code-hash in account"
+                );
+                code_ref.len()
+            })
         } else {
+<<<<<<< HEAD
             let key = near_primitives::trie_key::TrieKey::ContractCode { account_id };
             state_update.get(&key, AccessOptions::DEFAULT)?.map(|code| code.len())
+=======
+            state_update.get::<Vec<u8>>(key)?.map(|code| code.len())
+>>>>>>> 9920e6eed (wip)
         };
     debug_assert!(
         code_len.is_some() || code_hash == CryptoHash::default(),
@@ -663,7 +688,7 @@ fn get_code_len_or_default(
 
 /// Clears the contract storage usage based on type for an account.
 pub(crate) fn clear_account_contract_storage_usage(
-    state_update: &TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     account_id: &AccountId,
     account: &mut Account,
     current_protocol_version: ProtocolVersion,
@@ -692,20 +717,23 @@ pub(crate) fn clear_account_contract_storage_usage(
 
 pub(crate) fn action_delete_key(
     fee_config: &RuntimeFeesConfig,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
 ) -> Result<(), StorageError> {
-    let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
-    if let Some(access_key) = access_key {
+    let trie_key = TrieKey::AccessKey {
+        account_id: account_id.clone(),
+        public_key: delete_key.public_key.clone(),
+    };
+    if let Some(access_key) = state_update.get::<AccessKey>(trie_key.clone())? {
         let storage_usage_config = &fee_config.storage_usage_config;
         let storage_usage = borsh::object_length(&delete_key.public_key).unwrap() as u64
             + borsh::object_length(&access_key).unwrap() as u64
             + storage_usage_config.num_extra_bytes_record;
         // Remove access key
-        remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
+        state_update.remove(trie_key);
         account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
     } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
@@ -719,13 +747,18 @@ pub(crate) fn action_delete_key(
 
 pub(crate) fn action_add_key(
     apply_state: &ApplyState,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,
     add_key: &AddKeyAction,
 ) -> Result<(), StorageError> {
-    if get_access_key(state_update, account_id, &add_key.public_key)?.is_some() {
+    let key = TrieKey::AccessKey {
+        account_id: account_id.clone(),
+        public_key: add_key.public_key.clone(),
+    };
+    // FIXME(nagisa): this could use `contains_key`.
+    if state_update.get::<AccessKey>(key.clone())?.is_some() {
         result.result = Err(ActionErrorKind::AddKeyAlreadyExists {
             account_id: account_id.to_owned(),
             public_key: add_key.public_key.clone().into(),
@@ -736,8 +769,7 @@ pub(crate) fn action_add_key(
     let mut access_key = add_key.access_key.clone();
     access_key.nonce = (apply_state.block_height - 1)
         * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-    set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
-
+    state_update.set(key, access_key);
     let storage_config = &apply_state.config.fees.storage_usage_config;
     account.set_storage_usage(
         account
@@ -758,7 +790,7 @@ pub(crate) fn action_add_key(
 }
 
 pub(crate) fn apply_delegate_action(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     apply_state: &ApplyState,
     action_receipt: &ActionReceipt,
     sender_id: &AccountId,
@@ -857,17 +889,18 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 /// - Validates nonce and updates it if it's ok.
 /// - Validates access key permissions.
 fn validate_delegate_action_key(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
     apply_state: &ApplyState,
     delegate_action: &DelegateAction,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     // 'delegate_action.sender_id' account existence must be checked by a caller
-    let mut access_key = match get_access_key(
-        state_update,
-        &delegate_action.sender_id,
-        &delegate_action.public_key,
-    )? {
+    let key = TrieKey::AccessKey {
+        account_id: delegate_action.sender_id.clone(),
+        public_key: delegate_action.public_key.clone(),
+    };
+    let access_key = state_update.mutate::<AccessKey>(key)?;
+    let access_key = match access_key {
         Some(access_key) => access_key,
         None => {
             result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
@@ -900,8 +933,6 @@ fn validate_delegate_action_key(
         .into());
         return Ok(());
     }
-
-    access_key.nonce = delegate_action.nonce;
 
     let actions = delegate_action.get_actions();
 
@@ -956,19 +987,13 @@ fn validate_delegate_action_key(
         }
     };
 
-    set_access_key(
-        state_update,
-        delegate_action.sender_id.clone(),
-        delegate_action.public_key.clone(),
-        &access_key,
-    );
-
+    access_key.nonce = delegate_action.nonce;
     Ok(())
 }
 
 pub(crate) fn check_actor_permissions(
     action: &Action,
-    account: &Option<Account>,
+    account: Option<&Account>,
     actor_id: &AccountId,
     account_id: &AccountId,
 ) -> Result<(), ActionError> {
@@ -1098,7 +1123,10 @@ fn check_transfer_to_nonexisting_account(
 
 /// See #11703 for more details
 #[cfg(feature = "test_features")]
-fn apply_recorded_storage_garbage(function_call: &FunctionCallAction, state_update: &TrieUpdate) {
+fn apply_recorded_storage_garbage(
+    function_call: &FunctionCallAction,
+    state_update: &StateUpdateOperation,
+) {
     if let Some(garbage_size_mbs) = function_call
         .method_name
         .strip_prefix("internal_record_storage_garbage_")
