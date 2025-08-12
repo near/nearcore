@@ -9,7 +9,7 @@ rpc_url := "http://127.0.0.1:4040"
 
 init-localnet:
     rm -rf {{near_localnet_home}} && rm -rf {{near_accounts_path}}
-    {{neard}} --home {{near_localnet_home}} init --chain-id localnet --num-shards 4
+    {{neard}} --home {{near_localnet_home}} init --chain-id localnet
     jq '.chain_id="benchmarknet"' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
     jq '.rpc.addr="0.0.0.0:4040"' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
 

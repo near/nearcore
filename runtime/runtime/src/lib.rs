@@ -1617,7 +1617,7 @@ impl Runtime {
                     &apply_state.config,
                     &mut account,
                     &mut access_key,
-                    tx,
+                    &tx.transaction,
                     &cost,
                     Some(block_height),
                 ) {
