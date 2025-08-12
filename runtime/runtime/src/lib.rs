@@ -2230,6 +2230,7 @@ impl Runtime {
         processing_state: &mut ApplyProcessingReceiptState,
         receipt_sink: &mut ReceiptSink,
     ) -> Result<ProcessReceiptsResult, RuntimeError> {
+        let _span = tracing::debug_span!(target: "client", "process_receipts_all").entered();
         let mut validator_proposals = vec![];
         let apply_state = &processing_state.apply_state;
 
