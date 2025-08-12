@@ -14,6 +14,8 @@ use near_chain::chain::{
 };
 use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
+use near_chain::spice_core::CoreStatementsProcessor;
+use near_chain::spice_core::ExecutionResultEndorsed;
 use near_chain::types::ApplyChunkResult;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
@@ -59,7 +61,6 @@ use node_runtime::SignedValidPeriodTransactions;
 use tracing::instrument;
 
 use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
-use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct ChunkExecutorActor {
@@ -132,13 +133,6 @@ pub struct ExecutorIncomingReceipts {
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ProcessedBlock {
-    pub block_hash: CryptoHash,
-}
-
-/// Message that should be sent once executions results for all chunks in a block are endorsed.
-#[derive(actix::Message, Debug, Clone)]
-#[rtype(result = "()")]
-pub struct ExecutionResultEndorsed {
     pub block_hash: CryptoHash,
 }
 
@@ -233,11 +227,14 @@ impl ChunkExecutorActor {
         let store = self.chain_store.store();
         let prev_block = self.chain_store.get_block(prev_block_hash)?;
         let prev_block_is_genesis = *prev_block_hash == self.genesis_hash;
-        if !prev_block_is_genesis && !self.core_processor.all_execution_results_exist(&prev_block) {
+        if !prev_block_is_genesis
+            && !self.core_processor.all_execution_results_exist(&prev_block)?
+        {
             tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing execution results to allow validating receipts");
             return Ok(TryApplyChunksOutcome::NotReady);
         }
-        let execution_results = self.core_processor.get_execution_results_by_shard_id(&prev_block);
+        let execution_results =
+            self.core_processor.get_execution_results_by_shard_id(&prev_block)?;
 
         let mut all_receipts: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
@@ -708,6 +705,7 @@ impl ChunkExecutorActor {
             self.runtime_adapter.clone(),
             // Since we don't produce blocks, this argument is irrelevant.
             DoomslugThresholdMode::NoApprovals,
+            self.core_processor.clone(),
         )
     }
 

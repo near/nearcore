@@ -5,6 +5,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::runtime::NightshadeRuntime;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
@@ -16,7 +17,6 @@ use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
-use near_client::spice_core::CoreStatementsProcessor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig,
@@ -217,8 +217,8 @@ pub fn setup_client(
         runtime_adapter.clone(),
         epoch_manager.clone(),
         *view_client_actor.chain.genesis().hash(),
-        client_config.view_client_throttle_period,
-        client_config.view_client_num_state_requests_per_throttle_period,
+        client_config.state_request_throttle_period,
+        client_config.state_requests_per_throttle_period,
     );
 
     let head = client.chain.head().unwrap();

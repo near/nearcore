@@ -383,6 +383,34 @@ message RoutedMessage {
   uint32 num_hops = 4;
 }
 
+// Peer ID or Hash for routing messages
+message PeerIdOrHash {
+  oneof target_type {
+    PublicKey peer_id = 1;
+    CryptoHash hash = 2;
+  }
+}
+
+message RoutedMessageV3 {
+  // Peer id which is directed this message.
+  // If target is hash, this a message should be routed back.
+  PeerIdOrHash target = 1;
+  // Original sender of this message
+  PublicKey author = 2;
+  // Time to live for this message. After passing through some hop this number should be
+  // decreased by 1. If this number is 0, drop this message.
+  uint32 ttl = 3;
+  // Message body
+  bytes borsh_body = 4;
+  // Signature only for T2 messages.
+  optional Signature signature = 5;
+  // The time the Routed message was created by author.
+  optional int64 created_at = 6;
+  // Number of peers this routed message traveled through.
+  // Doesn't include the peers that are the source and the destination of the message.
+  uint32 num_hops = 7;
+}
+
 // Disconnect is send by a node before closing a TCP connection.
 // There is no guarantee that it will be sent in all circumstances.
 message Disconnect {
@@ -516,5 +544,6 @@ message PeerMessage {
     EpochSyncResponse epoch_sync_response = 35;
 
     OptimisticBlock optimistic_block = 36;
+    RoutedMessageV3 routed_v3 = 37;
   }
 }

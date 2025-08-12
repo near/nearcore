@@ -30,7 +30,6 @@ use anyhow::Context as _;
 use near_async::messaging::{SendAsync, Sender};
 use near_async::time;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_o11y::{WithSpanContext, handler_debug_span, handler_trace_span};
 use near_performance_metrics_macros::perf;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -1288,11 +1287,10 @@ impl PeerManagerActor {
     }
 }
 
-impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
+impl actix::Handler<SetChainInfo> for PeerManagerActor {
     type Result = ();
     #[perf]
-    fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
-        let (_span, SetChainInfo(info)) = handler_trace_span!(target: "network", msg);
+    fn handle(&mut self, SetChainInfo(info): SetChainInfo, ctx: &mut Self::Context) {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
         // We call self.state.set_chain_info()
@@ -1322,30 +1320,20 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     }
 }
 
-impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
+impl actix::Handler<PeerManagerMessageRequest> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
     #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<PeerManagerMessageRequest>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
+    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)
     }
 }
 
-impl actix::Handler<WithSpanContext<StateSyncEvent>> for PeerManagerActor {
+impl actix::Handler<StateSyncEvent> for PeerManagerActor {
     type Result = ();
     #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<StateSyncEvent>,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
+    fn handle(&mut self, msg: StateSyncEvent, _ctx: &mut Self::Context) -> Self::Result {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         match msg {
@@ -1356,15 +1344,10 @@ impl actix::Handler<WithSpanContext<StateSyncEvent>> for PeerManagerActor {
     }
 }
 
-impl actix::Handler<WithSpanContext<Tier3Request>> for PeerManagerActor {
+impl actix::Handler<Tier3Request> for PeerManagerActor {
     type Result = ();
     #[perf]
-    fn handle(
-        &mut self,
-        request: WithSpanContext<Tier3Request>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, request) = handler_debug_span!(target: "network", request);
+    fn handle(&mut self, request: Tier3Request, ctx: &mut Self::Context) -> Self::Result {
         let _timer = metrics::PEER_MANAGER_TIER3_REQUEST_TIME
             .with_label_values(&[(&request.body).into()])
             .start_timer();

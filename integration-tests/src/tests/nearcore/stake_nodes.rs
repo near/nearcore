@@ -26,7 +26,6 @@ use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
 use near_client_primitives::types::Status;
-use near_o11y::WithSpanContextExt;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use {near_primitives::types::BlockId, primitive_types::U256};
 
@@ -131,24 +130,19 @@ fn slow_test_stake_nodes() {
             actix::spawn(
                 test_nodes[0]
                     .tx_processor
-                    .send(
-                        ProcessTxRequest {
-                            transaction: tx,
-                            is_forwarded: false,
-                            check_only: false,
-                        }
-                        .with_span_context(),
-                    )
+                    .send(ProcessTxRequest {
+                        transaction: tx,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
                     .map(drop),
             );
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
-                    let actor = test_nodes[0].client.send(
-                        Status { is_health_check: false, detailed: false }
-                            .span_wrap()
-                            .with_span_context(),
-                    );
+                    let actor = test_nodes[0]
+                        .client
+                        .send(Status { is_health_check: false, detailed: false }.span_wrap());
                     let actor = actor.then(|res| {
                         let res = res.unwrap();
                         if res.is_err() {
@@ -218,14 +212,11 @@ fn slow_test_validator_kickout() {
                 actix::spawn(
                     test_node
                         .tx_processor
-                        .send(
-                            ProcessTxRequest {
-                                transaction: stake_transaction,
-                                is_forwarded: false,
-                                check_only: false,
-                            }
-                            .with_span_context(),
-                        )
+                        .send(ProcessTxRequest {
+                            transaction: stake_transaction,
+                            is_forwarded: false,
+                            check_only: false,
+                        })
                         .map(drop),
                 );
             }
@@ -239,11 +230,9 @@ fn slow_test_validator_kickout() {
                     let test_node1 = test_nodes[(num_nodes / 2) as usize].clone();
                     let finalized_mark1 = finalized_mark.clone();
 
-                    let actor = test_node1.client.send(
-                        Status { is_health_check: false, detailed: false }
-                            .span_wrap()
-                            .with_span_context(),
-                    );
+                    let actor = test_node1
+                        .client
+                        .send(Status { is_health_check: false, detailed: false }.span_wrap());
                     let actor = actor.then(move |res| {
                         let expected: Vec<_> = (num_nodes / 2..num_nodes)
                             .map(|i| ValidatorInfo {
@@ -257,15 +246,12 @@ fn slow_test_validator_kickout() {
                         if res.unwrap().validators == expected {
                             for i in 0..num_nodes / 2 {
                                 let mark = finalized_mark1[i as usize].clone();
-                                let actor = test_node1.view_client.send(
-                                    Query::new(
-                                        BlockReference::latest(),
-                                        QueryRequest::ViewAccount {
-                                            account_id: test_nodes[i as usize].account_id.clone(),
-                                        },
-                                    )
-                                    .with_span_context(),
-                                );
+                                let actor = test_node1.view_client.send(Query::new(
+                                    BlockReference::latest(),
+                                    QueryRequest::ViewAccount {
+                                        account_id: test_nodes[i as usize].account_id.clone(),
+                                    },
+                                ));
                                 let actor =
                                     actor.then(move |res| match res.unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {
@@ -283,15 +269,12 @@ fn slow_test_validator_kickout() {
                             for i in num_nodes / 2..num_nodes {
                                 let mark = finalized_mark1[i as usize].clone();
 
-                                let actor = test_node1.view_client.send(
-                                    Query::new(
-                                        BlockReference::latest(),
-                                        QueryRequest::ViewAccount {
-                                            account_id: test_nodes[i as usize].account_id.clone(),
-                                        },
-                                    )
-                                    .with_span_context(),
-                                );
+                                let actor = test_node1.view_client.send(Query::new(
+                                    BlockReference::latest(),
+                                    QueryRequest::ViewAccount {
+                                        account_id: test_nodes[i as usize].account_id.clone(),
+                                    },
+                                ));
                                 let actor =
                                     actor.then(move |res| match res.unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {
@@ -371,27 +354,21 @@ fn ultra_slow_test_validator_join() {
             actix::spawn(
                 test_nodes[1]
                     .tx_processor
-                    .send(
-                        ProcessTxRequest {
-                            transaction: unstake_transaction,
-                            is_forwarded: false,
-                            check_only: false,
-                        }
-                        .with_span_context(),
-                    )
+                    .send(ProcessTxRequest {
+                        transaction: unstake_transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
                     .map(drop),
             );
             actix::spawn(
                 test_nodes[0]
                     .tx_processor
-                    .send(
-                        ProcessTxRequest {
-                            transaction: stake_transaction,
-                            is_forwarded: false,
-                            check_only: false,
-                        }
-                        .with_span_context(),
-                    )
+                    .send(ProcessTxRequest {
+                        transaction: stake_transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
                     .map(drop),
             );
 
@@ -403,11 +380,9 @@ fn ultra_slow_test_validator_join() {
                     let test_nodes = test_nodes.clone();
                     let test_node1 = test_nodes[0].clone();
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
-                    let actor = test_node1.client.send(
-                        Status { is_health_check: false, detailed: false }
-                            .span_wrap()
-                            .with_span_context(),
-                    );
+                    let actor = test_node1
+                        .client
+                        .send(Status { is_health_check: false, detailed: false }.span_wrap());
                     let actor = actor.then(move |res| {
                         let expected = vec![
                             ValidatorInfo { account_id: "near.0".parse().unwrap() },
@@ -418,15 +393,12 @@ fn ultra_slow_test_validator_join() {
                             return future::ready(());
                         }
                         if res.unwrap().validators == expected {
-                            let actor = test_node1.view_client.send(
-                                Query::new(
-                                    BlockReference::latest(),
-                                    QueryRequest::ViewAccount {
-                                        account_id: test_nodes[1].account_id.clone(),
-                                    },
-                                )
-                                .with_span_context(),
-                            );
+                            let actor = test_node1.view_client.send(Query::new(
+                                BlockReference::latest(),
+                                QueryRequest::ViewAccount {
+                                    account_id: test_nodes[1].account_id.clone(),
+                                },
+                            ));
                             let actor = actor.then(move |res| match res.unwrap().unwrap().kind {
                                 QueryResponseKind::ViewAccount(result) => {
                                     if result.locked == 0 {
@@ -437,15 +409,12 @@ fn ultra_slow_test_validator_join() {
                                 _ => panic!("wrong return result"),
                             });
                             actix::spawn(actor);
-                            let actor = test_node1.view_client.send(
-                                Query::new(
-                                    BlockReference::latest(),
-                                    QueryRequest::ViewAccount {
-                                        account_id: test_nodes[2].account_id.clone(),
-                                    },
-                                )
-                                .with_span_context(),
-                            );
+                            let actor = test_node1.view_client.send(Query::new(
+                                BlockReference::latest(),
+                                QueryRequest::ViewAccount {
+                                    account_id: test_nodes[2].account_id.clone(),
+                                },
+                            ));
                             let actor = actor.then(move |res| match res.unwrap().unwrap().kind {
                                 QueryResponseKind::ViewAccount(result) => {
                                     if result.locked == TESTING_INIT_STAKE {
@@ -506,7 +475,7 @@ fn slow_test_inflation() {
                 Box::new(move |_ctx| {
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                     let actor =
-                        test_nodes[0].view_client.send(GetBlock::latest().with_span_context());
+                        test_nodes[0].view_client.send(GetBlock::latest());
                     let actor = actor.then(move |res| {
                         if let Ok(Ok(block)) = res {
                             if block.header.height >= 2 && block.header.height <= epoch_length {
@@ -524,7 +493,7 @@ fn slow_test_inflation() {
                     let view_client = test_nodes[0].view_client.clone();
                     actix::spawn(async move {
                         if let Ok(Ok(block)) =
-                            view_client.send(GetBlock::latest().with_span_context()).await
+                            view_client.send(GetBlock::latest()).await
                         {
                             if block.header.height > epoch_length
                                 && block.header.height < epoch_length * 2
@@ -534,7 +503,7 @@ fn slow_test_inflation() {
                                     let genesis_block_view = view_client
                                         .send(
                                             GetBlock(BlockReference::BlockId(BlockId::Height(0)))
-                                                .with_span_context(),
+                                                ,
                                         )
                                         .await
                                         .unwrap()
@@ -544,7 +513,7 @@ fn slow_test_inflation() {
                                             GetBlock(BlockReference::BlockId(BlockId::Height(
                                                 epoch_length,
                                             )))
-                                            .with_span_context(),
+                                            ,
                                         )
                                         .await
                                         .unwrap()

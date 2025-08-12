@@ -114,10 +114,11 @@ impl<'a> TrieChangesTracker<'a> {
 
     fn record<M: ArenaMemory>(&mut self, node: &MemTrieNodeView<'a, M>) {
         let node_hash = node.node_hash();
-        let raw_node_serialized = borsh::to_vec(&node.to_raw_trie_node_with_size()).unwrap();
         *self.refcount_deleted_hashes.entry(node_hash).or_default() += 1;
         if let Some(recorder) = self.recorder.as_mut() {
-            recorder.record(&node_hash, raw_node_serialized.into());
+            recorder.record_with(&node_hash, || {
+                borsh::to_vec(&node.to_raw_trie_node_with_size()).unwrap().into()
+            });
         }
     }
 
@@ -477,6 +478,7 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
     let node_ids_with_hashes = &changes.node_ids_with_hashes;
     for (node_id, node_hash) in node_ids_with_hashes {
         let node = updated_nodes.get(*node_id).unwrap().as_ref().unwrap();
+        let memory_usage = node.memory_usage;
         let node = match &node.node {
             UpdatedMemTrieNode::Empty => unreachable!(),
             UpdatedMemTrieNode::Branch { children, value } => {
@@ -501,7 +503,8 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
                 InputMemTrieNode::Leaf { value, extension }
             }
         };
-        let mem_node_id = MemTrieNodeId::new_with_hash(arena, node, *node_hash);
+        let mem_node_id =
+            MemTrieNodeId::new_with_hash_and_memory_usage(arena, node, *node_hash, memory_usage);
         updated_to_new_map.insert(*node_id, mem_node_id);
         last_node_id = Some(mem_node_id);
     }

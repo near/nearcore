@@ -14,7 +14,6 @@ use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
-use crate::spice_core::CoreStatementsProcessor;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSyncActor,
@@ -27,8 +26,7 @@ use crate::sync::state::chain_requests::{
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
 use actix::Actor;
-use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::ActixWrapper;
+use near_async::actix::wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
@@ -41,6 +39,7 @@ use near_chain::ApplyChunksSpawner;
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse};
 use near_chain::resharding::types::ReshardingSender;
+use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -236,7 +235,7 @@ pub fn start_client(
         sender,
         adv,
         config_updater,
-        sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+        sync_jobs_actor_addr.into_multi_sender(),
         // TODO(spice): Pass in chunk_executor_sender.
         noop().into_sender(),
         // TODO(spice): Pass in spice_chunk_validator_sender.
@@ -250,13 +249,10 @@ pub fn start_client(
         ActixWrapper::new(client_actor_inner)
     });
 
-    client_sender_for_sync_jobs
-        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
-    client_sender_for_client.bind(client_addr.clone().with_auto_span_context().into_multi_sender());
-    chain_sender_for_state_sync
-        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
-    chunk_validation_adapter
-        .bind(chunk_validation_actor_addr.clone().with_auto_span_context().into_multi_sender());
+    client_sender_for_sync_jobs.bind(client_addr.clone().into_multi_sender());
+    client_sender_for_client.bind(client_addr.clone().into_multi_sender());
+    chain_sender_for_state_sync.bind(client_addr.clone().into_multi_sender());
+    chunk_validation_adapter.bind(chunk_validation_actor_addr.clone().into_multi_sender());
 
     StartClientResult {
         client_actor: client_addr,
@@ -337,12 +333,12 @@ impl messaging::Actor for ClientActorInner {
     /// of any other task scheduled with `run_later` will be delayed. At the same time,
     /// we have several important functions which have to be called regularly, so we put
     /// these calls into `check_triggers` and call it here as a quick hack.
-    fn wrap_handler<M: actix::Message>(
+    fn wrap_handler<M, R>(
         &mut self,
         msg: M,
         ctx: &mut dyn DelayedActionRunner<Self>,
-        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> M::Result,
-    ) -> M::Result {
+        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> R,
+    ) -> R {
         self.check_triggers(ctx);
         let _span = tracing::debug_span!(target: "client", "NetworkClientMessage").entered();
         let msg_type = std::any::type_name::<M>();
@@ -481,6 +477,13 @@ pub enum NetworkAdversarialMessage {
 
 #[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for ClientActorInner {
+    fn handle(&mut self, msg: NetworkAdversarialMessage) {
+        Handler::<NetworkAdversarialMessage, Option<u64>>::handle(self, msg);
+    }
+}
+
+#[cfg(feature = "test_features")]
+impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActorInner {
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
@@ -606,7 +609,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActorInner {
     }
 }
 
-impl Handler<SpanWrapped<BlockHeadersResponse>> for ClientActorInner {
+impl Handler<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>> for ClientActorInner {
     fn handle(&mut self, msg: SpanWrapped<BlockHeadersResponse>) -> Result<(), ReasonForBan> {
         let BlockHeadersResponse(headers, peer_id) = msg.span_unwrap();
         if self.receive_headers(headers, peer_id) {
@@ -683,7 +686,12 @@ impl Handler<SpanWrapped<SetNetworkInfo>> for ClientActorInner {
 }
 
 #[cfg(feature = "sandbox")]
-impl Handler<near_client_primitives::types::SandboxMessage> for ClientActorInner {
+impl
+    Handler<
+        near_client_primitives::types::SandboxMessage,
+        near_client_primitives::types::SandboxResponse,
+    > for ClientActorInner
+{
     fn handle(
         &mut self,
         msg: near_client_primitives::types::SandboxMessage,
@@ -718,7 +726,7 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActorInner
     }
 }
 
-impl Handler<SpanWrapped<Status>> for ClientActorInner {
+impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for ClientActorInner {
     fn handle(&mut self, msg: SpanWrapped<Status>) -> Result<StatusResponse, StatusError> {
         let msg = msg.span_unwrap();
         let head = self.client.chain.head()?;
@@ -861,7 +869,9 @@ fn make_known_producer(
     }
 }
 
-impl Handler<SpanWrapped<GetNetworkInfo>> for ClientActorInner {
+impl Handler<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>
+    for ClientActorInner
+{
     fn handle(&mut self, _msg: SpanWrapped<GetNetworkInfo>) -> Result<NetworkInfoResponse, String> {
         Ok(NetworkInfoResponse {
             connected_peers: (self.network_info.connected_peers.iter())
@@ -1404,8 +1414,6 @@ impl ClientActorInner {
 
     /// Produce optimistic block if we are block producer for given `next_height` height.
     fn produce_optimistic_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_optimistic_block", next_height)
-            .entered();
         // Check if optimistic block is already produced
         if self.client.is_optimistic_block_done(next_height) {
             return Ok(());
@@ -1427,7 +1435,6 @@ impl ClientActorInner {
         ));
 
         // We've produced the optimistic block, mark it as done so we don't produce it again.
-        // We’ve produced the optimistic block, mark it as done so we don't produce it again.
         self.client.save_optimistic_block(&optimistic_block);
         self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
 
@@ -1506,6 +1513,7 @@ impl ClientActorInner {
             self.check_send_announce_account(*block.header().last_final_block());
             self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
+            self.client.chain.spice_core_processor.send_execution_result_endorsements(&block);
         }
     }
 
@@ -1954,7 +1962,9 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActorInner {
     }
 }
 
-impl Handler<SpanWrapped<GetClientConfig>> for ClientActorInner {
+impl Handler<SpanWrapped<GetClientConfig>, Result<ClientConfig, GetClientConfigError>>
+    for ClientActorInner
+{
     fn handle(
         &mut self,
         msg: SpanWrapped<GetClientConfig>,
@@ -1964,7 +1974,9 @@ impl Handler<SpanWrapped<GetClientConfig>> for ClientActorInner {
     }
 }
 
-impl Handler<SpanWrapped<StateHeaderValidationRequest>> for ClientActorInner {
+impl Handler<SpanWrapped<StateHeaderValidationRequest>, Result<(), near_chain::Error>>
+    for ClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -1979,7 +1991,9 @@ impl Handler<SpanWrapped<StateHeaderValidationRequest>> for ClientActorInner {
     }
 }
 
-impl Handler<SpanWrapped<ChainFinalizationRequest>> for ClientActorInner {
+impl Handler<SpanWrapped<ChainFinalizationRequest>, Result<(), near_chain::Error>>
+    for ClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,

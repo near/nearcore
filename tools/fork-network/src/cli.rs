@@ -86,8 +86,18 @@ enum SubCommand {
 #[derive(clap::Parser)]
 struct InitCmd {
     /// If given, the shard layout in this file will be used to generate the forked genesis state
-    #[arg(long)]
+    #[arg(short = 'f', long, conflicts_with = "shard_layout_protocol_version")]
     pub shard_layout_file: Option<PathBuf>,
+    /// Shard layout protocol version. If given, the shard layout from the given protocol version will be used to generate the forked genesis state
+    #[arg(short = 'p', long)]
+    pub shard_layout_protocol_version: Option<ProtocolVersion>,
+}
+
+#[derive(Clone, Debug)]
+enum ShardLayoutOverride {
+    NoOverride,
+    UseShardLayoutFromFile(PathBuf),
+    UseShardLayoutFromProtocolVersion(ProtocolVersion),
 }
 
 #[derive(clap::Parser)]
@@ -244,8 +254,17 @@ impl ForkNetworkCommand {
         near_config.config.store.disable_state_snapshot();
 
         match &self.command {
-            SubCommand::Init(InitCmd { shard_layout_file }) => {
-                self.init(near_config, home_dir, shard_layout_file.as_deref())?;
+            SubCommand::Init(InitCmd { shard_layout_file, shard_layout_protocol_version }) => {
+                let shard_layout_override = {
+                    if let Some(file) = shard_layout_file {
+                        ShardLayoutOverride::UseShardLayoutFromFile(file.clone())
+                    } else if let Some(protocol_version) = shard_layout_protocol_version {
+                        ShardLayoutOverride::UseShardLayoutFromProtocolVersion(*protocol_version)
+                    } else {
+                        ShardLayoutOverride::NoOverride
+                    }
+                };
+                self.init(near_config, home_dir, &shard_layout_override)?;
             }
             SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size }) => {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
@@ -313,7 +332,7 @@ impl ForkNetworkCommand {
         &self,
         near_config: &mut NearConfig,
         home_dir: &Path,
-        shard_layout_file: Option<&Path>,
+        shard_layout_override: &ShardLayoutOverride,
     ) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
@@ -328,17 +347,20 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
-
-        let target_shard_layout = match shard_layout_file {
-            Some(shard_layout_file) => {
-                let layout = std::fs::read_to_string(shard_layout_file).with_context(|| {
+        // get_epoch_config_from_protocol_version
+        let target_shard_layout = match shard_layout_override {
+            ShardLayoutOverride::UseShardLayoutFromProtocolVersion(protocol_version) => {
+                epoch_manager.get_epoch_config_from_protocol_version(*protocol_version).shard_layout
+            }
+            ShardLayoutOverride::UseShardLayoutFromFile(shard_layout_file) => {
+                let layout = std::fs::read_to_string(&shard_layout_file).with_context(|| {
                     format!("failed reading shard layout file at {}", shard_layout_file.display())
                 })?;
                 serde_json::from_str(&layout).with_context(|| {
                     format!("failed parsing shard layout file at {}", shard_layout_file.display())
                 })?
             }
-            None => shard_layout,
+            ShardLayoutOverride::NoOverride => shard_layout,
         };
 
         // Flat state can be at different heights for different shards.
@@ -399,9 +421,9 @@ impl ForkNetworkCommand {
         &self,
         near_config: &mut NearConfig,
         home_dir: &Path,
-        shard_layout_file: Option<&Path>,
+        shard_layout_override: &ShardLayoutOverride,
     ) -> anyhow::Result<()> {
-        self.write_fork_info(near_config, home_dir, shard_layout_file)?;
+        self.write_fork_info(near_config, home_dir, shard_layout_override)?;
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
             if !COLUMNS_TO_KEEP.contains(&col) && !SETUP_COLUMNS_TO_KEEP.contains(&col) {

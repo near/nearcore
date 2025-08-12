@@ -1,4 +1,3 @@
-use crate::macros::type_name_of;
 use tracing::{Span, debug_span};
 
 #[derive(actix::Message, Debug, Clone)]
@@ -16,7 +15,7 @@ impl<T: actix::Message> SpanWrapped<T> {
 
 impl<T: actix::Message> From<T> for SpanWrapped<T> {
     fn from(msg: T) -> Self {
-        Self { _span: debug_span!("pending_message", message_type = type_name_of(&msg)), msg }
+        Self { _span: debug_span!("pending_message", message_type = pretty_type_name::<T>()), msg }
     }
 }
 
@@ -35,3 +34,10 @@ pub trait SpanWrappedMessageExt: actix::Message + Sized {
 }
 
 impl<T: actix::Message> SpanWrappedMessageExt for T {}
+
+// Quick and dirty way of getting the type name without the module path.
+// Does not work for more complex types like std::sync::Arc<std::sync::atomic::AtomicBool<...>>
+// example near_chunks::shards_manager_actor::ShardsManagerActor -> ShardsManagerActor
+fn pretty_type_name<T>() -> &'static str {
+    std::any::type_name::<T>().split("::").last().unwrap()
+}

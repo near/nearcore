@@ -6,7 +6,6 @@ use parking_lot::RwLock;
 
 use near_client::{GetBlock, GetChunk};
 use near_network::test_utils::wait_or_timeout;
-use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::ShardId;
@@ -32,7 +31,7 @@ fn slow_test_track_shards() {
             let bh = *last_block_hash.read();
             if let Some(block_hash) = bh {
                 let msg = GetChunk::BlockHash(block_hash, ShardId::new(3));
-                let res = view_client.send(msg.with_span_context()).await;
+                let res = view_client.send(msg).await;
                 match &res {
                     Ok(Ok(_)) => {
                         return ControlFlow::Break(());
@@ -43,7 +42,7 @@ fn slow_test_track_shards() {
                 }
             } else {
                 let last_block_hash1 = last_block_hash.clone();
-                let res = view_client.send(GetBlock::latest().with_span_context()).await;
+                let res = view_client.send(GetBlock::latest()).await;
                 match &res {
                     Ok(Ok(b)) if b.header.height > 10 => {
                         *last_block_hash1.write() = Some(b.header.hash);

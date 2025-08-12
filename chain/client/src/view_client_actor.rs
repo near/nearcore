@@ -6,7 +6,7 @@ use crate::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, metrics, sync,
 };
 use actix::{Addr, SyncArbiter};
-use near_async::actix_wrapper::SyncActixWrapper;
+use near_async::actix::wrapper::SyncActixWrapper;
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
@@ -480,15 +480,6 @@ impl ViewClientActorInner {
                 .flat_map(|outcome| &outcome.outcome.receipt_ids),
         );
 
-        // refund receipt == last receipt in outcome.receipt_ids
-        let mut awaiting_non_refund_receipt_ids: HashSet<&CryptoHash> =
-            HashSet::from_iter(&execution_outcome.transaction_outcome.outcome.receipt_ids);
-        awaiting_non_refund_receipt_ids.extend(execution_outcome.receipts_outcome.iter().flat_map(
-            |outcome| {
-                outcome.outcome.receipt_ids.split_last().map(|(_, ids)| ids).unwrap_or_else(|| &[])
-            },
-        ));
-
         let executed_receipt_ids: HashSet<&CryptoHash> = execution_outcome
             .receipts_outcome
             .iter()
@@ -500,6 +491,40 @@ impl ViewClientActorInner {
                 }
             })
             .collect();
+
+        // Optimization for end-user TX latency: If the last outgoing receipt of
+        // an outcome is a refund receipt, we don't wait for that and consider
+        // the transaction executed or finalized a block earlier.
+        let mut awaiting_non_refund_receipt_ids = awaiting_receipt_ids.clone();
+        for outcome in &execution_outcome.receipts_outcome {
+            let receipt_ids = outcome.outcome.receipt_ids.as_slice();
+            let Some(last_receipt_id) = receipt_ids.last() else {
+                continue;
+            };
+
+            // no need to apply the optimization for already executed receipts
+            if executed_receipt_ids.contains(last_receipt_id) {
+                continue;
+            }
+            // need the full receipt to determine if this is a refund or not
+            // Note: We can't read from DBCol::Receipts here because we store it there too late
+            // This means we have to read outgoing receipts, which isn't ideal.
+            // but since this is only triggered for receipts that are not
+            // executed yet, this is a rare case. And whenever we hit it, this is
+            // recent data that was written probably within the last second and
+            // should be fast to retrieve.
+            let outgoing_receipts = self.outgoing_receipts_for_outcome(outcome)?;
+            let Some(last_receipt) =
+                outgoing_receipts.iter().find(|receipt| receipt.receipt_id() == last_receipt_id)
+            else {
+                // if we can't fetch the receipt, be conservative and assume we have to wait
+                continue;
+            };
+            // predecessor_id == "system" means this is a refund receipt
+            if last_receipt.predecessor_id().is_system() {
+                awaiting_non_refund_receipt_ids.remove(last_receipt_id);
+            }
+        }
 
         let executed_ignoring_refunds =
             awaiting_non_refund_receipt_ids.is_subset(&executed_receipt_ids);
@@ -534,6 +559,25 @@ impl ViewClientActorInner {
             Err(_) => TxExecutionStatus::Executed,
             Ok(_) => TxExecutionStatus::Final,
         })
+    }
+
+    /// Read the receipts that are outgoing from the given execution outcome,
+    /// even before they have been validated on chain and stored in
+    /// DbCol::Receipts.
+    fn outgoing_receipts_for_outcome(
+        &self,
+        outcome: &ExecutionOutcomeWithIdView,
+    ) -> Result<Arc<Vec<Receipt>>, TxStatusError> {
+        let epoch_id = &self.epoch_manager.get_epoch_id(&outcome.block_hash).into_chain_error()?;
+        let shard_id = account_id_to_shard_id(
+            self.epoch_manager.as_ref(),
+            &outcome.outcome.executor_id,
+            epoch_id,
+        )
+        .into_chain_error()?;
+        let outgoing_receipts =
+            self.chain.chain_store().get_outgoing_receipts(&outcome.block_hash, shard_id)?;
+        Ok(outgoing_receipts)
     }
 
     fn get_tx_status(
@@ -661,7 +705,7 @@ impl ViewClientActorInner {
     }
 }
 
-impl Handler<Query> for ViewClientActorInner {
+impl Handler<Query, Result<QueryResponse, QueryError>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
         tracing::debug!(target: "client", ?msg);
@@ -671,7 +715,7 @@ impl Handler<Query> for ViewClientActorInner {
 }
 
 /// Handles retrieving block from the chain.
-impl Handler<GetBlock> for ViewClientActorInner {
+impl Handler<GetBlock, Result<BlockView, GetBlockError>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: GetBlock) -> Result<BlockView, GetBlockError> {
         tracing::debug!(target: "client", ?msg);
@@ -686,7 +730,9 @@ impl Handler<GetBlock> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetBlockWithMerkleTree> for ViewClientActorInner {
+impl Handler<GetBlockWithMerkleTree, Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -727,7 +773,7 @@ fn get_chunk_from_block(
     Ok(res)
 }
 
-impl Handler<GetShardChunk> for ViewClientActorInner {
+impl Handler<GetShardChunk, Result<ShardChunk, GetChunkError>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: GetShardChunk) -> Result<ShardChunk, GetChunkError> {
         tracing::debug!(target: "client", ?msg);
@@ -751,7 +797,7 @@ impl Handler<GetShardChunk> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetChunk> for ViewClientActorInner {
+impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: GetChunk) -> Result<ChunkView, GetChunkError> {
         tracing::debug!(target: "client", ?msg);
@@ -792,7 +838,7 @@ impl Handler<GetChunk> for ViewClientActorInner {
     }
 }
 
-impl Handler<TxStatus> for ViewClientActorInner {
+impl Handler<TxStatus, Result<TxStatusView, TxStatusError>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: TxStatus) -> Result<TxStatusView, TxStatusError> {
         tracing::debug!(target: "client", ?msg);
@@ -802,7 +848,9 @@ impl Handler<TxStatus> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetValidatorInfo> for ViewClientActorInner {
+impl Handler<GetValidatorInfo, Result<EpochValidatorInfo, GetValidatorInfoError>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -849,7 +897,9 @@ impl Handler<GetValidatorInfo> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetValidatorOrdered> for ViewClientActorInner {
+impl Handler<GetValidatorOrdered, Result<Vec<ValidatorStakeView>, GetValidatorInfoError>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -865,7 +915,9 @@ impl Handler<GetValidatorOrdered> for ViewClientActorInner {
     }
 }
 /// Returns a list of change kinds per account in a store for a given block.
-impl Handler<GetStateChangesInBlock> for ViewClientActorInner {
+impl Handler<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChangesError>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -886,7 +938,9 @@ impl Handler<GetStateChangesInBlock> for ViewClientActorInner {
 }
 
 /// Returns a list of changes in a store for a given block filtering by the state changes request.
-impl Handler<GetStateChanges> for ViewClientActorInner {
+impl Handler<GetStateChanges, Result<StateChangesView, GetStateChangesError>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(&mut self, msg: GetStateChanges) -> Result<StateChangesView, GetStateChangesError> {
         tracing::debug!(target: "client", ?msg);
@@ -903,7 +957,9 @@ impl Handler<GetStateChanges> for ViewClientActorInner {
 }
 
 /// Returns a list of changes in a store with causes for a given block.
-impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActorInner {
+impl Handler<GetStateChangesWithCauseInBlock, Result<StateChangesView, GetStateChangesError>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -925,7 +981,12 @@ impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActorInner {
 
 /// Returns a hashmap where the key represents the ShardID and the value
 /// is the list of changes in a store with causes for a given block.
-impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActorInner {
+impl
+    Handler<
+        GetStateChangesWithCauseInBlockForTrackedShards,
+        Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>,
+    > for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -970,7 +1031,12 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
 ///     - Same as above
 ///  3. Otherwise, return the last final block in the epoch that follows that of the last block known
 ///     to the light client
-impl Handler<GetNextLightClientBlock> for ViewClientActorInner {
+impl
+    Handler<
+        GetNextLightClientBlock,
+        Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>,
+    > for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -1010,7 +1076,9 @@ impl Handler<GetNextLightClientBlock> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetExecutionOutcome> for ViewClientActorInner {
+impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -1097,7 +1165,12 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
 
 /// Extract the list of execution outcomes that were produced in a given block
 /// (including those created for local receipts).
-impl Handler<GetExecutionOutcomesForBlock> for ViewClientActorInner {
+impl
+    Handler<
+        GetExecutionOutcomesForBlock,
+        Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>,
+    > for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -1118,7 +1191,7 @@ impl Handler<GetExecutionOutcomesForBlock> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetReceipt> for ViewClientActorInner {
+impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: GetReceipt) -> Result<Option<ReceiptView>, GetReceiptError> {
         tracing::debug!(target: "client", ?msg);
@@ -1132,7 +1205,9 @@ impl Handler<GetReceipt> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetBlockProof> for ViewClientActorInner {
+impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(&mut self, msg: GetBlockProof) -> Result<GetBlockProofResponse, GetBlockProofError> {
         tracing::debug!(target: "client", ?msg);
@@ -1152,7 +1227,9 @@ impl Handler<GetBlockProof> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetProtocolConfig> for ViewClientActorInner {
+impl Handler<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -1178,6 +1255,13 @@ use crate::NetworkAdversarialMessage;
 
 #[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for ViewClientActorInner {
+    fn handle(&mut self, msg: NetworkAdversarialMessage) {
+        Handler::<NetworkAdversarialMessage, Option<u64>>::handle(self, msg);
+    }
+}
+
+#[cfg(feature = "test_features")]
+impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
         tracing::debug!(target: "client", ?msg);
@@ -1208,7 +1292,7 @@ impl Handler<NetworkAdversarialMessage> for ViewClientActorInner {
     }
 }
 
-impl Handler<TxStatusRequest> for ViewClientActorInner {
+impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: TxStatusRequest) -> Option<Box<FinalExecutionOutcomeView>> {
         tracing::debug!(target: "client", ?msg);
@@ -1247,7 +1331,7 @@ impl Handler<TxStatusResponse> for ViewClientActorInner {
     }
 }
 
-impl Handler<BlockRequest> for ViewClientActorInner {
+impl Handler<BlockRequest, Option<Arc<Block>>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: BlockRequest) -> Option<Arc<Block>> {
         tracing::debug!(target: "client", ?msg);
@@ -1258,7 +1342,7 @@ impl Handler<BlockRequest> for ViewClientActorInner {
     }
 }
 
-impl Handler<BlockHeadersRequest> for ViewClientActorInner {
+impl Handler<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: BlockHeadersRequest) -> Option<Vec<Arc<BlockHeader>>> {
         tracing::debug!(target: "client", ?msg);
@@ -1277,7 +1361,9 @@ impl Handler<BlockHeadersRequest> for ViewClientActorInner {
     }
 }
 
-impl Handler<AnnounceAccountRequest> for ViewClientActorInner {
+impl Handler<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -1332,7 +1418,7 @@ impl Handler<AnnounceAccountRequest> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetGasPrice> for ViewClientActorInner {
+impl Handler<GetGasPrice, Result<GasPriceView, GetGasPriceError>> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: GetGasPrice) -> Result<GasPriceView, GetGasPriceError> {
         tracing::debug!(target: "client", ?msg);
@@ -1343,7 +1429,9 @@ impl Handler<GetGasPrice> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetMaintenanceWindows> for ViewClientActorInner {
+impl Handler<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanceWindowsError>>
+    for ViewClientActorInner
+{
     #[perf]
     fn handle(
         &mut self,
@@ -1354,7 +1442,9 @@ impl Handler<GetMaintenanceWindows> for ViewClientActorInner {
     }
 }
 
-impl Handler<GetSplitStorageInfo> for ViewClientActorInner {
+impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>
+    for ViewClientActorInner
+{
     fn handle(
         &mut self,
         msg: GetSplitStorageInfo,

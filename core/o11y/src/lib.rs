@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![deny(clippy::arithmetic_side_effects)]
 
-pub use context::*;
 pub use env_filter::{BuildEnvFilterError, EnvFilterBuilder};
 pub use opentelemetry::OpenTelemetryLevel;
 pub use reload::{reload, reload_log_config};
@@ -12,12 +11,10 @@ pub use tracing_opentelemetry::OpenTelemetrySpanExt;
 pub use {tracing, tracing_appender, tracing_subscriber};
 
 /// Custom tracing subscriber implementation that produces IO traces.
-pub mod context;
 pub mod env_filter;
 mod io_tracer;
 pub mod log_config;
 mod log_counter;
-pub mod macros;
 pub mod metrics;
 mod opentelemetry;
 mod reload;
