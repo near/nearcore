@@ -32,6 +32,9 @@ subtle.workspace = true
 thiserror.workspace = true
 near-config-utils.workspace = true
 near-schema-checker-lib.workspace = true
+merlin.workspace = true
+sha2.workspace = true
+rand_core.workspace = true
 rand = { workspace = true, optional = true }
 schemars = {workspace = true, optional = true }
 
@@ -41,6 +44,11 @@ hex-literal.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 curve25519-dalek = { workspace = true, features = ["rand_core"] }
+criterion.workspace = true
+
+[[bench]]
+name = "ed25519_benchmarks"
+harness = false
 
 [features]
 default = ["rand"]

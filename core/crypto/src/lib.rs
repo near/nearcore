@@ -16,6 +16,8 @@ mod traits;
 #[macro_use]
 mod util;
 
+pub mod batch;
+mod batch_errors;
 mod errors;
 pub mod key_conversion;
 mod key_file;
