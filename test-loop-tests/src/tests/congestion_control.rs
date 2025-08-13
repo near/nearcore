@@ -6,7 +6,7 @@ use crate::utils::transactions::{
     TransactionRunner, call_contract, check_txs, deploy_contract, execute_tx, make_accounts,
     prepare_transfer_tx,
 };
-use crate::utils::{ONE_NEAR, TGAS};
+use crate::utils::{ONE_NEAR, TGAS, run_for_number_of_blocks};
 use assert_matches::assert_matches;
 use core::panic;
 use itertools::Itertools;
@@ -101,7 +101,7 @@ fn slow_test_one_shard_congested() {
     let mut env = env.drop(DropCondition::ChunksProducedByHeight(dropped_chunks));
 
     // Run for `max_missed_chunks * 2` blocks to make sure shard 2 is congested
-    env.run_blocks(max_missed_chunks * 2);
+    run_for_number_of_blocks(&mut env, &rpc_id, max_missed_chunks as usize * 2);
 
     // Check if shard 2 is congested
     let client_handle = env.node_datas[0].client_sender.actor_handle();

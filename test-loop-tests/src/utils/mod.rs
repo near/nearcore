@@ -7,10 +7,12 @@ use near_primitives::types::{AccountId, BlockHeight};
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 
+pub(crate) mod account;
 pub(crate) mod client_queries;
 pub(crate) mod contract_distribution;
 pub(crate) mod loop_action;
 pub(crate) mod network;
+pub(crate) mod node;
 pub(crate) mod peer_manager_actor;
 pub(crate) mod receipts;
 pub(crate) mod resharding;
@@ -57,6 +59,25 @@ pub(crate) fn run_until_node_head_height(
     );
 }
 
+pub(crate) fn run_for_number_of_blocks(
+    env: &mut TestLoopEnv,
+    client_account_id: &AccountId,
+    num_blocks: usize,
+) {
+    let max_block_production_delay =
+        get_node_client(env, client_account_id).config.max_block_production_delay;
+    let initial_head_height = get_node_head_height(env, client_account_id);
+    env.test_loop.run_until(
+        |test_loop_data| {
+            let client_actor =
+                retrieve_client_actor(&env.node_datas, test_loop_data, client_account_id);
+            let current_height = client_actor.client.chain.head().unwrap().height;
+            current_height >= initial_head_height + num_blocks as u64
+        },
+        max_block_production_delay * (num_blocks as u32 + 1),
+    );
+}
+
 /// Returns the test data of for the node with the given account id.
 pub(crate) fn get_node_data<'a>(
     node_datas: &'a [NodeExecutionData],
@@ -78,4 +99,21 @@ pub(crate) fn retrieve_client_actor<'a>(
 ) -> &'a mut ClientActorInner {
     let client_handle = get_node_data(node_datas, client_account_id).client_sender.actor_handle();
     test_loop_data.get_mut(&client_handle)
+}
+
+pub(crate) fn retrieve_all_client_actors<'a>(
+    node_datas: &'a [NodeExecutionData],
+    test_loop_data: &'a TestLoopData,
+) -> Vec<&'a ClientActorInner> {
+    node_datas.iter().map(|data| test_loop_data.get(&data.client_sender.actor_handle())).collect()
+}
+
+pub(crate) fn retrieve_all_clients<'a>(
+    node_datas: &'a [NodeExecutionData],
+    test_loop_data: &'a TestLoopData,
+) -> Vec<&'a Client> {
+    retrieve_all_client_actors(node_datas, test_loop_data)
+        .into_iter()
+        .map(|actor| &actor.client)
+        .collect()
 }

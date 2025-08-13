@@ -36,6 +36,9 @@ class NodeHandle:
     def name(self):
         return self.node.name()
 
+    def role(self):
+        return self.node.get_label('role')
+
     def ip_addr(self):
         return self.node.ip_addr()
 

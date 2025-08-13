@@ -8,6 +8,7 @@ use near_primitives::types::{AccountId, NumSeats};
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
+use crate::utils::account::create_account_ids;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 
 #[test]
@@ -16,21 +17,17 @@ fn test_validator_rotation() {
 
     let stake = ONE_NEAR;
 
-    let validators: Vec<Vec<AccountId>> = [
-        vec!["test1.1", "test1.2", "test1.3"],
-        vec!["test2.1", "test2.2", "test2.3", "test2.4", "test2.5"],
-    ]
-    .iter()
-    .map(|vec| vec.iter().map(|account| account.parse().unwrap()).collect())
-    .collect();
+    let validators: Vec<Vec<AccountId>> = vec![
+        create_account_ids(["test1.1", "test1.2", "test1.3"]).to_vec(),
+        create_account_ids(["test2.1", "test2.2", "test2.3", "test2.4", "test2.5"]).to_vec(),
+    ];
 
     let mut runner = RotatingValidatorsRunner::new(stake, validators.clone());
 
     let accounts = runner.all_validators_accounts();
-    let epoch_length: u64 = 10;
     let seats: NumSeats = validators[0].len().try_into().unwrap();
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
+        .epoch_length(7)
         .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
         .add_user_accounts_simple(&accounts, stake)
         .shard_layout(ShardLayout::single_shard())
