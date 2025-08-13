@@ -1121,8 +1121,6 @@ pub enum PrepareError {
     TooManyFunctions = 7,
     /// Contract contains too many locals.
     TooManyLocals = 8,
-    /// Contract contains too many memories.
-    TooManyMemories = 9,
 }
 
 /// A kind of a trap happened during execution of a binary

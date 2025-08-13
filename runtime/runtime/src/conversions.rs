@@ -34,7 +34,6 @@ mod prepare_error {
                 From::Memory => Self::Memory,
                 From::TooManyFunctions => Self::TooManyFunctions,
                 From::TooManyLocals => Self::TooManyLocals,
-                From::TooManyMemories => Self::TooManyMemories,
             }
         }
     }
