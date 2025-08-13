@@ -281,14 +281,15 @@ pub fn test_stabilized_host_function() {
             r#"
 (module
   (import "env" "ripemd160" (func $ripemd160 (param i64 i64 i64)))
+  (memory 0 0)
+  (export "memory" (memory 0))
   (func (export "main")
     (call $ripemd160 (i64.const 0) (i64.const 0) (i64.const 0)))
 )"#,
         )
-        .opaque_error()
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7226376631 used gas 7226376631
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7242716056 used gas 7242716056
             "#]],
         ]);
 }
