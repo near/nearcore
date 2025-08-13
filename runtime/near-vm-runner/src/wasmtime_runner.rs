@@ -493,6 +493,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         let res = call(&mut store, instance, &method);
         let logic = store.data_mut().logic.take().expect("logic missing");
         drop(store);
+        // TODO: verify that lazy dropping actually improves the throughput.
         lazy_drop(Box::new(instance));
         match res? {
             RunOutcome::Ok => Ok(VMOutcome::ok(logic.result_state)),
