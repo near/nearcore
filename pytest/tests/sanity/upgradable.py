@@ -224,7 +224,8 @@ class TestUpgrade:
 
         for node_dir in node_dirs[:NUM_VALIDATORS]:
             # Validators should track only assigned shards
-            cluster.apply_config_changes(node_dir, {'tracked_shards': []})
+            cluster.apply_config_changes(node_dir,
+                                         {'tracked_shards_config': 'NoShards'})
 
         return node_dirs
 
