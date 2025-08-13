@@ -19,7 +19,9 @@ def call_gh_workflow(action,
                      unique_id,
                      start_height,
                      regions=None,
-                     validators=None,
+                     num_chunk_producers=None,
+                     num_chunk_validators=None,
+                     same_hardware=None,
                      has_archival=None,
                      has_state_dumper=None,
                      tracing_server=None):
@@ -29,8 +31,19 @@ def call_gh_workflow(action,
     cmd += f"-f start_height={start_height} "
     if regions:
         cmd += f"-f location_set={regions} "
-    if validators != None:
-        cmd += f"-f validators={validators} "
+    if same_hardware:
+        total_validators = 0
+        if num_chunk_producers != None:
+            total_validators += num_chunk_producers
+        if num_chunk_validators != None:
+            total_validators += num_chunk_validators
+        cmd += f"-f chunk_producers={total_validators} "
+    else:
+        if num_chunk_producers != None:
+            cmd += f"-f chunk_producers={num_chunk_producers} "
+        if num_chunk_validators != None:
+            cmd += f"-f chunk_validators={num_chunk_validators} "
+
     if has_archival != None:
         cmd += f"-f archival_nodes={'true' if has_archival else 'false'} "
     if has_state_dumper != None:
@@ -52,11 +65,14 @@ def handle_create(args):
     unique_id = args.unique_id
     start_height = test_setup.start_height
     regions = test_setup.regions
-    num_validators = test_setup.validators
+    num_chunk_producers = test_setup.chunk_producer_seats
+    num_chunk_validators = test_setup.chunk_validator_seats - test_setup.chunk_producer_seats
     has_archival = test_setup.has_archival
     has_state_dumper = test_setup.has_state_dumper
     tracing_server = test_setup.tracing_server
-    call_gh_workflow('apply', unique_id, start_height, regions, num_validators,
+    same_hardware = test_setup.all_validators_run_same_hardware
+    call_gh_workflow('apply', unique_id, start_height, regions,
+                     num_chunk_producers, num_chunk_validators, same_hardware,
                      has_archival, has_state_dumper, tracing_server)
 
 
