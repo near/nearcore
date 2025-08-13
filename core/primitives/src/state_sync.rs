@@ -230,6 +230,7 @@ pub enum ShardStateSyncResponse {
     V1(ShardStateSyncResponseV1) = 0,
     V2(ShardStateSyncResponseV2) = 1,
     V3(ShardStateSyncResponseV3) = 2,
+    /// Uses versioned `StatePart`
     V4(ShardStateSyncResponseV4) = 3,
 }
 

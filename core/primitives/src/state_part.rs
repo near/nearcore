@@ -23,9 +23,11 @@ impl PartId {
     }
 }
 
+/// A newtype for legacy state part (Vec<u8>).
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct StatePartV0(pub(crate) Vec<u8>);
 
+/// Similar to `StatePartV0`, but uses zstd compression.
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct StatePartV1 {
     bytes_compressed: Vec<u8>,
@@ -97,11 +99,15 @@ impl StatePart {
         }
     }
 
+    /// Construct state part from bytes that are supposed to be result of `to_bytes()`.
+    /// That's used to construct state part loaded from disk or network.
+    /// Note that this does not validate the data, the validation logic happens in `validate_state_part()`.
     pub fn from_bytes(
         bytes: Vec<u8>,
         protocol_version: ProtocolVersion,
     ) -> borsh::io::Result<Self> {
         if ProtocolFeature::StatePartsVersioning.enabled(protocol_version) {
+            // TODO: protect from decompression bomb.
             BorshDeserialize::try_from_slice(&bytes)
         } else {
             Ok(Self::V0(StatePartV0(bytes)))
@@ -171,7 +177,8 @@ mod tests {
             StatePart::from_bytes(bytes.clone(), old_protocol_version).unwrap();
         assert_eq!(state_part_v0, state_part_v0_reconstructed);
 
-        // Legacy state parts (without version discriminant) cannot be used for sync to epoch which has `StatePartsVersioning` enabled.
+        // Legacy state parts (without version discriminant) cannot be used for sync to
+        // epoch which has `StatePartsVersioning` enabled.
         assert!(StatePart::from_bytes(bytes, new_protocol_version).is_err());
     }
 
@@ -196,7 +203,8 @@ mod tests {
             StatePart::from_bytes(state_part_v1_bytes, new_protocol_version).unwrap();
         assert_eq!(state_part_v1, state_part_v1_reconstructed);
 
-        // Compressed state parts are not backward compatible, i.e. cannot be used for sync to epoch which does not have `StatePartsCompression` enabled yet.
+        // Compressed state parts are not backward compatible, i.e. cannot be used for sync to
+        // epoch which does not have `StatePartsCompression` enabled yet.
         assert!(std::panic::catch_unwind(|| state_part_v1.to_bytes(old_protocol_version)).is_err());
     }
 }

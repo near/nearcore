@@ -976,7 +976,8 @@ fn slow_test_state_request() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-// The normal case with 2 nodes and no missing chunks.
+// Starts with older protocol version in order to test state sync
+// while the network goes through protocol upgrade.
 #[test]
 fn slow_test_state_sync_protocol_upgrade() {
     init_test_logger();

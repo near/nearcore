@@ -139,6 +139,8 @@ impl StateRequestActor {
         }
     }
 
+    /// Returns the protocol version used in the epoch containing the sync block.
+    /// This is used for synchronization related to the state parts format (see #14013 for details).
     fn get_protocol_version_from_sync_hash(
         &self,
         sync_hash: &CryptoHash,
