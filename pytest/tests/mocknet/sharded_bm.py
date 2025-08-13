@@ -56,9 +56,9 @@ def fetch_forknet_details(forknet_name, bm_params):
     nodes_data = find_instances_cmd_result.stdout.splitlines()[1:]
 
     num_cp_instances = bm_params['chunk_producers']
-    if len(nodes_data) != num_cp_instances + 1:
+    if len(nodes_data) != num_cp_instances:
         logger.error(
-            f"Expected {num_cp_instances + 1} instances, got {len(nodes_data)}")
+            f"Expected {num_cp_instances} instances, got {len(nodes_data)}")
         sys.exit(1)
 
     # cratch to refresh the local keystore
@@ -71,8 +71,6 @@ def fetch_forknet_details(forknet_name, bm_params):
         ]
         subprocess.run(login_cmd, text=True, check=True)
 
-    rpc_instance = nodes_data[-1]
-    rpc_instance_name, rpc_instance_ip, _ = rpc_instance.split()
     cp_instances = list(map(lambda x: x.split(), nodes_data[:num_cp_instances]))
     cp_instance_names = [instance[0] for instance in cp_instances]
     cp_instance_zones = [instance[2] for instance in cp_instances]
@@ -91,8 +89,6 @@ def fetch_forknet_details(forknet_name, bm_params):
     output = tracing_server_cmd_result.stdout.strip()
     internal_ip, external_ip = output.split() if output else (None, None)
     return {
-        "rpc_instance_name": rpc_instance_name,
-        "rpc_instance_ip": rpc_instance_ip,
         "cp_instance_names": cp_instance_names,
         "tracing_server_internal_ip": internal_ip,
         "tracing_server_external_ip": external_ip
