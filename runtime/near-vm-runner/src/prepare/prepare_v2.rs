@@ -142,7 +142,7 @@ impl<'a> PrepareContext<'a> {
                     }
                     if self.config.vm_kind == VMKind::Wasmtime {
                         new_section.export(
-                            "___nearcore_memory",
+                            "\0nearcore_memory",
                             wasm_encoder::ExportKind::Memory,
                             0,
                         );
@@ -317,7 +317,7 @@ impl<'a> PrepareContext<'a> {
             self.before_export_section = false;
             if self.config.vm_kind == VMKind::Wasmtime {
                 wasm_encoder::ExportSection::new()
-                    .export("___nearcore_memory", wasm_encoder::ExportKind::Memory, 0)
+                    .export("\0nearcore_memory", wasm_encoder::ExportKind::Memory, 0)
                     .append_to(&mut self.output_code);
             }
         }
