@@ -238,11 +238,17 @@ impl schemars::transform::Transform for ReplaceNullType {
 ///     "type": "object",
 ///     "title": "RpcQueryRequest"
 ///   }
+/// ```
+///
+/// This struct also handles NonDelegateAction transformation to properly exclude DelegateAction.
 #[derive(Debug, Clone)]
 pub struct InterchangeOneOfsAndAllOfs;
 
 impl schemars::transform::Transform for InterchangeOneOfsAndAllOfs {
     fn transform(&mut self, schema: &mut schemars::Schema) {
+        // Transform NonDelegateAction to use oneOf excluding DelegateAction
+        fix_non_delegate_action_schema(schema);
+
         interchange_one_ofs_and_all_ofs(
             schema,
             "RpcStateChangesInBlockByTypeRequest".to_string(),
@@ -253,6 +259,135 @@ impl schemars::transform::Transform for InterchangeOneOfsAndAllOfs {
             "RpcQueryRequest".to_string(),
             "request_type".to_string(),
         );
+    }
+}
+
+/// Fixes NonDelegateAction schema to use oneOf with all Action variants except DelegateAction.
+/// This dynamically extracts the Action variants from the schema and excludes SignedDelegateAction.
+fn fix_non_delegate_action_schema(schema: &mut schemars::Schema) {
+    // First, collect Action's oneOf variants from components/schemas
+    let mut action_variants: Option<Vec<serde_json::Value>> = None;
+
+    // Check in components/schemas (after the schema transformation)
+    if let Some(components) = schema.get("components") {
+        if let Some(schemas) = components.get("schemas") {
+            if let Some(action_schema) = schemas.get("Action") {
+                if let Some(one_of) = action_schema.get("oneOf") {
+                    if let serde_json::Value::Array(variants) = one_of {
+                        // Filter out Delegate action variant (which contains SignedDelegateAction)
+                        let filtered_variants: Vec<serde_json::Value> = variants
+                            .iter()
+                            .filter(|v| {
+                                // Check if this variant has a "Delegate" property
+                                if let Some(props) = v.get("properties") {
+                                    if let Some(_delegate_prop) = props.get("Delegate") {
+                                        return false; // Exclude this variant
+                                    }
+                                }
+                                true
+                            })
+                            .cloned()
+                            .collect();
+                        action_variants = Some(filtered_variants);
+                    }
+                }
+            }
+        }
+    }
+
+    // Also check in $defs (before the schema transformation)
+    if action_variants.is_none() {
+        if let Some(defs) = schema.get("$defs") {
+            if let Some(action_schema) = defs.get("Action") {
+                if let Some(one_of) = action_schema.get("oneOf") {
+                    if let serde_json::Value::Array(variants) = one_of {
+                        // Filter out Delegate action variant (which contains SignedDelegateAction)
+                        let filtered_variants: Vec<serde_json::Value> = variants
+                            .iter()
+                            .filter(|v| {
+                                // Check if this variant has a "Delegate" property
+                                if let Some(props) = v.get("properties") {
+                                    if let Some(_delegate_prop) = props.get("Delegate") {
+                                        return false; // Exclude this variant
+                                    }
+                                }
+                                true
+                            })
+                            .cloned()
+                            .collect();
+                        action_variants = Some(filtered_variants);
+                    }
+                }
+            }
+        }
+    }
+
+    // Now transform NonDelegateAction schema
+    if let Some(variants) = action_variants {
+        // Check in components/schemas
+        if let Some(components) = schema.get_mut("components") {
+            if let Some(schemas) = components.as_object_mut() {
+                if let Some(schemas_obj) = schemas.get_mut("schemas") {
+                    if let Some(schemas_map) = schemas_obj.as_object_mut() {
+                        if let Some(non_delegate_action) = schemas_map.get_mut("NonDelegateAction")
+                        {
+                            if let Some(non_delegate_obj) = non_delegate_action.as_object_mut() {
+                                // Check if it has allOf with Action reference
+                                if let Some(all_of) = non_delegate_obj.get("allOf") {
+                                    if let serde_json::Value::Array(all_of_array) = all_of {
+                                        if let Some(first) = all_of_array.first() {
+                                            if let Some(ref_val) = first.get("$ref") {
+                                                if let Some(ref_str) = ref_val.as_str() {
+                                                    if ref_str.contains("Action") {
+                                                        // Replace allOf with oneOf containing filtered variants
+                                                        non_delegate_obj.remove("allOf");
+                                                        non_delegate_obj.insert(
+                                                            "oneOf".to_string(),
+                                                            serde_json::Value::Array(
+                                                                variants.clone(),
+                                                            ),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also check in $defs
+        if let Some(defs) = schema.get_mut("$defs") {
+            if let Some(defs_obj) = defs.as_object_mut() {
+                if let Some(non_delegate_action) = defs_obj.get_mut("NonDelegateAction") {
+                    if let Some(non_delegate_obj) = non_delegate_action.as_object_mut() {
+                        // Check if it has allOf with Action reference
+                        if let Some(all_of) = non_delegate_obj.get("allOf") {
+                            if let serde_json::Value::Array(all_of_array) = all_of {
+                                if let Some(first) = all_of_array.first() {
+                                    if let Some(ref_val) = first.get("$ref") {
+                                        if let Some(ref_str) = ref_val.as_str() {
+                                            if ref_str.contains("Action") {
+                                                // Replace allOf with oneOf containing filtered variants
+                                                non_delegate_obj.remove("allOf");
+                                                non_delegate_obj.insert(
+                                                    "oneOf".to_string(),
+                                                    serde_json::Value::Array(variants),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
