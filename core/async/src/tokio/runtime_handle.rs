@@ -87,13 +87,12 @@ where
                     break;
                 }
                 message = receiver.recv() => {
-                    if let Some(message) = message {
-                        tracing::debug!(target: "tokio_runtime", "Executing message: {}", message.description);
-                        (message.function)(&mut actor, &mut runtime_handle_clone);
-                    } else {
+                    let Some(message) = message else {
                         tracing::warn!(target: "tokio_runtime", "Exiting event loop");
                         break;
-                    }
+                    };
+                    tracing::debug!(target: "tokio_runtime", "Executing message: {}", message.description);
+                    (message.function)(&mut actor, &mut runtime_handle_clone);
                 }
             }
         }
