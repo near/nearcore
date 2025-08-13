@@ -590,7 +590,7 @@ pub(crate) fn write_bandwidth_scheduler_state(
 }
 
 // After we rewrite everything in the trie to the target shards, write flat storage statuses for new shards
-// TODO: remove all state that belongs to source shards not in the target shard layout
+// and remove state for obsolete shards
 pub(crate) fn finalize_state(
     shard_tries: &ShardTries,
     source_shard_layout: &ShardLayout,
@@ -598,6 +598,35 @@ pub(crate) fn finalize_state(
     flat_head: BlockInfo,
 ) -> anyhow::Result<()> {
     let source_shards = source_shard_layout.shard_uids().collect::<HashSet<_>>();
+    let target_shards = target_shard_layout.shard_uids().collect::<HashSet<_>>();
+
+    let shards_to_remove = source_shards.difference(&target_shards);
+
+    for shard_uid in shards_to_remove {
+        let mut trie_update = shard_tries.store_update();
+        let store_update = trie_update.store_update();
+
+        // Remove flat storage status
+        store_update.delete(DBCol::FlatStorageStatus, &shard_uid.to_bytes());
+
+        // Remove all state for this shard
+        store_update.delete_range(
+            DBCol::State,
+            &shard_uid.to_bytes(),
+            &ShardUId::get_upper_bound_db_key(&shard_uid.to_bytes()),
+        );
+        store_update.delete_range(
+            DBCol::FlatState,
+            &shard_uid.to_bytes(),
+            &ShardUId::get_upper_bound_db_key(&shard_uid.to_bytes()),
+        );
+
+        trie_update
+            .commit()
+            .with_context(|| format!("failed removing state for shard {}", shard_uid))?;
+
+        tracing::info!(?shard_uid, "removed state for obsolete shard");
+    }
 
     for shard_uid in target_shard_layout.shard_uids() {
         if source_shards.contains(&shard_uid) {

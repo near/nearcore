@@ -93,8 +93,8 @@ pub struct TestGenesisBuilder {
 #[derive(Debug, Clone)]
 pub enum ValidatorsSpec {
     DesiredRoles {
-        block_and_chunk_producers: Vec<String>,
-        chunk_validators_only: Vec<String>,
+        block_and_chunk_producers: Vec<AccountId>,
+        chunk_validators_only: Vec<AccountId>,
     },
     Raw {
         validators: Vec<AccountInfo>,
@@ -277,7 +277,7 @@ impl Default for TestGenesisBuilder {
             epoch_length: 100,
             shard_layout: ShardLayout::single_shard(),
             validators_spec: ValidatorsSpec::DesiredRoles {
-                block_and_chunk_producers: vec!["validator0".to_string()],
+                block_and_chunk_producers: vec!["validator0".parse().unwrap()],
                 chunk_validators_only: vec![],
             },
             genesis_time: chrono::Utc::now(),
@@ -548,9 +548,12 @@ impl ValidatorsSpec {
         ValidatorsSpec::DesiredRoles {
             block_and_chunk_producers: block_and_chunk_producers
                 .iter()
-                .map(|s| (*s).to_string())
+                .map(|s| s.parse().unwrap())
                 .collect(),
-            chunk_validators_only: chunk_validators_only.iter().map(|s| (*s).to_string()).collect(),
+            chunk_validators_only: chunk_validators_only
+                .iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
         }
     }
 
@@ -587,11 +590,10 @@ const ONE_NEAR: Balance = 1_000_000_000_000_000_000_000_000;
 fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
     match specs {
         ValidatorsSpec::DesiredRoles { block_and_chunk_producers, chunk_validators_only } => {
+            let mut validators = Vec::new();
             let num_block_and_chunk_producer_seats = block_and_chunk_producers.len() as NumSeats;
             let num_chunk_validator_only_seats = chunk_validators_only.len() as NumSeats;
-            let mut validators = Vec::new();
-            for i in 0..num_block_and_chunk_producer_seats as usize {
-                let account_id: AccountId = block_and_chunk_producers[i].parse().unwrap();
+            for (i, account_id) in block_and_chunk_producers.into_iter().enumerate() {
                 let account_info = AccountInfo {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,
@@ -599,8 +601,7 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
                 };
                 validators.push(account_info);
             }
-            for i in 0..num_chunk_validator_only_seats as usize {
-                let account_id: AccountId = chunk_validators_only[i].parse().unwrap();
+            for (i, account_id) in chunk_validators_only.into_iter().enumerate() {
                 let account_info = AccountInfo {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,

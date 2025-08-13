@@ -1,6 +1,5 @@
 /// Conversion functions for PeerMessage - the top-level message for the NEAR P2P protocol format.
 use super::*;
-use crate::network_protocol::RoutedMessageV1;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
@@ -8,6 +7,7 @@ use crate::network_protocol::{
     AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
     RoutedMessageV3, RoutingTableUpdate, SyncAccountsData, TieredMessageBody,
 };
+use crate::network_protocol::{PeerIdOrHash, RoutedMessageV1};
 use crate::types::StateResponseInfo;
 use borsh::BorshDeserialize as _;
 use near_async::time::error::ComponentRange;
@@ -16,6 +16,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::compression::CompressedData;
+use proto::peer_id_or_hash::Target_type::*;
 use protobuf::MessageField as MF;
 use std::sync::Arc;
 
@@ -332,22 +333,19 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     borsh: borsh::to_vec(&t).unwrap(),
                     ..Default::default()
                 }),
-                PeerMessage::Routed(r) => {
-                    let msg = r.clone().msg_v1();
-                    ProtoMT::Routed(proto::RoutedMessage {
-                        borsh: borsh::to_vec(&msg).unwrap(),
-                        created_at: MF::from_option(
-                            r.created_at()
-                                .as_ref()
-                                .map(|t| ::time::OffsetDateTime::from_unix_timestamp(*t).ok())
-                                .flatten()
-                                .as_ref()
-                                .map(utc_to_proto),
-                        ),
-                        num_hops: r.num_hops(),
-                        ..Default::default()
-                    })
-                }
+                PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
+                    borsh: borsh::to_vec(&r.clone().msg_v1()).unwrap(),
+                    created_at: MF::from_option(
+                        r.created_at()
+                            .as_ref()
+                            .map(|t| ::time::OffsetDateTime::from_unix_timestamp(*t).ok())
+                            .flatten()
+                            .as_ref()
+                            .map(utc_to_proto),
+                    ),
+                    num_hops: r.num_hops(),
+                    ..Default::default()
+                }),
                 PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
                     remove_from_connection_store: r.remove_from_connection_store,
                     ..Default::default()
@@ -431,6 +429,8 @@ pub enum ParsePeerMessageError {
     Transaction(ParseTransactionError),
     #[error("routed: {0}")]
     Routed(ParseRoutedError),
+    #[error("routed_v3: {0}")]
+    RoutedV3(ParseRoutedMessageV3Error),
     #[error("challenge: {0}")]
     Challenge(std::io::Error),
     #[error("routed_created_at: {0}")]
@@ -528,7 +528,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                         author: msg.author,
                         ttl: msg.ttl,
                         body,
-                        signature: msg.signature,
+                        signature: Some(msg.signature),
                         created_at: r
                             .created_at
                             .as_ref()
@@ -541,6 +541,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     .into(),
                 ))
             }
+            ProtoMT::RoutedV3(r) => PeerMessage::Routed(Box::new(
+                RoutedMessageV3::try_from(r).map_err(Self::Error::RoutedV3)?.into(),
+            )),
             ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {
                 remove_from_connection_store: d.remove_from_connection_store,
             }),
@@ -566,6 +569,70 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::EpochSyncResponse(esr) => PeerMessage::EpochSyncResponse(
                 CompressedData::from_boxed_slice(esr.compressed_proof.clone().into_boxed_slice()),
             ),
+        })
+    }
+}
+
+impl From<&PeerIdOrHash> for proto::PeerIdOrHash {
+    fn from(x: &PeerIdOrHash) -> Self {
+        match x {
+            PeerIdOrHash::PeerId(peer_id) => proto::PeerIdOrHash {
+                target_type: Some(PeerId(peer_id.into())),
+                ..Default::default()
+            },
+            PeerIdOrHash::Hash(hash) => {
+                proto::PeerIdOrHash { target_type: Some(Hash(hash.into())), ..Default::default() }
+            }
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParsePeerIdOrHashError {
+    #[error("missing target_type")]
+    MissingTargetType,
+    #[error("peer_id: {0}")]
+    PeerId(ParsePublicKeyError),
+    #[error("hash: {0}")]
+    Hash(ParseCryptoHashError),
+}
+
+impl TryFrom<&proto::PeerIdOrHash> for PeerIdOrHash {
+    type Error = ParsePeerIdOrHashError;
+    fn try_from(x: &proto::PeerIdOrHash) -> Result<Self, Self::Error> {
+        match x.target_type.as_ref().ok_or(Self::Error::MissingTargetType)? {
+            PeerId(peer_id) => {
+                Ok(PeerIdOrHash::PeerId(peer_id.try_into().map_err(Self::Error::PeerId)?))
+            }
+            Hash(hash) => Ok(PeerIdOrHash::Hash(hash.try_into().map_err(Self::Error::Hash)?)),
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParseRoutedMessageV3Error {
+    #[error("target: {0}")]
+    Target(ParseRequiredError<ParsePeerIdOrHashError>),
+    #[error("author: {0}")]
+    Author(ParseRequiredError<ParsePublicKeyError>),
+    #[error("body: {0}")]
+    Body(std::io::Error),
+    #[error("signature: {0}")]
+    Signature(ParseRequiredError<ParseSignatureError>),
+}
+
+impl TryFrom<&proto::RoutedMessageV3> for RoutedMessageV3 {
+    type Error = ParseRoutedMessageV3Error;
+    fn try_from(x: &proto::RoutedMessageV3) -> Result<Self, Self::Error> {
+        Ok(RoutedMessageV3 {
+            target: try_from_required(&x.target).map_err(Self::Error::Target)?,
+            author: try_from_required(&x.author).map_err(Self::Error::Author)?,
+            ttl: x.ttl as u8,
+            body: TieredMessageBody::try_from_slice(&x.borsh_body).map_err(Self::Error::Body)?,
+            signature: try_from_optional(&x.signature)
+                .map_err(|e| Self::Error::Signature(ParseRequiredError::Other(e)))?,
+            created_at: x.created_at,
+            num_hops: x.num_hops,
         })
     }
 }
