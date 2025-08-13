@@ -293,10 +293,10 @@ impl<'a> PrepareContext<'a> {
         if self.before_import_section {
             self.before_import_section = false;
             if self.config.vm_kind != VMKind::Wasmtime {
-                let mut new_section = wasm_encoder::ImportSection::new();
-                new_section.import("env", "memory", self.memory_type());
                 // wasm_encoder a section with all imports and the imported standardized memory.
-                new_section.append_to(&mut self.output_code);
+                wasm_encoder::ImportSection::new()
+                    .import("env", "memory", self.memory_type())
+                    .append_to(&mut self.output_code);
             }
         }
     }
