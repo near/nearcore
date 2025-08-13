@@ -9,7 +9,7 @@ import requests
 import semver
 from configured_logger import logger
 
-# cspell:words BASEHREF
+# cspell:words BASEHREF,SYSNAME
 _SYSNAME, _, _, _, _MACHINE = os.uname()
 _UNAME = f"{_SYSNAME}-{_MACHINE}"
 _IS_DARWIN = _UNAME.startswith('Darwin')
