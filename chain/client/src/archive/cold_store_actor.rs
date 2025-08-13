@@ -1,6 +1,5 @@
 use std::sync::{Arc, atomic::AtomicBool};
 
-use near_async::actix::wrapper::spawn_actix_actor;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::Actor;
 use near_async::time::Duration;
@@ -349,21 +348,26 @@ fn sanity_check(
     Ok(())
 }
 
-/// Spawns the cold store actor in a background thread and returns handle.
-/// If cold store is not configured it does nothing and returns None.
+/// Creates the cold store actor and keep_going handle if cold store is configured.
+/// Returns None if cold store is not configured or trie changes are not saved.
 /// This replaces the original `spawn_cold_store_loop` function.
-pub fn spawn_cold_store_actor(
+pub fn create_cold_store_actor(
+    save_trie_changes: Option<bool>,
     split_storage_config: &SplitStorageConfig,
     genesis_height: BlockHeight,
     storage: &NodeStorage,
     epoch_manager: Arc<EpochManagerHandle>,
     shard_tracker: ShardTracker,
-) -> anyhow::Result<Option<Arc<AtomicBool>>> {
+) -> anyhow::Result<Option<(ColdStoreActor, Arc<AtomicBool>)>> {
+    if save_trie_changes != Some(true) {
+        tracing::debug!(target:"cold_store", "Not creating cold store actor because TrieChanges are not saved");
+        return Ok(None);
+    }
     let hot_store = storage.get_hot_store();
     let cold_db = match storage.cold_db() {
         Some(cold_db) => cold_db.clone(),
         None => {
-            tracing::debug!(target : "cold_store", "Not spawning the cold store actor because cold store is not configured");
+            tracing::debug!(target : "cold_store", "Not creating the cold store actor because cold store is not configured");
             return Ok(None);
         }
     };
@@ -386,7 +390,7 @@ pub fn spawn_cold_store_actor(
     sanity_check(cold_head_height, hot_final_head_height, hot_tail_height)?;
     debug_assert!(shard_tracker.is_valid_for_archival());
 
-    tracing::info!(target : "cold_store", "Spawning the cold store actor");
+    tracing::info!(target : "cold_store", "Creating the cold store actor");
 
     let actor = ColdStoreActor::new(
         split_storage_config.clone(),
@@ -399,7 +403,5 @@ pub fn spawn_cold_store_actor(
         keep_going_clone,
     );
 
-    let (_cold_store_actor_addr, _cold_store_arbiter) = spawn_actix_actor(actor);
-
-    Ok(Some(keep_going))
+    Ok(Some((actor, keep_going)))
 }

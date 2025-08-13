@@ -4,12 +4,10 @@ pub use crate::config::{NearConfig, init_configs, load_config, load_test_config}
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
 
-use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::StateSyncDumper;
 use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
-use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::wrapper::{
     ActixWrapper, SyncActixWrapper, spawn_actix_actor, spawn_sync_actix_actor,
 };
@@ -29,6 +27,7 @@ use near_chain::{
 use near_chain_configs::ReshardingHandle;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
+use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::gc_actor::GCActor;
 use near_client::{
     ChunkValidationSenderForPartialWitness, ClientActor, ConfigUpdater, PartialWitnessActor,
@@ -48,6 +47,7 @@ use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::broadcast;
 
 pub mod append_only_map;
@@ -228,8 +228,8 @@ pub struct NearNode {
     pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
-    /// It's a handle to a background thread that copies data from the hot store to the cold store.
-    pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
+    /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
+    pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
     /// Contains handles to background threads that may be dumping state to S3.
     pub state_sync_dumper: StateSyncDumper,
     // A handle that allows the main process to interrupt resharding if needed.
@@ -326,8 +326,20 @@ pub fn start_with_config_and_synchronization(
             (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
         };
 
-    let cold_store_loop_handle =
-        spawn_cold_store_loop(&config, &storage, epoch_manager.clone(), shard_tracker.clone())?;
+    let (cold_store_loop_handle, cold_store_arbiter) = if let Some((actor, keep_going)) =
+        create_cold_store_actor(
+            config.config.save_trie_changes,
+            &config.config.split_storage.clone().unwrap_or_default(),
+            config.genesis.config.genesis_height,
+            &storage,
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+        )? {
+        let (_cold_store_addr, arbiter) = spawn_actix_actor(actor);
+        (Some(keep_going), Some(arbiter))
+    } else {
+        (None, None)
+    };
 
     let telemetry = ActixWrapper::new(TelemetryActor::new(config.telemetry_config.clone())).start();
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
@@ -574,6 +586,9 @@ pub fn start_with_config_and_synchronization(
         gc_arbiter,
         partial_witness_arbiter,
     ];
+    if let Some(cold_store_arbiter) = cold_store_arbiter {
+        arbiters.push(cold_store_arbiter);
+    }
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }
