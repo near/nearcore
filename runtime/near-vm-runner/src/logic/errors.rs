@@ -150,6 +150,8 @@ pub enum PrepareError {
     TooManyFunctions = 7,
     /// Contract contains too many locals.
     TooManyLocals = 8,
+    /// Contract contains too many memories.
+    TooManyMemories = 9,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -362,6 +364,7 @@ impl fmt::Display for PrepareError {
             Memory => "Error creating memory.",
             TooManyFunctions => "Too many functions in contract.",
             TooManyLocals => "Too many locals declared in the contract.",
+            TooManyMemories => "Too many memories declared in the contract.",
         })
     }
 }
