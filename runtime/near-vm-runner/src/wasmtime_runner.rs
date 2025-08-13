@@ -48,7 +48,7 @@ impl Ctx {
 
 #[derive(Clone)]
 pub struct WasmtimeMemory {
-    memory: Option<ModuleExport>,
+    memory: ModuleExport,
     caller: Arc<RefCell<Option<Caller>>>,
 }
 
@@ -57,10 +57,9 @@ impl WasmtimeMemory {
         &self,
         func: impl FnOnce(&mut Caller, wasmtime::Memory) -> Result<T, ()>,
     ) -> Result<T, ()> {
-        let Some(memory) = self.memory else { return Err(()) };
         let mut caller = self.caller.borrow_mut();
         let caller = caller.as_mut().expect("caller missing");
-        let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
+        let Some(Extern::Memory(memory)) = caller.get_module_export(&self.memory) else {
             return Err(());
         };
         func(caller, memory)
@@ -241,15 +240,12 @@ impl WasmtimeVM {
         method: &str,
         closure: impl FnOnce(
             GasCounter,
-            Result<(InstancePre<Ctx>, Option<ModuleExport>), FunctionCallError>,
+            Result<(InstancePre<Ctx>, ModuleExport), FunctionCallError>,
         ) -> VMResult<PreparedContract>,
     ) -> VMResult<PreparedContract> {
         type MemoryCacheType = (
             u64,
-            Result<
-                Result<(InstancePre<Ctx>, Option<ModuleExport>), FunctionCallError>,
-                CompilationError,
-            >,
+            Result<Result<(InstancePre<Ctx>, ModuleExport), FunctionCallError>, CompilationError>,
         );
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         let key = get_contract_cache_key(contract.hash(), &self.config);
@@ -287,7 +283,14 @@ impl WasmtimeVM {
                 // we load what we think we load.
                 let module = unsafe { Module::deserialize(&self.engine, &module) }
                     .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
-                let memory = module.get_export_index("memory");
+                let Some(memory) = module.get_export_index("___nearcore_memory") else {
+                    return Ok(to_any((
+                        wasm_bytes,
+                        Ok(Err(FunctionCallError::LinkError {
+                            msg: "memory export missing".into(),
+                        })),
+                    )));
+                };
                 let mut linker = Linker::new(&self.engine);
                 link(&mut linker, &self.config);
                 match linker.instantiate_pre(&module) {
@@ -393,7 +396,7 @@ impl crate::runner::VM for WasmtimeVM {
 
 struct ReadyContract {
     pre: InstancePre<Ctx>,
-    memory: Option<ModuleExport>,
+    memory: ModuleExport,
     method: Box<str>,
 }
 
