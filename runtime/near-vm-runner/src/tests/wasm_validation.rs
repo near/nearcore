@@ -154,3 +154,20 @@ fn extension_saturating_float_to_int() {
             "#]],
         ]);
 }
+
+#[test]
+fn memory_method() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (func (export "memory"))
+            )"#,
+        )
+        .method("memory")
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 81242631 used gas 81242631
+            "#]],
+        ]);
+}
