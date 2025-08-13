@@ -125,3 +125,78 @@ impl StatePart {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use itertools::Itertools;
+    use near_primitives_core::version::ProtocolFeature;
+
+    use crate::state::PartialState;
+    use crate::state_part::StatePart;
+
+    // Some values with low entropy, to benefit from compression.
+    fn dummy_partial_state() -> PartialState {
+        let dummy_trie_values =
+            ["aaaaaaaaaaaaaaaaaaaaaaaaaaa", "xxxxxxxxxxxxxxxxxxxx", "00000000000000000000"]
+                .iter()
+                .map(|value| Arc::from(value.as_bytes()))
+                .collect_vec();
+        PartialState::TrieValues(dummy_trie_values)
+    }
+
+    #[test]
+    fn test_state_parts_versioning_if_compression() {
+        assert!(
+            ProtocolFeature::StatePartsVersioning.protocol_version()
+                <= ProtocolFeature::StatePartsCompression.protocol_version()
+        );
+    }
+
+    #[test]
+    fn test_state_parts_versioning() {
+        let new_protocol_version = ProtocolFeature::StatePartsVersioning.protocol_version();
+        let old_protocol_version = new_protocol_version - 1;
+
+        let partial_state = dummy_partial_state();
+        let state_part_v0 =
+            StatePart::from_partial_state(partial_state.clone(), old_protocol_version);
+        assert!(matches!(state_part_v0, StatePart::V0(_)));
+        let partial_state_reconstructed = state_part_v0.to_partial_state().unwrap();
+        assert_eq!(partial_state, partial_state_reconstructed);
+
+        let bytes = state_part_v0.to_bytes(old_protocol_version);
+        let state_part_v0_reconstructed =
+            StatePart::from_bytes(bytes.clone(), old_protocol_version).unwrap();
+        assert_eq!(state_part_v0, state_part_v0_reconstructed);
+
+        // Legacy state parts (without version discriminant) cannot be used for sync to epoch which has `StatePartsVersioning` enabled.
+        assert!(StatePart::from_bytes(bytes, new_protocol_version).is_err());
+    }
+
+    #[test]
+    fn test_state_parts_compression() {
+        let new_protocol_version = ProtocolFeature::StatePartsCompression.protocol_version();
+        let old_protocol_version = new_protocol_version - 1;
+        let partial_state = dummy_partial_state();
+
+        let state_part_v0 =
+            StatePart::from_partial_state(partial_state.clone(), old_protocol_version);
+        let state_part_v1 =
+            StatePart::from_partial_state(partial_state.clone(), new_protocol_version);
+        assert!(state_part_v1.payload_length() < state_part_v0.payload_length());
+
+        let partial_state_reconstructed_from_state_part_v1 =
+            state_part_v1.to_partial_state().unwrap();
+        assert_eq!(partial_state, partial_state_reconstructed_from_state_part_v1);
+
+        let state_part_v1_bytes = state_part_v1.to_bytes(new_protocol_version);
+        let state_part_v1_reconstructed =
+            StatePart::from_bytes(state_part_v1_bytes, new_protocol_version).unwrap();
+        assert_eq!(state_part_v1, state_part_v1_reconstructed);
+
+        // Compressed state parts are not backward compatible, i.e. cannot be used for sync to epoch which does not have `StatePartsCompression` enabled yet.
+        assert!(std::panic::catch_unwind(|| state_part_v1.to_bytes(old_protocol_version)).is_err());
+    }
+}

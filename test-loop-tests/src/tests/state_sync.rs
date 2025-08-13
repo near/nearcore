@@ -17,6 +17,7 @@ use near_primitives::types::{
     AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
+use near_vm_runner::logic::ProtocolVersion;
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::drop_condition::DropCondition;
@@ -96,6 +97,7 @@ fn setup_initial_blockchain(
     chunks_produced: HashMap<ShardId, Vec<bool>>,
     skip_block_sync_height_delta: Option<isize>,
     extra_node_shard_schedule: &Option<Vec<Vec<ShardId>>>,
+    genesis_protocol_version: ProtocolVersion,
 ) -> TestState {
     let mut builder = TestLoopBuilder::new();
 
@@ -138,7 +140,7 @@ fn setup_initial_blockchain(
 
     let mut genesis_builder = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
-        .protocol_version(PROTOCOL_VERSION)
+        .protocol_version(genesis_protocol_version)
         .genesis_height(GENESIS_HEIGHT)
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout.clone())
@@ -163,8 +165,10 @@ fn setup_initial_blockchain(
         // progresses for a few epochs, meaning that state sync must have been successful.
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build();
-    let epoch_config_store =
-        EpochConfigStore::test(BTreeMap::from([(PROTOCOL_VERSION, Arc::new(epoch_config))]));
+    let epoch_config_store = EpochConfigStore::test(BTreeMap::from([(
+        genesis_protocol_version,
+        Arc::new(epoch_config),
+    )]));
 
     let mut env =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
@@ -282,6 +286,13 @@ fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
     );
 }
 
+fn get_network_protocol_version(env: &TestLoopEnv) -> ProtocolVersion {
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&client_handle).client;
+    let tip = client.chain.head().unwrap();
+    client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap()
+}
+
 /// runs the network and sends transactions at the beginning of each epoch. At the end the condition we're
 /// looking for is just that a few epochs have passed, because that should only be possible if state sync was successful
 /// (which will be required because we enable chunk producer shard shuffling on this chain)
@@ -345,6 +356,8 @@ fn produce_chunks(
     if let Some(skip_block_height) = skip_block_height {
         assert_fork_happened(env, skip_block_height);
     }
+    // Check that the network runs the latest protocol version supported by the binary.
+    assert_eq!(get_network_protocol_version(env), PROTOCOL_VERSION);
 }
 
 fn run_test(state: TestState) {
@@ -490,6 +503,7 @@ fn run_test_with_added_node(state: TestState) {
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
+// TODO(#14050) Use the builder pattern to construct `StateSyncTest`
 #[derive(Debug)]
 struct StateSyncTest {
     num_validators: usize,
@@ -505,6 +519,7 @@ struct StateSyncTest {
     // and a value of 1 will have us skip the one after that.
     skip_block_sync_height_delta: Option<isize>,
     extra_node_shard_schedule: Option<Vec<Vec<ShardId>>>,
+    genesis_protocol_version: ProtocolVersion,
 }
 
 fn run_state_sync_test_case(t: StateSyncTest) {
@@ -521,7 +536,9 @@ fn run_state_sync_test_case(t: StateSyncTest) {
             .collect(),
         t.skip_block_sync_height_delta,
         &t.extra_node_shard_schedule,
+        t.genesis_protocol_version,
     );
+    assert_eq!(get_network_protocol_version(&state.env), t.genesis_protocol_version);
     run_test(state);
 
     tracing::info!("run test with added node: {:?}", t);
@@ -537,6 +554,7 @@ fn run_state_sync_test_case(t: StateSyncTest) {
             .collect(),
         t.skip_block_sync_height_delta,
         &t.extra_node_shard_schedule,
+        t.genesis_protocol_version,
     );
     run_test_with_added_node(state);
 }
@@ -554,6 +572,7 @@ fn slow_test_state_sync_simple_two_node() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -571,6 +590,7 @@ fn slow_test_state_sync_simple_five_node() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -590,6 +610,7 @@ fn slow_test_state_sync_empty_shard() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -613,6 +634,7 @@ fn slow_test_state_sync_miss_chunks_first_block() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -633,6 +655,7 @@ fn slow_test_state_sync_miss_chunks_second_block() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -655,6 +678,7 @@ fn slow_test_state_sync_miss_chunks_third_block() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -676,6 +700,7 @@ fn slow_test_state_sync_miss_chunks_sync_block() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -699,6 +724,7 @@ fn slow_test_state_sync_miss_chunks_sync_prev_block() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -723,6 +749,7 @@ fn slow_test_state_sync_miss_chunks_before_last_chunk_included() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -750,6 +777,7 @@ fn slow_test_state_sync_miss_chunks_multiple() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -775,6 +803,7 @@ fn slow_test_state_sync_untrack_then_track() {
             vec![ShardId::new(1), ShardId::new(2)],
             vec![ShardId::new(0), ShardId::new(3)],
         ]),
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(params);
 }
@@ -800,6 +829,7 @@ fn slow_test_state_sync_from_fork() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: Some(0),
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(params);
 }
@@ -824,6 +854,7 @@ fn slow_test_state_sync_to_fork() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: Some(0),
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(params);
 }
@@ -845,6 +876,7 @@ fn slow_test_state_sync_fork_after_sync() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: Some(1),
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(params);
 }
@@ -863,6 +895,7 @@ fn slow_test_state_sync_fork_before_sync() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: Some(-1),
         extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(params);
 }
@@ -927,9 +960,36 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 fn slow_test_state_request() {
     init_test_logger();
 
-    let TestState { mut env, .. } =
-        setup_initial_blockchain(4, 4, 4, 4, false, HashMap::default(), None, &None);
+    let TestState { mut env, .. } = setup_initial_blockchain(
+        4,
+        4,
+        4,
+        4,
+        false,
+        HashMap::default(),
+        None,
+        &None,
+        PROTOCOL_VERSION,
+    );
 
     spam_state_sync_header_reqs(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
+}
+
+// The normal case with 2 nodes and no missing chunks.
+#[test]
+fn slow_test_state_sync_protocol_upgrade() {
+    init_test_logger();
+    let t = StateSyncTest {
+        num_validators: 2,
+        num_block_producer_seats: 2,
+        num_chunk_producer_seats: 2,
+        num_shards: 2,
+        generate_shard_accounts: true,
+        chunks_produced: vec![],
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+        genesis_protocol_version: PROTOCOL_VERSION - 1,
+    };
+    run_state_sync_test_case(t);
 }
