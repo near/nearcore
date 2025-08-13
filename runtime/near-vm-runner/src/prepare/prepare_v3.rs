@@ -9,7 +9,6 @@ struct PrepareContext<'a> {
     output_code: Vec<u8>,
     function_limit: u64,
     local_limit: u64,
-    memory_limit: u8,
     validator: wp::Validator,
     func_validator_allocations: wp::FuncValidatorAllocations,
     before_import_section: bool,
@@ -27,7 +26,6 @@ impl<'a> PrepareContext<'a> {
             // specified, use that as a limit.
             function_limit: limits.max_functions_number_per_contract.unwrap_or(u64::MAX),
             local_limit: limits.max_locals_per_contract.unwrap_or(u64::MAX),
-            memory_limit: 1,
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
@@ -93,8 +91,6 @@ impl<'a> PrepareContext<'a> {
                     // We do not want to include the implicit memory anymore as we normalized it by
                     // importing the memory instead in NearVm.
                     self.ensure_import_section();
-                    self.memory_limit =
-                        self.memory_limit.checked_sub(1).ok_or(PrepareError::TooManyMemories)?;
                     self.validator
                         .memory_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
