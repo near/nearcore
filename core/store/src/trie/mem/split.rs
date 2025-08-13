@@ -8,6 +8,7 @@ use near_primitives::types::AccountId;
 use smallvec::SmallVec;
 
 const MAX_NIBBLES: usize = AccountId::MAX_LEN * 2;
+// The order of subtrees matters - accounts must go first (!)
 const SUBTREES: [u8; 4] = [ACCOUNT, CONTRACT_CODE, ACCESS_KEY, CONTRACT_DATA];
 const NUM_CHILDREN: usize = 16;
 
@@ -145,15 +146,6 @@ impl<'a, M: ArenaMemory> TrieDescent<'a, M> {
         }
     }
 
-    /// Find the key (nibbles) which splits the trie into two parts with possibly equal
-    /// memory usage. Returns the key and the memory usage of the left and right part.
-    pub fn find_mem_usage_split(mut self) -> TrieSplit {
-        while self.middle_memory > 0 {
-            self.descend_step();
-        }
-        TrieSplit::new(self.nibbles, self.left_memory, self.right_memory)
-    }
-
     fn total_memory(&self) -> u64 {
         self.left_memory + self.right_memory + self.middle_memory
     }
@@ -170,32 +162,50 @@ impl<'a, M: ArenaMemory> TrieDescent<'a, M> {
         children_mem_usage
     }
 
-    fn descend_step(&mut self) {
-        let children_mem_usage = self.aggregate_children_mem_usage();
+    /// Find the key (nibbles) which splits the trie into two parts with possibly equal
+    /// memory usage. Returns the key and the memory usage of the left and right part.
+    pub fn find_mem_usage_split(mut self) -> TrieSplit {
+        while let Some((nibble, child_mem_usage, left_mem_usage)) = self.next_step() {
+            self.descend_step(nibble, child_mem_usage, left_mem_usage);
+        }
+
+        // Remove the first nibble (prefix)
+        self.nibbles.remove(0);
+        // `middle_memory` is added to `right_memory`, because the boundary belongs to the right part.
+        TrieSplit::new(self.nibbles, self.left_memory, self.right_memory + self.middle_memory)
+    }
+
+    /// Find the next step `(nibble, child_mem_usage, left_mem_usage)`.
+    ///     * `nibble` – next nibble on the path (index of the middle child node)
+    ///     * `child_mem_usage` – memory usage of the middle child
+    ///     * `left_mem_usage` – total memory usage of left siblings of the middle child
+    /// Returns `None` if the end of the searched is reached.
+    fn next_step(&self) -> Option<(u8, u64, u64)> {
+        // Stop when a leaf is reached in the accounts subtree
+        if self.subtree_stages[0].current_node_memory_usage() == 0 {
+            return None;
+        }
 
         // Find the middle child
+        let children_mem_usage = self.aggregate_children_mem_usage();
         let threshold = self.total_memory() / 2 - self.left_memory;
-        let middle_child = find_middle_child(&children_mem_usage, threshold);
-        let Some((middle_child, left_memory)) = middle_child else {
-            // If no middle child can be found, we have reached the end of the search.
-            // `middle_memory` is added to `right_memory`, because the boundary belongs to the right part.
-            self.right_memory += self.middle_memory;
-            self.middle_memory = 0;
-            return;
-        };
+        let (middle_child, left_mem_usage) = find_middle_child(&children_mem_usage, threshold)?;
+        let child_mem_usage = children_mem_usage[middle_child];
 
+        Some((middle_child as u8, child_mem_usage, left_mem_usage))
+    }
+
+    fn descend_step(&mut self, nibble: u8, child_mem_usage: u64, left_mem_usage: u64) {
         // Update left, right, and middle memory
-        let middle_child_memory = children_mem_usage[middle_child];
-        self.left_memory += left_memory;
-        self.right_memory += self.middle_memory - left_memory - middle_child_memory;
-        self.middle_memory = middle_child_memory;
+        self.left_memory += left_mem_usage;
+        self.right_memory += self.middle_memory - left_mem_usage - child_mem_usage;
+        self.middle_memory = child_mem_usage;
 
         // Update descent stages for all subtrees
-        let middle_child = middle_child as u8;
         let subtree_stages = std::mem::take(&mut self.subtree_stages);
         self.subtree_stages =
-            subtree_stages.into_iter().map(|subtree| subtree.descend(middle_child)).collect();
-        self.nibbles.push(middle_child);
+            subtree_stages.into_iter().map(|subtree| subtree.descend(nibble)).collect();
+        self.nibbles.push(nibble);
     }
 }
 
