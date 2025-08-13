@@ -12,6 +12,7 @@ struct PrepareContext<'a> {
     validator: wp::Validator,
     func_validator_allocations: wp::FuncValidatorAllocations,
     before_import_section: bool,
+    export_memory: bool,
 }
 
 impl<'a> PrepareContext<'a> {
@@ -28,6 +29,7 @@ impl<'a> PrepareContext<'a> {
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
+            export_memory: false,
         }
     }
 
@@ -93,6 +95,7 @@ impl<'a> PrepareContext<'a> {
                         .memory_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
                     if self.config.vm_kind == VMKind::Wasmtime {
+                        self.export_memory = true;
                         wasm_encoder::MemorySection::new()
                             .memory(self.memory_type())
                             .append_to(&mut self.output_code);
@@ -110,7 +113,31 @@ impl<'a> PrepareContext<'a> {
                     self.validator
                         .export_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
-                    self.copy_section(SectionId::Export, reader.range())?;
+                    let mut new_section = wasm_encoder::ExportSection::new();
+                    for res in reader {
+                        let wp::Export { name, kind, index } =
+                            res.map_err(|_| PrepareError::Deserialization)?;
+                        match kind {
+                            wp::ExternalKind::Func => {
+                                new_section.export(name, wasm_encoder::ExportKind::Func, index);
+                            }
+                            wp::ExternalKind::Table => {
+                                new_section.export(name, wasm_encoder::ExportKind::Table, index);
+                            }
+                            wp::ExternalKind::Memory => continue,
+                            wp::ExternalKind::Global => {
+                                new_section.export(name, wasm_encoder::ExportKind::Global, index);
+                            }
+                            wp::ExternalKind::Tag => {
+                                new_section.export(name, wasm_encoder::ExportKind::Tag, index);
+                            }
+                        }
+                    }
+                    if self.export_memory {
+                        self.export_memory = false;
+                        new_section.export("memory", wasm_encoder::ExportKind::Memory, 0);
+                    }
+                    new_section.append_to(&mut self.output_code)
                 }
                 wp::Payload::StartSection { func, range } => {
                     self.ensure_import_section();
