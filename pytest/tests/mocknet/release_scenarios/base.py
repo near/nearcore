@@ -38,10 +38,12 @@ class TestSetup:
         self.tracing_server = False
         # The GCP regions to be used for the nodes.
         self.regions = None
-        # The number of validators.
-        self.validators = None
-        # The number of block producers. The rest will be chunk validators.
-        self.block_producers = None
+        # The total number of validators.
+        self.chunk_validator_seats = None
+        # The number of chunk producers.
+        self.chunk_producer_seats = None
+        # All validators run the same hardware.
+        self.all_validators_run_same_hardware = True
         # The base binary url to be used for the nodes.
         self.neard_binary_url = None
         # The new binary url to be used for the nodes.
@@ -112,8 +114,9 @@ class TestSetup:
         new_test_args = copy.deepcopy(self.args)
         new_test_args.epoch_length = self.epoch_len
         new_test_args.genesis_protocol_version = self.genesis_protocol_version
-        new_test_args.num_validators = self.validators
-        new_test_args.num_seats = self.block_producers
+        new_test_args.num_validators = self.chunk_validator_seats
+        # Set all seats to the lower value. This will be increased later in epoch config.
+        new_test_args.num_seats = self.chunk_producer_seats
         new_test_args.stateless_setup = True
         new_test_args.new_chain_id = self.unique_id
         new_test_args.yes = True
@@ -189,7 +192,7 @@ class TestSetup:
     def amend_epoch_config(self):
         self._share_epoch_configs()
         self._amend_epoch_config(
-            f".num_chunk_validator_seats = {self.validators}")
+            f".num_chunk_validator_seats = {self.chunk_validator_seats}")
         self._reduce_chunk_validators_stake()
 
     def amend_configs_before_test_start(self):
