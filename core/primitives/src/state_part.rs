@@ -26,7 +26,7 @@ impl PartId {
 
 /// Serialized version of `PartialState`.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct StatePartV0(pub Vec<u8>);
+pub struct StatePartV0(pub(crate) Vec<u8>);
 
 /// Similar to `StatePartV0`, but uses zstd compression.
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]

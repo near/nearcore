@@ -200,19 +200,19 @@ impl ShardStateSyncResponseHeader {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV1 {
     pub header: Option<ShardStateSyncResponseHeaderV1>,
-    pub part: Option<(u64, StatePartV0)>,
+    pub part: Option<(u64, Vec<u8>)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV2 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
-    pub part: Option<(u64, StatePartV0)>,
+    pub part: Option<(u64, Vec<u8>)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV3 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
-    pub part: Option<(u64, StatePartV0)>,
+    pub part: Option<(u64, Vec<u8>)>,
     pub cached_parts: Option<CachedParts>,
     pub can_generate: bool,
 }
@@ -259,7 +259,7 @@ impl ShardStateSyncResponse {
         }
         let part = match part {
             None => None,
-            Some((part_id, StatePart::V0(part))) => Some((part_id, part)),
+            Some((part_id, StatePart::V0(part))) => Some((part_id, part.0)),
             _ => panic!("StatePartsVersioning not supported and part={part:?}"),
         };
         Self::V3(ShardStateSyncResponseV3 { header, part, cached_parts: None, can_generate: false })
@@ -285,18 +285,24 @@ impl ShardStateSyncResponse {
 
     pub fn take_part(self) -> Option<(u64, StatePart)> {
         match self {
-            Self::V1(response) => response.part.map(|(idx, part)| (idx, StatePart::V0(part))),
-            Self::V2(response) => response.part.map(|(idx, part)| (idx, StatePart::V0(part))),
-            Self::V3(response) => response.part.map(|(idx, part)| (idx, StatePart::V0(part))),
+            Self::V1(response) => {
+                response.part.map(|(idx, part)| (idx, StatePart::V0(StatePartV0(part))))
+            }
+            Self::V2(response) => {
+                response.part.map(|(idx, part)| (idx, StatePart::V0(StatePartV0(part))))
+            }
+            Self::V3(response) => {
+                response.part.map(|(idx, part)| (idx, StatePart::V0(StatePartV0(part))))
+            }
             Self::V4(response) => response.part,
         }
     }
 
     pub fn payload_length(&self) -> Option<usize> {
         match self {
-            Self::V1(response) => response.part.as_ref().map(|(_, part)| part.0.len()),
-            Self::V2(response) => response.part.as_ref().map(|(_, part)| part.0.len()),
-            Self::V3(response) => response.part.as_ref().map(|(_, part)| part.0.len()),
+            Self::V1(response) => response.part.as_ref().map(|(_, part)| part.len()),
+            Self::V2(response) => response.part.as_ref().map(|(_, part)| part.len()),
+            Self::V3(response) => response.part.as_ref().map(|(_, part)| part.len()),
             Self::V4(response) => response.part.as_ref().map(|(_, part)| part.payload_length()),
         }
     }
