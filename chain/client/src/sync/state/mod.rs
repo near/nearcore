@@ -29,7 +29,6 @@ use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::ShardId;
 use near_store::Store;
-use near_vm_runner::logic::ProtocolVersion;
 use network::{StateSyncDownloadSourcePeer, StateSyncDownloadSourcePeerSharedState};
 use parking_lot::Mutex;
 use shard::{StateSyncShardHandle, run_state_sync_for_shard};
@@ -145,6 +144,7 @@ impl StateSync {
                 let fallback_source = Arc::new(StateSyncDownloadSourceExternal {
                     clock: clock.clone(),
                     store: store.clone(),
+                    epoch_manager: epoch_manager.clone(),
                     chain_id: chain_id.to_string(),
                     conn: external,
                     timeout: external_timeout,
@@ -318,7 +318,6 @@ pub(self) trait StateSyncDownloadSource: Send + Sync + 'static {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-        protocol_version: ProtocolVersion,
     ) -> BoxFuture<Result<StatePart, near_chain::Error>>;
 }
 

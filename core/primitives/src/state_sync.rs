@@ -217,6 +217,7 @@ pub struct ShardStateSyncResponseV3 {
     pub can_generate: bool,
 }
 
+// Between V3 to V4 we removed unused fields `cached_parts`` and `can_generate`` and introduced versioned `StatePart`.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV4 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
@@ -230,7 +231,6 @@ pub enum ShardStateSyncResponse {
     V1(ShardStateSyncResponseV1) = 0,
     V2(ShardStateSyncResponseV2) = 1,
     V3(ShardStateSyncResponseV3) = 2,
-    /// Uses versioned `StatePart`
     V4(ShardStateSyncResponseV4) = 3,
 }
 
@@ -249,26 +249,20 @@ impl ShardStateSyncResponse {
         Self::new_from_header_or_part(None, part, protocol_version)
     }
 
-    pub fn new_from_header_or_part(
+    fn new_from_header_or_part(
         header: Option<ShardStateSyncResponseHeaderV2>,
         part: Option<(u64, StatePart)>,
         protocol_version: ProtocolVersion,
     ) -> Self {
         if ProtocolFeature::StatePartsVersioning.enabled(protocol_version) {
-            Self::V4(ShardStateSyncResponseV4 { header, part })
-        } else {
-            let part = match part {
-                None => None,
-                Some((part_id, StatePart::V0(part))) => Some((part_id, part)),
-                _ => panic!("StatePartsVersioning not supported and part={part:?}"),
-            };
-            Self::V3(ShardStateSyncResponseV3 {
-                header,
-                part,
-                cached_parts: None,
-                can_generate: false,
-            })
+            return Self::V4(ShardStateSyncResponseV4 { header, part });
         }
+        let part = match part {
+            None => None,
+            Some((part_id, StatePart::V0(part))) => Some((part_id, part)),
+            _ => panic!("StatePartsVersioning not supported and part={part:?}"),
+        };
+        Self::V3(ShardStateSyncResponseV3 { header, part, cached_parts: None, can_generate: false })
     }
 
     pub fn part_id(&self) -> Option<u64> {

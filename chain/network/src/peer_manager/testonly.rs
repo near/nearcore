@@ -618,7 +618,7 @@ pub(crate) async fn start(
                     match event {
                         StateRequestSenderForNetworkMessage::_state_request_part(msg) => {
                             let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
-                            let part = Some((part_id, StatePartV0::empty()));
+                            let part = Some((part_id, StatePartV0(vec![])));
                             let state_response =
                                 ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
                                     header: None,

@@ -8,6 +8,7 @@ use strum::AsRefStr;
 
 use crate::state::PartialState;
 
+// TODO(cloud_archival) make it configurable
 const STATE_PARTS_COMPRESSION_LEVEL: i32 = 3;
 
 // to specify a part we always specify both part_id and num_parts together
@@ -23,9 +24,9 @@ impl PartId {
     }
 }
 
-/// A newtype for legacy state part (Vec<u8>).
+/// Serialized version of `PartialState`.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct StatePartV0(pub(crate) Vec<u8>);
+pub struct StatePartV0(pub Vec<u8>);
 
 /// Similar to `StatePartV0`, but uses zstd compression.
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -50,10 +51,6 @@ impl fmt::Debug for StatePart {
 }
 
 impl StatePartV0 {
-    pub fn empty() -> Self {
-        Self(vec![])
-    }
-
     fn from_partial_state(partial_state: PartialState) -> Self {
         let bytes =
             borsh::to_vec(&partial_state).expect("serializing partial state should not fail");

@@ -21,11 +21,11 @@ use near_primitives::state_sync::{
     StateHeaderKey, StatePartKey, get_num_state_parts,
 };
 use near_primitives::types::ShardId;
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::RequestedStatePartsView;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_vm_runner::logic::ProtocolVersion;
 use std::collections::HashSet;
 use std::sync::Arc;
 use time::ext::InstantExt as _;

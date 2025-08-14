@@ -15,8 +15,8 @@ use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
 };
 use near_primitives::types::ShardId;
+use near_primitives::version::ProtocolVersion;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 
 use crate::metrics;
@@ -145,10 +145,11 @@ impl StateRequestActor {
         &self,
         sync_hash: &CryptoHash,
     ) -> Option<ProtocolVersion> {
-        let protocol_version = (|| {
-            let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(sync_hash)?;
-            self.epoch_manager.get_epoch_protocol_version(&epoch_id)
-        })();
+        let protocol_version = self
+            .epoch_manager
+            .get_epoch_id_from_prev_block(sync_hash)
+            .and_then(|epoch_id| self.epoch_manager.get_epoch_protocol_version(&epoch_id));
+
         protocol_version
             .map_err(|err| {
                 tracing::error!(target: "sync", ?err, "Failed to get sync_hash protocol version");

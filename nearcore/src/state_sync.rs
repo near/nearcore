@@ -23,7 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
-use near_vm_runner::logic::ProtocolVersion;
+use near_primitives::version::ProtocolVersion;
 use parking_lot::{Condvar, Mutex, RwLock};
 use rand::seq::SliceRandom;
 use rand::thread_rng;

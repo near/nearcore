@@ -16,8 +16,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
-use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_runner::logic::ProtocolVersion;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::drop_condition::DropCondition;

@@ -16,7 +16,6 @@ use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
-use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -273,7 +272,6 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-        _protocol_version: ProtocolVersion,
     ) -> BoxFuture<'static, Result<StatePart, near_chain::Error>> {
         let key =
             PendingPeerRequestKey { shard_id, sync_hash, kind: PartIdOrHeader::Part { part_id } };

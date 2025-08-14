@@ -12,8 +12,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::types::ShardId;
+use near_primitives::version::ProtocolVersion;
 use near_store::{DBCol, Store};
-use near_vm_runner::logic::ProtocolVersion;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio_util::sync::CancellationToken;
@@ -186,7 +186,6 @@ impl StateSyncDownloader {
                         part_id,
                         handle.clone(),
                         cancel.clone(),
-                        protocol_version,
                     )
                     .await?;
                 if runtime_adapter.validate_state_part(
