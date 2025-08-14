@@ -38,7 +38,7 @@ const MAX_CONCURRENCY: u32 = 1_000;
 
 /// The maximum amount of tables that can concurrently exist.
 /// This should be greater than or equal to [MAX_CONCURRENCY].
-const MAX_TABLES: u32 = MAX_CONCURRENCY;
+const MAX_TABLES: u32 = MAX_CONCURRENCY * 5;
 
 const MAX_TABLE_ELEMENTS: usize = 1_000_000;
 
