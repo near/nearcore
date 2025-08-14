@@ -223,3 +223,44 @@ fn memory_custom() {
             "#]],
         ]);
 }
+
+#[test]
+fn too_many_table_elements() {
+    test_builder()
+        .wat(
+            &format!(r#"
+            (module
+              (func (export "main"))
+              (table 1000001 funcref)
+            )"#),
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 81196353 used gas 81196353
+                Err: PrepareError: Too many table elements declared in the contract.
+            "#]],
+        ]);
+}
+
+#[test]
+fn too_many_tables() {
+    test_builder()
+        .wat(
+            &format!(r#"
+            (module
+              (func (export "main"))
+              (table 0 funcref)
+              (table 0 funcref)
+              (table 0 funcref)
+              (table 0 funcref)
+              (table 0 funcref)
+              (table 0 funcref)
+            )"#),
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 95357188 used gas 95357188
+                Err: PrepareError: Too many tables declared in the contract.
+            "#]],
+        ]);
+}

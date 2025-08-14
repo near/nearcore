@@ -1,4 +1,3 @@
-use crate::MEMORY_EXPORT;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
@@ -11,7 +10,8 @@ use crate::logic::{
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
-    NoContractRuntimeCache, get_contract_cache_key, imports, prepare,
+    MAX_ELEMENTS_PER_TABLE, MAX_TABLES_PER_MODULE, MEMORY_EXPORT, NoContractRuntimeCache,
+    get_contract_cache_key, imports, prepare,
 };
 use core::mem::transmute;
 use core::ops::Deref;
@@ -34,13 +34,13 @@ type Caller = wasmtime::Caller<'static, Ctx>;
 /// If this limit is reached, invocations will block until an execution slot is available.
 ///
 /// Wasmtime will use this value to pre-allocate and pool resources internally.
+/// Wasmtime defaults to `1_000`
 const MAX_CONCURRENCY: u32 = 1_000;
 
 /// The maximum amount of tables that can concurrently exist.
 /// This should be greater than or equal to [MAX_CONCURRENCY].
-const MAX_TABLES: u32 = MAX_CONCURRENCY * 5;
-
-const MAX_TABLE_ELEMENTS: usize = 1_000_000;
+/// Wasmtime defaults to `1_000`
+const MAX_TABLES: u32 = MAX_CONCURRENCY * MAX_TABLES_PER_MODULE;
 
 /// Guest page size, in bytes
 const GUEST_PAGE_SIZE: usize = 1 << 16;
@@ -292,14 +292,16 @@ pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
     let mut pooling = PoolingAllocationConfig::default();
     pooling
         .max_memory_size(max_memory_size)
-        .table_elements(MAX_TABLE_ELEMENTS)
+        .table_elements(MAX_ELEMENTS_PER_TABLE)
         .total_component_instances(0)
         .total_core_instances(MAX_CONCURRENCY)
         .total_memories(MAX_CONCURRENCY)
         .total_tables(MAX_TABLES)
+        .max_memories_per_module(1)
+        .max_tables_per_module(MAX_TABLES_PER_MODULE)
         // Minimize page faults on Linux
         .linear_memory_keep_resident(max_memory_size)
-        .table_keep_resident(MAX_TABLE_ELEMENTS * size_of::<*const ()>());
+        .table_keep_resident(MAX_ELEMENTS_PER_TABLE * size_of::<*const ()>());
 
     let mut config = wasmtime::Config::from(features);
     config
@@ -445,53 +447,6 @@ impl WasmtimeVM {
                         })),
                     )));
                 };
-                let ResourcesRequired {
-                    num_memories,
-                    num_tables,
-                    max_initial_table_size,
-                    max_initial_memory_size,
-                } = module.resources_required();
-                if num_memories > 1 {
-                    return Ok(to_any((
-                        wasm_bytes,
-                        Ok(Err(FunctionCallError::LinkError {
-                            msg: "module requires multiple memories".into(),
-                        })),
-                    )));
-                }
-                if num_tables > MAX_TABLES {
-                    return Ok(to_any((
-                        wasm_bytes,
-                        Ok(Err(FunctionCallError::LinkError {
-                            msg: "module requires more tables than allowed".into(),
-                        })),
-                    )));
-                }
-                if let Some(max_initial_table_size) = max_initial_table_size {
-                    if max_initial_table_size > MAX_TABLE_ELEMENTS.try_into().unwrap_or(u64::MAX) {
-                        return Ok(to_any((
-                            wasm_bytes,
-                            Ok(Err(FunctionCallError::LinkError {
-                                msg: "module requires more table elements than allowed".into(),
-                            })),
-                        )));
-                    }
-                }
-                if let Some(max_initial_memory_size) = max_initial_memory_size {
-                    let max_memory_size =
-                        guest_memory_size(self.config.limit_config.max_memory_pages)
-                            .unwrap_or(usize::MAX)
-                            .try_into()
-                            .unwrap_or(u64::MAX);
-                    if max_initial_memory_size > max_memory_size {
-                        return Ok(to_any((
-                            wasm_bytes,
-                            Ok(Err(FunctionCallError::LinkError {
-                                msg: "module requires more memory than allowed".into(),
-                            })),
-                        )));
-                    }
-                }
                 let mut linker = Linker::new(&self.engine);
                 link(&mut linker, &self.config);
                 match linker.instantiate_pre(&module) {
@@ -500,6 +455,7 @@ impl WasmtimeVM {
                         Ok(to_any((wasm_bytes, Ok(Err(err)))))
                     }
                     Ok(pre) => {
+                        let ResourcesRequired { num_tables, .. } = module.resources_required();
                         Ok(to_any((wasm_bytes, Ok(Ok(PreparedModule { pre, memory, num_tables })))))
                     }
                 }
