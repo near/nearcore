@@ -320,10 +320,6 @@ pub enum ProtocolFeature {
     /// It improves UX during long ranges of missing chunks, as transactions
     /// are much less likely to get rejected with ShardStuck error.
     IncreaseMaxCongestionMissedChunks,
-    /// Equalizes the cost of reading trie nodes for first and subsequent accesses.
-    /// After this version, `wasm_touching_trie_node` and `wasm_read_cached_trie_node`
-    /// will have the same cost.
-    EqualizeTrieNodeTouchAndReadCost,
 
     RefTypesBulkMemory,
     SaturatingFloatToInt,
@@ -425,7 +421,6 @@ impl ProtocolFeature {
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::EqualizeTrieNodeTouchAndReadCost => 81,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

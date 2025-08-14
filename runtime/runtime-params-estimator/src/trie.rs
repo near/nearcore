@@ -217,8 +217,9 @@ pub(crate) fn read_trie_node_estimate_by_iteration(
     let accessed_nodes = trie.recorded_storage().expect("recorded storage missing").nodes.len();
     let cost = start.elapsed();
 
-    // Round to nanos otherwise precise ratio math with different denoms may overflow.
-    // Expected to take several hundreds to few thousands of nanos.
+    // Round to nanos, using precise rational math with different denominators
+    // may overflow. Expected to take several hundreds to few thousands of
+    // nanos.
     (cost / accessed_nodes as u64).round_nanos()
 }
 
