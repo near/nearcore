@@ -105,7 +105,6 @@ impl<'a> PrepareContext<'a> {
                     }
                 }
                 wp::Payload::GlobalSection(reader) => {
-                    self.ensure_import_section();
                     self.ensure_memory_section();
                     self.validator
                         .global_section(&reader)
@@ -113,9 +112,8 @@ impl<'a> PrepareContext<'a> {
                     self.copy_section(SectionId::Global, reader.range())?;
                 }
                 wp::Payload::ExportSection(reader) => {
-                    self.before_export_section = false;
-                    self.ensure_import_section();
                     self.ensure_memory_section();
+                    self.before_export_section = false;
                     self.validator
                         .export_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
@@ -149,8 +147,6 @@ impl<'a> PrepareContext<'a> {
                     new_section.append_to(&mut self.output_code)
                 }
                 wp::Payload::StartSection { func, range } => {
-                    self.ensure_import_section();
-                    self.ensure_memory_section();
                     self.ensure_export_section();
                     self.validator
                         .start_section(func, &range)
@@ -158,8 +154,6 @@ impl<'a> PrepareContext<'a> {
                     self.copy_section(SectionId::Start, range.clone())?;
                 }
                 wp::Payload::ElementSection(reader) => {
-                    self.ensure_import_section();
-                    self.ensure_memory_section();
                     self.ensure_export_section();
                     self.validator
                         .element_section(&reader)
@@ -167,8 +161,6 @@ impl<'a> PrepareContext<'a> {
                     self.copy_section(SectionId::Element, reader.range())?;
                 }
                 wp::Payload::DataCountSection { count, range } => {
-                    self.ensure_import_section();
-                    self.ensure_memory_section();
                     self.ensure_export_section();
                     self.validator
                         .data_count_section(count, &range)
@@ -176,8 +168,6 @@ impl<'a> PrepareContext<'a> {
                     self.copy_section(SectionId::DataCount, range.clone())?;
                 }
                 wp::Payload::DataSection(reader) => {
-                    self.ensure_import_section();
-                    self.ensure_memory_section();
                     self.ensure_export_section();
                     self.validator
                         .data_section(&reader)
@@ -185,8 +175,6 @@ impl<'a> PrepareContext<'a> {
                     self.copy_section(SectionId::Data, reader.range())?;
                 }
                 wp::Payload::CodeSectionStart { size: _, count, range } => {
-                    self.ensure_import_section();
-                    self.ensure_memory_section();
                     self.ensure_export_section();
                     self.function_limit = self
                         .function_limit
@@ -225,8 +213,6 @@ impl<'a> PrepareContext<'a> {
                 }
                 wp::Payload::CustomSection(reader) => {
                     if !self.config.discard_custom_sections {
-                        self.ensure_import_section();
-                        self.ensure_memory_section();
                         self.ensure_export_section();
                         self.copy_section(SectionId::Custom, reader.range())?;
                     }
@@ -252,7 +238,6 @@ impl<'a> PrepareContext<'a> {
                 }
             }
         }
-        self.ensure_memory_section();
         self.ensure_export_section();
         Ok(std::mem::replace(&mut self.output_code, Vec::new()))
     }
@@ -302,6 +287,7 @@ impl<'a> PrepareContext<'a> {
     }
 
     fn ensure_memory_section(&mut self) {
+        self.ensure_import_section();
         if self.before_memory_section {
             self.before_memory_section = false;
             if self.config.vm_kind == VMKind::Wasmtime {
@@ -313,6 +299,7 @@ impl<'a> PrepareContext<'a> {
     }
 
     fn ensure_export_section(&mut self) {
+        self.ensure_memory_section();
         if self.before_export_section {
             self.before_export_section = false;
             if self.config.vm_kind == VMKind::Wasmtime {
