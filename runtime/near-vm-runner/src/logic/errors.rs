@@ -41,7 +41,7 @@ pub enum VMRunnerError {
 /// See the doc comment on `VMResult` for an explanation what the difference
 /// between this and a `VMRunnerError` is. And see `PartialExecutionStatus`
 /// for what gets stored on chain.
-#[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
+#[derive(Clone, Debug, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),

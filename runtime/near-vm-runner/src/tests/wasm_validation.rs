@@ -154,3 +154,72 @@ fn extension_saturating_float_to_int() {
             "#]],
         ]);
 }
+
+#[test]
+fn memory_export_method() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (func (export "memory"))
+            )"#,
+        )
+        .method("memory")
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 81242631 used gas 81242631
+            "#]],
+        ]);
+}
+
+#[test]
+fn memory_export_clash() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (func (export "\00nearcore_memory"))
+              (func (export "main"))
+            )"#,
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97535778 used gas 97535778
+                Err: PrepareError: Error happened during instantiation.
+            "#]],
+        ]);
+}
+
+#[test]
+fn memory_export_internal() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (memory (export "\00nearcore_memory") 0 0)
+              (func (export "main"))
+            )"#,
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 106296416 used gas 106296416
+            "#]],
+        ]);
+}
+
+#[test]
+fn memory_custom() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (memory (export "foo") 42 42)
+              (func (export "main"))
+            )"#,
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 92135581 used gas 92135581
+            "#]],
+        ]);
+}
