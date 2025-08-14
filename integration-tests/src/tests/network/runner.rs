@@ -1,5 +1,6 @@
 use actix::{Actor, Addr};
 use anyhow::{Context, anyhow, bail};
+use near_async::ActorSystem;
 use near_async::actix::futures::ActixFutureSpawner;
 use near_async::actix::wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
@@ -95,11 +96,13 @@ fn setup_network_node(
         chain_id: client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
     };
+    let actor_system = ActorSystem::new();
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
     let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
+        actor_system,
         client_config.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),

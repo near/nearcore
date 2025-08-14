@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
+use crate::ActorSystem;
 use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::messaging::Actor;
-use tokio_util::sync::CancellationToken;
 
 /// TokioRuntimeMessage is a type alias for a boxed function that can be sent to the Tokio runtime.
 pub(super) struct TokioRuntimeMessage<A> {
@@ -62,7 +62,7 @@ where
 ///
 /// The sender and future spawner can then be passed onto other components that need to send messages
 /// to the actor or spawn futures in the runtime of the actor.
-pub fn spawn_tokio_actor<A>(mut actor: A) -> TokioRuntimeHandle<A>
+pub fn spawn_tokio_actor<A>(actor_system: ActorSystem, mut actor: A) -> TokioRuntimeHandle<A>
 where
     A: Actor + Send + 'static,
 {
@@ -82,7 +82,7 @@ where
         actor.start_actor(&mut runtime_handle_clone);
         loop {
             tokio::select! {
-                _ = GLOBAL_TOKIO_RUNTIME_SHUTDOWN_SIGNAL.cancelled() => {
+                _ = actor_system.tokio_cancellation_signal.cancelled() => {
                     tracing::info!(target: "tokio_runtime", "Shutting down Tokio runtime");
                     break;
                 }
@@ -100,6 +100,3 @@ where
 
     runtime_handle
 }
-
-pub(crate) static GLOBAL_TOKIO_RUNTIME_SHUTDOWN_SIGNAL: std::sync::LazyLock<CancellationToken> =
-    std::sync::LazyLock::new(|| CancellationToken::new());

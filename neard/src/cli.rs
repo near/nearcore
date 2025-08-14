@@ -1,6 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
+use near_async::ActorSystem;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
@@ -570,6 +571,7 @@ impl RunCmd {
             } = nearcore::start_with_config_and_synchronization(
                 home_dir,
                 near_config,
+                ActorSystem::new(),
                 Some(tx_crash),
                 Some(config_updater),
             )

@@ -11,6 +11,7 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards}
 use nearcore::{load_test_config, start_with_config};
 
 use crate::utils::test_helpers::heavy_test;
+use near_async::ActorSystem;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::ClientActorInner;
 
@@ -65,11 +66,12 @@ fn start_nodes(
     }
 
     let mut res = vec![];
+    let actor_system = ActorSystem::new();
     for (i, near_config) in near_configs.into_iter().enumerate() {
         let dir = temp_dir.join(format!("node{i}"));
         std::fs::create_dir(&dir).unwrap();
         let nearcore::NearNode { client, view_client, arbiters, .. } =
-            start_with_config(&dir, near_config).expect("start_with_config");
+            start_with_config(&dir, near_config, actor_system.clone()).expect("start_with_config");
         res.push((client, view_client, arbiters))
     }
     (genesis, rpc_addrs, res)

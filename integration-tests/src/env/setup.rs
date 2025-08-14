@@ -18,6 +18,7 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 
+use near_async::ActorSystem;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
@@ -157,6 +158,8 @@ fn setup(
 
     let adv = Controls::default();
 
+    let actor_system = ActorSystem::new();
+
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
         chain_genesis.clone(),
@@ -202,6 +205,7 @@ fn setup(
         ..
     } = start_client(
         clock,
+        actor_system,
         config.clone(),
         chain_genesis,
         epoch_manager.clone(),

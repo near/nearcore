@@ -32,8 +32,8 @@ use near_async::messaging::{
 };
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
-use near_async::tokio::{TokioRuntimeHandle, spawn_tokio_actor};
-use near_async::{MultiSend, MultiSenderFrom};
+use near_async::tokio::TokioRuntimeHandle;
+use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 use near_chain::ApplyChunksSpawner;
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
@@ -131,6 +131,7 @@ pub struct StartClientResult {
 /// Starts client in a separate Arbiter (thread).
 pub fn start_client(
     clock: Clock,
+    actor_system: ActorSystem,
     client_config: ClientConfig,
     chain_genesis: ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -241,7 +242,7 @@ pub fn start_client(
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
     let chunk_endorsement_tracker =
         Arc::clone(&client_actor_inner.client.chunk_endorsement_tracker);
-    let client_actor = spawn_tokio_actor(client_actor_inner);
+    let client_actor = actor_system.spawn_tokio_actor(client_actor_inner);
 
     client_sender_for_sync_jobs.bind(client_actor.clone().into_multi_sender());
     client_sender_for_client.bind(client_actor.clone().into_multi_sender());

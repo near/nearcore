@@ -64,6 +64,7 @@ mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
 pub mod state_sync;
+use near_async::ActorSystem;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::ClientActorInner;
 #[cfg(feature = "tx_generator")]
@@ -243,13 +244,18 @@ pub struct NearNode {
     pub shard_tracker: ShardTracker,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
-    start_with_config_and_synchronization(home_dir, config, None, None)
+pub fn start_with_config(
+    home_dir: &Path,
+    config: NearConfig,
+    actor_system: ActorSystem,
+) -> anyhow::Result<NearNode> {
+    start_with_config_and_synchronization(home_dir, config, actor_system, None, None)
 }
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
     mut config: NearConfig,
+    actor_system: ActorSystem,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<broadcast::Sender<()>>,
@@ -440,6 +446,7 @@ pub fn start_with_config_and_synchronization(
         chunk_validation_actor,
     } = start_client(
         Clock::real(),
+        actor_system,
         config.client_config.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),

@@ -23,6 +23,7 @@ use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSea
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
+use near_async::ActorSystem;
 use near_async::messaging::CanSendAsync;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::ClientActorInner;
@@ -84,12 +85,14 @@ fn init_test_staking(
         config.client_config.min_num_peers = num_node_seats as usize - 1;
         config
     });
+    let actor_system = ActorSystem::new();
     configs
         .enumerate()
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
             let nearcore::NearNode { client, view_client, rpc_handler: tx_processor, .. } =
-                start_with_config(paths[i], config.clone()).expect("start_with_config");
+                start_with_config(paths[i], config.clone(), actor_system.clone())
+                    .expect("start_with_config");
             let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
             let signer = Arc::new(InMemorySigner::test_signer(&account_id));
             TestNode { account_id, signer, config, client, view_client, tx_processor, genesis_hash }
