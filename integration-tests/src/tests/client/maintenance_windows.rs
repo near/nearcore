@@ -1,4 +1,3 @@
-use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
@@ -60,7 +59,7 @@ fn test_get_maintenance_windows_for_validator() {
         // Maintenance heights are heights where account not a block or chunk producer
         let actor = actor.then(|res| {
             assert_eq!(res.unwrap().unwrap(), [3..4, 5..6]);
-            System::current().stop();
+            near_async::shutdown_all_actors();
             future::ready(())
         });
         actix::spawn(actor);
@@ -83,7 +82,7 @@ fn test_get_maintenance_windows_for_not_validator() {
             .send(GetMaintenanceWindows { account_id: "alice".parse().unwrap() });
         let actor = actor.then(|res| {
             assert_eq!(res.unwrap().unwrap(), vec![0..10]);
-            System::current().stop();
+            near_async::shutdown_all_actors();
             future::ready(())
         });
         actix::spawn(actor);

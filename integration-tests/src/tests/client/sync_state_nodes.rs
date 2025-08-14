@@ -435,7 +435,7 @@ fn ultra_slow_test_sync_state_dump() {
             .await
             .unwrap();
             state_sync_dumper.stop_and_await();
-            System::current().stop();
+            near_async::shutdown_all_actors();
         });
         drop(_dump_dir);
         drop(_dir1);
@@ -796,7 +796,7 @@ fn slow_test_state_sync_headers() {
             })
             .await
             .unwrap();
-            System::current().stop();
+            near_async::shutdown_all_actors();
         });
         drop(_dir1);
     });
@@ -944,7 +944,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             })
             .await
             .unwrap();
-            System::current().stop();
+            near_async::shutdown_all_actors();
         });
         drop(_dir1);
         drop(_dir2);

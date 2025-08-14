@@ -104,7 +104,7 @@ fn peers_connect_all() {
                 }
                 // Stop if all connected to all after exchanging peers.
                 if flags.load(Ordering::Relaxed) == (1 << num_peers) - 1 {
-                    System::current().stop();
+                    near_async::shutdown_all_actors();
                 }
             }),
             100,
@@ -181,7 +181,7 @@ fn peer_recover() {
                     let actor = actor.then(|res| {
                         if let Ok(info) = res {
                             if info.connected_peers.len() == 1 {
-                                System::current().stop();
+                                near_async::shutdown_all_actors();
                             }
                         }
                         future::ready(())

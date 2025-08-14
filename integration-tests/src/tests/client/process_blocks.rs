@@ -5,7 +5,6 @@ use crate::env::test_env_builder::TestEnvBuilder;
 use crate::utils::process_blocks::{
     deploy_test_contract, prepare_env_with_congestion, set_block_protocol_version,
 };
-use actix::System;
 use assert_matches::assert_matches;
 use futures::{FutureExt, future};
 use itertools::Itertools;
@@ -90,7 +89,7 @@ fn produce_two_blocks() {
                 if let NetworkRequests::Block { .. } = msg.as_network_requests_ref() {
                     count.fetch_add(1, Ordering::Relaxed);
                     if count.load(Ordering::Relaxed) >= 2 {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 }
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
@@ -121,7 +120,7 @@ fn receive_network_block() {
                     if *first_header_announce {
                         *first_header_announce = false;
                     } else {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 }
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
@@ -199,7 +198,7 @@ fn produce_block_with_approvals() {
                     // runs 10 iterations, which is way further in the future than them producing the
                     // block
                     if block.header().num_approvals() == validators.len() as u64 - 2 {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     } else if block.header().height() == 10 {
                         println!("{}", block.header().height());
                         println!(
@@ -309,7 +308,7 @@ fn invalid_blocks_common(is_requested: bool) {
                             assert_eq!(block.header().chunk_mask().len(), 1);
                             assert_eq!(block.header().latest_protocol_version(), PROTOCOL_VERSION);
                             assert_eq!(ban_counter, 3);
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                     }
                     NetworkRequests::BanPeer { ban_reason, .. } => {
@@ -317,7 +316,7 @@ fn invalid_blocks_common(is_requested: bool) {
                         ban_counter += 1;
                         let expected_ban_counter = 4;
                         if ban_counter == expected_ban_counter && is_requested {
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                     }
                     _ => {}
@@ -466,7 +465,7 @@ fn skip_block_production() {
                 match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if block.header().height() > 3 {
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                     }
                     _ => {}
@@ -497,7 +496,7 @@ fn client_sync_headers() {
                         assert_eq!(*peer_id, peer_info1.id);
                         assert_eq!(hashes.len(), 1);
                         // TODO: check it requests correct hashes.
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
 
                         PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
                     }

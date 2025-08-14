@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use actix::{Actor, Addr, System};
+use actix::{Actor, Addr};
 use futures::{FutureExt, future};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::num_rational::Ratio;
@@ -157,7 +157,7 @@ fn slow_test_stake_nodes() {
                                 ValidatorInfo { account_id: "near.1".parse().unwrap() },
                             ]
                         {
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                         future::ready(())
                     });
@@ -293,7 +293,7 @@ fn slow_test_validator_kickout() {
                             }
 
                             if finalized_mark1.iter().all(|mark| mark.load(Ordering::SeqCst)) {
-                                System::current().stop();
+                                near_async::shutdown_all_actors();
                             }
                         }
                         future::ready(())
@@ -433,7 +433,7 @@ fn ultra_slow_test_validator_join() {
                     });
                     actix::spawn(actor);
                     if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 }),
                 1000,
@@ -554,7 +554,7 @@ fn slow_test_inflation() {
                         }
                     });
                     if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 }),
                 100,

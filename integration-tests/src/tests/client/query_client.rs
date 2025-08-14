@@ -1,5 +1,4 @@
 use crate::env::setup::setup_no_network;
-use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::messaging::CanSendAsync;
@@ -43,7 +42,7 @@ fn query_client() {
                 QueryResponseKind::ViewAccount(_) => (),
                 _ => panic!("Invalid response"),
             }
-            System::current().stop();
+            near_async::shutdown_all_actors();
             future::ready(())
         });
         actix::spawn(actor);
@@ -118,7 +117,7 @@ fn query_status_not_crash() {
                                     Status { is_health_check: true, detailed: false }.span_wrap(),
                                 )
                                 .then(move |_| {
-                                    System::current().stop();
+                                    near_async::shutdown_all_actors();
                                     future::ready(())
                                 }),
                         );
@@ -196,7 +195,7 @@ fn test_execution_outcome_for_chunk() {
             assert_eq!(execution_outcomes_in_block.len(), 1);
             let outcomes = execution_outcomes_in_block.remove(&ShardId::new(0)).unwrap();
             assert_eq!(outcomes[0].id, tx_hash);
-            System::current().stop();
+            near_async::shutdown_all_actors();
         });
         near_network::test_utils::wait_or_panic(5000);
     });

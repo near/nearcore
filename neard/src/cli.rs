@@ -596,7 +596,7 @@ impl RunCmd {
                 debug!(target: "neard", "{} server stopped", name);
             }))
             .await;
-            actix::System::current().stop();
+            near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
         });
