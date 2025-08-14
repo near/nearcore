@@ -234,7 +234,7 @@ impl GenesisBuilder {
             state_roots,
             congestion_infos,
             &shard_ids,
-            self.genesis.config.gas_limit,
+            self.genesis.config.gas_limit.as_gas(),
             self.genesis.config.genesis_height,
             self.genesis.config.protocol_version,
         );
@@ -284,7 +284,7 @@ impl GenesisBuilder {
                 CryptoHash::default(),
                 vec![],
                 0,
-                self.genesis.config.gas_limit,
+                self.genesis.config.gas_limit.as_gas(),
                 0,
                 Some(congestion_info),
                 chunk_header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),

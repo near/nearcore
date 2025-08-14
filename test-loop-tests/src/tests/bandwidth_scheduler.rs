@@ -33,6 +33,7 @@ use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthSchedulerParams,
 };
 use near_primitives::congestion_info::CongestionControl;
+use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0,
@@ -751,7 +752,7 @@ fn make_send_receipt_transaction(
             actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: method_name.clone(),
                 args: Vec::new(),
-                gas: 0,
+                gas: Gas::from_gas(0),
                 deposit: 0,
             }))],
         }),

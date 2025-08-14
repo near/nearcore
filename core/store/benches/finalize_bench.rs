@@ -17,6 +17,7 @@ use near_chain::Chain;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePathItem, merklize};
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptV0};
@@ -97,7 +98,7 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         args: vec![42u8; 2_000_000],
         method_name: "foo".to_owned(),
-        gas: 10_000_000_000_000u64,
+        gas: Gas::from_gas(10_000_000_000_000u64),
         deposit: 1,
     }));
 

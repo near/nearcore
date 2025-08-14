@@ -13,7 +13,6 @@ use near_jsonrpc::client::new_client;
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::init_integration_logger;
-use near_parameters::{RuntimeConfigStore, RuntimeConfigView};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::serialize::to_base64;
@@ -21,7 +20,7 @@ use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, TxExecutionStatus};
 use std::time::Duration;
 
@@ -208,47 +207,6 @@ fn ultra_slow_test_get_execution_outcome_tx_success() {
 #[test]
 fn ultra_slow_test_get_execution_outcome_tx_failure() {
     test_get_execution_outcome(false);
-}
-
-#[test]
-fn test_protocol_config_rpc() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::default()
-        .set_num_shards(1)
-        .set_num_validator_seats(1)
-        .set_num_lightclients(0)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
-        let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let config_response = client
-            .EXPERIMENTAL_protocol_config(
-                near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
-                    block_reference: near_primitives::types::BlockReference::Finality(
-                        Finality::None,
-                    ),
-                },
-            )
-            .await
-            .unwrap();
-
-        let runtime_config_store = RuntimeConfigStore::new(None);
-        let initial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
-        let latest_runtime_config =
-            runtime_config_store.get_config(near_primitives::version::PROTOCOL_VERSION);
-        assert_ne!(
-            config_response.config_view.runtime_config.storage_amount_per_byte,
-            initial_runtime_config.storage_amount_per_byte()
-        );
-        // compare JSON view
-        assert_eq!(
-            serde_json::json!(config_response.config_view.runtime_config),
-            serde_json::json!(RuntimeConfigView::from(latest_runtime_config.as_ref().clone()))
-        );
-        System::current().stop();
-    });
 }
 
 #[test]

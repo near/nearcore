@@ -3,11 +3,12 @@ use std::collections::{HashMap, HashSet};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
+use near_primitives::types::Gas;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats,
     ProtocolVersion,
 };
 use near_primitives::utils::from_timestamp;
@@ -284,7 +285,7 @@ impl Default for TestGenesisBuilder {
             genesis_height: 1,
             min_gas_price: 0,
             max_gas_price: 0,
-            gas_limit: 1_000_000_000_000_000,
+            gas_limit: Gas::from_gas(1_000_000_000_000_000),
             transaction_validity_period: 100,
             protocol_treasury_account: "near".to_string().parse().unwrap(),
             max_inflation_rate: Rational32::new(1, 1),
@@ -356,7 +357,7 @@ impl TestGenesisBuilder {
     }
 
     pub fn gas_limit_one_petagas(mut self) -> Self {
-        self.gas_limit = 1_000_000_000_000_000;
+        self.gas_limit = Gas::from_gas(1_000_000_000_000_000);
         self
     }
 

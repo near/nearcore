@@ -1,6 +1,7 @@
 use actix::Addr;
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
+use near_primitives::types::Gas;
 use validated_operations::ValidatedOperation;
 
 pub(crate) mod nep141;
@@ -410,7 +411,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         account: receiver_account_identifier.clone(),
                         method_name: action.method_name,
                         args: action.args,
-                        attached_gas: action.gas,
+                        attached_gas: action.gas.as_gas(),
                         attached_amount: action.deposit,
                     }
                     .into_related_operation(
@@ -879,7 +880,7 @@ mod tests {
             near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: 100500,
+                gas: Gas::from_gas(100500),
                 deposit: 0,
             }
             .into(),
@@ -888,7 +889,7 @@ mod tests {
             near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: 100500,
+                gas: Gas::from_gas(100500),
                 deposit: near_primitives::types::Balance::MAX,
             }
             .into(),

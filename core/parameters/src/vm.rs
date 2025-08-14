@@ -198,12 +198,12 @@ impl Config {
     pub fn make_free(&mut self) {
         self.ext_costs = ExtCostsConfig {
             costs: near_primitives_core::enum_map::enum_map! {
-                _ => ParameterCost { gas: 0, compute: 0 }
+                _ => ParameterCost { gas: Gas::from_gas(0), compute: 0 }
             },
         };
         self.grow_mem_cost = 0;
         self.regular_op_cost = 0;
-        self.limit_config.max_gas_burnt = u64::MAX;
+        self.limit_config.max_gas_burnt = Gas::gas_limit();
     }
 
     pub fn enable_all_features(&mut self) {

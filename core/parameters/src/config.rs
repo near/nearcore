@@ -225,15 +225,15 @@ impl CongestionControlConfig {
     pub fn test_disabled() -> Self {
         let max_value = u64::MAX;
         Self {
-            max_congestion_incoming_gas: max_value,
-            max_congestion_outgoing_gas: max_value,
+            max_congestion_incoming_gas: Gas::from_gas(max_value),
+            max_congestion_outgoing_gas: Gas::from_gas(max_value),
             max_congestion_memory_consumption: max_value,
             max_congestion_missed_chunks: max_value,
-            max_outgoing_gas: max_value,
-            min_outgoing_gas: max_value,
-            allowed_shard_outgoing_gas: max_value,
-            max_tx_gas: max_value,
-            min_tx_gas: max_value,
+            max_outgoing_gas: Gas::from_gas(max_value),
+            min_outgoing_gas: Gas::from_gas(max_value),
+            allowed_shard_outgoing_gas: Gas::from_gas(max_value),
+            max_tx_gas: Gas::from_gas(max_value),
+            min_tx_gas: Gas::from_gas(max_value),
             reject_tx_congestion_threshold: 2.0,
             outgoing_receipts_usual_size_limit: max_value,
             outgoing_receipts_big_size_limit: max_value,
