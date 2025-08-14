@@ -265,6 +265,15 @@ impl ShardStateSyncResponse {
         Self::V3(ShardStateSyncResponseV3 { header, part, cached_parts: None, can_generate: false })
     }
 
+    pub fn take_header(self) -> Option<ShardStateSyncResponseHeader> {
+        match self {
+            Self::V1(response) => response.header.map(ShardStateSyncResponseHeader::V1),
+            Self::V2(response) => response.header.map(ShardStateSyncResponseHeader::V2),
+            Self::V3(response) => response.header.map(ShardStateSyncResponseHeader::V2),
+            Self::V4(response) => response.header.map(ShardStateSyncResponseHeader::V2),
+        }
+    }
+
     pub fn part_id(&self) -> Option<u64> {
         match self {
             Self::V1(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
@@ -274,34 +283,21 @@ impl ShardStateSyncResponse {
         }
     }
 
+    pub fn take_part(self) -> Option<(u64, StatePart)> {
+        match self {
+            Self::V1(response) => response.part.map(|(idx, part)| (idx, StatePart::V0(part))),
+            Self::V2(response) => response.part.map(|(idx, part)| (idx, StatePart::V0(part))),
+            Self::V3(response) => response.part.map(|(idx, part)| (idx, StatePart::V0(part))),
+            Self::V4(response) => response.part,
+        }
+    }
+
     pub fn payload_length(&self) -> Option<usize> {
         match self {
             Self::V1(response) => response.part.as_ref().map(|(_, part)| part.0.len()),
             Self::V2(response) => response.part.as_ref().map(|(_, part)| part.0.len()),
             Self::V3(response) => response.part.as_ref().map(|(_, part)| part.0.len()),
             Self::V4(response) => response.part.as_ref().map(|(_, part)| part.payload_length()),
-        }
-    }
-
-    pub fn into_header_and_part(
-        self,
-    ) -> (Option<ShardStateSyncResponseHeader>, Option<(u64, StatePart)>) {
-        match self {
-            Self::V1(response) => (
-                response.header.map(ShardStateSyncResponseHeader::V1),
-                response.part.map(|(idx, part)| (idx, StatePart::V0(part))),
-            ),
-            Self::V2(response) => (
-                response.header.map(ShardStateSyncResponseHeader::V2),
-                response.part.map(|(idx, part)| (idx, StatePart::V0(part))),
-            ),
-            Self::V3(response) => (
-                response.header.map(ShardStateSyncResponseHeader::V2),
-                response.part.map(|(idx, part)| (idx, StatePart::V0(part))),
-            ),
-            Self::V4(response) => {
-                (response.header.map(ShardStateSyncResponseHeader::V2), response.part)
-            }
         }
     }
 }

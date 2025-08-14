@@ -257,8 +257,9 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         );
         fut.map(|response| {
             response.and_then(|response| {
-                let (header, _) = response.into_header_and_part();
-                header.ok_or_else(|| near_chain::Error::Other("Expected header".to_owned()))
+                response
+                    .take_header()
+                    .ok_or_else(|| near_chain::Error::Other("Expected header".to_owned()))
             })
         })
         .instrument(tracing::debug_span!("StateSyncDownloadSourcePeer::download_shard_header"))
@@ -287,8 +288,9 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         );
         fut.map(|response| {
             response.and_then(|response| {
-                let (_, part) = response.into_header_and_part();
-                part.ok_or_else(|| near_chain::Error::Other("Expected part".to_owned()))
+                response
+                    .take_part()
+                    .ok_or_else(|| near_chain::Error::Other("Expected part".to_owned()))
                     .map(|(_, part)| part)
             })
         })

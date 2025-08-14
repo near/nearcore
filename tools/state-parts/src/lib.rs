@@ -48,7 +48,7 @@ fn handle_message(
             } else {
                 None
             };
-            let (_, part) = state_response.into_header_and_part();
+            let part = state_response.take_part();
             let part_hash = if let Some(part) = part {
                 let bytes = &part.1.to_bytes(protocol_version);
                 Sha256::digest(bytes).iter().fold(String::new(), |mut v, byte| {

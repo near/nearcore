@@ -762,8 +762,8 @@ fn slow_test_state_sync_headers() {
                         None => return ControlFlow::Continue(()),
                     };
                     let state_response = state_response_info.take_state_response();
-                    let (header, part) = state_response.into_header_and_part();
-                    assert!(part.is_none());
+                    assert!(state_response.clone().take_part().is_none());
+                    let header = state_response.take_header();
                     if header.is_some() {
                         tracing::info!(?sync_hash, %shard_id, "got header");
                     } else {
@@ -784,8 +784,8 @@ fn slow_test_state_sync_headers() {
                         None => return ControlFlow::Continue(()),
                     };
                     let state_response = state_response_info.take_state_response();
-                    let (header, part) = state_response.into_header_and_part();
-                    assert!(header.is_none());
+                    assert!(state_response.clone().take_header().is_none());
+                    let part = state_response.take_part();
                     if let Some((part_id, _part)) = part {
                         if part_id != 0 {
                             tracing::info!(?sync_hash, %shard_id, part_id, "got wrong part");
@@ -925,9 +925,8 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                     };
                     tracing::info!(?state_response_info, "got header state response");
                     let state_response = state_response_info.take_state_response();
-                    let (header, part) = state_response.into_header_and_part();
-                    assert!(part.is_none());
-                    assert!(header.is_none());
+                    assert!(state_response.clone().take_header().is_none());
+                    assert!(state_response.take_part().is_none());
 
                     // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
                     let state_response_info = match state_request_client2
@@ -943,9 +942,8 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                     };
                     tracing::info!(?state_response_info, "got state part response");
                     let state_response = state_response_info.take_state_response();
-                    let (header, part) = state_response.into_header_and_part();
-                    assert!(part.is_none());
-                    assert!(header.is_none());
+                    assert!(state_response.clone().take_header().is_none());
+                    assert!(state_response.take_part().is_none());
                 }
                 return ControlFlow::Break(());
             })
