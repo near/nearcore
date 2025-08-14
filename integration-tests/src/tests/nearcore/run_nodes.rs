@@ -1,5 +1,4 @@
 use crate::tests::nearcore::node_cluster::NodeCluster;
-use actix::System;
 use near_client::GetBlock;
 use near_network::test_utils::wait_or_timeout;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
@@ -38,7 +37,7 @@ fn run_heavy_nodes(
         })
         .await
         .unwrap();
-        System::current().stop()
+        near_async::shutdown_all_actors();
     });
 
     // See https://github.com/near/nearcore/issues/3925 for why it is here.

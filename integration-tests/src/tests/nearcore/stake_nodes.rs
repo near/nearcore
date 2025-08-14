@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use actix::{Actor, Addr, System};
+use actix::{Actor, Addr};
 use futures::{FutureExt, future};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::num_rational::Ratio;
@@ -12,9 +12,7 @@ use crate::utils::genesis_helpers::genesis_hash;
 use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
-use near_client::{
-    ClientActor, GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActor,
-};
+use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
@@ -25,6 +23,10 @@ use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSea
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
+use near_async::ActorSystem;
+use near_async::messaging::CanSendAsync;
+use near_async::tokio::TokioRuntimeHandle;
+use near_client::client_actor::ClientActorInner;
 use near_client_primitives::types::Status;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use {near_primitives::types::BlockId, primitive_types::U256};
@@ -34,7 +36,7 @@ struct TestNode {
     account_id: AccountId,
     signer: Arc<Signer>,
     config: NearConfig,
-    client: Addr<ClientActor>,
+    client: TokioRuntimeHandle<ClientActorInner>,
     view_client: Addr<ViewClientActor>,
     tx_processor: Addr<RpcHandlerActor>,
     genesis_hash: CryptoHash,
@@ -83,12 +85,14 @@ fn init_test_staking(
         config.client_config.min_num_peers = num_node_seats as usize - 1;
         config
     });
+    let actor_system = ActorSystem::new();
     configs
         .enumerate()
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
             let nearcore::NearNode { client, view_client, rpc_handler: tx_processor, .. } =
-                start_with_config(paths[i], config.clone()).expect("start_with_config");
+                start_with_config(paths[i], config.clone(), actor_system.clone())
+                    .expect("start_with_config");
             let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
             let signer = Arc::new(InMemorySigner::test_signer(&account_id));
             TestNode { account_id, signer, config, client, view_client, tx_processor, genesis_hash }
@@ -142,7 +146,7 @@ fn slow_test_stake_nodes() {
                 Box::new(move |_ctx| {
                     let actor = test_nodes[0]
                         .client
-                        .send(Status { is_health_check: false, detailed: false }.span_wrap());
+                        .send_async(Status { is_health_check: false, detailed: false }.span_wrap());
                     let actor = actor.then(|res| {
                         let res = res.unwrap();
                         if res.is_err() {
@@ -156,7 +160,7 @@ fn slow_test_stake_nodes() {
                                 ValidatorInfo { account_id: "near.1".parse().unwrap() },
                             ]
                         {
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                         future::ready(())
                     });
@@ -232,7 +236,7 @@ fn slow_test_validator_kickout() {
 
                     let actor = test_node1
                         .client
-                        .send(Status { is_health_check: false, detailed: false }.span_wrap());
+                        .send_async(Status { is_health_check: false, detailed: false }.span_wrap());
                     let actor = actor.then(move |res| {
                         let expected: Vec<_> = (num_nodes / 2..num_nodes)
                             .map(|i| ValidatorInfo {
@@ -292,7 +296,7 @@ fn slow_test_validator_kickout() {
                             }
 
                             if finalized_mark1.iter().all(|mark| mark.load(Ordering::SeqCst)) {
-                                System::current().stop();
+                                near_async::shutdown_all_actors();
                             }
                         }
                         future::ready(())
@@ -382,7 +386,7 @@ fn ultra_slow_test_validator_join() {
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                     let actor = test_node1
                         .client
-                        .send(Status { is_health_check: false, detailed: false }.span_wrap());
+                        .send_async(Status { is_health_check: false, detailed: false }.span_wrap());
                     let actor = actor.then(move |res| {
                         let expected = vec![
                             ValidatorInfo { account_id: "near.0".parse().unwrap() },
@@ -432,7 +436,7 @@ fn ultra_slow_test_validator_join() {
                     });
                     actix::spawn(actor);
                     if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 }),
                 1000,
@@ -553,7 +557,7 @@ fn slow_test_inflation() {
                         }
                     });
                     if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 }),
                 100,

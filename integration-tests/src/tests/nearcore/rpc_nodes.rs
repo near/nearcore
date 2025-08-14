@@ -1,7 +1,7 @@
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use crate::utils::genesis_helpers::genesis_block;
+use actix::Actor;
 use actix::clock::sleep;
-use actix::{Actor, System};
 use assert_matches::assert_matches;
 
 use futures::future::join_all;
@@ -58,7 +58,7 @@ fn test_get_validator_info_rpc() {
                         let res = client.validators(None).await.unwrap();
                         assert_eq!(res.current_validators.len(), 1);
                         assert!(res.current_validators.iter().any(|r| r.account_id == "near.0"));
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 });
             }),
@@ -183,7 +183,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                                 futures.push(fut);
                             }
                             spawn_interruptible(join_all(futures).then(|_| {
-                                System::current().stop();
+                                near_async::shutdown_all_actors();
                                 future::ready(())
                             }));
                             future::ready(())
@@ -247,7 +247,7 @@ fn test_protocol_config_rpc() {
             serde_json::json!(config_response.config_view.runtime_config),
             serde_json::json!(RuntimeConfigView::from(latest_runtime_config.as_ref().clone()))
         );
-        System::current().stop();
+        near_async::shutdown_all_actors();
     });
 }
 
@@ -285,7 +285,7 @@ fn test_query_rpc_account_view_must_succeed() {
                 );
             };
         assert_matches!(account, near_primitives::views::AccountView { .. });
-        System::current().stop();
+        near_async::shutdown_all_actors();
     });
 }
 
@@ -335,7 +335,7 @@ fn test_query_rpc_account_view_account_does_not_exist_must_return_error() {
             error_message
         );
 
-        System::current().stop();
+        near_async::shutdown_all_actors();
     });
 }
 
@@ -398,7 +398,7 @@ fn slow_test_tx_not_enough_balance_must_return_error() {
                             }
                         }})
                     );
-                    System::current().stop();
+                    near_async::shutdown_all_actors();
                 })
                 .map_ok(|_| panic!("Transaction must not succeed"))
                 .await;
@@ -456,7 +456,7 @@ fn slow_test_check_unknown_tx_must_return_error() {
                                         tx_hash
                                     ))
                                 );
-                                System::current().stop();
+                                near_async::shutdown_all_actors();
                             })
                             .map_ok(|_| panic!("Transaction must be unknown"))
                             .await;
@@ -513,7 +513,7 @@ fn test_tx_status_on_lightclient_must_return_does_not_track_shard() {
                                     *err.data.unwrap(),
                                     serde_json::json!("Node doesn't track this shard. Cannot determine whether the transaction is valid")
                                 );
-                                System::current().stop();
+                                near_async::shutdown_all_actors();
                             })
                             .map_ok(|_| panic!("Must not track shard"))
                             .await;
@@ -559,7 +559,7 @@ fn test_validators_by_epoch_id_current_epoch_not_fails() {
             match res {
                 Ok(Ok(validators)) => {
                     assert_eq!(validators.current_validators.len(), 1);
-                    System::current().stop();
+                    near_async::shutdown_all_actors();
                 }
                 err => panic!("Validators list by EpochId must succeed: {:?}", err),
             }

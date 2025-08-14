@@ -223,7 +223,7 @@ impl ForkNetworkCommand {
         let sys = actix::System::new();
         sys.block_on(async move {
             self.run_impl(&mut near_config, verbose_target, o11y_opts, home_dir).await.unwrap();
-            actix::System::current().stop();
+            near_async::shutdown_all_actors();
         });
         sys.run().unwrap();
         tracing::info!("Waiting for RocksDB to gracefully shutdown");
