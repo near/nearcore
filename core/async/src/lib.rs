@@ -17,8 +17,6 @@ use tokio_util::sync::CancellationToken;
 /// Represents a collection of actors, so that they can be shutdown together.
 #[derive(Clone)]
 pub struct ActorSystem {
-    /// Internal ID used to identify the actor system.
-    internal_id: u64,
     /// Cancellation token used to signal shutdown of Tokio runtimes spawned with this actor system.
     tokio_cancellation_signal: CancellationToken,
 }
@@ -26,8 +24,7 @@ pub struct ActorSystem {
 impl ActorSystem {
     pub fn new() -> Self {
         let mut systems = ACTOR_SYSTEMS.lock();
-        let id = systems.last().map_or(0, |s| s.internal_id + 1);
-        let ret = Self { internal_id: id, tokio_cancellation_signal: CancellationToken::new() };
+        let ret = Self { tokio_cancellation_signal: CancellationToken::new() };
         systems.push(ret.clone());
         ret
     }
