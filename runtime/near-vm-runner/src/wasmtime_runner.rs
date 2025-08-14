@@ -14,19 +14,150 @@ use crate::{
     NoContractRuntimeCache, get_contract_cache_key, imports, prepare,
 };
 use core::mem::transmute;
+use core::ops::Deref;
+use core::sync::atomic::{AtomicU64, Ordering};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::sync::Arc;
+use tracing::warn;
 use wasmtime::{
     Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre, Linker, Module,
-    ModuleExport, PoolingAllocationConfig, Store, StoreLimits, StoreLimitsBuilder, Strategy,
+    ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store, StoreLimits,
+    StoreLimitsBuilder, Strategy,
 };
 
 type Caller = wasmtime::Caller<'static, Ctx>;
 
+/// The maximum amount of concurrent calls this engine can handle.
+/// If this limit is reached, invocations will block until an execution slot is available.
+///
+/// Wasmtime will use this value to pre-allocate and pool resources internally.
+const MAX_CONCURRENCY: u32 = 1_000;
+
+/// The maximum amount of tables that can concurrently exist.
+/// This should be greater than or equal to [MAX_CONCURRENCY].
+const MAX_TABLES: u32 = MAX_CONCURRENCY;
+
+const MAX_TABLE_ELEMENTS: usize = 1_000_000;
+
+/// Guest page size, in bytes
 const GUEST_PAGE_SIZE: usize = 1 << 16;
+
+fn guest_memory_size(pages: u32) -> Option<usize> {
+    let pages = usize::try_from(pages).ok()?;
+    pages.checked_mul(GUEST_PAGE_SIZE)
+}
+
+struct InstancePermit<'a> {
+    instances: &'a AtomicU64,
+    tables: &'a AtomicU64,
+    num_tables: u32,
+    release_notify: &'a parking_lot::Condvar,
+    release_mutex: &'a parking_lot::Mutex<()>,
+}
+
+impl Drop for InstancePermit<'_> {
+    fn drop(&mut self) {
+        self.instances.fetch_sub(1, Ordering::Release);
+        if self.num_tables != 0 {
+            self.tables.fetch_sub(self.num_tables.into(), Ordering::Release);
+        }
+        let _guard = self.release_mutex.lock();
+        self.release_notify.notify_all();
+    }
+}
+
+/// State stored in [ConcurrencySemaphore]
+#[derive(Default)]
+struct ConcurrencySemaphoreState {
+    instances: AtomicU64,
+    tables: AtomicU64,
+    release_notify: parking_lot::Condvar,
+    release_mutex: parking_lot::Mutex<()>,
+}
+
+/// A simple semaphore, which is not expected to be contended often.
+#[derive(Clone, Default)]
+struct ConcurrencySemaphore(Arc<ConcurrencySemaphoreState>);
+
+impl Deref for ConcurrencySemaphore {
+    type Target = ConcurrencySemaphoreState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl ConcurrencySemaphore {
+    /// Attempts to reserve a single instance slot, returns `true` on success
+    fn try_reserve_instance(&self) -> bool {
+        let prev = self.instances.fetch_add(1, Ordering::Acquire);
+        prev.checked_add(1).is_some_and(|n| n <= MAX_CONCURRENCY.into())
+    }
+
+    /// Attempts to reserve `n` table slots, returns `true` on success
+    fn try_reserve_tables(&self, n: u32) -> bool {
+        let prev = self.tables.fetch_add(n.into(), Ordering::Acquire);
+        prev.checked_add(n.into()).is_some_and(|n| n <= MAX_TABLES.into())
+    }
+
+    /// Releases a single instance slot returning the amount of previously active instances
+    fn release_instance(&self) -> u64 {
+        self.instances.fetch_sub(1, Ordering::Release)
+    }
+
+    /// Releases `n` table slots returning the amount of previously active tables
+    fn release_tables(&self, n: u32) -> u64 {
+        self.tables.fetch_sub(n.into(), Ordering::Release)
+    }
+
+    /// Attempt to acquire the semaphore using the specified number of tables
+    fn try_acquire(&self, num_tables: u32) -> Option<InstancePermit<'_>> {
+        debug_assert!(num_tables <= MAX_TABLES);
+
+        // At most [`u16::MAX`] iterations per lock
+        let mut iterations: u16 = 0;
+
+        if num_tables != 0 {
+            if !self.try_reserve_tables(num_tables) {
+                let active = self.release_tables(num_tables).checked_sub(num_tables.into())?;
+                warn!(active, requested = num_tables, "table lock contended");
+                let mut guard = self.release_mutex.lock();
+                while !self.try_reserve_tables(num_tables) {
+                    iterations = iterations.checked_add(1)?;
+                    if self.release_tables(num_tables) <= MAX_TABLES.into() {
+                        continue;
+                    }
+                    self.release_notify.wait(&mut guard);
+                }
+            }
+        }
+
+        // reset iteration counter
+        iterations = 0;
+        if !self.try_reserve_instance() {
+            let active = self.release_instance().checked_sub(1)?;
+            warn!(active, "instance lock contended");
+            let mut guard = self.release_mutex.lock();
+            while !self.try_reserve_instance() {
+                iterations = iterations.checked_add(1)?;
+                if self.release_instance() <= MAX_CONCURRENCY.into() {
+                    continue;
+                }
+                self.release_notify.wait(&mut guard);
+            }
+        }
+        return Some(InstancePermit {
+            instances: &self.instances,
+            tables: &self.tables,
+            num_tables,
+            release_notify: &self.release_notify,
+            release_mutex: &self.release_mutex,
+        });
+    }
+}
 
 pub struct Ctx {
     logic: Option<VMLogic<'static>>,
@@ -36,19 +167,15 @@ pub struct Ctx {
 
 impl Ctx {
     fn new(logic: VMLogic<'static>, caller: Arc<RefCell<Option<Caller>>>) -> Self {
-        let memory_size = logic
-            .result_state
-            .config
-            .limit_config
-            .max_memory_pages
-            .try_into()
-            .unwrap_or(usize::MAX)
-            .saturating_mul(GUEST_PAGE_SIZE);
+        let memory_size =
+            guest_memory_size(logic.result_state.config.limit_config.max_memory_pages)
+                .unwrap_or(usize::MAX);
         let limits = StoreLimitsBuilder::new().memories(1).memory_size(memory_size).build();
         Self { logic: Some(logic), caller, limits }
     }
 }
 
+/// Implementation of [MemoryLike] in terms of [wasmtime::Memory]
 #[derive(Clone)]
 pub struct WasmtimeMemory {
     memory: ModuleExport,
@@ -161,17 +288,18 @@ pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
     // - https://docs.wasmtime.dev/examples-fast-execution.html
     // - https://docs.wasmtime.dev/examples-fast-instantiation.html
 
-    let max_memory_size = usize::try_from(c.limit_config.max_memory_pages)
-        .unwrap_or(usize::MAX)
-        .saturating_mul(GUEST_PAGE_SIZE);
+    let max_memory_size = guest_memory_size(c.limit_config.max_memory_pages).unwrap_or(usize::MAX);
     let mut pooling = PoolingAllocationConfig::default();
     pooling
         .max_memory_size(max_memory_size)
-        .table_elements(1_000_000)
+        .table_elements(MAX_TABLE_ELEMENTS)
         .total_component_instances(0)
+        .total_core_instances(MAX_CONCURRENCY)
+        .total_memories(MAX_CONCURRENCY)
+        .total_tables(MAX_TABLES)
         // Minimize page faults on Linux
         .linear_memory_keep_resident(max_memory_size)
-        .table_keep_resident(1_000_000 * size_of::<*const ()>());
+        .table_keep_resident(MAX_TABLE_ELEMENTS * size_of::<*const ()>());
 
     let mut config = wasmtime::Config::from(features);
     config
@@ -207,11 +335,23 @@ pub(crate) fn wasmtime_vm_hash() -> u64 {
 pub(crate) struct WasmtimeVM {
     config: Arc<Config>,
     engine: wasmtime::Engine,
+    concurrency: ConcurrencySemaphore,
+}
+
+#[derive(Clone)]
+struct PreparedModule {
+    pre: InstancePre<Ctx>,
+    memory: ModuleExport,
+    num_tables: u32,
 }
 
 impl WasmtimeVM {
     pub(crate) fn new(config: Arc<Config>) -> Self {
-        Self { engine: get_engine(&default_wasmtime_config(&config)), config }
+        Self {
+            engine: get_engine(&default_wasmtime_config(&config)),
+            config,
+            concurrency: ConcurrencySemaphore::default(),
+        }
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
@@ -256,13 +396,11 @@ impl WasmtimeVM {
         method: &str,
         closure: impl FnOnce(
             GasCounter,
-            Result<(InstancePre<Ctx>, ModuleExport), FunctionCallError>,
+            Result<PreparedModule, FunctionCallError>,
         ) -> VMResult<PreparedContract>,
     ) -> VMResult<PreparedContract> {
-        type MemoryCacheType = (
-            u64,
-            Result<Result<(InstancePre<Ctx>, ModuleExport), FunctionCallError>, CompilationError>,
-        );
+        type MemoryCacheType =
+            (u64, Result<Result<PreparedModule, FunctionCallError>, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         let key = get_contract_cache_key(contract.hash(), &self.config);
         let (wasm_bytes, pre_result) = cache.memory_cache().try_lookup(
@@ -307,6 +445,53 @@ impl WasmtimeVM {
                         })),
                     )));
                 };
+                let ResourcesRequired {
+                    num_memories,
+                    num_tables,
+                    max_initial_table_size,
+                    max_initial_memory_size,
+                } = module.resources_required();
+                if num_memories > 1 {
+                    return Ok(to_any((
+                        wasm_bytes,
+                        Ok(Err(FunctionCallError::LinkError {
+                            msg: "module requires multiple memories".into(),
+                        })),
+                    )));
+                }
+                if num_tables > MAX_TABLES {
+                    return Ok(to_any((
+                        wasm_bytes,
+                        Ok(Err(FunctionCallError::LinkError {
+                            msg: "module requires more tables than allowed".into(),
+                        })),
+                    )));
+                }
+                if let Some(max_initial_table_size) = max_initial_table_size {
+                    if max_initial_table_size > MAX_TABLE_ELEMENTS.try_into().unwrap_or(u64::MAX) {
+                        return Ok(to_any((
+                            wasm_bytes,
+                            Ok(Err(FunctionCallError::LinkError {
+                                msg: "module requires more table elements than allowed".into(),
+                            })),
+                        )));
+                    }
+                }
+                if let Some(max_initial_memory_size) = max_initial_memory_size {
+                    let max_memory_size =
+                        guest_memory_size(self.config.limit_config.max_memory_pages)
+                            .unwrap_or(usize::MAX)
+                            .try_into()
+                            .unwrap_or(u64::MAX);
+                    if max_initial_memory_size > max_memory_size {
+                        return Ok(to_any((
+                            wasm_bytes,
+                            Ok(Err(FunctionCallError::LinkError {
+                                msg: "module requires more memory than allowed".into(),
+                            })),
+                        )));
+                    }
+                }
                 let mut linker = Linker::new(&self.engine);
                 link(&mut linker, &self.config);
                 match linker.instantiate_pre(&module) {
@@ -314,7 +499,9 @@ impl WasmtimeVM {
                         let err = err.into_vm_error()?;
                         Ok(to_any((wasm_bytes, Ok(Err(err)))))
                     }
-                    Ok(pre) => Ok(to_any((wasm_bytes, Ok(Ok((pre, memory)))))),
+                    Ok(pre) => {
+                        Ok(to_any((wasm_bytes, Ok(Ok(PreparedModule { pre, memory, num_tables })))))
+                    }
                 }
             },
             move |value| {
@@ -376,7 +563,7 @@ impl crate::runner::VM for WasmtimeVM {
             self.with_compiled_and_loaded(cache, code, gas_counter, method, |gas_counter, pre| {
                 let config = Arc::clone(&self.config);
                 match pre {
-                    Ok((pre, memory)) => {
+                    Ok(PreparedModule { pre, memory, num_tables }) => {
                         let Some(ExternType::Func(func_type)) = pre.module().get_export(method)
                         else {
                             let e = FunctionCallError::MethodResolveError(
@@ -396,7 +583,9 @@ impl crate::runner::VM for WasmtimeVM {
                         let result = PreparationResult::Ready(ReadyContract {
                             pre,
                             memory,
+                            num_tables,
                             method: method.into(),
+                            concurrency: self.concurrency.clone(),
                         });
                         Ok(PreparedContract { config, gas_counter, result })
                     }
@@ -413,7 +602,9 @@ impl crate::runner::VM for WasmtimeVM {
 struct ReadyContract {
     pre: InstancePre<Ctx>,
     memory: ModuleExport,
+    num_tables: u32,
     method: Box<str>,
+    concurrency: ConcurrencySemaphore,
 }
 
 struct PreparedContract {
@@ -472,7 +663,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { pre, memory, method } = match result {
+        let ReadyContract { pre, memory, method, num_tables, concurrency } = match result {
             PreparationResult::Ready(r) => r,
             PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
@@ -494,6 +685,13 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
 
         let mut store = Store::<Ctx>::new(pre.module().engine(), ctx);
         store.limiter(|ctx| &mut ctx.limits);
+        let Some(_permit) = concurrency.try_acquire(num_tables) else {
+            let logic = store.data_mut().logic.take().expect("logic missing");
+            return Ok(VMOutcome::abort(
+                logic.result_state,
+                FunctionCallError::LinkError { msg: "failed to acquire execution slot".into() },
+            ));
+        };
         let instance = match pre.instantiate(&mut store) {
             Ok(instance) => instance,
             Err(err) => {
@@ -567,4 +765,89 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
         };
     }
     imports::for_each_available_import!(config, add_import);
+}
+
+#[cfg(test)]
+mod tests {
+    use core::array;
+    use std::thread::{scope, spawn, yield_now};
+
+    use super::*;
+
+    #[test]
+    fn test_semaphore() {
+        let concurrency = ConcurrencySemaphore::default();
+        let permit = concurrency.try_acquire(MAX_TABLES).expect("failed to acquire permit");
+        let thread = spawn({
+            let concurrency = concurrency.clone();
+            move || concurrency.try_acquire(1).is_some()
+        });
+        yield_now();
+        assert!(!thread.is_finished());
+        drop(permit);
+        let acquired = thread.join().expect("failed to join thread");
+        assert!(acquired);
+
+        assert!(concurrency.try_reserve_tables(MAX_TABLES));
+        assert!(!concurrency.try_reserve_tables(1));
+        assert_eq!(concurrency.release_tables(MAX_TABLES), u64::from(MAX_TABLES + 1));
+        assert_eq!(concurrency.release_tables(1), 1);
+        assert!(concurrency.try_reserve_tables(2));
+        assert_eq!(concurrency.release_tables(1), 2);
+        assert_eq!(concurrency.release_tables(1), 1);
+
+        #[expect(clippy::large_stack_frames)]
+        scope(|scope| {
+            let permits: [_; MAX_CONCURRENCY as _] = array::from_fn(|_| {
+                scope.spawn(|| concurrency.try_acquire(MAX_TABLES / MAX_CONCURRENCY))
+            });
+            let permits = permits.map(|thread| {
+                thread.join().expect("failed to join thread").expect("failed to acquire permit")
+            });
+            assert!(!concurrency.try_reserve_instance());
+            assert_eq!(concurrency.release_instance(), u64::from(MAX_CONCURRENCY + 1));
+
+            let thread = spawn({
+                let concurrency = concurrency.clone();
+                move || concurrency.try_acquire(MAX_TABLES).is_some()
+            });
+            let mut permits = Vec::from(permits);
+            let permit = permits.pop().expect("last permit missing");
+            for permit in permits {
+                drop(permit);
+                yield_now();
+                assert!(!thread.is_finished());
+            }
+
+            yield_now();
+            assert!(!thread.is_finished());
+            drop(permit);
+
+            let acquired = thread.join().expect("failed to join thread");
+            assert!(acquired);
+        });
+
+        #[expect(clippy::large_stack_frames)]
+        scope(|scope| {
+            let permits: [_; MAX_CONCURRENCY as _] =
+                array::from_fn(|_| scope.spawn(|| concurrency.try_acquire(0)));
+            let permits = permits.map(|thread| {
+                thread.join().expect("failed to join thread").expect("failed to acquire permit")
+            });
+            assert!(!concurrency.try_reserve_instance());
+            assert_eq!(concurrency.release_instance(), u64::from(MAX_CONCURRENCY + 1));
+
+            let thread = spawn({
+                let concurrency = concurrency.clone();
+                move || concurrency.try_acquire(0).is_some()
+            });
+
+            yield_now();
+            assert!(!thread.is_finished());
+            drop(permits);
+
+            let acquired = thread.join().expect("failed to join thread");
+            assert!(acquired);
+        });
+    }
 }
