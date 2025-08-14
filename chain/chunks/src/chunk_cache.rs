@@ -1,11 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
+use crate::metrics;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use std::collections::hash_map::Entry::Occupied;
+use time::ext::InstantExt;
 use tracing::warn;
 
 // This file implements EncodedChunksCache, which provides three main functionalities:
@@ -46,6 +49,8 @@ pub struct EncodedChunksCacheEntry {
     /// validated again to make sure they are fully validated.
     /// See comments in `validate_chunk_header` for more context on partial vs full validation
     pub header_fully_validated: bool,
+    pub created_at_parts: Option<Instant>,
+    pub created_at_receipts: Option<Instant>,
 }
 
 pub struct EncodedChunksCache {
@@ -76,6 +81,8 @@ impl EncodedChunksCacheEntry {
             complete: false,
             ready_for_inclusion: false,
             header_fully_validated: false,
+            created_at_parts: Some(Instant::now()),
+            created_at_receipts: Some(Instant::now()),
         }
     }
 
@@ -126,6 +133,31 @@ impl EncodedChunksCache {
             self.remove_chunk_from_incomplete_chunks(previous_block_hash, chunk_hash);
         } else {
             warn!(target:"chunks", "cannot mark non-existent entry as complete {:?}", chunk_hash);
+        }
+    }
+
+    pub fn mark_received_all_receipts(&mut self, chunk_hash: &ChunkHash) {
+        if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
+            if let Some(created_at_receipts) = entry.created_at_receipts {
+                let time_to_last_receipt =
+                    Instant::now().signed_duration_since(created_at_receipts);
+                metrics::PARTIAL_CHUNK_TIME_TO_LAST_RECEIPT_PART
+                    .with_label_values(&[entry.header.shard_id().to_string().as_str()])
+                    .observe(time_to_last_receipt.as_seconds_f64());
+            }
+            entry.created_at_receipts = None;
+        }
+    }
+
+    pub fn mark_received_all_parts(&mut self, chunk_hash: &ChunkHash) {
+        if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
+            if let Some(created_at_parts) = entry.created_at_parts {
+                let time_to_last_part = Instant::now().signed_duration_since(created_at_parts);
+                metrics::PARTIAL_CHUNK_TIME_TO_LAST_CHUNK_PART
+                    .with_label_values(&[entry.header.shard_id().to_string().as_str()])
+                    .observe(time_to_last_part.as_seconds_f64());
+            }
+            entry.created_at_parts = None;
         }
     }
 
