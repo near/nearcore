@@ -37,6 +37,9 @@ pub use near_primitives_core::code::ContractCode;
 pub use profile::ProfileDataV3;
 pub use runner::{Contract, PreparedContract, VM, prepare, run};
 
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+pub(crate) const MEMORY_EXPORT: &str = "\0nearcore_memory";
+
 /// This is public for internal experimentation use only, and should otherwise be considered an
 /// implementation detail of `near-vm-runner`.
 #[doc(hidden)]
