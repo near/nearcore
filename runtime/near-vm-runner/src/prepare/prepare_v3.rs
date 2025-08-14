@@ -1,3 +1,4 @@
+use crate::MEMORY_EXPORT;
 use crate::logic::errors::PrepareError;
 use finite_wasm_6::{Fee, wasmparser as wp};
 use near_parameters::vm::{Config, VMKind};
@@ -136,13 +137,14 @@ impl<'a> PrepareContext<'a> {
                                 new_section.export(name, wasm_encoder::ExportKind::Tag, index);
                             }
                         }
+                        if name == MEMORY_EXPORT {
+                            // Something other than memory is exported under the name of
+                            // [MEMORY_EXPORT]
+                            return Err(PrepareError::Instantiate);
+                        }
                     }
                     if self.config.vm_kind == VMKind::Wasmtime {
-                        new_section.export(
-                            "\0nearcore_memory",
-                            wasm_encoder::ExportKind::Memory,
-                            0,
-                        );
+                        new_section.export(MEMORY_EXPORT, wasm_encoder::ExportKind::Memory, 0);
                     }
                     new_section.append_to(&mut self.output_code)
                 }
@@ -304,7 +306,7 @@ impl<'a> PrepareContext<'a> {
             self.before_export_section = false;
             if self.config.vm_kind == VMKind::Wasmtime {
                 wasm_encoder::ExportSection::new()
-                    .export("\0nearcore_memory", wasm_encoder::ExportKind::Memory, 0)
+                    .export(MEMORY_EXPORT, wasm_encoder::ExportKind::Memory, 0)
                     .append_to(&mut self.output_code);
             }
         }

@@ -1,10 +1,13 @@
+use crate::MEMORY_EXPORT;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
     VMRunnerError, WasmTrap,
 };
-use crate::logic::{Config, ExecutionResultState, GasCounter};
-use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
+use crate::logic::{
+    Config, ExecutionResultState, External, GasCounter, MemSlice, MemoryLike, VMContext, VMLogic,
+    VMOutcome,
+};
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
@@ -283,7 +286,7 @@ impl WasmtimeVM {
                 // we load what we think we load.
                 let module = unsafe { Module::deserialize(&self.engine, &module) }
                     .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
-                let Some(memory) = module.get_export_index("\0nearcore_memory") else {
+                let Some(memory) = module.get_export_index(MEMORY_EXPORT) else {
                     return Ok(to_any((
                         wasm_bytes,
                         Ok(Err(FunctionCallError::LinkError {
