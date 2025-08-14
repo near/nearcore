@@ -179,12 +179,12 @@ fn memory_export_clash() {
             r#"
             (module
               (func (export "\00nearcore_memory"))
+              (func (export "main"))
             )"#,
         )
-        .method("\0nearcore_memory")
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 85553533 used gas 85553533
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97535778 used gas 97535778
                 Err: PrepareError: Error happened during instantiation.
             "#]],
         ]);
@@ -203,6 +203,23 @@ fn memory_export_internal() {
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 106296416 used gas 106296416
+            "#]],
+        ]);
+}
+
+#[test]
+fn memory_custom() {
+    test_builder()
+        .wat(
+            r#"
+            (module
+              (memory (export "mymemory") 42 42)
+              (func (export "main"))
+            )"#,
+        )
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97582056 used gas 97582056
             "#]],
         ]);
 }
