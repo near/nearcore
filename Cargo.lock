@@ -4153,7 +4153,6 @@ name = "near-actix-test-utils"
 version = "0.0.0"
 dependencies = [
  "actix-rt",
- "near-async",
  "near-store",
  "parking_lot 0.12.1",
 ]
