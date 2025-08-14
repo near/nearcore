@@ -11,7 +11,7 @@ use crate::logic::{
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
-    NoContractRuntimeCache, get_contract_cache_key, imports, lazy_drop, prepare,
+    NoContractRuntimeCache, get_contract_cache_key, imports, prepare,
 };
 use core::mem::transmute;
 use near_parameters::RuntimeFeesConfig;
@@ -505,9 +505,6 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
 
         let res = call(&mut store, instance, &method);
         let logic = store.data_mut().logic.take().expect("logic missing");
-        drop(store);
-        // TODO: verify that lazy dropping actually improves the throughput.
-        lazy_drop(Box::new(instance));
         match res? {
             RunOutcome::Ok => Ok(VMOutcome::ok(logic.result_state)),
             RunOutcome::AbortNop(error) => {
