@@ -144,8 +144,8 @@ impl EncodedChunksCache {
                 metrics::PARTIAL_CHUNK_TIME_TO_LAST_RECEIPT_PART
                     .with_label_values(&[entry.header.shard_id().to_string().as_str()])
                     .observe(time_to_last_receipt.as_seconds_f64());
+                entry.created_at_receipts = None;
             }
-            entry.created_at_receipts = None;
         }
     }
 
@@ -156,8 +156,8 @@ impl EncodedChunksCache {
                 metrics::PARTIAL_CHUNK_TIME_TO_LAST_CHUNK_PART
                     .with_label_values(&[entry.header.shard_id().to_string().as_str()])
                     .observe(time_to_last_part.as_seconds_f64());
+                entry.created_at_parts = None;
             }
-            entry.created_at_parts = None;
         }
     }
 
