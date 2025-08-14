@@ -62,7 +62,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 ///     WaitOrTimeoutActor::new(
 ///         Box::new(move |ctx| {
 ///             if start.elapsed() > Duration::from_millis(10) {
-///                 System::current().stop()
+///                 near_async::shutdown_all_actors();
 ///             }
 ///         }),
 ///         1000,

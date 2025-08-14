@@ -1,4 +1,4 @@
-use actix::{Actor, System};
+use actix::Actor;
 use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
@@ -110,7 +110,9 @@ fn slow_test_sync_state_nodes() {
                         let actor = view_client2.send(GetBlock::latest());
                         let actor = actor.then(|res| {
                             match &res {
-                                Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
+                                Ok(Ok(b)) if b.header.height >= 101 => {
+                                    near_async::shutdown_all_actors()
+                                }
                                 Ok(Ok(b)) if b.header.height < 101 => {
                                     println!("SECOND STAGE {}", b.header.height)
                                 }
@@ -258,7 +260,9 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                         let actor = view_client2.send(GetBlock::latest());
                         let actor = actor.then(|res| {
                             match &res {
-                                Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
+                                Ok(Ok(b)) if b.header.height >= 101 => {
+                                    near_async::shutdown_all_actors()
+                                }
                                 Ok(Ok(b)) if b.header.height < 101 => {
                                     println!("SECOND STAGE {}", b.header.height)
                                 }

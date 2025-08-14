@@ -1,6 +1,5 @@
 use crate::tests::network::runner::*;
 use actix::Actor;
-use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time;
@@ -62,7 +61,7 @@ fn peer_handshake() {
         })
         .await
         .unwrap();
-        System::current().stop()
+        near_async::shutdown_all_actors();
     });
 }
 

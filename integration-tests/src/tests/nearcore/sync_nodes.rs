@@ -1,6 +1,6 @@
 use crate::utils::genesis_helpers::genesis_block;
 use crate::utils::test_helpers::heavy_test;
-use actix::{Actor, System};
+use actix::Actor;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::Duration;
@@ -96,7 +96,7 @@ fn ultra_slow_test_sync_state_stake_change() {
                                         move |res| {
                                             if let Ok(Ok(block)) = res {
                                                 if block.header.height > latest_height + 1 {
-                                                    System::current().stop()
+                                                    near_async::shutdown_all_actors();
                                                 }
                                             }
                                             future::ready(())
