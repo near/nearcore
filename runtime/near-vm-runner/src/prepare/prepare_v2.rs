@@ -1,5 +1,5 @@
-use crate::MEMORY_EXPORT;
 use crate::logic::errors::PrepareError;
+use crate::{MAX_ELEMENTS_PER_TABLE, MAX_TABLES_PER_MODULE, MEMORY_EXPORT};
 use finite_wasm::wasmparser as wp;
 use near_parameters::vm::{Config, VMKind};
 use wasm_encoder::{Encode, Section, SectionId};
@@ -10,6 +10,8 @@ struct PrepareContext<'a> {
     output_code: Vec<u8>,
     function_limit: u64,
     local_limit: u64,
+    table_limit: u32,
+    table_element_limit: u32,
     validator: wp::Validator,
     func_validator_allocations: wp::FuncValidatorAllocations,
     before_import_section: bool,
@@ -28,6 +30,8 @@ impl<'a> PrepareContext<'a> {
             // specified, use that as a limit.
             function_limit: limits.max_functions_number_per_contract.unwrap_or(u64::MAX),
             local_limit: limits.max_locals_per_contract.unwrap_or(u64::MAX),
+            table_limit: MAX_TABLES_PER_MODULE,
+            table_element_limit: MAX_ELEMENTS_PER_TABLE.try_into().unwrap_or(u32::MAX),
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
@@ -90,7 +94,19 @@ impl<'a> PrepareContext<'a> {
                     self.validator
                         .table_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
-                    self.copy_section(SectionId::Table, reader.range())?;
+                    self.table_limit = self
+                        .table_limit
+                        .checked_sub(reader.count())
+                        .ok_or(PrepareError::TooManyTables)?;
+                    let range = reader.range();
+                    for table in reader {
+                        let wp::Table { ty, .. } =
+                            table.map_err(|_| PrepareError::Deserialization)?;
+                        if ty.initial > self.table_element_limit {
+                            return Err(PrepareError::TooManyTableElements);
+                        }
+                    }
+                    self.copy_section(SectionId::Table, range)?;
                 }
                 wp::Payload::MemorySection(reader) => {
                     // We do not want to include the implicit memory anymore as we normalized it by
@@ -438,16 +454,19 @@ mod test {
     use super::VMKind;
     use crate::logic::errors::PrepareError;
     use crate::tests::test_vm_config;
+    use crate::{MAX_ELEMENTS_PER_TABLE, MAX_TABLES_PER_MODULE};
     use finite_wasm::wasmparser as wp;
 
     fn wasmparser_decode(
         code: &[u8],
         features: crate::features::WasmFeatures,
-    ) -> Result<(Option<u64>, Option<u64>), wp::BinaryReaderError> {
+    ) -> Result<(Option<u64>, Option<u64>, Option<u32>, u32), wp::BinaryReaderError> {
         use wp::ValidPayload;
         let mut validator = wp::Validator::new_with_features(features.into());
         let mut function_count = Some(0u64);
         let mut local_count = Some(0u64);
+        let mut table_count = Some(0u32);
+        let mut max_elements_per_table = 0;
         for payload in wp::Parser::new(0).parse_all(code) {
             let payload = payload?;
 
@@ -458,10 +477,11 @@ mod test {
                         wp::TypeRef::Func(_) => {
                             function_count = function_count.and_then(|f| f.checked_add(1))
                         }
-                        wp::TypeRef::Table(_)
-                        | wp::TypeRef::Memory(_)
-                        | wp::TypeRef::Global(_)
-                        | wp::TypeRef::Tag(_) => {}
+                        wp::TypeRef::Table(wp::TableType { initial, .. }) => {
+                            table_count = table_count.and_then(|n| n.checked_add(1));
+                            max_elements_per_table = max_elements_per_table.max(initial);
+                        }
+                        wp::TypeRef::Memory(_) | wp::TypeRef::Global(_) | wp::TypeRef::Tag(_) => {}
                     }
                 }
             }
@@ -484,18 +504,19 @@ mod test {
                 ValidPayload::End(_) => {}
             }
         }
-        Ok((function_count, local_count))
+        Ok((function_count, local_count, table_count, max_elements_per_table))
     }
 
-    pub(crate) fn validate_contract(
+    fn validate_contract(
         code: &[u8],
         features: crate::features::WasmFeatures,
         config: &near_parameters::vm::Config,
     ) -> Result<(), PrepareError> {
-        let (function_count, local_count) = wasmparser_decode(code, features).map_err(|e| {
-            tracing::debug!(err=?e, "wasmparser failed decoding a contract");
-            PrepareError::Deserialization
-        })?;
+        let (function_count, local_count, table_count, max_elements_per_table) =
+            wasmparser_decode(code, features).map_err(|e| {
+                tracing::debug!(err=?e, "wasmparser failed decoding a contract");
+                PrepareError::Deserialization
+            })?;
         // Verify the number of functions does not exceed the limit we imposed. Note that the ordering
         // of this check is important. In the past we first validated the entire module and only then
         // verified that the limit is not exceeded. While it would be more efficient to check for this
@@ -511,6 +532,17 @@ mod test {
             if local_count.ok_or(PrepareError::TooManyLocals)? > max_locals {
                 return Err(PrepareError::TooManyLocals);
             }
+        }
+        // Similarly, do the same for the number of tables.
+        if table_count.ok_or(PrepareError::TooManyTables)? > MAX_TABLES_PER_MODULE {
+            return Err(PrepareError::TooManyTables);
+        }
+        // Similarly, do the same for the number of table elements.
+        if usize::try_from(max_elements_per_table)
+            .map_err(|_| PrepareError::TooManyTableElements)?
+            > MAX_ELEMENTS_PER_TABLE
+        {
+            return Err(PrepareError::TooManyTableElements);
         }
         Ok(())
     }
