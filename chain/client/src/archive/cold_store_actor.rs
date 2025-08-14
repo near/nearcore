@@ -33,74 +33,31 @@ enum ColdStoreCopyResult {
 }
 
 /// The ColdStoreError indicates what errors were encountered while copying a blocks and running sanity checks.
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ColdStoreError {
-    ColdHeadAheadOfFinalHeadError {
-        cold_head_height: u64,
-        hot_final_head_height: u64,
-    },
-    ColdHeadBehindHotTailError {
-        cold_head_height: u64,
-        hot_tail_height: u64,
-    },
+    #[error(
+        "Cold head is ahead of final head. cold head height: {cold_head_height} final head height {hot_final_head_height}"
+    )]
+    ColdHeadAheadOfFinalHeadError { cold_head_height: u64, hot_final_head_height: u64 },
+    #[error(
+        "Cold head is behind hot tail. cold head height: {cold_head_height} hot tail height {hot_tail_height}"
+    )]
+    ColdHeadBehindHotTailError { cold_head_height: u64, hot_tail_height: u64 },
+    #[error(
+        "All blocks between cold head and next height were skipped, but next height > hot final head. cold head {cold_head_height} next height to copy: {next_height} final head height {hot_final_head_height}"
+    )]
     SkippedBlocksBetweenColdHeadAndNextHeightError {
         cold_head_height: u64,
         next_height: u64,
         hot_final_head_height: u64,
     },
-    ColdHeadHashReadError {
-        cold_head_height: u64,
-    },
-    EpochError {
-        e: EpochError,
-    },
-    Error {
-        message: String,
-    },
+    #[error("Failed to read the cold head hash at height {cold_head_height}")]
+    ColdHeadHashReadError { cold_head_height: u64 },
+    #[error("Cold store copy error: {e}")]
+    EpochError { e: EpochError },
+    #[error("Cold store copy error: {message}")]
+    Error { message: String },
 }
-
-impl std::fmt::Display for ColdStoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ColdStoreError::ColdHeadAheadOfFinalHeadError {
-                cold_head_height,
-                hot_final_head_height,
-            } => {
-                write!(
-                    f,
-                    "Cold head is ahead of final head. cold head height: {cold_head_height} final head height {hot_final_head_height}"
-                )
-            }
-            ColdStoreError::ColdHeadBehindHotTailError { cold_head_height, hot_tail_height } => {
-                write!(
-                    f,
-                    "Cold head is behind hot tail. cold head height: {cold_head_height} hot tail height {hot_tail_height}"
-                )
-            }
-            ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
-                cold_head_height,
-                next_height,
-                hot_final_head_height,
-            } => {
-                write!(
-                    f,
-                    "All blocks between cold head and next height were skipped, but next height > hot final head. cold head {cold_head_height} next height to copy: {next_height} final head height {hot_final_head_height}"
-                )
-            }
-            ColdStoreError::ColdHeadHashReadError { cold_head_height } => {
-                write!(f, "Failed to read the cold head hash at height {cold_head_height}")
-            }
-            ColdStoreError::EpochError { e } => {
-                write!(f, "Cold store copy error: {e}")
-            }
-            ColdStoreError::Error { message } => {
-                write!(f, "Cold store copy error: {message}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for ColdStoreError {}
 
 impl From<std::io::Error> for ColdStoreError {
     fn from(error: std::io::Error) -> Self {
