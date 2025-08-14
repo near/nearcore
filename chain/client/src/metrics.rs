@@ -698,16 +698,6 @@ pub(crate) static PARTIAL_CONTRACT_DEPLOYS_TIME_TO_LAST_PART: LazyLock<Histogram
     .unwrap()
     });
 
-// pub(crate) static PARTIAL_CHUNK_TIME_TO_LAST_PART: LazyLock<HistogramVec> = LazyLock::new(|| {
-//     try_create_histogram_vec(
-//         "near_partial_chunk_time_to_last_part",
-//         "Time taken from receiving first partial chunk part to receiving enough parts to decode transaction receipts",
-//         &["shard_id"],
-//         Some(encoding_scheme_buckets()),
-//     )
-//     .unwrap()
-// });
-
 pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: LazyLock<GaugeVec> = LazyLock::new(|| {
     try_create_gauge_vec(
         "near_partial_witness_cache_size",
