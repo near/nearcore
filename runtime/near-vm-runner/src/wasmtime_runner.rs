@@ -170,7 +170,13 @@ impl Ctx {
         let memory_size =
             guest_memory_size(logic.result_state.config.limit_config.max_memory_pages)
                 .unwrap_or(usize::MAX);
-        let limits = StoreLimitsBuilder::new().memories(1).memory_size(memory_size).build();
+        let limits = StoreLimitsBuilder::new()
+            .instances(1)
+            .memories(1)
+            .memory_size(memory_size)
+            .table_elements(MAX_ELEMENTS_PER_TABLE)
+            .tables(MAX_TABLES_PER_MODULE.try_into().unwrap_or(usize::MAX))
+            .build();
         Self { logic: Some(logic), caller, limits }
     }
 }
