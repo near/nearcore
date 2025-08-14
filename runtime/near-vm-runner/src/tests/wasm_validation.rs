@@ -213,13 +213,13 @@ fn memory_custom() {
         .wat(
             r#"
             (module
-              (memory (export "mymemory") 42 42)
+              (memory (export "foo") 42 42)
               (func (export "main"))
             )"#,
         )
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97582056 used gas 97582056
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 92135581 used gas 92135581
             "#]],
         ]);
 }
