@@ -506,7 +506,7 @@ impl Testbed<'_> {
     }
 
     /// Instantiate a new trie for the estimator.
-    fn trie(&self) -> near_store::Trie {
+    pub(crate) fn trie(&self) -> near_store::Trie {
         // We generated `finality_lag` fake blocks earlier, so the fake height
         // will be at the same number.
         let tip_height = self.config.finality_lag;
