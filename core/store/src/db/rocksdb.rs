@@ -639,7 +639,11 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     // Help compaction read sequentially by adding readahead on the device
     opts.set_compaction_readahead_size(4 * bytesize::MIB as usize);
     if temp == Temperature::Hot && col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
+        opts.set_merge_operator(
+            "refcount merge",
+            RocksDB::refcount_merge,
+            RocksDB::refcount_merge_partial,
+        );
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
     opts
