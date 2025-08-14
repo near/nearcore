@@ -57,7 +57,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (77, include_config!("77.yaml")),
     (78, include_config!("78.yaml")),
     (79, include_config!("79.yaml")),
-    // Equalizes the cost of reading trie nodes for first and subsequent accesses
     (81, include_config!("81.yaml")),
     (129, include_config!("129.yaml")),
     (149, include_config!("149.yaml")),
@@ -270,7 +269,6 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ExtCosts;
     use crate::cost::ActionCosts;
     use std::collections::HashSet;
 
@@ -434,28 +432,5 @@ mod tests {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
         let config = store.get_config(PROTOCOL_VERSION);
         assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, u64::MAX);
-    }
-
-    // This test ensures that the gas and compute costs for touching and reading
-    // a trie node remain equal. Please do not remove this check as the code
-    // may rely on this behavior after the version upgrade. For example, the
-    // code may no longer differentiate between touching a trie node for the
-    // first time and reading it again.
-    #[test]
-    fn test_equalize_trie_node_touch_and_read_cost() {
-        let store = RuntimeConfigStore::with_one_config(RuntimeConfig::test_protocol_version(
-            ProtocolFeature::EqualizeTrieNodeTouchAndReadCost.protocol_version(),
-        ));
-        for (_, config) in &store.store {
-            assert_eq!(
-                config.wasm_config.ext_costs.gas_cost(ExtCosts::touching_trie_node),
-                config.wasm_config.ext_costs.gas_cost(ExtCosts::read_cached_trie_node)
-            );
-
-            assert_eq!(
-                config.wasm_config.ext_costs.compute_cost(ExtCosts::touching_trie_node),
-                config.wasm_config.ext_costs.compute_cost(ExtCosts::read_cached_trie_node)
-            );
-        }
     }
 }
