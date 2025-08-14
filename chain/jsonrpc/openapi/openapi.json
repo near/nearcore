@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.1.1"
+    "version": "1.1.2"
   },
   "paths": {
     "/EXPERIMENTAL_changes": {
@@ -8910,6 +8910,20 @@
             "description": "Contract contains too many locals.",
             "enum": [
               "TooManyLocals"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Contract contains too many tables.",
+            "enum": [
+              "TooManyTables"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Contract contains too many table elements.",
+            "enum": [
+              "TooManyTableElements"
             ],
             "type": "string"
           }
