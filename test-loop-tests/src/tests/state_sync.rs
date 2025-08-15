@@ -417,8 +417,6 @@ fn run_test_with_added_node(state: TestState) {
 
                 let account_id = test_data.account_id.clone();
                 let epoch_id = client.chain.head().unwrap().epoch_id;
-                let protocol_version =
-                    client.chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
                 let shard_ids = client.chain.epoch_manager.shard_ids(&epoch_id).unwrap();
 
                 for shard_id in shard_ids {
@@ -428,12 +426,10 @@ fn run_test_with_added_node(state: TestState) {
                         .chain
                         .state_sync_adapter
                         .get_state_response_header(shard_id, sync_hash);
-                    let part = client.chain.state_sync_adapter.get_state_response_part(
-                        shard_id,
-                        0,
-                        sync_hash,
-                        protocol_version,
-                    );
+                    let part = client
+                        .chain
+                        .state_sync_adapter
+                        .get_state_response_part(shard_id, 0, sync_hash);
 
                     let was_tracking = client
                         .chain

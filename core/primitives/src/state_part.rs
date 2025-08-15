@@ -103,7 +103,7 @@ impl StatePart {
         bytes: Vec<u8>,
         protocol_version: ProtocolVersion,
     ) -> borsh::io::Result<Self> {
-        if ProtocolFeature::StatePartsVersioning.enabled(protocol_version) {
+        if ProtocolFeature::StatePartsCompression.enabled(protocol_version) {
             // TODO: protect from decompression bomb.
             BorshDeserialize::try_from_slice(&bytes)
         } else {
@@ -112,11 +112,11 @@ impl StatePart {
     }
 
     pub fn to_bytes(&self, protocol_version: ProtocolVersion) -> Vec<u8> {
-        if ProtocolFeature::StatePartsVersioning.enabled(protocol_version) {
+        if ProtocolFeature::StatePartsCompression.enabled(protocol_version) {
             return borsh::to_vec(self).expect("serializing StatePart should not fail");
         }
         let StatePart::V0(state_part) = self else {
-            panic!("{self:?} used without `StatePartsVersioning` feature enabled");
+            panic!("{self:?} used without `StatePartsCompression` feature enabled");
         };
         state_part.0.clone()
     }
@@ -150,16 +150,8 @@ mod tests {
     }
 
     #[test]
-    fn test_state_parts_versioning_if_compression() {
-        assert!(
-            ProtocolFeature::StatePartsVersioning.protocol_version()
-                <= ProtocolFeature::StatePartsCompression.protocol_version()
-        );
-    }
-
-    #[test]
-    fn test_state_parts_versioning() {
-        let new_protocol_version = ProtocolFeature::StatePartsVersioning.protocol_version();
+    fn test_legacy_state_parts() {
+        let new_protocol_version = ProtocolFeature::StatePartsCompression.protocol_version();
         let old_protocol_version = new_protocol_version - 1;
 
         let partial_state = dummy_partial_state();
@@ -175,7 +167,7 @@ mod tests {
         assert_eq!(state_part_v0, state_part_v0_reconstructed);
 
         // Legacy state parts (without version discriminant) cannot be used for sync to
-        // epoch which has `StatePartsVersioning` enabled.
+        // epoch which has `StatePartsCompression` enabled.
         assert!(StatePart::from_bytes(bytes, new_protocol_version).is_err());
     }
 

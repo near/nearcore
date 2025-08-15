@@ -217,7 +217,7 @@ pub struct ShardStateSyncResponseV3 {
     pub can_generate: bool,
 }
 
-// Between V3 to V4 we removed unused fields `cached_parts`` and `can_generate`` and introduced versioned `StatePart`.
+/// Between V3 to V4 we removed unused fields `cached_parts` and `can_generate` and introduced versioned `StatePart`.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV4 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
@@ -254,13 +254,15 @@ impl ShardStateSyncResponse {
         part: Option<(u64, StatePart)>,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        if ProtocolFeature::StatePartsVersioning.enabled(protocol_version) {
+        if ProtocolFeature::StatePartsCompression.enabled(protocol_version) {
             return Self::V4(ShardStateSyncResponseV4 { header, part });
         }
         let part = match part {
             None => None,
             Some((part_id, StatePart::V0(part))) => Some((part_id, part.0)),
-            _ => panic!("StatePartsVersioning not supported and part={part:?}"),
+            // This should not happen, as it would mean we serve `StatePartV1`` or higher
+            // before `StatePartsCompression` is enabled.
+            _ => panic!("StatePartsCompression not supported and part={part:?}"),
         };
         Self::V3(ShardStateSyncResponseV3 { header, part, cached_parts: None, can_generate: false })
     }

@@ -558,8 +558,6 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
             let num_parts = state_sync_header.num_state_parts();
             let state_root = state_sync_header.chunk_prev_state_root();
             let epoch_id = sync_block.header().epoch_id();
-            let protocol_version =
-                env.clients[0].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
             // Check that state parts can be obtained.
             let state_sync_parts: Vec<_> = (0..num_parts)
                 .map(|i| {
@@ -567,7 +565,7 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                     env.clients[0]
                         .chain
                         .state_sync_adapter
-                        .get_state_response_part(shard_id, i, sync_hash, protocol_version)
+                        .get_state_response_part(shard_id, i, sync_hash)
                         .unwrap()
                 })
                 .collect();
@@ -602,7 +600,6 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                         sync_hash,
                         PartId::new(i, num_parts),
                         &state_sync_parts[i as usize],
-                        protocol_version,
                     )
                     .unwrap();
             }
@@ -620,6 +617,8 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                         .unwrap()
                 );
                 store_update.commit().unwrap();
+                let protocol_version =
+                    env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
                 for part_id in 0..num_parts {
                     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
                     let bytes = store.get(DBCol::StateParts, &key).unwrap().unwrap();

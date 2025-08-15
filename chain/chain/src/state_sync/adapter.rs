@@ -21,7 +21,6 @@ use near_primitives::state_sync::{
     StateHeaderKey, StatePartKey, get_num_state_parts,
 };
 use near_primitives::types::ShardId;
-use near_primitives::version::ProtocolVersion;
 use near_primitives::views::RequestedStatePartsView;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
@@ -280,7 +279,6 @@ impl ChainStateSyncAdapter {
         shard_id: ShardId,
         part_id: u64,
         sync_hash: CryptoHash,
-        protocol_version: ProtocolVersion,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "sync",
@@ -289,6 +287,13 @@ impl ChainStateSyncAdapter {
             part_id,
             ?sync_hash)
         .entered();
+        let block = self
+            .chain_store
+            .get_block(&sync_hash)
+            .log_storage_error("block has already been checked for existence")?;
+        let header = block.header();
+        let epoch_id = block.header().epoch_id();
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         // Check cache
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
         if let Ok(Some(bytes)) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
@@ -298,12 +303,6 @@ impl ChainStateSyncAdapter {
         }
         metrics::STATE_PART_CACHE_MISS.inc();
 
-        let block = self
-            .chain_store
-            .get_block(&sync_hash)
-            .log_storage_error("block has already been checked for existence")?;
-        let header = block.header();
-        let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         let shard_ids = self.epoch_manager.shard_ids(epoch_id)?;
         if !shard_ids.contains(&shard_id) {
@@ -529,7 +528,6 @@ impl ChainStateSyncAdapter {
         sync_hash: CryptoHash,
         part_id: PartId,
         part: &StatePart,
-        protocol_version: ProtocolVersion,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
@@ -541,6 +539,8 @@ impl ChainStateSyncAdapter {
                 state_root
             )));
         }
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&sync_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         // Saving the part data.
         let mut store_update = self.chain_store.store().store_update();

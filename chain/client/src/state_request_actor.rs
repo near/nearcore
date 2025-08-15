@@ -294,12 +294,7 @@ impl Handler<StateRequestPart, Option<StateResponse>> for StateRequestActor {
             }
         };
 
-        let part = self.state_sync_adapter.get_state_response_part(
-            shard_id,
-            part_id,
-            sync_hash,
-            protocol_version,
-        );
+        let part = self.state_sync_adapter.get_state_response_part(shard_id, part_id, sync_hash);
         let Ok(part) = part else {
             tracing::error!(target: "sync", ?part, "Cannot build state part");
             return Some(new_part_response_empty(shard_id, sync_hash, protocol_version));

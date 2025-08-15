@@ -2106,14 +2106,12 @@ fn slow_test_catchup_gas_price_change() {
         .get_state_response_header(shard_id, sync_hash)
         .unwrap();
     let num_parts = state_sync_header.num_state_parts();
-    let protocol_version =
-        env.clients[0].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let state_sync_parts = (0..num_parts)
         .map(|i| {
             env.clients[0]
                 .chain
                 .state_sync_adapter
-                .get_state_response_part(shard_id, i, sync_hash, protocol_version)
+                .get_state_response_part(shard_id, i, sync_hash)
                 .unwrap()
         })
         .collect::<Vec<_>>();
@@ -2132,7 +2130,6 @@ fn slow_test_catchup_gas_price_change() {
                 sync_hash,
                 PartId::new(i, num_parts),
                 &state_sync_parts[i as usize],
-                protocol_version,
             )
             .unwrap();
     }
@@ -2150,6 +2147,8 @@ fn slow_test_catchup_gas_price_change() {
                 .unwrap()
         );
         store_update.commit().unwrap();
+        let protocol_version =
+            env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
             let bytes = store.get(DBCol::StateParts, &key).unwrap().unwrap();
