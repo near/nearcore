@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use actix::{Actor, System};
+use actix::Actor;
 
 use futures::{FutureExt, TryFutureExt, future};
 
@@ -57,7 +57,7 @@ fn slow_test_block_unknown_block_error() {
                                             error_json["cause"]["name"],
                                             serde_json::json!("UNKNOWN_BLOCK")
                                         );
-                                        System::current().stop();
+                                        near_async::shutdown_all_actors();
                                     })
                                     .map_ok(|_| panic!("The block mustn't be found"))
                                     .map(drop),
@@ -127,7 +127,7 @@ fn slow_test_chunk_unknown_chunk_error() {
                                                 "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu"
                                             )
                                         );
-                                        System::current().stop();
+                                        near_async::shutdown_all_actors();
                                     })
                                     .map_ok(|_| panic!("The chunk mustn't be found"))
                                     .map(drop),
@@ -190,7 +190,7 @@ fn slow_test_protocol_config_unknown_block_error() {
                                             error_json["cause"]["name"],
                                             serde_json::json!("UNKNOWN_BLOCK")
                                         );
-                                        System::current().stop();
+                                        near_async::shutdown_all_actors();
                                     })
                                     .map_ok(|_| panic!("The block mustn't be found"))
                                     .map(drop),
@@ -249,7 +249,7 @@ fn slow_test_gas_price_unknown_block_error() {
                                             error_json["cause"]["name"],
                                             serde_json::json!("UNKNOWN_BLOCK")
                                         );
-                                        System::current().stop();
+                                        near_async::shutdown_all_actors();
                                     })
                                     .map_ok(|_| panic!("The block mustn't be found"))
                                     .map(drop),
@@ -320,7 +320,7 @@ fn slow_test_receipt_id_unknown_receipt_error() {
                                                 "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu"
                                             )
                                         );
-                                        System::current().stop();
+                                        near_async::shutdown_all_actors();
                                     })
                                     .map_ok(|_| panic!("The block mustn't be found"))
                                     .map(drop),
@@ -397,7 +397,7 @@ fn test_tx_invalid_tx_error() {
                                             error_json["cause"]["info"]["transaction_hash"],
                                             serde_json::json!(tx_hash)
                                         );
-                                        System::current().stop();
+                                        near_async::shutdown_all_actors();
                                     })
                                     .map_ok(|_| panic!("The transaction mustn't succeed"))
                                     .map(drop),
@@ -445,6 +445,6 @@ fn test_query_rpc_account_view_unknown_block_must_return_error() {
         };
 
         assert_eq!(error["cause"]["name"], serde_json::json!("UNKNOWN_BLOCK"),);
-        System::current().stop();
+        near_async::shutdown_all_actors();
     });
 }

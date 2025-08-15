@@ -9,9 +9,10 @@ import requests
 import semver
 from configured_logger import logger
 
-# cspell:words BASEHREF
-_UNAME = os.uname()[0]
-_IS_DARWIN = _UNAME == 'Darwin'
+# cspell:words BASEHREF,SYSNAME
+_SYSNAME, _, _, _, _MACHINE = os.uname()
+_UNAME = f"{_SYSNAME}-{_MACHINE}"
+_IS_DARWIN = _UNAME.startswith('Darwin')
 _BASEHREF = 'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com'
 _REPO_DIR = pathlib.Path(__file__).resolve().parents[2]
 _OUT_DIR = _REPO_DIR / 'target/debug'
