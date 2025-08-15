@@ -67,7 +67,7 @@ use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::ClientActorInner;
 #[cfg(feature = "tx_generator")]
-use near_transactions_generator::actix_actor::TxGeneratorActor;
+use near_transactions_generator::actix_actor::GeneratorActorImpl;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -226,7 +226,7 @@ pub struct NearNode {
     pub state_request_client: Addr<SyncActixWrapper<StateRequestActor>>,
     pub rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
     #[cfg(feature = "tx_generator")]
-    pub tx_generator: Addr<TxGeneratorActor>,
+    pub tx_generator: TokioRuntimeHandle<GeneratorActorImpl>,
     pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
@@ -489,7 +489,7 @@ pub fn start_with_config_and_synchronization(
         transaction_validity_period: config.genesis.config.transaction_validity_period,
     };
     let rpc_handler = spawn_rpc_handler_actor(
-        actor_system,
+        actor_system.clone(),
         rpc_handler_config,
         tx_pool,
         chunk_endorsement_tracker,
@@ -581,10 +581,14 @@ pub fn start_with_config_and_synchronization(
 
     #[cfg(feature = "tx_generator")]
     let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
+        actor_system.clone(),
         config.tx_generator.unwrap_or_default(),
         rpc_handler.clone().into_multi_sender(),
         view_client_addr.clone().into_multi_sender(),
     );
+
+    // To avoid a clippy warning for redundant clones, due to the conditional feature tx_generator.
+    drop(actor_system);
 
     Ok(NearNode {
         client: client_actor,
