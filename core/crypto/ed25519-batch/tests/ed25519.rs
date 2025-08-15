@@ -2,7 +2,7 @@ use ed25519_dalek::*;
 
 mod integrations {
     use super::*;
-    use near_crypto::batch::safe_verify_batch;
+    use near_crypto_ed25519_batch::batch::safe_verify_batch;
     use rand::rngs::OsRng;
 
     #[test]

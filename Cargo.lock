@@ -4439,20 +4439,17 @@ dependencies = [
  "bolero",
  "borsh",
  "bs58 0.4.0",
- "criterion",
  "curve25519-dalek",
  "derive_more 2.0.1",
  "ed25519-dalek",
  "hex",
  "hex-literal",
- "merlin",
  "near-account-id",
  "near-config-utils",
  "near-schema-checker-lib",
  "near-stdx",
  "primitive-types 0.10.1",
  "rand 0.8.5",
- "rand_core 0.6.4",
  "schemars 1.0.3",
  "secp256k1",
  "serde",
@@ -4461,6 +4458,22 @@ dependencies = [
  "subtle",
  "tempfile",
  "thiserror 2.0.12",
+]
+
+[[package]]
+name = "near-crypto-ed25519-batch"
+version = "0.0.0"
+dependencies = [
+ "criterion",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "hex",
+ "merlin",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.6",
 ]
 
 [[package]]

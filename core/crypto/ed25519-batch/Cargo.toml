@@ -1,11 +1,37 @@
 [package]
 name = "near-crypto-ed25519-batch"
-version = "0.1.0"
-edition = "2021"
-
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
 description = "Batch verification for Ed25519 signatures for NEAR."
-authors = ["NEAR Protocol <hello@near.org>"]
-license = "MIT OR Apache-2.0"
+repository.workspace = true
+license.workspace = true
+publish = true
+
+# TODO: Fix authors / license
+
+[lints]
+workspace = true
 
 [dependencies]
-# Add dependencies as needed
+curve25519-dalek = { workspace = true, features = [
+    "precomputed-tables",
+    "alloc",
+] }
+ed25519-dalek = { workspace = true, features = ["hazmat"] }
+merlin.workspace = true
+sha2.workspace = true
+rand_core.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+curve25519-dalek = { workspace = true, features = ["rand_core"] }
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+hex.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[[bench]]
+name = "ed25519_benchmarks"
+harness = false
