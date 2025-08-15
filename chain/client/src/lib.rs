@@ -11,11 +11,9 @@ pub use near_client_primitives::types::{
 pub use crate::client::{AsyncComputationMultiSpawner, Client};
 #[cfg(feature = "test_features")]
 pub use crate::client_actor::NetworkAdversarialMessage;
-pub use crate::client_actor::{ClientActor, StartClientResult, start_client};
+pub use crate::client_actor::{StartClientResult, start_client};
 pub use crate::config_updater::ConfigUpdater;
-pub use crate::rpc_handler::{
-    RpcHandler, RpcHandlerActor, RpcHandlerConfig, spawn_rpc_handler_actor,
-};
+pub use crate::rpc_handler::{RpcHandler, RpcHandlerConfig, spawn_rpc_handler_actor};
 pub use crate::state_request_actor::StateRequestActor;
 pub use crate::stateless_validation::chunk_validation_actor::{
     BlockNotificationMessage, ChunkValidationActorInner, ChunkValidationSender,

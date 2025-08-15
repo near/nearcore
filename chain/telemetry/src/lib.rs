@@ -36,9 +36,17 @@ pub struct TelemetryEvent {
     pub content: serde_json::Value,
 }
 
+thread_local! {
+    static TELEMETRY_CLIENT: Client = {
+        Client::builder()
+            .timeout(CONNECT_TIMEOUT)
+            .connector(Connector::new().max_http_version(awc::http::Version::HTTP_11))
+            .finish()
+    };
+}
+
 pub struct TelemetryActor {
     config: TelemetryConfig,
-    client: Client,
     last_telemetry_update: Instant,
 }
 
@@ -61,14 +69,9 @@ impl TelemetryActor {
             }
         }
 
-        let client = Client::builder()
-            .timeout(CONNECT_TIMEOUT)
-            .connector(Connector::new().max_http_version(awc::http::Version::HTTP_11))
-            .finish();
         let reporting_interval = config.reporting_interval;
         Self {
             config,
-            client,
             // Let the node report telemetry info at the startup.
             last_telemetry_update: Instant::now().sub(reporting_interval),
         }
@@ -89,24 +92,26 @@ impl Handler<TelemetryEvent> for TelemetryActor {
             let endpoint = endpoint.clone();
             near_performance_metrics::actix::spawn(
                 "telemetry",
-                self.client
-                    .post(endpoint.clone())
-                    .insert_header(("Content-Type", "application/json"))
-                    .force_close() // See https://github.com/near/nearcore/pull/11914
-                    .send_json(&msg.content)
-                    .map(move |response| {
-                        let result = if let Err(error) = response {
-                            tracing::warn!(
+                TELEMETRY_CLIENT.with(|client| {
+                    client
+                        .post(endpoint.clone())
+                        .insert_header(("Content-Type", "application/json"))
+                        .force_close() // See https://github.com/near/nearcore/pull/11914
+                        .send_json(&msg.content)
+                        .map(move |response| {
+                            let result = if let Err(error) = response {
+                                tracing::warn!(
                                 target: "telemetry",
                                 err = ?error,
                                 endpoint = ?endpoint,
                                 "Failed to send telemetry data");
-                            "failed"
-                        } else {
-                            "ok"
-                        };
-                        metrics::TELEMETRY_RESULT.with_label_values(&[result]).inc();
-                    }),
+                                "failed"
+                            } else {
+                                "ok"
+                            };
+                            metrics::TELEMETRY_RESULT.with_label_values(&[result]).inc();
+                        })
+                }),
             );
         }
         self.last_telemetry_update = now;
