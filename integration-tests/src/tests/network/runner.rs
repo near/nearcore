@@ -173,7 +173,8 @@ fn setup_network_node(
     );
     let chain_store =
         ChainStore::new(runtime.store().clone(), false, genesis.config.genesis_height);
-    let chunk_validation_actor = ChunkValidationActorInner::spawn_actix_actors(
+    let chunk_validation_actor = ChunkValidationActorInner::spawn_multithread_actor(
+        actor_system.clone(),
         chain_store,
         Arc::new(genesis_block),
         epoch_manager.clone(),
