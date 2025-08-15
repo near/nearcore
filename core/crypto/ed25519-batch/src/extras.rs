@@ -1,9 +1,12 @@
 //! Extra definitions used for implementing batch signature verification with
 //! additional non-malleable signature checks (`safe_verify_batch`).
 
+use crate::errors::InternalError;
+
 use curve25519_dalek::EdwardsPoint;
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use ed25519_dalek::{PUBLIC_KEY_LENGTH, VerifyingKey};
+use std::convert::TryFrom;
 
 pub(crate) struct VerifyingKeyInternal {
     pub(crate) compressed: CompressedEdwardsY,
@@ -22,14 +25,16 @@ impl VerifyingKeyInternal {
     }
 }
 
-// TODO: TryFrom
-impl From<&VerifyingKey> for VerifyingKeyInternal {
-    fn from(verifying_key: &VerifyingKey) -> Self {
+impl TryFrom<&VerifyingKey> for VerifyingKeyInternal {
+    type Error = InternalError;
+
+    fn try_from(verifying_key: &VerifyingKey) -> Result<Self, Self::Error> {
         let compressed_bytes = verifying_key.as_bytes();
-        let compressed_point = CompressedEdwardsY::from_slice(compressed_bytes)
-            .expect("VerifyingKey should always be a valid compressed point");
+        let compressed_point = CompressedEdwardsY::from_slice(compressed_bytes).map_err(|_| {
+            InternalError::BytesLength { name: "compressed_bytes", length: PUBLIC_KEY_LENGTH }
+        })?;
         let point = verifying_key.to_edwards();
-        Self { compressed: compressed_point, point }
+        Ok(Self { compressed: compressed_point, point })
     }
 }
 

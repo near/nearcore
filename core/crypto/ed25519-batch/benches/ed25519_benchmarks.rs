@@ -33,12 +33,11 @@ mod ed25519_benches {
                 let msg: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
                 let messages: Vec<&[u8]> = (0..size).map(|_| msg).collect();
                 let signatures: Vec<Signature> = keypairs.iter().map(|key| key.sign(msg)).collect();
-                let signatures_ref: Vec<&Signature> = signatures.iter().collect();
                 let verifying_keys: Vec<_> =
                     keypairs.iter().map(|key| key.verifying_key()).collect();
 
                 b.iter(|| {
-                    safe_verify_batch(&messages[..], &signatures_ref[..], &verifying_keys[..])
+                    safe_verify_batch(&messages[..], &signatures[..], &verifying_keys[..])
                         .expect("Batch verification failed")
                 });
             });

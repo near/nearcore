@@ -25,7 +25,6 @@ mod integrations {
             verifying_keys.push(signing_key.verifying_key());
         }
 
-        let signatures: Vec<&Signature> = signatures.iter().collect();
         let result = safe_verify_batch(&messages, &signatures, &verifying_keys);
 
         assert!(result.is_ok());
@@ -97,8 +96,7 @@ mod integrations {
             signatures.push(Signature::from_slice(&signature).unwrap());
             messages.push(message);
 
-            let signature_list: Vec<&Signature> = signatures.iter().collect();
-            let b = safe_verify_batch(&messages, &signature_list, &verifying_keys);
+            let b = safe_verify_batch(&messages, &signatures, &verifying_keys);
             // Follow the first line of table 5 of [SSR:CGN20] with the exception that we reject
             // low order commitment R (based on the NIST note)
             if i < 3 || i > 5 {

@@ -1,4 +1,8 @@
 // This file is based on https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/ed25519-dalek/src/batch.rs
+// Modifications:
+// - verify_batch changed to safe_verify_batch, with additional checks added.
+// - Code not used in safe_verify_batch has been removed.
+//
 // Many thanks to the original authors, whose copyright notice is reproduced below:
 //
 // This file is part of ed25519-dalek.
@@ -68,13 +72,20 @@ fn gen_u128<R: RngCore>(rng: &mut R) -> u128 {
 #[allow(non_snake_case)]
 pub fn safe_verify_batch(
     messages: &[&[u8]],
-    signatures: &[&ed25519::Signature],
+    signatures: &[ed25519::Signature],
     verifying_keys: &[VerifyingKey],
 ) -> Result<(), SignatureError> {
+    // Modification: Convert VerifyingKey to VerifyingKeyInternal
+    // This is a cheap conversion that allows us to access `compressed` and `point`,
+    // for similarity to the original implementation.
     let verifying_keys: Vec<VerifyingKeyInternal> =
-        verifying_keys.iter().map(|vk| vk.into()).collect();
+        verifying_keys.iter().map(|vk| vk.try_into()).collect::<Result<Vec<_>, _>>()?;
+
     // Return an Error if any of the vectors were not the same size as the others.
-    if signatures.len() != messages.len() || signatures.len() != verifying_keys.len() {
+    if signatures.len() != messages.len()
+        || signatures.len() != verifying_keys.len()
+        || verifying_keys.len() != messages.len()
+    {
         return Err(InternalError::ArrayLength {
             name_a: "signatures",
             length_a: signatures.len(),
@@ -126,35 +137,31 @@ pub fn safe_verify_batch(
     // randomness for the batch verification.
     let mut rng = transcript.build_rng().finalize(&mut ZeroRng);
 
-    let mut internal_signatures: Vec<InternalSignature> = Vec::new();
     // Convert all signatures to `InternalSignature`
-    for &signature in signatures.iter() {
-        internal_signatures.push(InternalSignature::try_from(signature)?);
-    }
+    // Modification: Moved here for use in additional checks
+    let signatures =
+        signatures.iter().map(InternalSignature::try_from).collect::<Result<Vec<_>, _>>()?;
 
-    let Rs: Vec<_> = internal_signatures.iter().map(|sig| sig.R.decompress()).collect();
-    // perform extra checks as safe_verify
+    // Modification: Moved here for use in additional checks
+    let Rs: Vec<_> = signatures.iter().map(|sig| sig.R.decompress()).collect();
+
+    // Modification: Perform extra checks as safe_verify
     // these checks are performed at this point (not earlier) for efficiency
     // performing the checks earlier do not impact the correctness or security
     for i in 0..messages.len() {
         let signature_R = Rs[i].ok_or_else(|| SignatureError::from(InternalError::Verify))?;
         // check public key is not of low order
         if signature_R.is_small_order() || verifying_keys[i].is_weak() {
-            // for an extra optimization comment out the previous line and uncomment the next line
-            // CAREFUL: do not use this optimization unless you have already verified the verification key well-formdness earlier
-            // (when published on the chain)
-
-            // if  signature_R.is_small_order() {
+            // TODO: If the chain guarantees public keys are well-formed, then
+            // we can just check `if signature_R.is_small_order()` here.
+            // Otherwise, we MUST check for `verifying_keys[i].is_weak()` here.
             return Err(InternalError::Verify.into());
         }
         // check canonicity of R and A
-        if !internal_signatures[i].R.is_canonical_y()
-            || !verifying_keys[i].compressed.is_canonical_y()
-        {
-            // for an extra optimization comment out the previous line and uncomment the next line
-            // CAREFUL: do not use this optimization unless you have already verified the verification key well-formdness earlier
-            // (when published on the chain)
-            // if !signatures[i].R.is_canonical_y() {
+        if !signatures[i].R.is_canonical_y() || !verifying_keys[i].compressed.is_canonical_y() {
+            // TODO: If the chain guarantees public keys are well-formed, then
+            // we can just check `if signature_R.is_small_order()` here.
+            // Otherwise, we MUST check for `verifying_keys[i].is_canonical_y()` here.
             return Err(InternalError::Verify.into());
         }
     }
@@ -164,7 +171,7 @@ pub fn safe_verify_batch(
 
     // Compute the basepoint coefficient, ∑ s[i]z[i] (mod l)
     let B_coefficient: Scalar =
-        internal_signatures.iter().map(|sig| sig.s).zip(zs.iter()).map(|(s, z)| z * s).sum();
+        signatures.iter().map(|sig| sig.s).zip(zs.iter()).map(|(s, z)| z * s).sum();
 
     // Convert the H(R || A || M) values into scalars
     let hrams: Vec<Scalar> = hrams.iter().map(Scalar::from_bytes_mod_order_wide).collect();
@@ -175,6 +182,8 @@ pub fn safe_verify_batch(
     // Multiply each H(R || A || M) by the random value
     let zhrams = hrams.iter().zip(zs.iter()).map(|(hram, z)| hram * z);
 
+    // Modification: Original code checks for the point being identity,
+    // but we accept other small-order points as well.
     // Compute (-∑ z[i]s[i] (mod l)) B + ∑ z[i]R[i] + ∑ (z[i]H(R||A||M)[i] (mod l)) A[i] = 0
     let tmp_point = EdwardsPoint::optional_multiscalar_mul(
         once(-B_coefficient).chain(zs.iter().cloned()).chain(zhrams),
