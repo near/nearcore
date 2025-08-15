@@ -150,6 +150,7 @@ fn setup_network_node(
         transaction_validity_period: genesis.config.transaction_validity_period,
     };
     let rpc_handler = spawn_rpc_handler_actor(
+        actor_system.clone(),
         rpc_handler_config,
         tx_pool,
         chunk_endorsement_tracker,

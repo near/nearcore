@@ -169,6 +169,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     };
 
     let rpc_handler_actor = spawn_rpc_handler_actor(
+        actor_system.clone(),
         rpc_handler_config,
         client_result.tx_pool,
         client_result.chunk_endorsement_tracker,

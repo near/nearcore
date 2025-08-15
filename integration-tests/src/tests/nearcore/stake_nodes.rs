@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use actix::{Actor, Addr};
+use actix::Actor;
 use futures::{FutureExt, future};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::num_rational::Ratio;
@@ -12,7 +12,7 @@ use crate::utils::genesis_helpers::genesis_hash;
 use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
-use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActorInner};
+use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandler, ViewClientActorInner};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
@@ -39,7 +39,7 @@ struct TestNode {
     config: NearConfig,
     client: TokioRuntimeHandle<ClientActorInner>,
     view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
-    tx_processor: Addr<RpcHandlerActor>,
+    tx_processor: MultithreadRuntimeHandle<RpcHandler>,
     genesis_hash: CryptoHash,
 }
 
@@ -135,12 +135,12 @@ fn slow_test_stake_nodes() {
             actix::spawn(
                 test_nodes[0]
                     .tx_processor
-                    .send(ProcessTxRequest {
+                    .send_async(ProcessTxRequest {
                         transaction: tx,
                         is_forwarded: false,
                         check_only: false,
                     })
-                    .map(drop),
+                    .map(drop::<Result<near_client::ProcessTxResponse, _>>),
             );
 
             WaitOrTimeoutActor::new(
@@ -217,12 +217,12 @@ fn slow_test_validator_kickout() {
                 actix::spawn(
                     test_node
                         .tx_processor
-                        .send(ProcessTxRequest {
+                        .send_async(ProcessTxRequest {
                             transaction: stake_transaction,
                             is_forwarded: false,
                             check_only: false,
                         })
-                        .map(drop),
+                        .map(drop::<Result<near_client::ProcessTxResponse, _>>),
                 );
             }
 
@@ -359,22 +359,22 @@ fn ultra_slow_test_validator_join() {
             actix::spawn(
                 test_nodes[1]
                     .tx_processor
-                    .send(ProcessTxRequest {
+                    .send_async(ProcessTxRequest {
                         transaction: unstake_transaction,
                         is_forwarded: false,
                         check_only: false,
                     })
-                    .map(drop),
+                    .map(drop::<Result<near_client::ProcessTxResponse, _>>),
             );
             actix::spawn(
                 test_nodes[0]
                     .tx_processor
-                    .send(ProcessTxRequest {
+                    .send_async(ProcessTxRequest {
                         transaction: stake_transaction,
                         is_forwarded: false,
                         check_only: false,
                     })
-                    .map(drop),
+                    .map(drop::<Result<near_client::ProcessTxResponse, _>>),
             );
 
             let (done1, done2) =
