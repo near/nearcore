@@ -7,6 +7,7 @@ use futures::{FutureExt, TryFutureExt, future};
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use crate::utils::genesis_helpers::genesis_block;
 use near_actix_test_utils::spawn_interruptible;
+use near_async::messaging::CanSendAsync;
 use near_client::GetBlock;
 use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
@@ -39,7 +40,7 @@ fn slow_test_block_unknown_block_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                let actor = view_client.send(GetBlock::latest());
+                let actor = view_client.send_async(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -98,7 +99,7 @@ fn slow_test_chunk_unknown_chunk_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                let actor = view_client.send(GetBlock::latest());
+                let actor = view_client.send_async(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -167,7 +168,7 @@ fn slow_test_protocol_config_unknown_block_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                let actor = view_client.send(GetBlock::latest());
+                let actor = view_client.send_async(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -230,7 +231,7 @@ fn slow_test_gas_price_unknown_block_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                let actor = view_client.send(GetBlock::latest());
+                let actor = view_client.send_async(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -289,7 +290,7 @@ fn slow_test_receipt_id_unknown_receipt_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                let actor = view_client.send(GetBlock::latest());
+                let actor = view_client.send_async(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
@@ -373,7 +374,7 @@ fn test_tx_invalid_tx_error() {
                 let transaction_copy = transaction.clone();
                 let tx_hash = transaction_copy.get_hash();
 
-                let actor = view_client.send(GetBlock::latest());
+                let actor = view_client.send_async(GetBlock::latest());
                 let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 10 {
