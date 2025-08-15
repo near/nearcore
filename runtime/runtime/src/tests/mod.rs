@@ -141,7 +141,7 @@ fn test_vm_types_global_contract_identifier_len() {
 }
 
 #[cfg(test)]
-mod batch_tests {
+mod batch_signature_verify_tests {
     use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 
     #[test]
