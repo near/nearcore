@@ -204,7 +204,13 @@ pub(crate) fn read_trie_node_estimate_by_iteration(
         TrieKey::Account { account_id: testbed.transaction_builder().random_account() }.to_vec();
     // Use recorder to get number of trie nodes accessed and the total approximate bytes read.
     let trie = testbed.trie().recording_reads_new_recorder();
-    assert!(trie.has_memtries(), "Run estimator with --memtries");
+    if !trie.has_memtries() {
+        eprintln!(
+            "Cannot estimate trie node read cost, no memtries available. \
+             Run with --memtries to enable memtries."
+        );
+        return GasCost::zero();
+    }
 
     let start = GasCost::measure(testbed.config.metric);
     {
