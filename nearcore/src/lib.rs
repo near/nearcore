@@ -5,10 +5,8 @@ use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
 
 use crate::state_sync::StateSyncDumper;
-use actix::Actor;
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
-use near_async::actix::wrapper::ActixWrapper;
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
@@ -346,7 +344,8 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
-    let telemetry = ActixWrapper::new(TelemetryActor::new(config.telemetry_config.clone())).start();
+    let telemetry =
+        actor_system.spawn_tokio_actor(TelemetryActor::new(config.telemetry_config.clone()));
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
     let state_roots = near_store::get_genesis_state_roots(runtime.store())?
         .expect("genesis should be initialized.");

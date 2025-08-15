@@ -5,7 +5,6 @@
 use crate::utils::peer_manager_mock::PeerManagerMock;
 use actix::{Actor, Context};
 use near_async::actix::futures::ActixFutureSpawner;
-use near_async::actix::wrapper::ActixWrapper;
 use near_async::messaging::{
     IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
 };
@@ -143,7 +142,9 @@ fn setup(
     );
     let shard_tracker =
         ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
-    let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
+
+    let actor_system = ActorSystem::new();
+    let telemetry = actor_system.spawn_tokio_actor(TelemetryActor::default());
     let config = {
         let mut base = ClientConfig::test(
             skip_sync_wait,
@@ -159,8 +160,6 @@ fn setup(
     };
 
     let adv = Controls::default();
-
-    let actor_system = ActorSystem::new();
 
     let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
         clock.clone(),
