@@ -71,43 +71,32 @@ mod integrations {
         }
 
         let test_instance_filename = "tests/extensive_test_instances.json";
-        let file = match File::open(test_instance_filename) {
-            Ok(file) => file,
-            _ => {
-                assert!(false, "The test instances file could not be opened");
-                unreachable!("Assert False proceeded");
-            }
+        let Ok(file) = File::open(test_instance_filename) else {
+            panic!("The test instances file could not be opened");
         };
-
         let reader = BufReader::new(file);
-        let data: Vec<Data> = match from_reader(reader) {
-            Ok(data) => data,
-            _ => {
-                assert!(false, "Problem in deserializing the test instances file");
-                unreachable!("Assert False proceeded");
-            }
+        let Ok(data): Result<Vec<Data>, _> = from_reader(reader) else {
+            panic!("Problem in deserializing the test instances file");
         };
 
         for msg in messages {
-            let signing_key: SigningKey = SigningKey::generate(&mut csprng);
+            let signing_key = SigningKey::generate(&mut csprng);
             signatures.push(signing_key.sign(msg));
             signing_keys.push(signing_key);
         }
-        let mut verifying_keys: Vec<VerifyingKey> =
+        let mut verifying_keys: Vec<_> =
             signing_keys.iter().map(|key| key.verifying_key()).collect();
 
         for i in 0..data.len() {
-            let mut messages: Vec<&[u8]> = messages.to_vec();
+            let mut messages = messages.to_vec();
             let sig_bytes = hex::decode(&data[i].signature).expect("Failed to construct signature");
             let pub_bytes =
                 hex::FromHex::from_hex(&data[i].pub_key).expect("Failed to construct pub_key");
             let msg_bytes = hex::decode(&data[i].message).expect("Failed to construct message");
-            let message: &[u8] = &msg_bytes;
-            let signature: &[u8] = &sig_bytes;
 
             verifying_keys.push(VerifyingKey::from_bytes(&pub_bytes).unwrap());
-            signatures.push(Signature::from_slice(&signature).unwrap());
-            messages.push(message);
+            signatures.push(Signature::from_slice(&sig_bytes).unwrap());
+            messages.push(&msg_bytes);
 
             let b = safe_verify_batch(&messages, &signatures, &verifying_keys);
             // Follow the first line of table 5 of [SSR:CGN20] with the exception that we reject
