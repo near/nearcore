@@ -123,8 +123,9 @@ fn setup_network_node(
         None,
         noop().into_multi_sender(),
     );
-    let view_client_addr = ViewClientActorInner::spawn_actix_actor(
+    let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
         Clock::real(),
+        actor_system.clone(),
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker.clone(),
