@@ -1,0 +1,11 @@
+[package]
+name = "near-crypto-ed25519-batch"
+version = "0.1.0"
+edition = "2021"
+
+description = "Batch verification for Ed25519 signatures for NEAR."
+authors = ["NEAR Protocol <hello@near.org>"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Add dependencies as needed
