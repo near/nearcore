@@ -210,7 +210,7 @@ in
 whenever the client sends a message. The return value of the callback is sent
 back to the client, which allows for testing relatively complex scenarios. The
 tests generally expect a particular message to occur, in this case, the tests
-expect two blocks to be produced. <code>System::current().stop();</code> is the way to
+expect two blocks to be produced. <code>near_async::shutdown_all_actors();</code> is the way to
 stop the test and mark it as passed.</li>
 <li><code>near_network::test_utils::wait_or_panic(5000);</code> is how the timeout for the
 test is set (in milliseconds).</li>
