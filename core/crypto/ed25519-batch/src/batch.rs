@@ -1,3 +1,4 @@
+// cspell:ignore Vartime Multiscalar multiscalar impls initialising hram hrams zhrams csprng
 // This file is based on https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/ed25519-dalek/src/batch.rs
 // Modifications:
 // - verify_batch changed to safe_verify_batch, with additional checks added.
@@ -191,6 +192,6 @@ pub fn safe_verify_batch(
     )
     .ok_or(InternalError::Verify)?;
 
-    // multiply by cofactor 8
+    // multiply by co-factor 8
     if tmp_point.is_small_order() { Ok(()) } else { Err(InternalError::Verify.into()) }
 }

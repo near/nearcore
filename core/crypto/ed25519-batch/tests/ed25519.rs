@@ -1,3 +1,16 @@
+// cspell:ignore csprng dumbin jewellery
+// This file is based on https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/ed25519-dalek/benches/ed25519_benchmarks.rs
+// Modifications:
+// - Modified test for `safe_verify_batch_seven_signatures` to use `safe_verify_batch`.
+// - Removed other tests.
+//
+// This file is part of ed25519-dalek.
+// Copyright (c) 2017-2019 isis lovecruft
+// See LICENSE for licensing information.
+//
+// Authors:
+// - isis agora lovecruft <isis@patternsinthevoid.net>
+
 use ed25519_dalek::*;
 
 mod integrations {
@@ -62,7 +75,7 @@ mod integrations {
             Ok(file) => file,
             _ => {
                 assert!(false, "The test instances file could not be opened");
-                unreachable!("Assert False preceeded");
+                unreachable!("Assert False proceeded");
             }
         };
 
@@ -71,7 +84,7 @@ mod integrations {
             Ok(data) => data,
             _ => {
                 assert!(false, "Problem in deserializing the test instances file");
-                unreachable!("Assert False preceeded");
+                unreachable!("Assert False proceeded");
             }
         };
 

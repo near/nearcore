@@ -1,3 +1,4 @@
+// cspell:ignore guanteed malleabilllity standardised libsodium usecase vartime
 // This file is based on https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/ed25519-dalek/src/errors.rs
 // Modifications:
 // - Import adjustments.
