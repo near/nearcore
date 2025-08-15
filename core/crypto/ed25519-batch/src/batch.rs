@@ -20,12 +20,12 @@ use std::iter::once;
 use curve25519_dalek::digest::Digest;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 use curve25519_dalek::{EdwardsPoint, Scalar, constants};
-use ed25519_dalek::{SignatureError, VerifyingKey, ed25519};
+use ed25519_dalek::{VerifyingKey, ed25519};
 use merlin::Transcript;
 use rand_core::RngCore;
 use sha2::Sha512;
 
-use crate::errors::InternalError;
+use crate::errors::{InternalError, SignatureError};
 use crate::extras::{IsCanonicalY, VerifyingKeyInternal};
 use crate::signature::InternalSignature;
 

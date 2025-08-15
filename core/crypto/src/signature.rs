@@ -924,3 +924,49 @@ mod tests {
         assert!(serde_json::from_str::<Signature>(invalid).is_err());
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "rand")]
+mod batch_tests {
+    use crate::{KeyType, PublicKey, SecretKey, Signature};
+
+    #[test]
+    // TODO: This test demonstrates the use of `near_crypto_ed25519_batch::safe_verify_batch`
+    // so we don't get an unused dependency warning in CI.
+    // After the code is actually used for signature verification, this test can be removed,
+    // as it's redundant with the unit tests in `near_crypto_ed25519_batch`.
+    fn test_safe_verify_batch() {
+        let messages = vec![b"message1".to_vec(), b"message2".to_vec()];
+        let sks = vec![
+            SecretKey::from_random(KeyType::ED25519),
+            SecretKey::from_random(KeyType::ED25519),
+        ];
+        let mut signatures: Vec<ed25519_dalek::Signature> = Vec::new();
+        for (sk, msg) in sks.iter().zip(messages.iter()) {
+            let Signature::ED25519(sig) = sk.sign(msg) else {
+                panic!("Expected ED25519 signature");
+            };
+            signatures.push(sig);
+        }
+        let verifying_keys: Vec<_> = sks
+            .iter()
+            .map(|key| {
+                let PublicKey::ED25519(pk) = key.public_key() else {
+                    panic!("Expected ED25519 public key");
+                };
+                ed25519_dalek::VerifyingKey::from_bytes(&pk.0)
+                    .expect("Failed to create verifying key")
+            })
+            .collect();
+
+        let messages: Vec<_> = messages.iter().map(|msg| msg.as_ref()).collect();
+        near_crypto_ed25519_batch::safe_verify_batch(&messages, &signatures, &verifying_keys)
+            .expect("Batch verification failed");
+
+        // Shouldn't pass with messages not signed by the corresponding keys
+        let messages = vec![b"message3".to_vec(), b"message4".to_vec()];
+        let messages: Vec<_> = messages.iter().map(|msg| msg.as_ref()).collect();
+        near_crypto_ed25519_batch::safe_verify_batch(&messages, &signatures, &verifying_keys)
+            .expect_err("Batch verification should have failed");
+    }
+}

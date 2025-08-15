@@ -19,7 +19,7 @@ mod ed25519_benches {
     use ed25519_dalek::Signature;
     use ed25519_dalek::Signer;
     use ed25519_dalek::SigningKey;
-    use near_crypto_ed25519_batch::batch::safe_verify_batch;
+    use near_crypto_ed25519_batch::safe_verify_batch;
     use rand::prelude::ThreadRng;
     use rand::thread_rng;
 
