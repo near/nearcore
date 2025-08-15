@@ -2,7 +2,7 @@ use actix::{Actor, Addr};
 use anyhow::{Context, anyhow, bail};
 use near_async::ActorSystem;
 use near_async::actix::futures::ActixFutureSpawner;
-use near_async::actix::wrapper::{ActixWrapper, spawn_actix_actor};
+use near_async::actix::wrapper::ActixWrapper;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -102,7 +102,7 @@ fn setup_network_node(
     let adv = near_client::adversarial::Controls::default();
     let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
-        actor_system,
+        actor_system.clone(),
         client_config.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
@@ -134,7 +134,7 @@ fn setup_network_node(
         adv,
         validator_signer.clone(),
     );
-    let (state_request_addr, _) = spawn_actix_actor(StateRequestActor::new(
+    let state_request_addr = actor_system.spawn_tokio_actor(StateRequestActor::new(
         Clock::real(),
         runtime.clone(),
         epoch_manager.clone(),
@@ -158,7 +158,8 @@ fn setup_network_node(
         runtime.clone(),
         network_adapter.as_multi_sender(),
     );
-    let (shards_manager_actor, _) = start_shards_manager(
+    let shards_manager_actor = start_shards_manager(
+        actor_system.clone(),
         epoch_manager.clone(),
         epoch_manager.clone(),
         shard_tracker,
@@ -184,7 +185,7 @@ fn setup_network_node(
         near_chain_configs::default_orphan_state_witness_max_size().as_u64(),
         1,
     );
-    let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
+    let partial_witness_actor = actor_system.spawn_tokio_actor(PartialWitnessActor::new(
         Clock::real(),
         network_adapter.as_multi_sender(),
         chunk_validation_actor.into_multi_sender(),
