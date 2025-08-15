@@ -633,3 +633,27 @@ fn base64(s: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
 }
+
+#[cfg(test)]
+mod tests {
+    use near_parameters::{ExtCosts, RuntimeConfig};
+
+    // This test ensures that the gas and compute costs for touching and reading
+    // a trie node remain equal. Please do not remove this check as the code
+    // may rely on this behavior after the version upgrade. For example, the
+    // code may no longer differentiate between touching a trie node for the
+    // first time and reading it again.
+    #[test]
+    fn test_equalize_trie_node_touch_and_read_cost() {
+        let config = RuntimeConfig::test();
+        assert_eq!(
+            config.wasm_config.ext_costs.gas_cost(ExtCosts::touching_trie_node),
+            config.wasm_config.ext_costs.gas_cost(ExtCosts::read_cached_trie_node)
+        );
+
+        assert_eq!(
+            config.wasm_config.ext_costs.compute_cost(ExtCosts::touching_trie_node),
+            config.wasm_config.ext_costs.compute_cost(ExtCosts::read_cached_trie_node)
+        );
+    }
+}

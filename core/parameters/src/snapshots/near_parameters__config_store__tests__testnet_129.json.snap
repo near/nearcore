@@ -156,7 +156,7 @@ expression: config_view
       "storage_iter_next_base": 0,
       "storage_iter_next_key_byte": 0,
       "storage_iter_next_value_byte": 0,
-      "touching_trie_node": 16101955926,
+      "touching_trie_node": 2280000000,
       "read_cached_trie_node": 2280000000,
       "promise_and_base": 1465013400,
       "promise_and_per_promise": 5452176,

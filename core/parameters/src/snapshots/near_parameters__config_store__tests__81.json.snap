@@ -202,7 +202,7 @@ expression: config_view
     "global_contract_host_fns": true,
     "reftypes_bulk_memory": false,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": true,
+    "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
     "limit_config": {
