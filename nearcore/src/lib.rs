@@ -66,7 +66,7 @@ use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::ClientActorInner;
 #[cfg(feature = "tx_generator")]
-use near_transactions_generator::actix_actor::TxGeneratorActor;
+use near_transactions_generator::actix_actor::GeneratorActorImpl;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -225,7 +225,7 @@ pub struct NearNode {
     pub state_request_client: Addr<SyncActixWrapper<StateRequestActor>>,
     pub rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
     #[cfg(feature = "tx_generator")]
-    pub tx_generator: Addr<TxGeneratorActor>,
+    pub tx_generator: TokioRuntimeHandle<GeneratorActorImpl>,
     pub arbiters: Vec<ArbiterHandle>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
@@ -587,10 +587,14 @@ pub fn start_with_config_and_synchronization(
 
     #[cfg(feature = "tx_generator")]
     let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
+        actor_system.clone(),
         config.tx_generator.unwrap_or_default(),
         rpc_handler.clone().into_multi_sender(),
         view_client_addr.clone().into_multi_sender(),
     );
+
+    // To avoid a clippy warning for redundant clones, due to the conditional feature tx_generator.
+    drop(actor_system);
 
     Ok(NearNode {
         client: client_actor,
