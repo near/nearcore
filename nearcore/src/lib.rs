@@ -29,7 +29,7 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
-    ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
+    ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandler,
     RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActorInner,
     spawn_rpc_handler_actor, start_client,
 };
@@ -224,7 +224,7 @@ pub struct NearNode {
     // TODO(darioush): Remove once we migrate `slow_test_state_sync_headers` and
     // `slow_test_state_sync_headers_no_tracked_shards` to testloop.
     pub state_request_client: Addr<SyncActixWrapper<StateRequestActor>>,
-    pub rpc_handler: Addr<RpcHandlerActor>,
+    pub rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
     pub arbiters: Vec<ArbiterHandle>,
@@ -470,7 +470,7 @@ pub fn start_with_config_and_synchronization(
         chunk_state_witness: chunk_validation_actor.into_sender(),
     });
     let shards_manager_actor = start_shards_manager(
-        actor_system,
+        actor_system.clone(),
         epoch_manager.clone(),
         view_epoch_manager.clone(),
         shard_tracker.clone(),
@@ -489,6 +489,7 @@ pub fn start_with_config_and_synchronization(
         transaction_validity_period: config.genesis.config.transaction_validity_period,
     };
     let rpc_handler = spawn_rpc_handler_actor(
+        actor_system,
         rpc_handler_config,
         tx_pool,
         chunk_endorsement_tracker,

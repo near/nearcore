@@ -3,7 +3,7 @@
 #![allow(clippy::arc_with_non_send_sync)]
 
 use crate::utils::peer_manager_mock::PeerManagerMock;
-use actix::{Actor, Addr, Context};
+use actix::{Actor, Context};
 use near_async::actix::futures::ActixFutureSpawner;
 use near_async::actix::wrapper::ActixWrapper;
 use near_async::messaging::{
@@ -31,13 +31,13 @@ use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
 use near_client::client_actor::ClientActorInner;
+use near_client::spawn_rpc_handler_actor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
     ChunkValidationSenderForPartialWitness, Client, PartialWitnessActor,
     PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
     ViewClientActorInner, start_client,
 };
-use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
@@ -87,7 +87,7 @@ fn setup(
 ) -> (
     TokioRuntimeHandle<ClientActorInner>,
     MultithreadRuntimeHandle<ViewClientActorInner>,
-    Addr<RpcHandlerActor>,
+    MultithreadRuntimeHandle<RpcHandler>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
     tempfile::TempDir,
@@ -237,6 +237,7 @@ fn setup(
     };
 
     let rpc_handler_addr = spawn_rpc_handler_actor(
+        actor_system.clone(),
         rpc_handler_config,
         tx_pool,
         chunk_endorsement_tracker,
@@ -287,7 +288,7 @@ pub fn setup_mock(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
             TokioRuntimeHandle<ClientActorInner>,
-            Addr<RpcHandlerActor>,
+            MultithreadRuntimeHandle<RpcHandler>,
         ) -> PeerManagerMessageResponse,
     >,
 ) -> ActorHandlesForTesting {
@@ -313,7 +314,7 @@ pub fn setup_mock_with_validity_period(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
             TokioRuntimeHandle<ClientActorInner>,
-            Addr<RpcHandlerActor>,
+            MultithreadRuntimeHandle<RpcHandler>,
         ) -> PeerManagerMessageResponse,
     >,
     transaction_validity_period: NumBlocks,
@@ -366,7 +367,7 @@ pub fn setup_mock_with_validity_period(
 pub struct ActorHandlesForTesting {
     pub client_actor: TokioRuntimeHandle<ClientActorInner>,
     pub view_client_actor: MultithreadRuntimeHandle<ViewClientActorInner>,
-    pub rpc_handler_actor: Addr<RpcHandlerActor>,
+    pub rpc_handler_actor: MultithreadRuntimeHandle<RpcHandler>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,
     // If testing something with runtime that needs runtime home dir users should make sure that

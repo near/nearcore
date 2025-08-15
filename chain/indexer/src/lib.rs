@@ -18,8 +18,8 @@ pub use near_indexer_primitives::{
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
-use near_client::ViewClientActorInner;
 use near_client::client_actor::ClientActorInner;
+use near_client::{RpcHandler, ViewClientActorInner};
 use near_epoch_manager::shard_tracker::ShardTracker;
 pub use streamer::build_streamer_message;
 
@@ -100,7 +100,7 @@ pub struct Indexer {
     near_config: nearcore::NearConfig,
     view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
     client: TokioRuntimeHandle<ClientActorInner>,
-    rpc_handler: actix::Addr<near_client::RpcHandlerActor>,
+    rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
     shard_tracker: ShardTracker,
 }
 
@@ -165,7 +165,7 @@ impl Indexer {
     ) -> (
         MultithreadRuntimeHandle<ViewClientActorInner>,
         TokioRuntimeHandle<ClientActorInner>,
-        actix::Addr<near_client::RpcHandlerActor>,
+        MultithreadRuntimeHandle<RpcHandler>,
     ) {
         (self.view_client.clone(), self.client.clone(), self.rpc_handler.clone())
     }

@@ -64,12 +64,12 @@ fn ultra_slow_test_sync_state_stake_change() {
             );
             actix::spawn(
                 tx_processor1
-                    .send(ProcessTxRequest {
+                    .send_async(ProcessTxRequest {
                         transaction: unstake_transaction,
                         is_forwarded: false,
                         check_only: false,
                     })
-                    .map(drop),
+                    .map(drop::<Result<near_client::ProcessTxResponse, _>>),
             );
 
             let started = Arc::new(AtomicBool::new(false));
