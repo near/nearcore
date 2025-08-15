@@ -32,7 +32,6 @@ subtle.workspace = true
 thiserror.workspace = true
 near-config-utils.workspace = true
 near-schema-checker-lib.workspace = true
-near-crypto-ed25519-batch.workspace = true
 rand = { workspace = true, optional = true }
 schemars = {workspace = true, optional = true }
 
