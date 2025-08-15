@@ -4,6 +4,7 @@ use actix::Actor;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::ActorSystem;
+use near_async::messaging::CanSendAsync;
 use near_async::time::Duration;
 use near_chain_configs::Genesis;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
@@ -82,7 +83,7 @@ fn ultra_slow_test_sync_state_stake_change() {
                     let near2_copy = near2.clone();
                     let dir2_path_copy = dir2_path.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
-                    let actor = view_client1.send(GetBlock::latest());
+                    let actor = view_client1.send_async(GetBlock::latest());
                     let actor_system = actor_system.clone();
                     let actor = actor.then(move |res| {
                         let latest_height =
@@ -101,7 +102,7 @@ fn ultra_slow_test_sync_state_stake_change() {
 
                             WaitOrTimeoutActor::new(
                                 Box::new(move |_ctx| {
-                                    actix::spawn(view_client2.send(GetBlock::latest()).then(
+                                    actix::spawn(view_client2.send_async(GetBlock::latest()).then(
                                         move |res| {
                                             if let Ok(Ok(block)) = res {
                                                 if block.header.height > latest_height + 1 {

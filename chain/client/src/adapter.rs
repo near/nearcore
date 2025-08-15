@@ -1,12 +1,13 @@
 use crate::client_actor::ClientActorInner;
-use crate::{RpcHandlerActor, ViewClientActor};
+use crate::{RpcHandlerActor, ViewClientActorInner};
 use near_async::messaging::IntoSender;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_network::client::ClientSenderForNetwork;
 
 pub fn client_sender_for_network(
     client_addr: TokioRuntimeHandle<ClientActorInner>,
-    view_client_addr: actix::Addr<ViewClientActor>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
     rpc_handler: actix::Addr<RpcHandlerActor>,
 ) -> ClientSenderForNetwork {
     ClientSenderForNetwork {

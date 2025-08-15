@@ -19,6 +19,7 @@ use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 
 use near_async::ActorSystem;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
@@ -34,7 +35,7 @@ use near_client::{
     AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
     ChunkValidationSenderForPartialWitness, Client, PartialWitnessActor,
     PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
-    ViewClientActor, ViewClientActorInner, start_client,
+    ViewClientActorInner, start_client,
 };
 use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
@@ -85,7 +86,7 @@ fn setup(
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (
     TokioRuntimeHandle<ClientActorInner>,
-    Addr<ViewClientActor>,
+    MultithreadRuntimeHandle<ViewClientActorInner>,
     Addr<RpcHandlerActor>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
@@ -160,8 +161,9 @@ fn setup(
 
     let actor_system = ActorSystem::new();
 
-    let view_client_addr = ViewClientActorInner::spawn_actix_actor(
+    let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
         clock.clone(),
+        actor_system.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -363,7 +365,7 @@ pub fn setup_mock_with_validity_period(
 #[derive(Clone)]
 pub struct ActorHandlesForTesting {
     pub client_actor: TokioRuntimeHandle<ClientActorInner>,
-    pub view_client_actor: Addr<ViewClientActor>,
+    pub view_client_actor: MultithreadRuntimeHandle<ViewClientActorInner>,
     pub rpc_handler_actor: Addr<RpcHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,

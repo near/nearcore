@@ -30,7 +30,7 @@ use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
     ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
-    RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor, ViewClientActorInner,
+    RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActorInner,
     spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
@@ -63,6 +63,7 @@ mod metrics;
 pub mod migrations;
 pub mod state_sync;
 use near_async::ActorSystem;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::ClientActorInner;
 #[cfg(feature = "tx_generator")]
@@ -219,7 +220,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 
 pub struct NearNode {
     pub client: TokioRuntimeHandle<ClientActorInner>,
-    pub view_client: Addr<ViewClientActor>,
+    pub view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
     // TODO(darioush): Remove once we migrate `slow_test_state_sync_headers` and
     // `slow_test_state_sync_headers_no_tracked_shards` to testloop.
     pub state_request_client: Addr<SyncActixWrapper<StateRequestActor>>,
@@ -357,8 +358,9 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    let view_client_addr = ViewClientActorInner::spawn_actix_actor(
+    let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
         Clock::real(),
+        actor_system.clone(),
         chain_genesis.clone(),
         view_epoch_manager.clone(),
         view_shard_tracker.clone(),

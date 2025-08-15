@@ -21,7 +21,7 @@ pub use crate::stateless_validation::chunk_validation_actor::{
     BlockNotificationMessage, ChunkValidationActorInner, ChunkValidationSender,
     ChunkValidationSenderForPartialWitness, HandleOrphanWitnessOutcome,
 };
-pub use crate::view_client_actor::{ViewClientActor, ViewClientActorInner};
+pub use crate::view_client_actor::ViewClientActorInner;
 pub use chunk_producer::ProduceChunkResult;
 pub use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,

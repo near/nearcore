@@ -33,7 +33,7 @@ fn query_client() {
             true,
             true,
         );
-        let actor = actor_handles.view_client_actor.send(Query::new(
+        let actor = actor_handles.view_client_actor.send_async(Query::new(
             BlockReference::latest(),
             QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
         ));
@@ -63,7 +63,7 @@ fn query_status_not_crash() {
             false,
         );
         let signer = create_test_signer("test");
-        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
+        let actor = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -147,7 +147,7 @@ fn test_execution_outcome_for_chunk() {
         actix::spawn(async move {
             let block_hash = actor_handles
                 .view_client_actor
-                .send(GetBlock::latest())
+                .send_async(GetBlock::latest())
                 .await
                 .unwrap()
                 .unwrap()
@@ -173,7 +173,7 @@ fn test_execution_outcome_for_chunk() {
             actix::clock::sleep(std::time::Duration::from_millis(500)).await;
             let block_hash = actor_handles
                 .view_client_actor
-                .send(TxStatus {
+                .send_async(TxStatus {
                     tx_hash,
                     signer_account_id: "test".parse().unwrap(),
                     fetch_receipt: false,
@@ -188,7 +188,7 @@ fn test_execution_outcome_for_chunk() {
 
             let mut execution_outcomes_in_block = actor_handles
                 .view_client_actor
-                .send(GetExecutionOutcomesForBlock { block_hash })
+                .send_async(GetExecutionOutcomesForBlock { block_hash })
                 .await
                 .unwrap()
                 .unwrap();

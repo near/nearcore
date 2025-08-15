@@ -1,6 +1,7 @@
-use actix::Addr;
+use near_async::messaging::CanSendAsync;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::Genesis;
-use near_client::ViewClientActor;
+use near_client::ViewClientActorInner;
 use validated_operations::ValidatedOperation;
 
 pub(crate) mod nep141;
@@ -18,7 +19,7 @@ mod validated_operations;
 /// We choose to do a proper implementation for the genesis block later.
 async fn convert_genesis_records_to_transaction(
     genesis: &Genesis,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<crate::models::Transaction> {
     let mut genesis_account_ids = std::collections::HashSet::new();
@@ -112,12 +113,12 @@ async fn convert_genesis_records_to_transaction(
 }
 
 pub(crate) async fn convert_block_to_transactions(
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     block: &near_primitives::views::BlockView,
     currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
-        .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
+        .send_async(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
         .await?
         .unwrap();
 
@@ -149,7 +150,7 @@ pub(crate) async fn convert_block_to_transactions(
             .await?;
 
     let accounts_changes = view_client_addr
-        .send(near_client::GetStateChanges {
+        .send_async(near_client::GetStateChanges {
             block_hash: block.header.hash,
             state_changes_request:
                 near_primitives::views::StateChangesRequestView::AccountChanges {
@@ -181,7 +182,7 @@ pub(crate) async fn convert_block_to_transactions(
 
 pub(crate) async fn collect_transactions(
     genesis: &Genesis,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
     block: &near_primitives::views::BlockView,
     currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
