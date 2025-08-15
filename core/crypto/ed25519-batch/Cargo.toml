@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "Batch verification for Ed25519 signatures for NEAR."
 repository.workspace = true
-license = "BSD-3-Clause"
+license.workspace = true
 authors = [
     "Near Inc <hello@nearprotocol.com>",
     # Many thanks to the original authors:

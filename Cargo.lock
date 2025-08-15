@@ -4446,6 +4446,7 @@ dependencies = [
  "hex-literal",
  "near-account-id",
  "near-config-utils",
+ "near-crypto-ed25519-batch",
  "near-schema-checker-lib",
  "near-stdx",
  "primitive-types 0.10.1",
