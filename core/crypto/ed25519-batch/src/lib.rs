@@ -1,2 +1,4 @@
 pub mod batch;
-mod batch_errors;
+mod errors;
+mod extras;
+mod signature;

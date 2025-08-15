@@ -1,4 +1,10 @@
-// -*- mode: rust; -*-
+// This file is based on https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/ed25519-dalek/src/errors.rs
+// Modifications:
+// - Import adjustments.
+// - #[cfg(feature = "batch")] conditionals removed.
+// - #![allow(dead_code)] added to avoid warnings for unused errors.
+//
+// Many thanks to the original authors, whose copyright notice is reproduced below:
 //
 // This file is part of ed25519-dalek.
 // Copyright (c) 2017-2019 isis lovecruft
@@ -12,6 +18,7 @@
 // rustc seems to think the typenames in match statements (e.g. in
 // Display) should be snake cased, for some reason.
 #![allow(non_snake_case)]
+#![allow(dead_code)]
 
 use core::fmt;
 use core::fmt::Display;
@@ -25,7 +32,17 @@ use ed25519_dalek::ed25519;
 /// need to pay any attention to these.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(crate) enum InternalError {
+    PointDecompression,
     ScalarFormat,
+    /// An error in the length of bytes handed to a constructor.
+    ///
+    /// To use this, pass a string specifying the `name` of the type which is
+    /// returning the error, and the `length` in bytes which its constructor
+    /// expects.
+    BytesLength {
+        name: &'static str,
+        length: usize,
+    },
     /// The verification equation wasn't satisfied
     Verify,
     /// Two arrays did not match in size, making the called signature
@@ -38,12 +55,21 @@ pub(crate) enum InternalError {
         name_c: &'static str,
         length_c: usize,
     },
+    /// An ed25519ph signature can only take up to 255 octets of context.
+    #[cfg(feature = "digest")]
+    PrehashedContextLength,
+    /// A mismatched (public, secret) key pair.
+    MismatchedKeypair,
 }
 
 impl Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            InternalError::PointDecompression => write!(f, "Cannot decompress Edwards point"),
             InternalError::ScalarFormat => write!(f, "Cannot use scalar with high-bit set"),
+            InternalError::BytesLength { name: n, length: l } => {
+                write!(f, "{} must be {} bytes in length", n, l)
+            }
             InternalError::Verify => write!(f, "Verification equation was not satisfied"),
             InternalError::ArrayLength {
                 name_a: na,
@@ -58,6 +84,11 @@ impl Display for InternalError {
                               {} has length {}, {} has length {}.",
                 na, la, nb, lb, nc, lc
             ),
+            #[cfg(feature = "digest")]
+            InternalError::PrehashedContextLength => {
+                write!(f, "An ed25519ph signature can only take up to 255 octets of context")
+            }
+            InternalError::MismatchedKeypair => write!(f, "Mismatched Keypair detected"),
         }
     }
 }
