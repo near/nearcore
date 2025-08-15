@@ -1,7 +1,5 @@
 use std::ops::{Deref, DerefMut};
 
-use actix::SyncArbiter;
-
 use crate::futures::DelayedActionRunner;
 use crate::messaging;
 
@@ -59,51 +57,4 @@ where
     fn handle(&mut self, msg: M, ctx: &mut Self::Context) -> Self::Result {
         self.actor.handle(msg, ctx)
     }
-}
-
-pub struct SyncActixWrapper<T> {
-    actor: T,
-}
-
-impl<T> SyncActixWrapper<T> {
-    pub fn new(actor: T) -> Self {
-        Self { actor }
-    }
-}
-
-impl<T> actix::Actor for SyncActixWrapper<T>
-where
-    T: Unpin + 'static,
-{
-    type Context = actix::SyncContext<Self>;
-}
-
-impl<M, T> actix::Handler<M> for SyncActixWrapper<T>
-where
-    Self: actix::Actor,
-    T: messaging::Handler<M, M::Result>,
-    M: actix::Message,
-    <M as actix::Message>::Result: actix::dev::MessageResponse<SyncActixWrapper<T>, M> + Send,
-{
-    type Result = M::Result;
-    fn handle(&mut self, msg: M, _ctx: &mut Self::Context) -> Self::Result {
-        self.actor.handle(msg)
-    }
-}
-
-/// Spawns the actor returned by the factory function in a SyncArbiter,
-/// after wrapping it in a SyncActixWrapper.
-/// This is useful for actors that need to run in a separate thread pool.
-pub fn spawn_sync_actix_actor<T, F>(
-    num_threads: usize,
-    factory: F,
-) -> actix::Addr<SyncActixWrapper<T>>
-where
-    T: Unpin + Send + 'static,
-    F: Fn() -> T + Sync + Send + 'static,
-{
-    SyncArbiter::start(num_threads, move || {
-        let actor = factory();
-        SyncActixWrapper::new(actor)
-    })
 }
