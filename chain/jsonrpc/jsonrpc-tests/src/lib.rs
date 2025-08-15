@@ -122,8 +122,9 @@ pub fn create_test_setup_with_accounts_and_validity(
 
     // 6. Create ViewClientActor
     let adv = Controls::default();
-    let view_client_actor = ViewClientActorInner::spawn_actix_actor(
+    let view_client_actor = ViewClientActorInner::spawn_multithread_actor(
         Clock::real(),
+        actor_system.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),

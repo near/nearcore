@@ -32,6 +32,7 @@ use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use crate::utils::test_helpers::heavy_test;
 use near_async::ActorSystem;
+use near_async::messaging::CanSendAsync;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -75,7 +76,7 @@ fn slow_test_sync_state_nodes() {
                         let dir2 = dir2.clone();
                         let actor_system = actor_system.clone();
 
-                        let actor = view_client1.send(GetBlock::latest());
+                        let actor = view_client1.send_async(GetBlock::latest());
                         let actor = actor.then(move |res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
@@ -116,7 +117,7 @@ fn slow_test_sync_state_nodes() {
                     }
 
                     if let Some(view_client2) = &*view_client2_holder.write() {
-                        let actor = view_client2.send(GetBlock::latest());
+                        let actor = view_client2.send_async(GetBlock::latest());
                         let actor = actor.then(|res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
@@ -225,7 +226,7 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                         let genesis2 = genesis.clone();
                         let dir2 = dir2.clone();
 
-                        let actor = view_client1.send(GetBlock::latest());
+                        let actor = view_client1.send_async(GetBlock::latest());
                         let actor_system = actor_system.clone();
                         let actor = actor.then(move |res| {
                             match &res {
@@ -274,7 +275,7 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                     }
 
                     if let Some(view_client2) = &*view_client2_holder.write() {
-                        let actor = view_client2.send(GetBlock::latest());
+                        let actor = view_client2.send_async(GetBlock::latest());
                         let actor = actor.then(|res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
@@ -382,7 +383,7 @@ fn ultra_slow_test_sync_state_dump() {
                     let arbiters_holder2 = arbiters_holder2.clone();
                     let genesis2 = genesis.clone();
 
-                    match view_client1.send(GetBlock::latest()).await {
+                    match view_client1.send_async(GetBlock::latest()).await {
                         // FIXME: this is not the right check after the sync hash was moved to sync the current epoch's state
                         Ok(Ok(b)) if b.header.height >= genesis.config.epoch_length + 2 => {
                             let mut view_client2_holder2 = view_client2_holder2.write();
@@ -434,7 +435,7 @@ fn ultra_slow_test_sync_state_dump() {
                 }
 
                 if let Some(view_client2) = &*view_client2_holder.write() {
-                    match view_client2.send(GetBlock::latest()).await {
+                    match view_client2.send_async(GetBlock::latest()).await {
                         Ok(Ok(b)) if b.header.height >= 40 => {
                             return ControlFlow::Break(());
                         }
@@ -735,7 +736,7 @@ fn slow_test_state_sync_headers() {
             // Second, we request state sync header.
             // Third, we request state sync part with part_id = 0.
             wait_or_timeout(1000, 110000, || async {
-                let epoch_id = match view_client1.send(GetBlock::latest()).await {
+                let epoch_id = match view_client1.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) => Some(b.header.epoch_id),
                     _ => None,
                 };
@@ -747,7 +748,7 @@ fn slow_test_state_sync_headers() {
                 tracing::info!(?epoch_id, "got epoch_id");
 
                 let epoch_start_height = match view_client1
-                    .send(GetValidatorInfo {
+                    .send_async(GetValidatorInfo {
                         epoch_reference: EpochReference::EpochId(EpochId(epoch_id)),
                     })
                     .await
@@ -765,7 +766,7 @@ fn slow_test_state_sync_headers() {
                 let sync_height = epoch_start_height + 3;
 
                 let block_id = BlockReference::BlockId(BlockId::Height(sync_height));
-                let block_view = view_client1.send(GetBlock(block_id)).await;
+                let block_view = view_client1.send_async(GetBlock(block_id)).await;
                 let Ok(Ok(block_view)) = block_view else {
                     return ControlFlow::Continue(());
                 };
@@ -898,7 +899,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             // Second, we request state sync header.
             // Third, we request state sync part with part_id = 0.
             wait_or_timeout(1000, 110000, async || {
-                let epoch_id = match view_client2.send(GetBlock::latest()).await {
+                let epoch_id = match view_client2.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) => Some(b.header.epoch_id),
                     _ => None,
                 };
@@ -910,7 +911,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 tracing::info!(?epoch_id, "got epoch_id");
 
                 let epoch_start_height = match view_client2
-                    .send(GetValidatorInfo {
+                    .send_async(GetValidatorInfo {
                         epoch_reference: EpochReference::EpochId(EpochId(epoch_id)),
                     })
                     .await
@@ -931,7 +932,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 let sync_height = epoch_start_height + 3;
 
                 let block_id = BlockReference::BlockId(BlockId::Height(sync_height));
-                let block_view = view_client2.send(GetBlock(block_id)).await;
+                let block_view = view_client2.send_async(GetBlock(block_id)).await;
                 let Ok(Ok(block_view)) = block_view else {
                     return ControlFlow::Continue(());
                 };

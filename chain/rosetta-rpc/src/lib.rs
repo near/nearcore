@@ -20,10 +20,11 @@ use utoipa_swagger_ui::SwaggerUi;
 pub use config::RosettaRpcConfig;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::CanSendAsync;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::Genesis;
 use near_client::client_actor::ClientActorInner;
-use near_client::{RpcHandlerActor, ViewClientActor};
+use near_client::{RpcHandlerActor, ViewClientActorInner};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
 
@@ -50,7 +51,7 @@ struct GenesisWithIdentifier {
 struct RosettaAppState {
     genesis: Arc<GenesisWithIdentifier>,
     client_addr: TokioRuntimeHandle<ClientActorInner>,
-    view_client_addr: Addr<ViewClientActor>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
     tx_handler_addr: Addr<RpcHandlerActor>,
     currencies: Option<Vec<models::Currency>>,
 }
@@ -270,7 +271,7 @@ async fn block_details(
     } else {
         let parent_block = state
             .view_client_addr
-            .send(near_client::GetBlock(
+            .send_async(near_client::GetBlock(
                 near_primitives::types::BlockId::Hash(block.header.prev_hash).into(),
             ))
             .await?
@@ -1062,7 +1063,7 @@ pub fn start_rosetta_rpc(
     genesis: Genesis,
     genesis_block_hash: &near_primitives::hash::CryptoHash,
     client_addr: TokioRuntimeHandle<ClientActorInner>,
-    view_client_addr: Addr<ViewClientActor>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
     tx_handler_addr: Addr<RpcHandlerActor>,
     future_spawner: &dyn FutureSpawner,
 ) {

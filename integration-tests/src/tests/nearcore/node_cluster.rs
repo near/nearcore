@@ -1,9 +1,7 @@
-use actix::Addr;
 use actix_rt::ArbiterHandle;
 use futures::future;
 use near_actix_test_utils::{run_actix, spawn_interruptible};
 use near_chain_configs::{Genesis, TrackedShardsConfig};
-use near_client::ViewClientActor;
 use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
@@ -12,7 +10,9 @@ use nearcore::{load_test_config, start_with_config};
 
 use crate::utils::test_helpers::heavy_test;
 use near_async::ActorSystem;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
+use near_client::ViewClientActorInner;
 use near_client::client_actor::ClientActorInner;
 
 fn start_nodes(
@@ -27,7 +27,11 @@ fn start_nodes(
 ) -> (
     Genesis,
     Vec<String>,
-    Vec<(TokioRuntimeHandle<ClientActorInner>, Addr<ViewClientActor>, Vec<ArbiterHandle>)>,
+    Vec<(
+        TokioRuntimeHandle<ClientActorInner>,
+        MultithreadRuntimeHandle<ViewClientActorInner>,
+        Vec<ArbiterHandle>,
+    )>,
 ) {
     init_integration_logger();
 
@@ -132,7 +136,7 @@ impl NodeCluster {
             Vec<String>,
             Vec<(
                 TokioRuntimeHandle<ClientActorInner>,
-                actix::Addr<ViewClientActor>,
+                MultithreadRuntimeHandle<ViewClientActorInner>,
                 Vec<actix_rt::ArbiterHandle>,
             )>,
         ) -> R,

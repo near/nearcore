@@ -5,6 +5,7 @@ use near_client_primitives::types::GetMaintenanceWindows;
 use near_o11y::testonly::init_test_logger;
 
 use crate::env::setup::setup_no_network;
+use near_async::messaging::CanSendAsync;
 
 /// get maintenance window from view client
 #[test]
@@ -20,7 +21,7 @@ fn test_get_maintenance_windows_for_validator() {
         );
         let actor = actor_handles
             .view_client_actor
-            .send(GetMaintenanceWindows { account_id: "test".parse().unwrap() });
+            .send_async(GetMaintenanceWindows { account_id: "test".parse().unwrap() });
 
         // With test setup we get the following:
         //
@@ -79,7 +80,7 @@ fn test_get_maintenance_windows_for_not_validator() {
         );
         let actor = actor_handles
             .view_client_actor
-            .send(GetMaintenanceWindows { account_id: "alice".parse().unwrap() });
+            .send_async(GetMaintenanceWindows { account_id: "alice".parse().unwrap() });
         let actor = actor.then(|res| {
             assert_eq!(res.unwrap().unwrap(), vec![0..10]);
             near_async::shutdown_all_actors();
