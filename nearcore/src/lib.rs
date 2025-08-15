@@ -6,11 +6,11 @@ use crate::metrics::spawn_trie_metrics_loop;
 
 use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::StateSyncDumper;
-use actix::{Actor, Addr};
+use actix::Actor;
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
-use near_async::actix::wrapper::{ActixWrapper, SyncActixWrapper, spawn_sync_actix_actor};
+use near_async::actix::wrapper::ActixWrapper;
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
@@ -223,7 +223,7 @@ pub struct NearNode {
     pub view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
     // TODO(darioush): Remove once we migrate `slow_test_state_sync_headers` and
     // `slow_test_state_sync_headers_no_tracked_shards` to testloop.
-    pub state_request_client: Addr<SyncActixWrapper<StateRequestActor>>,
+    pub state_request_client: MultithreadRuntimeHandle<StateRequestActor>,
     pub rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: TokioRuntimeHandle<GeneratorActorImpl>,
@@ -375,16 +375,19 @@ pub fn start_with_config_and_synchronization(
     let state_request_addr = {
         let runtime = runtime.clone();
         let epoch_manager = epoch_manager.clone();
-        spawn_sync_actix_actor(config.client_config.state_request_server_threads, move || {
-            StateRequestActor::new(
-                Clock::real(),
-                runtime.clone(),
-                epoch_manager.clone(),
-                genesis_id.hash,
-                config.client_config.state_request_throttle_period,
-                config.client_config.state_requests_per_throttle_period,
-            )
-        })
+        actor_system.spawn_multithread_actor(
+            config.client_config.state_request_server_threads,
+            move || {
+                StateRequestActor::new(
+                    Clock::real(),
+                    runtime.clone(),
+                    epoch_manager.clone(),
+                    genesis_id.hash,
+                    config.client_config.state_request_throttle_period,
+                    config.client_config.state_requests_per_throttle_period,
+                )
+            },
+        )
     };
 
     let state_snapshot_sender = LateBoundSender::new();

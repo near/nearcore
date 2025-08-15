@@ -774,7 +774,7 @@ fn slow_test_state_sync_headers() {
                 for shard_id in shard_ids {
                     // Make StateRequestHeader and expect that the response contains a header.
                     let state_response_info = match state_request_client1
-                        .send(StateRequestHeader { shard_id, sync_hash })
+                        .send_async(StateRequestHeader { shard_id, sync_hash })
                         .await
                     {
                         Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
@@ -795,7 +795,7 @@ fn slow_test_state_sync_headers() {
 
                     // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
                     let state_response_info = match state_request_client1
-                        .send(StateRequestPart { shard_id, sync_hash, part_id: 0 })
+                        .send_async(StateRequestPart { shard_id, sync_hash, part_id: 0 })
                         .await
                     {
                         Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
@@ -938,7 +938,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 for shard_id in shard_ids {
                     // Make StateRequestHeader and expect that the response contains a header.
                     let state_response_info = match state_request_client2
-                        .send(StateRequestHeader { shard_id, sync_hash })
+                        .send_async(StateRequestHeader { shard_id, sync_hash })
                         .await
                     {
                         Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
@@ -955,7 +955,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
 
                     // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
                     let state_response_info = match state_request_client2
-                        .send(StateRequestPart { shard_id, sync_hash, part_id: 0 })
+                        .send_async(StateRequestPart { shard_id, sync_hash, part_id: 0 })
                         .await
                     {
                         Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
