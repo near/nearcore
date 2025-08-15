@@ -1,11 +1,8 @@
 use crate::{ClientSender, Config, TxGenerator, ViewClientSender};
 use near_async::ActorSystem;
-use near_async::actix::wrapper::ActixWrapper;
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{self};
 use near_async::tokio::TokioRuntimeHandle;
-
-pub type TxGeneratorActor = ActixWrapper<GeneratorActorImpl>;
 
 pub struct GeneratorActorImpl {
     tx_generator: TxGenerator,
