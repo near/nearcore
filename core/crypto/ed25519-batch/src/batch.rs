@@ -126,7 +126,7 @@ pub fn safe_verify_batch(
 
     // Update transcript with the hashes above. This covers verifying_keys, messages, and the R
     // half of signatures
-    for hram in hrams.iter() {
+    for hram in &hrams {
         transcript.append_message(b"hram", hram);
     }
     // Update transcript with the rest of the data. This covers the s half of the signatures
