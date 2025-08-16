@@ -11,6 +11,7 @@ use near_client::test_utils::create_chunk_on_height;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 /// cspell:ignore txes
 /// How long does it take to produce a large chunk?
@@ -52,7 +53,11 @@ fn benchmark_large_chunk_production_time() {
     let encoded_chunk = chunk.into_parts().1;
     let time = t.elapsed();
 
-    let decoded_chunk = encoded_chunk.decode_chunk().unwrap();
+    let total_parts = env.clients[0].chain.epoch_manager.num_total_parts();
+    let data_parts = env.clients[0].chain.epoch_manager.num_data_parts();
+    let parity_parts = total_parts - data_parts;
+    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+    let decoded_chunk = encoded_chunk.decode_chunk(&rs).unwrap();
 
     let size = borsh::object_length(&encoded_chunk).unwrap();
     eprintln!("chunk size: {}kb", size / 1024);

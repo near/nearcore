@@ -12,7 +12,7 @@ use near_primitives::genesis::{genesis_block, genesis_chunks};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::num_rational::Ratio;
-use near_primitives::reed_solomon::reed_solomon_encode;
+use near_primitives::reed_solomon::raptorq_encode;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunkBody, PartialEncodedChunkPart, ShardChunk,
 };
@@ -167,7 +167,7 @@ pub fn make_chunk_parts(chunk: ShardChunk) -> Vec<PartialEncodedChunkPart> {
     let rs = ReedSolomon::new(total_shard_count, parity_shard_count).unwrap();
     let transaction_receipts =
         (chunk.to_transactions().to_vec(), chunk.prev_outgoing_receipts().to_vec());
-    let (parts, _) = reed_solomon_encode(&rs, &transaction_receipts);
+    let (parts, _) = raptorq_encode(&rs, &transaction_receipts);
 
     let mut content = EncodedShardChunkBody { parts };
     let (_, merkle_paths) = content.get_merkle_hash_and_paths();
