@@ -143,8 +143,12 @@ class NodeHandle:
     def neard_runner_stop(self):
         return self.neard_runner_jsonrpc('stop')
 
-    def neard_runner_new_test(self):
+    def neard_runner_new_test(self, mocknet_id):
         params = self.node.new_test_params()
+        params['mocknet_id'] = mocknet_id
+        params['role'] = self.role()
+        params['can_validate'] = self.can_validate
+        params['want_state_dump'] = self.want_state_dump
         return self.neard_runner_jsonrpc('new_test', params)
 
     def neard_runner_network_init(self,
@@ -156,7 +160,8 @@ class NodeHandle:
                                   num_seats,
                                   new_chain_id,
                                   protocol_version,
-                                  genesis_time=None):
+                                  genesis_time=None,
+                                  state_sync_location=None):
         params = {
             'validators': validators,
             'boot_nodes': boot_nodes,
@@ -169,6 +174,8 @@ class NodeHandle:
         }
         if genesis_time is not None:
             params['genesis_time'] = genesis_time
+        if state_sync_location is not None:
+            params['state_sync_location'] = state_sync_location
         return self.neard_runner_jsonrpc('network_init', params=params)
 
     def neard_runner_ready(self):

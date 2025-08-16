@@ -129,7 +129,7 @@ class RemoteNeardRunner:
         return json.loads(r.stdout)
 
     def new_test_params(self):
-        return []
+        return {}
 
     def get_validators(self):
         return self.node.get_validators()
