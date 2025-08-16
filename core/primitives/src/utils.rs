@@ -2,7 +2,6 @@
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
 use crate::stateless_validation::ChunkProductionKey;
-use crate::transaction::ValidatedTransactionHash;
 use crate::types::{NumSeats, NumShards, ShardId};
 use chrono;
 use chrono::DateTime;
@@ -256,10 +255,10 @@ pub fn get_outcome_id_block_hash_rev(key: &[u8]) -> std::io::Result<(CryptoHash,
 
 /// Creates a new Receipt ID based on original transaction hash.
 pub fn create_receipt_id_from_transaction(
-    tx_hash: ValidatedTransactionHash,
+    tx_hash: &CryptoHash,
     block_height: BlockHeight,
 ) -> CryptoHash {
-    create_hash_index(&tx_hash.get_hash(), block_height, 0)
+    create_hash_index(tx_hash, block_height, 0)
 }
 
 /// Creates a new Receipt ID based on original receipt id.
