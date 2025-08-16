@@ -158,7 +158,7 @@ fn receive_network_block() {
                 Clock::real(),
                 None,
                 None,
-                vec![],
+                None,
             );
             actor_handles.client_actor.send(
                 BlockResponse {
@@ -249,7 +249,7 @@ fn produce_block_with_approvals() {
                 Clock::real(),
                 None,
                 None,
-                vec![],
+                None,
             );
             actor_handles.client_actor.send(
                 BlockResponse {
@@ -356,7 +356,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 Clock::real(),
                 None,
                 None,
-                vec![],
+                None,
             );
             // Send block with invalid chunk mask
             let mut block = valid_block.clone();

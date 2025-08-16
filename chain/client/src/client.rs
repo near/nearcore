@@ -931,9 +931,9 @@ impl Client {
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let core_statements = if cfg!(feature = "protocol_feature_spice") {
-            self.chain.spice_core_processor.core_statement_for_next_block(&prev_header)?
+            Some(self.chain.spice_core_processor.core_statement_for_next_block(&prev_header)?)
         } else {
-            vec![]
+            None
         };
 
         let block = Arc::new(Block::produce(

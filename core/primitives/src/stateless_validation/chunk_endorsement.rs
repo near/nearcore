@@ -41,9 +41,6 @@ impl ChunkEndorsement {
             height_created: chunk_header.height_created(),
         };
         let metadata_signature = signer.sign_bytes(&borsh::to_vec(&metadata).unwrap());
-        if cfg!(feature = "protocol_feature_spice") {
-            panic!("For spice chunk endorsements should always be created with execution result.");
-        }
         let inner = ChunkEndorsementInnerV1::new(chunk_header.chunk_hash().clone());
         let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         let endorsement = ChunkEndorsementV2 { inner, signature, metadata, metadata_signature };
