@@ -43,7 +43,7 @@ use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3, ShardChunkWithEncoding,
 };
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
@@ -2147,9 +2147,12 @@ fn slow_test_catchup_gas_price_change() {
                 .unwrap()
         );
         store_update.commit().unwrap();
+        let protocol_version =
+            env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-            let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+            let bytes = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+            let part = StatePart::from_bytes(bytes.to_vec(), protocol_version).unwrap();
             env.clients[1]
                 .runtime_adapter
                 .apply_state_part(

@@ -635,7 +635,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
         trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
                shard_id,
                hash,
-               state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
+               state_response.part_id().zip(state_response.payload_length()),
         );
         // Get the download that matches the shard_id and hash
 
