@@ -2,6 +2,7 @@ use crate::{ChainError, SourceBlock, SourceChunk};
 use actix::Addr;
 use anyhow::Context;
 use async_trait::async_trait;
+use near_async::ActorSystem;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ViewClientActor;
 use near_client_primitives::types::{
@@ -31,7 +32,7 @@ impl ChainAccess {
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
 
-        let node = nearcore::start_with_config(home.as_ref(), config)
+        let node = nearcore::start_with_config(home.as_ref(), config, ActorSystem::new())
             .context("failed to start NEAR node")?;
         Ok(Self { view_client: node.view_client })
     }

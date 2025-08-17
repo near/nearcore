@@ -1,6 +1,5 @@
 use crate::tests::network::runner::*;
 use actix::Actor;
-use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time;
@@ -62,7 +61,7 @@ fn peer_handshake() {
         })
         .await
         .unwrap();
-        System::current().stop()
+        near_async::shutdown_all_actors();
     });
 }
 
@@ -104,7 +103,7 @@ fn peers_connect_all() {
                 }
                 // Stop if all connected to all after exchanging peers.
                 if flags.load(Ordering::Relaxed) == (1 << num_peers) - 1 {
-                    System::current().stop();
+                    near_async::shutdown_all_actors();
                 }
             }),
             100,
@@ -181,7 +180,7 @@ fn peer_recover() {
                     let actor = actor.then(|res| {
                         if let Ok(info) = res {
                             if info.connected_peers.len() == 1 {
-                                System::current().stop();
+                                near_async::shutdown_all_actors();
                             }
                         }
                         future::ready(())

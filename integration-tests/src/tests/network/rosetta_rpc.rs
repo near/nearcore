@@ -1,4 +1,3 @@
-use actix::System;
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
 use near_parameters::{RuntimeConfig, RuntimeConfigView};
@@ -21,6 +20,6 @@ fn test_convert_block_changes_to_transactions() {
             &runtime_config,
         )
         .await;
-        System::current().stop();
+        near_async::shutdown_all_actors();
     });
 }

@@ -426,11 +426,11 @@ tracing-subscriber = { version = "0.3.18", features = [
 ] }
 trybuild = "1.0.11"
 turn = "0.9"
-wasm-encoder = "0.235"
+wasm-encoder = "0.236"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
-wasmprinter = "0.235"
-wasm-smith = "0.235"
-wasmtime = { version = "34", default-features = false, features = [
+wasmprinter = "0.236"
+wasm-smith = "0.236"
+wasmtime = { version = "35", default-features = false, features = [
     "cranelift",
 ] }
 wast = "40.0"

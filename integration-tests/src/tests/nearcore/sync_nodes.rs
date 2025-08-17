@@ -1,8 +1,9 @@
 use crate::utils::genesis_helpers::genesis_block;
 use crate::utils::test_helpers::heavy_test;
-use actix::{Actor, System};
+use actix::Actor;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
+use near_async::ActorSystem;
 use near_async::time::Duration;
 use near_chain_configs::Genesis;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
@@ -43,10 +44,12 @@ fn ultra_slow_test_sync_state_stake_change() {
 
         let dir1 = tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
         let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
+        let actor_system = ActorSystem::new();
         run_actix(async {
             let nearcore::NearNode {
                 view_client: view_client1, rpc_handler: tx_processor1, ..
-            } = start_with_config(dir1.path(), near1.clone()).expect("start_with_config");
+            } = start_with_config(dir1.path(), near1.clone(), actor_system.clone())
+                .expect("start_with_config");
 
             let genesis_hash = *genesis_block(&genesis).hash();
             let signer = Arc::new(InMemorySigner::test_signer(&"test1".parse().unwrap()));
@@ -72,6 +75,7 @@ fn ultra_slow_test_sync_state_stake_change() {
             let dir2_path = dir2.path().to_path_buf();
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder;
+            let actor_system = actor_system.clone();
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let started_copy = started.clone();
@@ -79,6 +83,7 @@ fn ultra_slow_test_sync_state_stake_change() {
                     let dir2_path_copy = dir2_path.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
                     let actor = view_client1.send(GetBlock::latest());
+                    let actor_system = actor_system.clone();
                     let actor = actor.then(move |res| {
                         let latest_height =
                             if let Ok(Ok(block)) = res { block.header.height } else { 0 };
@@ -86,8 +91,12 @@ fn ultra_slow_test_sync_state_stake_change() {
                         {
                             started_copy.store(true, Ordering::SeqCst);
                             let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
-                                start_with_config(&dir2_path_copy, near2_copy)
-                                    .expect("start_with_config");
+                                start_with_config(
+                                    &dir2_path_copy,
+                                    near2_copy,
+                                    actor_system.clone(),
+                                )
+                                .expect("start_with_config");
                             *arbiters_holder2.write() = arbiters;
 
                             WaitOrTimeoutActor::new(
@@ -96,7 +105,7 @@ fn ultra_slow_test_sync_state_stake_change() {
                                         move |res| {
                                             if let Ok(Ok(block)) = res {
                                                 if block.header.height > latest_height + 1 {
-                                                    System::current().stop()
+                                                    near_async::shutdown_all_actors();
                                                 }
                                             }
                                             future::ready(())
