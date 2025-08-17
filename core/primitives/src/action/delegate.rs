@@ -283,4 +283,67 @@ mod tests {
             delegate_action
         );
     }
+
+    #[cfg(feature = "schemars")]
+    #[test]
+    fn test_non_delegate_action_json_schema_excludes_delegate() {
+        use schemars::{JsonSchema, SchemaGenerator};
+
+        // Create a schema generator
+        let mut generator = SchemaGenerator::default();
+
+        // Generate the NonDelegateAction schema
+        let non_delegate_schema = NonDelegateAction::json_schema(&mut generator);
+
+        // Convert to JSON for inspection
+        let schema_json = serde_json::to_value(&non_delegate_schema).unwrap();
+
+        // Verify it has oneOf array
+        assert!(schema_json.get("oneOf").is_some(), "NonDelegateAction schema should have oneOf");
+
+        // Get the oneOf array
+        let one_of = schema_json.get("oneOf").unwrap().as_array().unwrap();
+
+        // Verify that none of the variants have a Delegate property
+        for variant in one_of {
+            if let Some(properties) = variant.get("properties") {
+                if let Some(props_obj) = properties.as_object() {
+                    assert!(
+                        !props_obj.contains_key("Delegate"),
+                        "NonDelegateAction schema should not contain Delegate variant"
+                    );
+                }
+            }
+        }
+
+        // Verify that the Action schema (for comparison) does include Delegate
+        let action_schema = Action::json_schema(&mut generator);
+        let action_json = serde_json::to_value(&action_schema).unwrap();
+
+        // Action MUST have a oneOf array
+        assert!(action_json.get("oneOf").is_some(), "Action schema must have oneOf");
+        let action_one_of =
+            action_json.get("oneOf").unwrap().as_array().expect("Action oneOf must be an array");
+
+        // Count how many variants have Delegate
+        let delegate_count = action_one_of
+            .iter()
+            .filter(|variant| {
+                variant
+                    .get("properties")
+                    .and_then(|p| p.as_object())
+                    .map(|p| p.contains_key("Delegate"))
+                    .unwrap_or(false)
+            })
+            .count();
+
+        assert_eq!(delegate_count, 1, "Action schema should contain exactly one Delegate variant");
+
+        // NonDelegateAction should have one less variant than Action
+        assert_eq!(
+            one_of.len(),
+            action_one_of.len() - 1,
+            "NonDelegateAction should have one less variant than Action (excluding Delegate)"
+        );
+    }
 }
