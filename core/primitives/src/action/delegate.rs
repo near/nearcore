@@ -114,9 +114,53 @@ impl DelegateAction {
 /// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
 /// can serialize but deserializing it back causes a parsing error.
 #[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct NonDelegateAction(Action);
 
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for NonDelegateAction {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "NonDelegateAction".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        // Get the actual Action schema by calling its json_schema method directly
+        // This gives us the full schema with the oneOf array, not just a reference
+        let action_schema = Action::json_schema(generator);
+        
+        // Serialize to JSON to manipulate it
+        let mut schema_value = serde_json::to_value(&action_schema).unwrap();
+        
+        // Find and filter the oneOf array
+        if let Some(obj) = schema_value.as_object_mut() {
+            if let Some(one_of) = obj.get_mut("oneOf") {
+                if let Some(arr) = one_of.as_array_mut() {
+                    // Remove the Delegate variant
+                    arr.retain(|variant| {
+                        !variant.get("properties")
+                            .and_then(|p| p.as_object())
+                            .map(|p| p.contains_key("Delegate"))
+                            .unwrap_or(false)
+                    });
+                }
+            }
+            
+            // Update description
+            obj.insert("description".to_string(), serde_json::json!(
+                "This is Action which mustn't contain DelegateAction.\n\n\
+                This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.\n\n\
+                Important: Don't make the inner Action public, this must only be constructed\n\
+                through the correct interface that ensures the inner Action is actually not\n\
+                a delegate action. That would break an assumption of this type, which we use\n\
+                in several places. For example, borsh de-/serialization relies on it. If the\n\
+                invariant is broken, we may end up with a `Transaction` or `Receipt` that we\n\
+                can serialize but deserializing it back causes a parsing error."
+            ));
+        }
+        
+        serde_json::from_value(schema_value).unwrap()
+    }
+}
+  
 /// A small private module to protect the private fields inside `NonDelegateAction`.
 mod private_non_delegate_action {
     use super::*;
