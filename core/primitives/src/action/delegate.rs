@@ -126,24 +126,25 @@ impl schemars::JsonSchema for NonDelegateAction {
         // Get the actual Action schema by calling its json_schema method directly
         // This gives us the full schema with the oneOf array, not just a reference
         let action_schema = Action::json_schema(generator);
-        
+
         // Serialize to JSON to manipulate it
         let mut schema_value = serde_json::to_value(&action_schema).unwrap();
-        
+
         // Find and filter the oneOf array
         if let Some(obj) = schema_value.as_object_mut() {
             if let Some(one_of) = obj.get_mut("oneOf") {
                 if let Some(arr) = one_of.as_array_mut() {
                     // Remove the Delegate variant
                     arr.retain(|variant| {
-                        !variant.get("properties")
+                        !variant
+                            .get("properties")
                             .and_then(|p| p.as_object())
                             .map(|p| p.contains_key("Delegate"))
                             .unwrap_or(false)
                     });
                 }
             }
-            
+
             // Update description
             obj.insert("description".to_string(), serde_json::json!(
                 "This is Action which mustn't contain DelegateAction.\n\n\
@@ -156,11 +157,11 @@ impl schemars::JsonSchema for NonDelegateAction {
                 can serialize but deserializing it back causes a parsing error."
             ));
         }
-        
+
         serde_json::from_value(schema_value).unwrap()
     }
 }
-  
+
 /// A small private module to protect the private fields inside `NonDelegateAction`.
 mod private_non_delegate_action {
     use super::*;
