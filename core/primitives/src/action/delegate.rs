@@ -289,7 +289,8 @@ mod tests {
         let schema_json = serde_json::to_value(&non_delegate_schema).unwrap();
 
         // Get the oneOf array
-        let one_of = schema_json.get("oneOf")
+        let one_of = schema_json
+            .get("oneOf")
             .expect("NonDelegateAction schema must have oneOf")
             .as_array()
             .expect("NonDelegateAction oneOf must be an array");
