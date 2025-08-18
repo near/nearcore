@@ -1,7 +1,6 @@
 use actix::Addr;
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
-use near_primitives::types::Gas;
 use validated_operations::ValidatedOperation;
 
 pub(crate) mod nep141;
@@ -832,6 +831,7 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::transaction::{Action, TransferAction};
+    use near_primitives::types::Gas;
 
     #[test]
     fn test_near_actions_bijection() {

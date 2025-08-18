@@ -5,7 +5,7 @@ use near_primitives::action::{Action, AddKeyAction, CreateAccountAction, Transfe
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::account_new;
-use near_primitives::types::{AccountId, Balance, Compute, Gas, MerkleHash, StateChangeCause};
+use near_primitives::types::{AccountId, Balance, Gas, MerkleHash, StateChangeCause};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardUId, get_account, set_account};
 use std::sync::Arc;

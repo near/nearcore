@@ -41,7 +41,7 @@ fn create_block() -> Block {
         vec![StateRoot::new()],
         vec![Default::default(); shard_ids.len()],
         &shard_ids,
-        1_000,
+        Gas::from_gas(1_000),
         0,
         PROTOCOL_VERSION,
     );
