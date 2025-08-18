@@ -192,6 +192,6 @@ pub fn safe_verify_batch(
     )
     .ok_or(InternalError::Verify)?;
 
-    // multiply by co-factor 8
+    // Accept small-order points (i.e., if mul by 8 is identity)
     if tmp_point.is_small_order() { Ok(()) } else { Err(InternalError::Verify.into()) }
 }
