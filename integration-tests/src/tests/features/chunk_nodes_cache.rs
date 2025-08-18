@@ -108,8 +108,12 @@ fn compare_node_counts() {
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx_node_counts: Vec<TrieNodesCount> = (0..4)
         .map(|i| {
-            let touching_trie_node_cost: Gas = 16_101_955_926;
-            let read_cached_trie_node_cost: Gas = 2_280_000_000;
+            let runtime_config =
+                env.clients[0].runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
+            let touching_trie_node_cost: Gas =
+                runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::touching_trie_node);
+            let read_cached_trie_node_cost: Gas =
+                runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::read_cached_trie_node);
             let num_blocks = if i < 1 { num_blocks } else { 2 * epoch_length };
             let tx_hash = process_transaction(&mut env, &signer, num_blocks, PROTOCOL_VERSION);
 

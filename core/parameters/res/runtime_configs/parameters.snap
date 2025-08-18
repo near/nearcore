@@ -134,8 +134,8 @@ wasm_storage_iter_create_to_byte                           0
 wasm_storage_iter_next_base                                0
 wasm_storage_iter_next_key_byte                            0
 wasm_storage_iter_next_value_byte                          0
-wasm_touching_trie_node                       16_101_955_926, compute:       20_000_000_000
-wasm_read_cached_trie_node                     2_280_000_000
+wasm_touching_trie_node                        2_280_000_000, compute:        4_000_000_000
+wasm_read_cached_trie_node                     2_280_000_000, compute:        4_000_000_000
 wasm_promise_and_base                          1_465_013_400
 wasm_promise_and_per_promise                       5_452_176
 wasm_promise_return                              560_152_386
