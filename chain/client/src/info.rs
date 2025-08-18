@@ -764,15 +764,6 @@ pub fn display_sync_status(
                 computation_tasks.len()
             )
             .unwrap();
-            if let SyncConfig::Peers = state_sync_config {
-                tracing::warn!(
-                    target: "stats",
-                    "The node is trying to sync its State from its peers. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
-                     Suggestions:\n\
-                      * Try to state sync from GCS. See `\"state_sync\"` and `\"state_sync_enabled\"` options in the reference `config.json` file.
-                      or
-                      * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
-            };
             res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),
