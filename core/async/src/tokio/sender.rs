@@ -16,7 +16,7 @@ where
     M: Message + Debug + Send + 'static,
 {
     fn send(&self, message: M) {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
+        let description = format!("{}({})", pretty_type_name::<A>(), debug_description(&message));
         tracing::debug!(target: "tokio_runtime", "Sending sync message: {}", description);
 
         let function =
@@ -35,7 +35,7 @@ where
     R: Send + 'static,
 {
     fn send(&self, message: MessageWithCallback<M, R>) {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
+        let description = format!("{}({})", pretty_type_name::<A>(), debug_description(&message));
         tracing::debug!(target: "tokio_runtime", "Sending sync message with callback: {}", description);
 
         let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
@@ -55,7 +55,7 @@ where
     R: Debug + Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
+        let description = format!("{}({})", pretty_type_name::<A>(), debug_description(&message));
         tracing::debug!(target: "tokio_runtime", "Sending async message: {}", description);
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -106,4 +106,13 @@ where
 // example near_chunks::shards_manager_actor::ShardsManagerActor -> ShardsManagerActor
 fn pretty_type_name<T>() -> &'static str {
     type_name::<T>().split("::").last().unwrap()
+}
+
+#[inline(always)]
+fn debug_description<M: Debug>(message: &M) -> String {
+    if tracing::enabled!(target: "tokio_runtime", tracing::Level::DEBUG) {
+        format!("{:?}", message)
+    } else {
+        pretty_type_name::<M>().to_string()
+    }
 }
