@@ -6,11 +6,11 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
-use near_primitives::types::Gas;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives::types::Gas;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_store::archive::cold_storage::{

@@ -4,8 +4,8 @@ use crate::MutableConfigValue;
 use bytesize::ByteSize;
 #[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
-use near_primitives::types::Gas;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::Gas;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, ShardId,
 };

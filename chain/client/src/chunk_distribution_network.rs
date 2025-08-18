@@ -220,9 +220,9 @@ mod tests {
         time::Clock,
     };
     use near_primitives::{
-        gas::Gas,
         bandwidth_scheduler::BandwidthRequests,
         congestion_info::CongestionInfo,
+        gas::Gas,
         hash::hash,
         sharding::{
             PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderV3,

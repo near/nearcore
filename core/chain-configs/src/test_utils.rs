@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
 use near_primitives::account::{AccessKey, Account, AccountContract};
-use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
+use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, AccountInfo, Balance, NumSeats, NumShards};
 use near_primitives::utils::{from_timestamp, generate_random_string};
 use near_primitives::version::PROTOCOL_VERSION;

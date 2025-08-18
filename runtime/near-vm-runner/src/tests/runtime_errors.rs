@@ -647,12 +647,14 @@ fn test_nan_sign() {
 // even load a contract.
 #[test]
 fn test_gas_exceed_loading() {
-    test_builder().wat(SIMPLE_CONTRACT).method("non_empty_non_existing").gas(Gas::from_gas(1)).expect(&expect![[
-        r#"
+    test_builder()
+        .wat(SIMPLE_CONTRACT)
+        .method("non_empty_non_existing")
+        .gas(Gas::from_gas(1))
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1 used gas 1
             Err: Exceeded the prepaid gas.
-        "#
-    ]]);
+        "#]]);
 }
 
 // Call the "gas" host function with unreasonably large values, trying to force
@@ -745,7 +747,9 @@ mod fix_contract_loading_cost_protocol_upgrade {
         let loading_base = cfg_costs.gas_cost(ExtCosts::contract_loading_base);
         let loading_byte = cfg_costs.gas_cost(ExtCosts::contract_loading_bytes);
         let wasm_length = test_after.get_wasm().len();
-        test_after.gas(Gas::from_gas(loading_base.as_gas() + wasm_length as u64 * loading_byte.as_gas())).expect(&expect);
+        test_after
+            .gas(Gas::from_gas(loading_base.as_gas() + wasm_length as u64 * loading_byte.as_gas()))
+            .expect(&expect);
         #[allow(deprecated)]
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
@@ -767,7 +771,9 @@ mod fix_contract_loading_cost_protocol_upgrade {
         let loading_base = cfg_costs.gas_cost(ExtCosts::contract_loading_base);
         let loading_byte = cfg_costs.gas_cost(ExtCosts::contract_loading_bytes);
         let wasm_length = test_after.get_wasm().len();
-        let prepaid_gas = Gas::from_gas(loading_base.as_gas() + wasm_length as u64 * loading_byte.as_gas() + 884037);
+        let prepaid_gas = Gas::from_gas(
+            loading_base.as_gas() + wasm_length as u64 * loading_byte.as_gas() + 884037,
+        );
         test_after.gas(prepaid_gas).expect(&expect);
         #[allow(deprecated)]
         test_builder()

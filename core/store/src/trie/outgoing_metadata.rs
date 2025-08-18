@@ -111,7 +111,10 @@ pub struct ReceiptGroupV0 {
 impl ReceiptGroup {
     /// Create a new group which will contain one receipt with this size and gas.
     pub fn new(receipt_size: ByteSize, receipt_gas: Gas) -> ReceiptGroup {
-        ReceiptGroup::V0(ReceiptGroupV0 { size: receipt_size.as_u64(), gas: receipt_gas.as_gas() as u128 })
+        ReceiptGroup::V0(ReceiptGroupV0 {
+            size: receipt_size.as_u64(),
+            gas: receipt_gas.as_gas() as u128,
+        })
     }
 
     /// Total size of receipts in this group.
@@ -166,7 +169,10 @@ pub struct ReceiptGroupsConfig {
 impl ReceiptGroupsConfig {
     pub fn default_config() -> Self {
         // TODO(bandwidth_scheduler) - put in runtime config
-        ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: Gas::gas_limit() }
+        ReceiptGroupsConfig {
+            size_upper_bound: ByteSize::kb(100),
+            gas_upper_bound: Gas::gas_limit(),
+        }
     }
 
     /// Decide whether a new receipt should be added to the last group
@@ -440,24 +446,53 @@ mod tests {
 
     #[test]
     fn test_receipt_groups_config() {
-        let config =
-            ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: Gas::from_gas(100) };
+        let config = ReceiptGroupsConfig {
+            size_upper_bound: ByteSize::kb(100),
+            gas_upper_bound: Gas::from_gas(100),
+        };
 
         let group = ReceiptGroup::new(ByteSize::kb(50), Gas::from_gas(50));
 
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(10), Gas::from_gas(0)), false);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(50), Gas::from_gas(0)), false);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(100), Gas::from_gas(0)), true);
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(10), Gas::from_gas(0)),
+            false
+        );
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(50), Gas::from_gas(0)),
+            false
+        );
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(100), Gas::from_gas(0)),
+            true
+        );
         assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(0)), false);
 
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(10)), false);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(50)), false);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(100)), true);
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(10)),
+            false
+        );
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(50)),
+            false
+        );
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(100)),
+            true
+        );
         assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(0)), false);
 
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(10), Gas::from_gas(30)), false);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(100), Gas::from_gas(30)), true);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(30), Gas::from_gas(100)), true);
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(10), Gas::from_gas(30)),
+            false
+        );
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(100), Gas::from_gas(30)),
+            true
+        );
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(30), Gas::from_gas(100)),
+            true
+        );
     }
 
     fn make_trie_update() -> TrieUpdate {
@@ -501,13 +536,17 @@ mod tests {
         queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), trie_update).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000]);
 
-        queue.update_on_receipt_pushed(hundred_kb, Gas::from_gas(10), trie_update, &config).unwrap();
+        queue
+            .update_on_receipt_pushed(hundred_kb, Gas::from_gas(10), trie_update, &config)
+            .unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000]);
 
         queue.update_on_receipt_pushed(ten_kb, Gas::from_gas(10), trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000, 10_000]);
 
-        queue.update_on_receipt_pushed(two_hundred_kb, Gas::from_gas(10), trie_update, &config).unwrap();
+        queue
+            .update_on_receipt_pushed(two_hundred_kb, Gas::from_gas(10), trie_update, &config)
+            .unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000, 10_000, 200_000]);
 
         queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), trie_update).unwrap();
@@ -603,8 +642,10 @@ mod tests {
     fn receipt_groups_queue_random_test(rng_seed: u64) {
         let rng = &mut ChaCha20Rng::seed_from_u64(rng_seed);
 
-        let config =
-            ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: Gas::from_gas(100_000) };
+        let config = ReceiptGroupsConfig {
+            size_upper_bound: ByteSize::kb(100),
+            gas_upper_bound: Gas::from_gas(100_000),
+        };
         let mut groups_queue = ReceiptGroupsQueue::new(ShardId::new(0));
         let mut test_queue = TestReceiptGroupQueue::new();
         let mut buffered_receipts: VecDeque<(ByteSize, Gas)> = VecDeque::new();
@@ -740,7 +781,11 @@ mod tests {
 
                 let new_receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
                 buffered_receipts.push_back(new_receipt_size);
-                test_queue.update_on_receipt_pushed(new_receipt_size, Gas::from_gas(1), &groups_config);
+                test_queue.update_on_receipt_pushed(
+                    new_receipt_size,
+                    Gas::from_gas(1),
+                    &groups_config,
+                );
             }
         }
     }

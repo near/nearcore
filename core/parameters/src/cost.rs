@@ -611,8 +611,10 @@ impl RuntimeFeesConfig {
     /// This amount is used to determine how many receipts can be created, send and executed for
     /// some amount of prepaid gas using function calls.
     pub fn min_receipt_with_function_call_gas(&self) -> Gas {
-        self.fee(ActionCosts::new_action_receipt).min_send_and_exec_fee().checked_add(
-            self.fee(ActionCosts::function_call_base).min_send_and_exec_fee()).unwrap()
+        self.fee(ActionCosts::new_action_receipt)
+            .min_send_and_exec_fee()
+            .checked_add(self.fee(ActionCosts::function_call_base).min_send_and_exec_fee())
+            .unwrap()
     }
 
     /// Given a left over gas amount to be refunded, returns how much should be
@@ -620,8 +622,10 @@ impl RuntimeFeesConfig {
     ///
     /// Must return a value smaller or equal to the `gas_refund` parameter.
     pub fn gas_penalty_for_gas_refund(&self, gas_refund: Gas) -> Gas {
-        let relative_cost = Gas::from_gas((gas_refund.as_gas() as u128 * *self.gas_refund_penalty.numer() as u128
-            / *self.gas_refund_penalty.denom() as u128) as u64);
+        let relative_cost = Gas::from_gas(
+            (gas_refund.as_gas() as u128 * *self.gas_refund_penalty.numer() as u128
+                / *self.gas_refund_penalty.denom() as u128) as u64,
+        );
 
         let penalty = std::cmp::max(relative_cost, self.min_gas_refund_penalty);
         std::cmp::min(penalty, gas_refund)
@@ -672,11 +676,11 @@ pub fn transfer_exec_fee(
             transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
         }
         // Extra fees for the CreateAccount and AddFullAccessKey.
-        (true, _, AccountType::NearImplicitAccount) => {
-            transfer_fee.checked_add(
-                cfg.fee(ActionCosts::create_account).exec_fee()).unwrap().checked_add(
-                    cfg.fee(ActionCosts::add_full_access_key).exec_fee()).unwrap()
-        }
+        (true, _, AccountType::NearImplicitAccount) => transfer_fee
+            .checked_add(cfg.fee(ActionCosts::create_account).exec_fee())
+            .unwrap()
+            .checked_add(cfg.fee(ActionCosts::add_full_access_key).exec_fee())
+            .unwrap(),
     }
 }
 
@@ -697,13 +701,14 @@ pub fn transfer_send_fee(
         // No account will be created, just a regular transfer.
         (true, false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
-        (true, true, AccountType::EthImplicitAccount) => {
-            transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)).unwrap()
-        }
+        (true, true, AccountType::EthImplicitAccount) => transfer_fee
+            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
+            .unwrap(),
         // Extra fees for the CreateAccount and AddFullAccessKey.
-        (true, _, AccountType::NearImplicitAccount) => {
-            transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)).unwrap().checked_add(
-                cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)).unwrap()
-        }
+        (true, _, AccountType::NearImplicitAccount) => transfer_fee
+            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
+            .unwrap()
+            .checked_add(cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver))
+            .unwrap(),
     }
 }

@@ -654,7 +654,14 @@ fn cross_contract_call(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
     let name = b"fn_with_len_14";
     let attached_balance = 1u128;
     let gas = 1; // attaching very little gas so it doesn't cause gas exceeded on its own
-    promise_batch_action_function_call_ext(logic, idx, name, arg, attached_balance, Gas::from_gas(gas))?;
+    promise_batch_action_function_call_ext(
+        logic,
+        idx,
+        name,
+        arg,
+        attached_balance,
+        Gas::from_gas(gas),
+    )?;
     Ok(())
 }
 

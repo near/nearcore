@@ -493,7 +493,6 @@ mod tests {
     use super::{ContractAccount, ContractAccountFilter, Summary};
     use borsh::BorshSerialize;
     use near_crypto::InMemorySigner;
-    use near_primitives::types::Gas;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::transaction::{
@@ -502,6 +501,7 @@ mod tests {
     };
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::AccountId;
+    use near_primitives::types::Gas;
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, test_populate_store, test_populate_store_rc,
         test_populate_trie,

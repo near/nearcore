@@ -423,7 +423,8 @@ impl GlobalContractsTestEnv {
             .unwrap()
             .checked_add(Gas::from_gas(
                 Self::total_action_cost(fees, ActionCosts::deploy_global_contract_byte).as_gas()
-                * contract_size as u64))
+                    * contract_size as u64,
+            ))
             .unwrap();
         let storage_cost =
             runtime_config.fees.storage_usage_config.global_contract_storage_amount_per_byte
@@ -439,7 +440,8 @@ impl GlobalContractsTestEnv {
             .unwrap()
             .checked_add(Gas::from_gas(
                 Self::total_action_cost(fees, ActionCosts::use_global_contract_byte).as_gas()
-                * identifier.len() as u64))
+                    * identifier.len() as u64,
+            ))
             .unwrap();
         gas_fees.as_gas() as Balance * GAS_PRICE
     }

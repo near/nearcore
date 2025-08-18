@@ -447,7 +447,11 @@ impl ReceiptSinkV2 {
             // underflow impossible: checked forward_limit > gas/size_to_forward above
             forward_limit.gas = Gas::from_gas(forward_limit.gas.as_gas() - gas);
             forward_limit.size -= size;
-            stats.forwarded_receipts.entry(shard).or_default().add_receipt(size, Gas::from_gas(gas));
+            stats
+                .forwarded_receipts
+                .entry(shard)
+                .or_default()
+                .add_receipt(size, Gas::from_gas(gas));
 
             Ok(ReceiptForwarding::Forwarded)
         } else {
@@ -468,8 +472,10 @@ impl ReceiptSinkV2 {
     ) -> Result<(), RuntimeError> {
         let receipt = match use_state_stored_receipt {
             true => {
-                let metadata =
-                    StateStoredReceiptMetadata { congestion_gas: Gas::from_gas(gas), congestion_size: size };
+                let metadata = StateStoredReceiptMetadata {
+                    congestion_gas: Gas::from_gas(gas),
+                    congestion_size: size,
+                };
                 let receipt = StateStoredReceipt::new_owned(receipt, metadata);
                 let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
                 receipt
@@ -490,7 +496,11 @@ impl ReceiptSinkV2 {
         }
 
         self.outgoing_buffers.to_shard(shard).push_back(state_update, &receipt)?;
-        self.stats.buffered_receipts.entry(shard).or_default().add_receipt(size, Gas::from_gas(gas));
+        self.stats
+            .buffered_receipts
+            .entry(shard)
+            .or_default()
+            .add_receipt(size, Gas::from_gas(gas));
         Ok(())
     }
 
@@ -737,9 +747,10 @@ pub fn bootstrap_congestion_info(
     let delayed_receipt_queue = &DelayedReceiptQueue::load(trie)?;
     for receipt_result in delayed_receipt_queue.iter(trie, true) {
         let receipt = receipt_result?;
-        let gas = receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?.as_gas();
-        delayed_receipts_gas =
-            safe_add_gas_to_u128(delayed_receipts_gas, Gas::from_gas(gas)).map_err(int_overflow_to_storage_err)?;
+        let gas =
+            receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?.as_gas();
+        delayed_receipts_gas = safe_add_gas_to_u128(delayed_receipts_gas, Gas::from_gas(gas))
+            .map_err(int_overflow_to_storage_err)?;
 
         let memory = receipt_size(&receipt).map_err(int_overflow_to_storage_err)? as u64;
         receipt_bytes = receipt_bytes.checked_add(memory).ok_or_else(overflow_storage_err)?;
@@ -749,8 +760,9 @@ pub fn bootstrap_congestion_info(
     for shard in outgoing_buffers.shards() {
         for receipt_result in outgoing_buffers.to_shard(shard).iter(trie, true) {
             let receipt = receipt_result?;
-            let gas =
-                receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?.as_gas();
+            let gas = receipt_congestion_gas(&receipt, config)
+                .map_err(int_overflow_to_storage_err)?
+                .as_gas();
             buffered_receipts_gas = safe_add_gas_to_u128(buffered_receipts_gas, Gas::from_gas(gas))
                 .map_err(int_overflow_to_storage_err)?;
             let memory = receipt_size(&receipt).map_err(int_overflow_to_storage_err)? as u64;
@@ -833,8 +845,10 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         // get rid of the Cow from the Receipt and StateStoredReceipt.
         let receipt = match config.use_state_stored_receipt {
             true => {
-                let metadata =
-                    StateStoredReceiptMetadata { congestion_gas: Gas::from_gas(gas), congestion_size: size };
+                let metadata = StateStoredReceiptMetadata {
+                    congestion_gas: Gas::from_gas(gas),
+                    congestion_size: size,
+                };
                 let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
             }
@@ -842,7 +856,8 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         };
 
         self.new_delayed_gas = self.new_delayed_gas.checked_add(gas).ok_or(IntegerOverflowError)?;
-        self.new_delayed_bytes = self.new_delayed_bytes.checked_add(size).ok_or(IntegerOverflowError)?;
+        self.new_delayed_bytes =
+            self.new_delayed_bytes.checked_add(size).ok_or(IntegerOverflowError)?;
         self.queue.push_back(trie_update, &receipt)?;
         Ok(())
     }
@@ -876,8 +891,12 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
             };
             let delayed_gas = receipt_congestion_gas(&receipt, &config)?.as_gas();
             let delayed_bytes = receipt_size(&receipt)? as u64;
-            self.removed_delayed_gas = self.removed_delayed_gas.checked_add(delayed_gas).ok_or(IntegerOverflowError)?;
-            self.removed_delayed_bytes = self.removed_delayed_bytes.checked_add(delayed_bytes).ok_or(IntegerOverflowError)?;
+            self.removed_delayed_gas =
+                self.removed_delayed_gas.checked_add(delayed_gas).ok_or(IntegerOverflowError)?;
+            self.removed_delayed_bytes = self
+                .removed_delayed_bytes
+                .checked_add(delayed_bytes)
+                .ok_or(IntegerOverflowError)?;
 
             // Track gas and bytes for receipt above and return only receipt that belong to the shard.
             if self.receipt_filter_fn(&receipt) {

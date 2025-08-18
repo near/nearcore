@@ -37,7 +37,9 @@ impl Arbitrary<'_> for Scenario {
         let network_config = NetworkConfig { seeds };
         let runtime_config = RuntimeConfig {
             max_total_prepaid_gas: Gas::from_gas(GAS_1 * 100),
-            gas_limit: Gas::from_gas((GAS_1 as f64 * *u.choose(&[0.01, 0.1, 1., 10., 100.])?) as u64),
+            gas_limit: Gas::from_gas(
+                (GAS_1 as f64 * *u.choose(&[0.01, 0.1, 1., 10., 100.])?) as u64,
+            ),
             epoch_length: *u.choose(&[5, 10, 100, 500])? as u64,
         };
 

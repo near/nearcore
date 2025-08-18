@@ -78,7 +78,9 @@ impl fmt::Display for CostTableDiff {
         writeln!(f, "{:<35} {:>25} {:>25} {:>13}", "Cost", "First", "Second", "Second/First")?;
 
         let mut biggest_diff_first = self.map.iter().collect::<Vec<_>>();
-        biggest_diff_first.sort_by_key(|&(_, &(f, s))| Ratio::new(f.as_gas(), s.as_gas()).max(Ratio::new(s.as_gas(), f.as_gas())));
+        biggest_diff_first.sort_by_key(|&(_, &(f, s))| {
+            Ratio::new(f.as_gas(), s.as_gas()).max(Ratio::new(s.as_gas(), f.as_gas()))
+        });
         biggest_diff_first.reverse();
 
         for (&cost, &(first, second)) in biggest_diff_first {

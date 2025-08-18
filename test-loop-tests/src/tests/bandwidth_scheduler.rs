@@ -33,7 +33,6 @@ use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthSchedulerParams,
 };
 use near_primitives::congestion_info::CongestionControl;
-use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0,
@@ -41,6 +40,7 @@ use near_primitives::receipt::{
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, BlockHeight, Nonce, ShardId, ShardIndex};
 use near_store::adapter::StoreAdapter;
 use near_store::trie::outgoing_metadata::{ReceiptGroupsConfig, ReceiptGroupsQueue};

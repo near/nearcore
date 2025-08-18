@@ -134,7 +134,8 @@ pub(crate) fn execute_function_call(
     };
 
     if !context.view_config.is_some() {
-        let unused_gas = function_call.gas.checked_sub(outcome.used_gas).unwrap_or(Gas::from_gas(0));
+        let unused_gas =
+            function_call.gas.checked_sub(outcome.used_gas).unwrap_or(Gas::from_gas(0));
         let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
         outcome.used_gas = safe_add_gas(outcome.used_gas, distributed)?;
     }
@@ -1123,8 +1124,8 @@ mod tests {
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
-    use near_primitives::types::Gas;
     use near_primitives::transaction::CreateAccountAction;
+    use near_primitives::types::Gas;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::set_account;

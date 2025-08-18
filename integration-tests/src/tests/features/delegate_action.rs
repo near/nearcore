@@ -12,7 +12,6 @@ use near_primitives::account::{
 use near_primitives::errors::{
     ActionError, ActionErrorKind, InvalidAccessKeyError, TxExecutionError,
 };
-use near_primitives::types::Gas;
 use near_primitives::test_utils::{
     create_user_test_signer, eth_implicit_test_account, near_implicit_test_account,
 };
@@ -20,6 +19,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
+use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
@@ -198,23 +198,65 @@ fn check_meta_tx_fn_call(
     // dynamic cost. The contract reward can be inferred from that.
 
     // static send gas is paid and burnt upfront
-    let static_send_gas = fee_helper.cfg().fee(ActionCosts::new_action_receipt).send_fee(false)
-        .checked_add(fee_helper.cfg().fee(ActionCosts::function_call_base).send_fee(false).checked_mul(num_fn_calls as u64).unwrap()).unwrap()
-        .checked_add(fee_helper.cfg().fee(ActionCosts::function_call_byte).send_fee(false).checked_mul(msg_len).unwrap()).unwrap();
+    let static_send_gas = fee_helper
+        .cfg()
+        .fee(ActionCosts::new_action_receipt)
+        .send_fee(false)
+        .checked_add(
+            fee_helper
+                .cfg()
+                .fee(ActionCosts::function_call_base)
+                .send_fee(false)
+                .checked_mul(num_fn_calls as u64)
+                .unwrap(),
+        )
+        .unwrap()
+        .checked_add(
+            fee_helper
+                .cfg()
+                .fee(ActionCosts::function_call_byte)
+                .send_fee(false)
+                .checked_mul(msg_len)
+                .unwrap(),
+        )
+        .unwrap();
     // static execution gas burnt in the same receipt as the function calls but
     // it doesn't contribute to the contract reward
-    let static_exec_gas = fee_helper.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
-        .checked_add(fee_helper.cfg().fee(ActionCosts::function_call_base).exec_fee().checked_mul(num_fn_calls as u64).unwrap()).unwrap()
-        .checked_add(fee_helper.cfg().fee(ActionCosts::function_call_byte).exec_fee().checked_mul(msg_len).unwrap()).unwrap();
+    let static_exec_gas = fee_helper
+        .cfg()
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .checked_add(
+            fee_helper
+                .cfg()
+                .fee(ActionCosts::function_call_base)
+                .exec_fee()
+                .checked_mul(num_fn_calls as u64)
+                .unwrap(),
+        )
+        .unwrap()
+        .checked_add(
+            fee_helper
+                .cfg()
+                .fee(ActionCosts::function_call_byte)
+                .exec_fee()
+                .checked_mul(msg_len)
+                .unwrap(),
+        )
+        .unwrap();
 
     // calculate contract rewards as reward("gas burnt in fn call receipt" - "static exec costs")
-    let gas_burnt_for_function_call =
-        tx_result.receipts_outcome[1].outcome.gas_burnt.checked_sub(static_exec_gas).unwrap_or(Gas::from_gas(0));
+    let gas_burnt_for_function_call = tx_result.receipts_outcome[1]
+        .outcome
+        .gas_burnt
+        .checked_sub(static_exec_gas)
+        .unwrap_or(Gas::from_gas(0));
     let dyn_cost = fee_helper.gas_to_balance(gas_burnt_for_function_call);
     let contract_reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
 
     // Calculate cost of gas refund
-    let gross_gas_refund = prepaid_gas.checked_sub(gas_burnt_for_function_call).unwrap_or(Gas::from_gas(0));
+    let gross_gas_refund =
+        prepaid_gas.checked_sub(gas_burnt_for_function_call).unwrap_or(Gas::from_gas(0));
     let refund_penalty = fee_helper.gas_refund_cost(gross_gas_refund);
 
     // the relayer pays all gas and tokens

@@ -2,7 +2,6 @@ use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::receipt::ReceiptEnum::{PromiseResume, PromiseYield};
@@ -10,6 +9,7 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::AccountId;
+use near_primitives::types::Gas;
 use near_primitives::views::FinalExecutionStatus;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;

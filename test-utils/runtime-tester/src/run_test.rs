@@ -39,8 +39,7 @@ impl Scenario {
         let mut genesis = Genesis::test(accounts, 1);
         let mut runtime_config = near_parameters::RuntimeConfig::test();
         let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
-        wasm_config.limit_config.max_total_prepaid_gas =
-            self.runtime_config.max_total_prepaid_gas;
+        wasm_config.limit_config.max_total_prepaid_gas = self.runtime_config.max_total_prepaid_gas;
         genesis.config.epoch_length = self.runtime_config.epoch_length;
         genesis.config.gas_limit = self.runtime_config.gas_limit;
         let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);

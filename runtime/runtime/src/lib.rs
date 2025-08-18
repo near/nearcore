@@ -954,7 +954,8 @@ impl Runtime {
         // execution.
         let receiver_reward = if apply_state.config.fees.refund_gas_price_changes {
             // Use current gas price for reward calculation
-            let full_reward = safe_gas_to_balance(apply_state.gas_price, Gas::from_gas(receiver_gas_reward))?;
+            let full_reward =
+                safe_gas_to_balance(apply_state.gas_price, Gas::from_gas(receiver_gas_reward))?;
             // Pre NEP-536:
             // When refunding the gas price difference, if we run a deficit,
             // subtract it from contract rewards. This is a (arguably weird) bit
@@ -1154,9 +1155,13 @@ impl Runtime {
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
-            Gas::from_gas(safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_burnt.as_gas())
+            Gas::from_gas(
+                safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_burnt.as_gas(),
+            )
         } else {
-            Gas::from_gas(safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_used.as_gas())
+            Gas::from_gas(
+                safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_used.as_gas(),
+            )
         };
 
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
@@ -1236,9 +1241,13 @@ impl Runtime {
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gross_gas_refund = if result.result.is_err() {
-            Gas::from_gas(safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_burnt.as_gas())
+            Gas::from_gas(
+                safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_burnt.as_gas(),
+            )
         } else {
-            Gas::from_gas(safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_used.as_gas())
+            Gas::from_gas(
+                safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_used.as_gas(),
+            )
         };
 
         // NEP-536 also adds a penalty to gas refund.

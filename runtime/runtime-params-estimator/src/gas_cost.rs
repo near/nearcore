@@ -289,7 +289,8 @@ impl NonNegativeTolerance {
             NonNegativeTolerance::Strict => neg.to_gas() == Gas::from_gas(0),
             NonNegativeTolerance::RelativeTolerance(rel_tolerance) => {
                 pos.to_gas() > Gas::from_gas(0)
-                    && Ratio::new(neg.to_gas().as_gas(), pos.to_gas().as_gas()).to_f64().unwrap() <= *rel_tolerance
+                    && Ratio::new(neg.to_gas().as_gas(), pos.to_gas().as_gas()).to_f64().unwrap()
+                        <= *rel_tolerance
             }
             NonNegativeTolerance::AbsoluteTolerance(gas_threshold) => {
                 neg.to_gas() <= *gas_threshold
@@ -502,10 +503,12 @@ impl Ord for GasCost {
 impl GasCost {
     pub(crate) fn to_gas(&self) -> Gas {
         if let Some(qemu) = &self.qemu {
-            Gas::from_gas((GAS_IN_INSTR * qemu.instructions
-                + IO_READ_BYTE_COST * qemu.io_r_bytes
-                + IO_WRITE_BYTE_COST * qemu.io_w_bytes)
-                .to_integer())
+            Gas::from_gas(
+                (GAS_IN_INSTR * qemu.instructions
+                    + IO_READ_BYTE_COST * qemu.io_r_bytes
+                    + IO_WRITE_BYTE_COST * qemu.io_w_bytes)
+                    .to_integer(),
+            )
         } else if let Some(ns) = self.time_ns {
             Gas::from_gas((GAS_IN_NS * ns).to_integer())
         } else {
@@ -626,7 +629,12 @@ mod tests {
 
         check_uncertainty(&xs, &ys, Default::default(), true);
         check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas(1), Gas::from_gas(1)), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas((GAS_IN_NS * 50).to_integer()), Gas::from_gas(1)), false);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(Gas::from_gas((GAS_IN_NS * 50).to_integer()), Gas::from_gas(1)),
+            false,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
     }
 
@@ -648,7 +656,12 @@ mod tests {
 
         check_uncertainty(&xs, &ys, Default::default(), true);
         check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas(1), Gas::from_gas(1)), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas(1), Gas::from_gas(1_000_000)), false);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(Gas::from_gas(1), Gas::from_gas(1_000_000)),
+            false,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
     }
 
@@ -696,9 +709,11 @@ mod tests {
             &xs,
             &ys,
             abs_tolerance(
-                Gas::from_gas((GAS_IN_INSTR * 50 + IO_READ_BYTE_COST * 40 + IO_WRITE_BYTE_COST * 30)
-                    .ceil()
-                    .to_integer()),
+                Gas::from_gas(
+                    (GAS_IN_INSTR * 50 + IO_READ_BYTE_COST * 40 + IO_WRITE_BYTE_COST * 30)
+                        .ceil()
+                        .to_integer(),
+                ),
                 Gas::from_gas(0),
             ),
             false,
@@ -729,9 +744,11 @@ mod tests {
             &ys,
             abs_tolerance(
                 Gas::from_gas(0),
-                Gas::from_gas((GAS_IN_INSTR * 1 + IO_READ_BYTE_COST * 2 + IO_WRITE_BYTE_COST * 3)
-                    .ceil()
-                    .to_integer()),
+                Gas::from_gas(
+                    (GAS_IN_INSTR * 1 + IO_READ_BYTE_COST * 2 + IO_WRITE_BYTE_COST * 3)
+                        .ceil()
+                        .to_integer(),
+                ),
             ),
             false,
         );

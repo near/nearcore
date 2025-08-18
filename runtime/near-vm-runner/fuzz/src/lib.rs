@@ -1,5 +1,5 @@
-use near_vm_runner::ContractCode;
 use near_primitives::types::Gas;
+use near_vm_runner::ContractCode;
 use near_vm_runner::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use near_vm_runner::logic::VMContext;
 

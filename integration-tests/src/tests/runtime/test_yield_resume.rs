@@ -1,6 +1,6 @@
 use crate::node::{Node, RuntimeNode};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::types::Gas;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
 /// Initial balance used in tests.

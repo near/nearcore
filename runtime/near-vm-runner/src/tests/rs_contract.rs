@@ -5,8 +5,8 @@ use crate::logic::mocks::mock_external::{MockAction, MockedExternal};
 use crate::logic::types::ReturnData;
 use crate::runner::VMKindExt;
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::types::Gas;
 use near_primitives_core::types::Balance;
+use near_primitives_core::types::Gas;
 use std::mem::size_of;
 use std::sync::Arc;
 
@@ -269,7 +269,9 @@ fn attach_unspent_gas_but_use_all_gas() {
         assert!(matches!(err, FunctionCallError::HostError(HostError::GasExceeded)));
 
         match &external.action_log[..] {
-            [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }, _] => assert_eq!(*gas, Gas::from_gas(0)),
+            [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }, _] => {
+                assert_eq!(*gas, Gas::from_gas(0))
+            }
             other => panic!("unexpected actions: {other:?}"),
         }
     });

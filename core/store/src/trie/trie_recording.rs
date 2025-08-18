@@ -389,8 +389,8 @@ mod trie_recording_tests {
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
-    use near_primitives::types::{Gas, StateRoot};
     use near_primitives::types::chunk_extra::ChunkExtra;
+    use near_primitives::types::{Gas, StateRoot};
     use rand::prelude::SliceRandom;
     use rand::{Rng, random, thread_rng};
     use std::cell::{Cell, RefCell};

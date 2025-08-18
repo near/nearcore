@@ -56,17 +56,20 @@ impl ProfileDataV3 {
         {
             *gas = gas.checked_add(*other_gas).unwrap_or(Gas::from_gas(u64::MAX));
         }
-        self.wasm_gas = self.wasm_gas.checked_add(other.wasm_gas).unwrap_or(Gas::from_gas(u64::MAX));
+        self.wasm_gas =
+            self.wasm_gas.checked_add(other.wasm_gas).unwrap_or(Gas::from_gas(u64::MAX));
     }
 
     #[inline]
     pub fn add_action_cost(&mut self, action: ActionCosts, value: Gas) {
-        self.actions_profile[action] = self.actions_profile[action].checked_add(value).unwrap_or(Gas::from_gas(u64::MAX));
+        self.actions_profile[action] =
+            self.actions_profile[action].checked_add(value).unwrap_or(Gas::from_gas(u64::MAX));
     }
 
     #[inline]
     pub fn add_ext_cost(&mut self, ext: ExtCosts, value: Gas) {
-        self.wasm_ext_profile[ext] = self.wasm_ext_profile[ext].checked_add(value).unwrap_or(Gas::from_gas(u64::MAX));
+        self.wasm_ext_profile[ext] =
+            self.wasm_ext_profile[ext].checked_add(value).unwrap_or(Gas::from_gas(u64::MAX));
     }
 
     /// WasmInstruction is the only cost we don't explicitly account for.
@@ -78,8 +81,10 @@ impl ProfileDataV3 {
     /// with the help on the VM side, so we don't want to have profiling logic
     /// there both for simplicity and efficiency reasons.
     pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: Gas) {
-        self.wasm_gas =
-            total_gas_burnt.checked_sub(self.action_gas()).and_then(|g| g.checked_sub(self.host_gas())).unwrap_or(Gas::from_gas(0));
+        self.wasm_gas = total_gas_burnt
+            .checked_sub(self.action_gas())
+            .and_then(|g| g.checked_sub(self.host_gas()))
+            .unwrap_or(Gas::from_gas(0));
     }
 
     pub fn get_action_cost(&self, action: ActionCosts) -> Gas {
@@ -95,11 +100,19 @@ impl ProfileDataV3 {
     }
 
     fn host_gas(&self) -> Gas {
-        self.wasm_ext_profile.as_slice().iter().copied().fold(Gas::from_gas(0), |acc, x| acc.checked_add(x).unwrap_or(Gas::from_gas(u64::MAX)))
+        self.wasm_ext_profile
+            .as_slice()
+            .iter()
+            .copied()
+            .fold(Gas::from_gas(0), |acc, x| acc.checked_add(x).unwrap_or(Gas::from_gas(u64::MAX)))
     }
 
     pub fn action_gas(&self) -> Gas {
-        self.actions_profile.as_slice().iter().copied().fold(Gas::from_gas(0), |acc, x| acc.checked_add(x).unwrap_or(Gas::from_gas(u64::MAX)))
+        self.actions_profile
+            .as_slice()
+            .iter()
+            .copied()
+            .fold(Gas::from_gas(0), |acc, x| acc.checked_add(x).unwrap_or(Gas::from_gas(u64::MAX)))
     }
 
     /// Returns total compute usage of host calls.
@@ -112,7 +125,9 @@ impl ProfileDataV3 {
                 // handle this case, we would need to explicitly count number of calls, not just
                 // the total gas usage.
                 // We don't have such costs at the moment, so this case is not implemented.
-                debug_assert!(key.gas(ext_costs_config).as_gas() > 0 || key.compute(ext_costs_config) == 0);
+                debug_assert!(
+                    key.gas(ext_costs_config).as_gas() > 0 || key.compute(ext_costs_config) == 0
+                );
 
                 if *value == Gas::from_gas(0) {
                     return 0;
@@ -126,7 +141,9 @@ impl ProfileDataV3 {
 
         // We currently only support compute costs for host calls. In the future we might add
         // them for actions as well.
-        ext_compute_cost.saturating_add(self.action_gas().as_gas()).saturating_add(self.get_wasm_cost().as_gas())
+        ext_compute_cost
+            .saturating_add(self.action_gas().as_gas())
+            .saturating_add(self.get_wasm_cost().as_gas())
     }
 }
 
@@ -215,7 +232,11 @@ impl fmt::Debug for ProfileDataV3 {
                     "{} -> {} [{}% host]",
                     cost,
                     d,
-                    Ratio::new(d.as_gas().saturating_mul(100), core::cmp::max(host_gas.as_gas(), 1)).to_integer(),
+                    Ratio::new(
+                        d.as_gas().saturating_mul(100),
+                        core::cmp::max(host_gas.as_gas(), 1)
+                    )
+                    .to_integer(),
                 )?;
             }
         }
@@ -384,7 +405,10 @@ mod test {
         profile_data2.add_ext_cost(ExtCosts::storage_read_base, Gas::from_gas(22));
 
         profile_data.merge(&profile_data2);
-        assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), Gas::from_gas(333));
+        assert_eq!(
+            profile_data.get_action_cost(ActionCosts::add_full_access_key),
+            Gas::from_gas(333)
+        );
         assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), Gas::from_gas(33));
     }
 

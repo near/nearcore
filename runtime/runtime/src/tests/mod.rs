@@ -85,8 +85,7 @@ fn set_sha256_cost(
     compute_cost: u64,
 ) -> ParameterCost {
     let mut free_config = RuntimeConfig::free();
-    let sha256_cost =
-        ParameterCost { gas: Gas::from_gas(gas_cost), compute: compute_cost };
+    let sha256_cost = ParameterCost { gas: Gas::from_gas(gas_cost), compute: compute_cost };
     let wasm_config = Arc::make_mut(&mut free_config.wasm_config);
     wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
     apply_state.config = Arc::new(free_config);

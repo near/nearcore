@@ -258,10 +258,10 @@ mod tests {
     use super::HostError;
     use super::Registers;
     use crate::logic::LimitConfig;
-    use near_primitives_core::types::Gas;
     use crate::logic::gas_counter::GasCounter;
     use crate::tests::test_vm_config;
     use near_parameters::ExtCostsConfig;
+    use near_primitives_core::types::Gas;
 
     struct RegistersTestContext {
         gas: GasCounter,
@@ -273,7 +273,13 @@ mod tests {
         fn new() -> Self {
             let costs = ExtCostsConfig::test();
             Self {
-                gas: GasCounter::new(costs, Gas::from_gas(u64::MAX), 0, Gas::from_gas(u64::MAX), false),
+                gas: GasCounter::new(
+                    costs,
+                    Gas::from_gas(u64::MAX),
+                    0,
+                    Gas::from_gas(u64::MAX),
+                    false,
+                ),
                 cfg: test_vm_config(None).limit_config,
                 regs: Default::default(),
             }
@@ -306,7 +312,10 @@ mod tests {
 
         #[track_caller]
         fn assert_used_gas(&self, gas: u64) {
-            assert_eq!((Gas::from_gas(gas), Gas::from_gas(gas)), (self.gas.burnt_gas(), self.gas.used_gas()));
+            assert_eq!(
+                (Gas::from_gas(gas), Gas::from_gas(gas)),
+                (self.gas.burnt_gas(), self.gas.used_gas())
+            );
         }
     }
 

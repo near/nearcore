@@ -48,7 +48,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
 
 fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConfig> {
     let fee = |cost: Cost| -> anyhow::Result<Fee> {
-        let total_gas = 
+        let total_gas =
             cost_table.get(cost).with_context(|| format!("undefined cost: {}", cost))?;
         // Split the total cost evenly between send and execution fee.
         Ok(Fee {

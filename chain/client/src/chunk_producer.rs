@@ -304,8 +304,11 @@ impl ChunkProducer {
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
-        let gas_used =
-            if self.adversarial.produce_invalid_chunks { Gas::from_gas(gas_used.as_gas() + 1) } else { gas_used };
+        let gas_used = if self.adversarial.produce_invalid_chunks {
+            Gas::from_gas(gas_used.as_gas() + 1)
+        } else {
+            gas_used
+        };
 
         let congestion_info = chunk_extra.congestion_info();
         let bandwidth_requests = chunk_extra.bandwidth_requests();

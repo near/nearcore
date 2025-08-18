@@ -116,7 +116,8 @@ fn precompilation_cost(
         let contract = ContractCode::new(raw_bytes.to_vec(), None);
         let x = raw_bytes.len() as u64;
         let y = measure_contract(vm_kind, gas_metric, &contract, cache);
-        let expect = corrected_a.to_gas().as_gas() as i128 + corrected_b.to_gas().as_gas() as i128 * (x as i128);
+        let expect = corrected_a.to_gas().as_gas() as i128
+            + corrected_b.to_gas().as_gas() as i128 * (x as i128);
         let error = expect - (y.to_gas().as_gas() as i128);
         if gas_metric == GasMetric::ICount {
             // Time based metric may lead to unpredictable results.

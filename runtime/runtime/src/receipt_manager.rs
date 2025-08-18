@@ -544,7 +544,8 @@ impl ReceiptManager {
                     "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
                 );
             };
-            let to_assign = (unused_gas.as_gas() as u128 * weight.0 as u128 / gas_weight_sum) as u64;
+            let to_assign =
+                (unused_gas.as_gas() as u128 * weight.0 as u128 / gas_weight_sum) as u64;
             action.gas = action.gas.checked_add(Gas::from_gas(to_assign)).unwrap();
             distributed = distributed
                 .checked_add(to_assign)
@@ -564,7 +565,7 @@ impl ReceiptManager {
 
 #[cfg(test)]
 mod tests {
-        use near_primitives::transaction::Action;
+    use near_primitives::transaction::Action;
     use near_primitives_core::types::{Gas, GasWeight};
 
     #[track_caller]
@@ -637,13 +638,23 @@ mod tests {
         function_call_weight_check(&[(Gas::from_gas(0), 88888, Gas::from_gas(10_000_000_000))]);
 
         // Weight larger than gas limit
-        function_call_weight_check(&[(Gas::from_gas(0), 11u64.pow(14), Gas::from_gas(10_000_000_000))]);
+        function_call_weight_check(&[(
+            Gas::from_gas(0),
+            11u64.pow(14),
+            Gas::from_gas(10_000_000_000),
+        )]);
 
         // Split two
-        function_call_weight_check(&[(Gas::from_gas(0), 3, Gas::from_gas(6_000_000_000)), (Gas::from_gas(0), 2, Gas::from_gas(4_000_000_000))]);
+        function_call_weight_check(&[
+            (Gas::from_gas(0), 3, Gas::from_gas(6_000_000_000)),
+            (Gas::from_gas(0), 2, Gas::from_gas(4_000_000_000)),
+        ]);
 
         // Split two with static gas
-        function_call_weight_check(&[(Gas::from_gas(1_000_000), 3, Gas::from_gas(5_998_600_000)), (Gas::from_gas(3_000_000), 2, Gas::from_gas(4_001_400_000))]);
+        function_call_weight_check(&[
+            (Gas::from_gas(1_000_000), 3, Gas::from_gas(5_998_600_000)),
+            (Gas::from_gas(3_000_000), 2, Gas::from_gas(4_001_400_000)),
+        ]);
 
         // Many different gas weights
         function_call_weight_check(&[
@@ -655,7 +666,10 @@ mod tests {
         ]);
 
         // Weight over u64 bounds
-        function_call_weight_check(&[(Gas::from_gas(0), u64::MAX, Gas::from_gas(9_999_999_999)), (Gas::from_gas(0), 1000, Gas::from_gas(1))]);
+        function_call_weight_check(&[
+            (Gas::from_gas(0), u64::MAX, Gas::from_gas(9_999_999_999)),
+            (Gas::from_gas(0), 1000, Gas::from_gas(1)),
+        ]);
 
         // Weight over gas limit with three function calls
         function_call_weight_check(&[
@@ -665,6 +679,9 @@ mod tests {
         ]);
 
         // Weights with one zero and one non-zero
-        function_call_weight_check(&[(Gas::from_gas(0), 0, Gas::from_gas(0)), (Gas::from_gas(0), 1, Gas::from_gas(10_000_000_000))])
+        function_call_weight_check(&[
+            (Gas::from_gas(0), 0, Gas::from_gas(0)),
+            (Gas::from_gas(0), 1, Gas::from_gas(10_000_000_000)),
+        ])
     }
 }

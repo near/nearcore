@@ -22,7 +22,9 @@ use near_primitives::{
     hash::CryptoHash,
     serialize::dec_format,
     state_record::StateRecord,
-    types::{AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, Gas},
+    types::{
+        AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
+    },
     version::ProtocolVersion,
 };
 use num_rational::Rational32;
