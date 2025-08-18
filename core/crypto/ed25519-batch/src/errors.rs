@@ -3,6 +3,7 @@
 // Modifications:
 // - Import adjustments.
 // - #[cfg(feature = "batch")] conditionals removed.
+// - #[not(cfg(feature = "std"))] conditionals removed.
 // - #![allow(dead_code)] added to avoid warnings for unused errors.
 //
 // Many thanks to the original authors, whose copyright notice is reproduced below:
@@ -24,7 +25,6 @@
 use core::fmt;
 use core::fmt::Display;
 
-#[cfg(feature = "std")]
 use std::error::Error;
 
 use ed25519_dalek::ed25519;
@@ -94,7 +94,6 @@ impl Display for InternalError {
     }
 }
 
-#[cfg(feature = "std")]
 impl Error for InternalError {}
 
 /// Errors which may occur while processing signatures and keypairs.
@@ -114,12 +113,6 @@ impl Error for InternalError {}
 pub type SignatureError = ed25519::signature::Error;
 
 impl From<InternalError> for SignatureError {
-    #[cfg(not(feature = "std"))]
-    fn from(_err: InternalError) -> SignatureError {
-        SignatureError::new()
-    }
-
-    #[cfg(feature = "std")]
     fn from(err: InternalError) -> SignatureError {
         SignatureError::from_source(err)
     }

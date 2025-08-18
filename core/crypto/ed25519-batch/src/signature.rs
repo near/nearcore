@@ -2,6 +2,7 @@
 // This file is based on https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/ed25519-dalek/src/errors.rs
 // Modifications:
 // - Import adjustments.
+// - Remove unused features
 //
 // Many thanks to the original authors, whose copyright notice is reproduced below:
 //
@@ -66,31 +67,7 @@ impl Debug for InternalSignature {
     }
 }
 
-/// Ensures that the scalar `s` of a signature is within the bounds [0, 2^253).
-///
-/// **Unsafe**: This version of `check_scalar` permits signature malleability. See README.
-#[cfg(feature = "legacy_compatibility")]
-#[inline(always)]
-fn check_scalar(bytes: [u8; 32]) -> Result<Scalar, SignatureError> {
-    // The highest 3 bits must not be set.  No other checking for the
-    // remaining 2^253 - 2^252 + 27742317777372353535851937790883648493
-    // potential non-reduced scalars is performed.
-    //
-    // This is compatible with ed25519-donna and libsodium when
-    // -DED25519_COMPAT is NOT specified.
-    if bytes[31] & 224 != 0 {
-        return Err(InternalError::ScalarFormat.into());
-    }
-
-    // You cannot do arithmetic with scalars construct with Scalar::from_bits. We only use this
-    // scalar for EdwardsPoint::vartime_double_scalar_mul_basepoint, which is an accepted usecase.
-    // The `from_bits` method is deprecated because it's unsafe. We know this.
-    #[allow(deprecated)]
-    Ok(Scalar::from_bits(bytes))
-}
-
 /// Ensures that the scalar `s` of a signature is within the bounds [0, ℓ)
-#[cfg(not(feature = "legacy_compatibility"))]
 #[inline(always)]
 fn check_scalar(bytes: [u8; 32]) -> Result<Scalar, SignatureError> {
     match Scalar::from_canonical_bytes(bytes).into() {
