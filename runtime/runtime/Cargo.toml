@@ -64,7 +64,6 @@ assert_matches.workspace = true
 enum-map.workspace = true
 hex.workspace = true
 tempfile.workspace = true
-near-crypto-ed25519-batch.workspace = true
 ed25519-dalek.workspace = true
 
 near-chain-configs.workspace = true

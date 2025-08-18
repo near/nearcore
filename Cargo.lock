@@ -5837,7 +5837,6 @@ dependencies = [
  "itertools 0.12.1",
  "near-chain-configs",
  "near-crypto",
- "near-crypto-ed25519-batch",
  "near-o11y",
  "near-parameters",
  "near-primitives",
