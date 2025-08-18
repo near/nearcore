@@ -1076,7 +1076,6 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
 }
 
 /// Contains main info about the chunk.
-#[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChunkHeaderView {
@@ -1779,7 +1778,6 @@ impl CostGasUsed {
     }
 }
 
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,

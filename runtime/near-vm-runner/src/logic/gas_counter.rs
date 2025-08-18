@@ -492,13 +492,9 @@ mod tests {
             );
         }
 
-        test(MAX_GAS, Gas::from_gas(1_000_000_000), Err(HostError::GasExceeded));
-        test(Gas::from_gas(1_000_000_000), MAX_GAS, Err(HostError::GasLimitExceeded));
-        test(
-            Gas::from_gas(1_000_000_000),
-            Gas::from_gas(1_000_000_000),
-            Err(HostError::GasLimitExceeded),
-        );
+        test(MAX_GAS, Gas::from_ggas(1), Err(HostError::GasExceeded));
+        test(Gas::from_ggas(1), MAX_GAS, Err(HostError::GasLimitExceeded));
+        test(Gas::from_ggas(1), Gas::from_ggas(1), Err(HostError::GasLimitExceeded));
     }
 
     #[test]
@@ -507,8 +503,8 @@ mod tests {
             let mut counter = make_test_counter(burn, prepaid, false);
             assert_eq!(
                 counter.pay_action_accumulated(
-                    Gas::from_gas(10_000_000_000),
-                    Gas::from_gas(10_000_000_000),
+                    Gas::from_ggas(10),
+                    Gas::from_ggas(10),
                     ActionCosts::new_data_receipt_byte
                 ),
                 want.map_err(Into::into)
@@ -522,12 +518,8 @@ mod tests {
             );
         }
 
-        test(MAX_GAS, Gas::from_gas(1_000_000_000), Err(HostError::GasExceeded));
-        test(Gas::from_gas(1_000_000_000), MAX_GAS, Err(HostError::GasLimitExceeded));
-        test(
-            Gas::from_gas(1_000_000_000),
-            Gas::from_gas(1_000_000_000),
-            Err(HostError::GasLimitExceeded),
-        );
+        test(MAX_GAS, Gas::from_ggas(1), Err(HostError::GasExceeded));
+        test(Gas::from_ggas(1), MAX_GAS, Err(HostError::GasLimitExceeded));
+        test(Gas::from_ggas(1), Gas::from_ggas(1), Err(HostError::GasLimitExceeded));
     }
 }

@@ -385,7 +385,7 @@ pub fn call_contract(
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
     let signer = create_user_test_signer(sender_id);
-    let attach_gas = Gas::from_gas(300 * TGAS);
+    let attach_gas = Gas::from_tgas(300);
     let deposit = 0;
 
     let tx = SignedTransaction::call(

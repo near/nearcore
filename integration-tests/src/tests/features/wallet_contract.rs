@@ -389,7 +389,7 @@ pub fn create_rlp_execute_tx(
     let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "rlp_execute".into(),
         args,
-        gas: Gas::from_gas(300_000_000_000_000),
+        gas: Gas::from_tgas(300),
         deposit: 0,
     }))];
     let nonce = view_nonce(env, near_signer.account_id, near_signer.signer.public_key()) + 1;

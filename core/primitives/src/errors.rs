@@ -9,7 +9,6 @@ use near_crypto::PublicKey;
 use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
-use serde_with::serde_as;
 use std::fmt::{Debug, Display};
 
 /// Error returned in the ExecutionOutcome in case of failure
@@ -326,7 +325,6 @@ pub enum InvalidAccessKeyError {
 }
 
 /// Describes the error for validating a list of actions.
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,

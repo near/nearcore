@@ -182,7 +182,7 @@ fn setup_runtime_for_shard(
 #[test]
 fn test_apply_no_op() {
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), 0, Gas::from_gas(10u64.pow(15)));
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), 0, Gas::from_tgas(1000));
     runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -205,7 +205,7 @@ fn test_apply_check_balance_validation_rewards() {
         vec![alice_account()],
         to_yocto(1_000_000),
         initial_locked,
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     let validator_accounts_update = ValidatorAccountsUpdate {
@@ -1092,7 +1092,7 @@ fn test_delete_key_add_key() {
         vec![alice_account()],
         to_yocto(1_000_000),
         initial_locked,
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -1137,7 +1137,7 @@ fn test_delete_key_underflow() {
         vec![alice_account()],
         to_yocto(1_000_000),
         initial_locked,
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -1323,7 +1323,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     let deploy_contract_receipt = create_receipt_with_actions(
@@ -1372,7 +1372,7 @@ fn test_main_storage_proof_size_soft_limit() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -1487,7 +1487,7 @@ fn test_exclude_contract_code_from_witness() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     const CONTRACT_SIZE: usize = 5000;
@@ -1612,7 +1612,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
@@ -2090,7 +2090,7 @@ fn test_deploy_existing_contract_to_different_account() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2413,7 +2413,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2511,7 +2511,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2951,7 +2951,7 @@ fn test_deploy_and_call_local_receipt() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     let tx = SignedTransaction::from_actions(
@@ -3017,7 +3017,7 @@ fn test_deploy_and_call_local_receipts() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     let tx1 = SignedTransaction::from_actions(
@@ -3158,7 +3158,7 @@ fn test_transaction_ordering_with_apply() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
 
     let validity_flags = vec![true; txs.len()];
@@ -3237,7 +3237,7 @@ fn test_transaction_multiple_access_keys_with_apply() {
             accounts_with_keys,
             to_yocto(1_000_000),
             to_yocto(500_000),
-            Gas::from_gas(10u64.pow(15)),
+            Gas::from_tgas(1000),
         );
 
     let validity_flags = vec![true; txs.len()];
@@ -3284,7 +3284,7 @@ fn test_expired_transaction() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(10u64.pow(15)),
+        Gas::from_tgas(1000),
     );
     let signed_valid_period_txs = SignedValidPeriodTransactions::new(expired_tx, vec![false]);
     let apply_result = runtime

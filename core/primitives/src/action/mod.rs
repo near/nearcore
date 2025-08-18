@@ -118,7 +118,6 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -174,7 +173,6 @@ impl fmt::Debug for DeployGlobalContractAction {
     }
 }
 
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -218,7 +216,6 @@ impl GlobalContractIdentifier {
 }
 
 /// Use global contract action
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,

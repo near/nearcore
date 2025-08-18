@@ -1,5 +1,13 @@
 use near_gas::NearGas;
 
+/// Wrapper type over [`near_gas::NearGas`], which itself is a wrapper type over u64.
+///
+/// This wrapper exists to maintain JSON RPC compatibility. While [`NearGas`]
+/// serializes to a JSON string for precision, we need to continue serializing
+/// Gas values to JSON numbers for backward compatibility with existing clients.
+///
+/// Note: [`NearGas`] deserialization already handles both JSON numbers and JSON
+/// strings, so we don't need to redefine deserialization behavior here.
 #[derive(
     borsh::BorshDeserialize,
     borsh::BorshSerialize,
@@ -81,7 +89,7 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     ///
-    /// let gas = Gas::from_gas(1 * 1_000_000_000);
+    /// let gas = Gas::from_ggas(1);
     /// assert_eq!(gas.as_ggas(), 1);
     /// ```
     pub const fn as_ggas(self) -> u64 {

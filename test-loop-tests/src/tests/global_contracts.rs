@@ -387,7 +387,7 @@ impl GlobalContractsTestEnv {
             0,
             "log_something".to_owned(),
             vec![],
-            Gas::from_gas(300 * TGAS),
+            Gas::from_tgas(300),
             self.get_tx_block_hash(),
         )
     }

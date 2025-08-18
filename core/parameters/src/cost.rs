@@ -564,9 +564,9 @@ impl RuntimeFeesConfig {
                     execution: Gas::from_gas(59357464),
                 },
                 ActionCosts::delegate => Fee {
-                    send_sir: Gas::from_gas(200_000_000_000),
-                    send_not_sir: Gas::from_gas(200_000_000_000),
-                    execution: Gas::from_gas(200_000_000_000),
+                    send_sir: Gas::from_ggas(200),
+                    send_not_sir: Gas::from_ggas(200),
+                    execution: Gas::from_ggas(200),
                 },
                 ActionCosts::deploy_global_contract_base => Fee {
                     send_sir: Gas::from_gas(184_765_750_000),

@@ -1344,7 +1344,7 @@ mod tests {
                             Box::new(FunctionCallAction {
                                  method_name: "ft_transfer".parse().unwrap(),
                                  args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
-                                 gas: Gas::from_gas(30000000000000),
+                                 gas: Gas::from_tgas(30),
                                  deposit: 1,
                             })
                         )

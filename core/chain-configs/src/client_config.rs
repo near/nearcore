@@ -14,7 +14,6 @@ use near_time::Duration;
 #[cfg(feature = "schemars")]
 use near_time::{DurationAsStdSchemaProvider, DurationSchemarsProvider};
 use num_rational::Rational32;
-use serde_with::serde_as;
 use std::cmp::{max, min};
 use std::num::NonZero;
 use std::path::PathBuf;
@@ -604,7 +603,6 @@ pub struct ChunkDistributionUris {
 }
 
 /// ClientConfig where some fields can be updated at runtime.
-#[serde_as]
 #[derive(Clone, serde::Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ClientConfig {

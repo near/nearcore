@@ -285,7 +285,7 @@ impl Default for TestGenesisBuilder {
             genesis_height: 1,
             min_gas_price: 0,
             max_gas_price: 0,
-            gas_limit: Gas::from_gas(1_000_000_000_000_000),
+            gas_limit: Gas::from_tgas(1000),
             transaction_validity_period: 100,
             protocol_treasury_account: "near".to_string().parse().unwrap(),
             max_inflation_rate: Rational32::new(1, 1),
@@ -357,7 +357,7 @@ impl TestGenesisBuilder {
     }
 
     pub fn gas_limit_one_petagas(mut self) -> Self {
-        self.gas_limit = Gas::from_gas(1_000_000_000_000_000);
+        self.gas_limit = Gas::from_tgas(1000);
         self
     }
 

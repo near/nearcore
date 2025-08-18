@@ -327,7 +327,7 @@ pub(crate) fn call_burn_gas_contract(
                         1,
                         method_name,
                         args,
-                        gas_burnt_per_call.checked_add(Gas::from_gas(10 * TGAS)).unwrap(),
+                        gas_burnt_per_call.checked_add(Gas::from_tgas(10)).unwrap(),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(
@@ -444,7 +444,7 @@ pub(crate) fn send_large_cross_shard_receipts(
                                 "{{\"account_id\": \"{}\", \"method_name\": \"noop\", \"total_args_size\": 3000000}}",
                                 receiver_id
                             ).into(),
-                            Gas::from_gas(300 * TGAS),
+                            Gas::from_tgas(300),
                             tip.last_block_hash,
                         );
                         tracing::info!(
@@ -536,7 +536,7 @@ pub(crate) fn call_promise_yield(
                             1,
                             "call_yield_resume_read_data_id_from_storage".to_string(),
                             yield_payload.clone(),
-                            Gas::from_gas(300 * TGAS),
+                            Gas::from_tgas(300),
                             tip.last_block_hash,
                         );
                         store_and_submit_tx(
@@ -605,7 +605,7 @@ pub(crate) fn call_promise_yield(
                             0,
                             "call_yield_create_return_promise".to_string(),
                             yield_payload.clone(),
-                            Gas::from_gas(300 * TGAS),
+                            Gas::from_tgas(300),
                             tip.last_block_hash,
                         );
                         store_and_submit_tx(
@@ -960,7 +960,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         0,
                         "call_yield_create_return_promise".to_string(),
                         yield_payload.clone(),
-                        Gas::from_gas(300 * TGAS),
+                        Gas::from_tgas(300),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(
@@ -1037,7 +1037,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         1,
                         "call_yield_resume_read_data_id_from_storage".to_string(),
                         yield_payload.clone(),
-                        Gas::from_gas(300 * TGAS),
+                        Gas::from_tgas(300),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(
@@ -1168,7 +1168,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                         1,
                         method_name,
                         args,
-                        Gas::from_gas(GAS_BURNT_PER_CALL + 10 * TGAS),
+                        Gas::from_tgas(285),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(

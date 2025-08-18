@@ -1910,7 +1910,7 @@ fn test_validate_chunk_extra() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_block_height".to_string(),
             args: vec![],
-            gas: Gas::from_gas(100000000000000),
+            gas: Gas::from_tgas(100),
             deposit: 0,
         }))],
         *last_block.hash(),
@@ -2041,7 +2041,7 @@ fn slow_test_catchup_gas_price_change() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = Gas::from_gas(1000000000000);
+    genesis.config.gas_limit = Gas::from_tgas(1);
 
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
@@ -2190,7 +2190,7 @@ fn test_block_execution_outcomes() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = Gas::from_gas(1000000000000);
+    genesis.config.gas_limit = Gas::from_tgas(1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -2272,7 +2272,7 @@ fn test_save_tx_outcomes_false() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = Gas::from_gas(1000000000000);
+    genesis.config.gas_limit = Gas::from_tgas(1);
     let mut env = TestEnv::builder(&genesis.config)
         .save_tx_outcomes(false)
         .nightshade_runtimes(&genesis)

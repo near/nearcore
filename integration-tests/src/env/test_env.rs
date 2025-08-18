@@ -845,7 +845,7 @@ impl TestEnv {
         let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
-            gas: Gas::from_gas(3 * 10u64.pow(14)),
+            gas: Gas::from_tgas(300),
             deposit: 0,
         }))];
         let tx = self.tx_from_actions(actions, &signer, signer.get_account_id());

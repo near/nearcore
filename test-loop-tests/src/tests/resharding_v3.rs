@@ -472,8 +472,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     if params.limit_outgoing_gas || params.short_yield_timeout {
         let mut runtime_config = RuntimeConfig::test();
         if params.limit_outgoing_gas {
-            runtime_config.congestion_control_config.max_outgoing_gas = Gas::from_gas(100 * TGAS);
-            runtime_config.congestion_control_config.min_outgoing_gas = Gas::from_gas(100 * TGAS);
+            runtime_config.congestion_control_config.max_outgoing_gas = Gas::from_tgas(100);
+            runtime_config.congestion_control_config.min_outgoing_gas = Gas::from_tgas(100);
         }
         if params.short_yield_timeout {
             let mut wasm_config = vm::Config::clone(&runtime_config.wasm_config);
@@ -1163,7 +1163,7 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
         .add_loop_action(call_burn_gas_contract(
             vec![account.clone()],
             vec![account.clone()],
-            Gas::from_gas(275 * TGAS),
+            Gas::from_tgas(275),
             DEFAULT_EPOCH_LENGTH,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
@@ -1219,7 +1219,7 @@ fn test_resharding_v3_global_contract_base(
         .add_loop_action(call_burn_gas_contract(
             caller_accounts,
             vec![global_contract_user.clone()],
-            Gas::from_gas(275 * TGAS),
+            Gas::from_tgas(275),
             INCREASED_EPOCH_LENGTH,
         ))
         .epoch_length(INCREASED_EPOCH_LENGTH)
@@ -1240,7 +1240,7 @@ fn slow_test_resharding_v3_delayed_receipts_right_child() {
         .add_loop_action(call_burn_gas_contract(
             vec![account.clone()],
             vec![account.clone()],
-            Gas::from_gas(275 * TGAS),
+            Gas::from_tgas(275),
             INCREASED_EPOCH_LENGTH,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
@@ -1265,7 +1265,7 @@ fn slow_test_resharding_v3_split_parent_buffered_receipts() {
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_left_child.clone(), account_in_right_child],
             vec![receiver_account],
-            Gas::from_gas(10 * TGAS),
+            Gas::from_tgas(10),
             INCREASED_EPOCH_LENGTH,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
@@ -1295,7 +1295,7 @@ fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard() {
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_stable_shard.clone()],
             vec![account_in_left_child, account_in_right_child],
-            Gas::from_gas(10 * TGAS),
+            Gas::from_tgas(10),
             DEFAULT_EPOCH_LENGTH,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
@@ -1352,7 +1352,7 @@ fn slow_test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
         .add_loop_action(call_burn_gas_contract(
             vec![account_1_in_stable_shard, account_2_in_stable_shard],
             vec![receiver_account],
-            Gas::from_gas(5 * TGAS),
+            Gas::from_tgas(5),
             DEFAULT_EPOCH_LENGTH,
         ))
         .build();
@@ -1370,7 +1370,7 @@ fn slow_test_resharding_v3_outgoing_receipts_from_splitted_shard() {
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_left_child, account_in_right_child],
             vec![receiver_account],
-            Gas::from_gas(5 * TGAS),
+            Gas::from_tgas(5),
             INCREASED_EPOCH_LENGTH,
         ))
         .epoch_length(INCREASED_EPOCH_LENGTH)
