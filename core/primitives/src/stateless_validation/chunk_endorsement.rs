@@ -288,3 +288,9 @@ impl SpiceEndorsementSignedInner {
         signature.verify(&signed_inner, public_key)
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema, Hash)]
+pub struct SpiceEndorsementWithSignature {
+    pub inner: SpiceEndorsementSignedInner,
+    pub signature: Signature,
+}

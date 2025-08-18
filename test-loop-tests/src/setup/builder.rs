@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -97,6 +97,12 @@ impl TestLoopBuilder {
     pub(crate) fn epoch_config_store(mut self, epoch_config_store: EpochConfigStore) -> Self {
         self.epoch_config_store = Some(epoch_config_store);
         self
+    }
+
+    pub(crate) fn epoch_config_store_from_genesis(self) -> Self {
+        let genesis = self.genesis.as_ref().expect("expected genesis to be set");
+        let genesis_epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+        self.epoch_config_store(genesis_epoch_config_store)
     }
 
     pub(crate) fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {

@@ -4,6 +4,7 @@ use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
 use crate::sharding::ChunkHash;
+use crate::stateless_validation::ChunkProductionKey;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
@@ -1295,7 +1296,7 @@ pub struct ChunkExecutionResult {
 
 /// Execution results for all chunks in the block.
 /// For genesis inner hashmap is always empty.
-pub struct BlockExecutionResults(pub HashMap<ChunkHash, ChunkExecutionResult>);
+pub struct BlockExecutionResults(pub HashMap<ChunkHash, Arc<ChunkExecutionResult>>);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ChunkExecutionResultHash(pub CryptoHash);
@@ -1305,6 +1306,12 @@ impl ChunkExecutionResult {
         let bytes = borsh::to_vec(self).expect("Failed to serialize");
         ChunkExecutionResultHash(hash(&bytes))
     }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SpiceUncertifiedChunkInfo {
+    pub chunk_production_key: ChunkProductionKey,
+    pub missing_endorsements: Vec<AccountId>,
 }
 
 #[cfg(test)]

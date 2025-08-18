@@ -3,10 +3,12 @@ use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block, percentiles};
 use near_parameters::ExtCosts;
 use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::trie_key::TrieKey;
 use near_store::trie::AccessTracker;
 use near_store::{TrieCachingStorage, TrieStorage};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::ops::Bound;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -190,6 +192,41 @@ pub(crate) fn read_node_from_accounting_cache(testbed: &mut Testbed) -> GasCost 
     }
 
     base_case
+}
+
+/// Estimate the cost of reading a trie node by iterating over the trie until
+/// the `max_read_bytes` limit is reached.
+pub(crate) fn read_trie_node_estimate_by_iteration(
+    testbed: &mut Testbed,
+    max_read_bytes: usize,
+) -> GasCost {
+    let start_account =
+        TrieKey::Account { account_id: testbed.transaction_builder().random_account() }.to_vec();
+    // Use recorder to get number of trie nodes accessed and the total approximate bytes read.
+    let trie = testbed.trie().recording_reads_new_recorder();
+    if !trie.has_memtries() {
+        eprintln!(
+            "Cannot estimate trie node read cost, no memtries available. \
+             Run with --memtries to enable memtries."
+        );
+        return GasCost::zero();
+    }
+
+    let start = GasCost::measure(testbed.config.metric);
+    {
+        let locked_trie = trie.lock_for_iter();
+        let mut iter = locked_trie.iter().expect("Failed to get iterator");
+        iter.seek(Bound::Included(&start_account)).expect("Failed to seek");
+        iter.take_while(|_| trie.recorded_storage_size() < max_read_bytes).for_each(|_| {});
+    }
+
+    let accessed_nodes = trie.recorded_storage().expect("recorded storage missing").nodes.len();
+    let cost = start.elapsed();
+
+    // Round to nanos, using precise rational math with different denominators
+    // may overflow. Expected to take several hundreds to few thousands of
+    // nanos.
+    (cost / accessed_nodes as u64).round_nanos()
 }
 
 #[derive(Debug, Default)]

@@ -31,6 +31,9 @@ class RemoteNeardRunner:
     def name(self):
         return self.node.instance_name
 
+    def get_label(self, label_name: str) -> str:
+        return self.node.get_label(label_name)
+
     def ip_addr(self):
         return self.node.machine.ip
 
@@ -106,8 +109,6 @@ class RemoteNeardRunner:
             --property=TimeoutStartSec=300\
             --property=Restart=always\
             --property=RestartSec=5s\
-            --property=StandardOutput=append:{self.neard_runner_home}/runner.log \
-            --property=StandardError=append:{self.neard_runner_home}/runner.log \
             -- {NEARD_RUNNER_CMD}'
 
         self.node.machine.run(SYSTEMD_RUN_NEARD_RUNNER_CMD)

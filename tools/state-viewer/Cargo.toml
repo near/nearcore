@@ -34,6 +34,7 @@ yansi.workspace = true
 indicatif.workspace = true
 reed-solomon-erasure.workspace = true
 
+near-async.workspace = true
 near-time.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true

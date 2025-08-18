@@ -324,7 +324,9 @@ impl Testbed<'_> {
         caching_storage
     }
 
-    pub(crate) fn clear_caches(&self) {
+    pub(crate) fn clear_caches(&mut self) {
+        // Clear trie access tracker state
+        self.apply_state.trie_access_tracker_state = Default::default();
         // Flush out writes hanging in memtable
         self.tries.store().store().flush().unwrap();
 
@@ -506,7 +508,7 @@ impl Testbed<'_> {
     }
 
     /// Instantiate a new trie for the estimator.
-    fn trie(&self) -> near_store::Trie {
+    pub(crate) fn trie(&self) -> near_store::Trie {
         // We generated `finality_lag` fake blocks earlier, so the fake height
         // will be at the same number.
         let tip_height = self.config.finality_lag;

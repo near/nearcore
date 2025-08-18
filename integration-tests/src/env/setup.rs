@@ -5,7 +5,7 @@
 use crate::utils::peer_manager_mock::PeerManagerMock;
 use actix::{Actor, Addr, Context};
 use near_async::actix::futures::ActixFutureSpawner;
-use near_async::actix::wrapper::{ActixWrapper, spawn_actix_actor};
+use near_async::actix::wrapper::ActixWrapper;
 use near_async::messaging::{
     IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
 };
@@ -18,6 +18,8 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 
+use near_async::ActorSystem;
+use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
     MutableValidatorSigner, ReshardingConfig, ReshardingHandle, TrackedShardsConfig,
@@ -27,9 +29,10 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
+use near_client::client_actor::ClientActorInner;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
-    ChunkValidationSenderForPartialWitness, Client, ClientActor, PartialWitnessActor,
+    ChunkValidationSenderForPartialWitness, Client, PartialWitnessActor,
     PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
     ViewClientActor, ViewClientActorInner, start_client,
 };
@@ -81,7 +84,7 @@ fn setup(
     genesis_time: Utc,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (
-    Addr<ClientActor>,
+    TokioRuntimeHandle<ClientActorInner>,
     Addr<ViewClientActor>,
     Addr<RpcHandlerActor>,
     ShardsManagerAdapterForTest,
@@ -155,6 +158,8 @@ fn setup(
 
     let adv = Controls::default();
 
+    let actor_system = ActorSystem::new();
+
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
         chain_genesis.clone(),
@@ -168,7 +173,7 @@ fn setup(
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
-    let (partial_witness_adapter, _) = spawn_actix_actor(PartialWitnessActor::new(
+    let partial_witness_adapter = actor_system.spawn_tokio_actor(PartialWitnessActor::new(
         clock.clone(),
         network_adapter.clone(),
         client_adapter_for_partial_witness_actor.as_multi_sender(),
@@ -184,7 +189,7 @@ fn setup(
         distribute_chunk_state_witness: partial_witness_adapter.clone().into_sender(),
     };
 
-    let (resharding_sender, _) = spawn_actix_actor(ReshardingActor::new(
+    let resharding_sender = actor_system.spawn_tokio_actor(ReshardingActor::new(
         epoch_manager.clone(),
         runtime.clone(),
         ReshardingHandle::new(),
@@ -200,6 +205,7 @@ fn setup(
         ..
     } = start_client(
         clock,
+        actor_system.clone(),
         config.clone(),
         chain_genesis,
         epoch_manager.clone(),
@@ -240,7 +246,8 @@ fn setup(
     );
 
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
-    let (shards_manager_adapter, _) = start_shards_manager(
+    let shards_manager_adapter = start_shards_manager(
+        actor_system,
         epoch_manager.clone(),
         epoch_manager,
         shard_tracker,
@@ -277,7 +284,7 @@ pub fn setup_mock(
         dyn FnMut(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
-            Addr<ClientActor>,
+            TokioRuntimeHandle<ClientActorInner>,
             Addr<RpcHandlerActor>,
         ) -> PeerManagerMessageResponse,
     >,
@@ -303,7 +310,7 @@ pub fn setup_mock_with_validity_period(
         dyn FnMut(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
-            Addr<ClientActor>,
+            TokioRuntimeHandle<ClientActorInner>,
             Addr<RpcHandlerActor>,
         ) -> PeerManagerMessageResponse,
     >,
@@ -355,7 +362,7 @@ pub fn setup_mock_with_validity_period(
 
 #[derive(Clone)]
 pub struct ActorHandlesForTesting {
-    pub client_actor: Addr<ClientActor>,
+    pub client_actor: TokioRuntimeHandle<ClientActorInner>,
     pub view_client_actor: Addr<ViewClientActor>,
     pub rpc_handler_actor: Addr<RpcHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,

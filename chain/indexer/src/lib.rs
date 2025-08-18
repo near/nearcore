@@ -15,6 +15,9 @@ pub use near_indexer_primitives::{
     StreamerMessage,
 };
 
+use near_async::ActorSystem;
+use near_async::tokio::TokioRuntimeHandle;
+use near_client::client_actor::ClientActorInner;
 use near_epoch_manager::shard_tracker::ShardTracker;
 pub use streamer::build_streamer_message;
 
@@ -94,7 +97,7 @@ pub struct Indexer {
     indexer_config: IndexerConfig,
     near_config: nearcore::NearConfig,
     view_client: actix::Addr<near_client::ViewClientActor>,
-    client: actix::Addr<near_client::ClientActor>,
+    client: TokioRuntimeHandle<ClientActorInner>,
     rpc_handler: actix::Addr<near_client::RpcHandlerActor>,
     shard_tracker: ShardTracker,
 }
@@ -126,8 +129,12 @@ impl Indexer {
             indexer_config.home_dir.join("config.json").display()
         );
         let nearcore::NearNode { client, view_client, rpc_handler, shard_tracker, .. } =
-            nearcore::start_with_config(&indexer_config.home_dir, near_config.clone())
-                .with_context(|| "start_with_config")?;
+            nearcore::start_with_config(
+                &indexer_config.home_dir,
+                near_config.clone(),
+                ActorSystem::new(),
+            )
+            .with_context(|| "start_with_config")?;
         Ok(Self { view_client, client, rpc_handler, near_config, indexer_config, shard_tracker })
     }
 
@@ -155,7 +162,7 @@ impl Indexer {
         &self,
     ) -> (
         actix::Addr<near_client::ViewClientActor>,
-        actix::Addr<near_client::ClientActor>,
+        TokioRuntimeHandle<ClientActorInner>,
         actix::Addr<near_client::RpcHandlerActor>,
     ) {
         (self.view_client.clone(), self.client.clone(), self.rpc_handler.clone())

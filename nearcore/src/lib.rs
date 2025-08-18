@@ -10,9 +10,7 @@ use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
-use near_async::actix::wrapper::{
-    ActixWrapper, SyncActixWrapper, spawn_actix_actor, spawn_sync_actix_actor,
-};
+use near_async::actix::wrapper::{ActixWrapper, SyncActixWrapper, spawn_sync_actix_actor};
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
@@ -31,9 +29,9 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
-    ChunkValidationSenderForPartialWitness, ClientActor, ConfigUpdater, PartialWitnessActor,
-    RpcHandlerActor, RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
-    ViewClientActorInner, spawn_rpc_handler_actor, start_client,
+    ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
+    RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor, ViewClientActorInner,
+    spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -64,6 +62,9 @@ mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
 pub mod state_sync;
+use near_async::ActorSystem;
+use near_async::tokio::TokioRuntimeHandle;
+use near_client::client_actor::ClientActorInner;
 #[cfg(feature = "tx_generator")]
 use near_transactions_generator::actix_actor::TxGeneratorActor;
 
@@ -217,7 +218,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 }
 
 pub struct NearNode {
-    pub client: Addr<ClientActor>,
+    pub client: TokioRuntimeHandle<ClientActorInner>,
     pub view_client: Addr<ViewClientActor>,
     // TODO(darioush): Remove once we migrate `slow_test_state_sync_headers` and
     // `slow_test_state_sync_headers_no_tracked_shards` to testloop.
@@ -241,13 +242,18 @@ pub struct NearNode {
     pub shard_tracker: ShardTracker,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
-    start_with_config_and_synchronization(home_dir, config, None, None)
+pub fn start_with_config(
+    home_dir: &Path,
+    config: NearConfig,
+    actor_system: ActorSystem,
+) -> anyhow::Result<NearNode> {
+    start_with_config_and_synchronization(home_dir, config, actor_system, None, None)
 }
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
     mut config: NearConfig,
+    actor_system: ActorSystem,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<broadcast::Sender<()>>,
@@ -385,7 +391,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
     );
-    let (state_snapshot_addr, state_snapshot_arbiter) = spawn_actix_actor(state_snapshot_actor);
+    let state_snapshot_addr = actor_system.spawn_tokio_actor(state_snapshot_actor);
     state_snapshot_sender.bind(state_snapshot_addr.clone());
 
     let delete_snapshot_callback: Arc<dyn Fn() + Sync + Send> =
@@ -396,20 +402,19 @@ pub fn start_with_config_and_synchronization(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (partial_witness_actor, partial_witness_arbiter) =
-        spawn_actix_actor(PartialWitnessActor::new(
-            Clock::real(),
-            network_adapter.as_multi_sender(),
-            client_adapter_for_partial_witness_actor.as_multi_sender(),
-            config.validator_signer.clone(),
-            epoch_manager.clone(),
-            runtime.clone(),
-            Arc::new(RayonAsyncComputationSpawner),
-            Arc::new(PartialWitnessValidationThreadPool::new()),
-            Arc::new(WitnessCreationThreadPool::new()),
-        ));
+    let partial_witness_actor = actor_system.spawn_tokio_actor(PartialWitnessActor::new(
+        Clock::real(),
+        network_adapter.as_multi_sender(),
+        client_adapter_for_partial_witness_actor.as_multi_sender(),
+        config.validator_signer.clone(),
+        epoch_manager.clone(),
+        runtime.clone(),
+        Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(PartialWitnessValidationThreadPool::new()),
+        Arc::new(WitnessCreationThreadPool::new()),
+    ));
 
-    let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
+    let _gc_actor = actor_system.spawn_tokio_actor(GCActor::new(
         runtime.store().clone(),
         &chain_genesis,
         runtime.clone(),
@@ -420,25 +425,24 @@ pub fn start_with_config_and_synchronization(
     ));
 
     let resharding_handle = ReshardingHandle::new();
-    let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
+    let resharding_sender = actor_system.spawn_tokio_actor(ReshardingActor::new(
         epoch_manager.clone(),
         runtime.clone(),
         resharding_handle.clone(),
         config.client_config.resharding_config.clone(),
     ));
-    let resharding_sender = resharding_sender_addr;
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
     let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone()));
     let StartClientResult {
         client_actor,
-        client_arbiter_handle,
         tx_pool,
         chunk_endorsement_tracker,
         chunk_validation_actor,
     } = start_client(
         Clock::real(),
+        actor_system.clone(),
         config.client_config.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
@@ -463,7 +467,8 @@ pub fn start_with_config_and_synchronization(
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
         chunk_state_witness: chunk_validation_actor.into_sender(),
     });
-    let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
+    let shards_manager_actor = start_shards_manager(
+        actor_system,
         epoch_manager.clone(),
         view_epoch_manager.clone(),
         shard_tracker.clone(),
@@ -566,14 +571,7 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let mut arbiters = vec![
-        client_arbiter_handle,
-        shards_manager_arbiter_handle,
-        trie_metrics_arbiter,
-        state_snapshot_arbiter,
-        gc_arbiter,
-        partial_witness_arbiter,
-    ];
+    let mut arbiters = vec![trie_metrics_arbiter];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }

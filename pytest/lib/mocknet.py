@@ -102,22 +102,12 @@ def get_node(hostname, project=PROJECT):
 
 
 def get_nodes(pattern=None, project=PROJECT):
-    machines = gcloud.list(
-        pattern=pattern,
+    return GCloudNode.get_nodes_by_mocknet_id(
+        mocknet_id=pattern,
         project=project,
         username=NODE_USERNAME,
         ssh_key_path=NODE_SSH_KEY_PATH,
     )
-    nodes = pmap(
-        lambda machine: GCloudNode(
-            machine.name,
-            username=NODE_USERNAME,
-            project=project,
-            ssh_key_path=NODE_SSH_KEY_PATH,
-        ),
-        machines,
-    )
-    return nodes
 
 
 # Needs to be in-sync with init.sh.tmpl in terraform.

@@ -292,9 +292,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
         if cfg!(feature = "protocol_feature_spice") {
-            // TODO(spice): persist core statements for block in storage by returning StoreUpdate,
-            // same as in self.epoch_manager.add_validator_proposals call above.
-            self.spice_core_processor.record_core_statements_from_block(&block)?;
+            self.chain_store_update.merge(self.spice_core_processor.record_block(&block)?);
         }
 
         // Update the chain head if it's the new tip

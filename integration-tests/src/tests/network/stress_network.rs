@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use actix::{Actor, AsyncContext, System};
+use actix::{Actor, AsyncContext};
 use futures::FutureExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use tracing::info;
@@ -106,7 +106,7 @@ fn stress_test() {
                                     }
                                 } else {
                                     info!(target: "test", "Node {} have failed", ix);
-                                    System::current().stop();
+                                    near_async::shutdown_all_actors();
                                 }
 
                                 futures::future::ready(())

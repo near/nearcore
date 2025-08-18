@@ -1,7 +1,7 @@
 use crate::challenge::Challenge;
 use crate::sharding::ShardChunkHeader;
 use crate::stateless_validation::ChunkProductionKey;
-use crate::stateless_validation::chunk_endorsement::SpiceEndorsementSignedInner;
+use crate::stateless_validation::chunk_endorsement::SpiceEndorsementWithSignature;
 use crate::types::ChunkExecutionResult;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
@@ -69,9 +69,8 @@ pub struct SpiceBlockBodyV3 {
 pub enum SpiceCoreStatement {
     Endorsement {
         chunk_production_key: ChunkProductionKey,
-        signed_inner: SpiceEndorsementSignedInner,
         account_id: AccountId,
-        signature: Signature,
+        endorsement: SpiceEndorsementWithSignature,
     },
     ChunkExecutionResult {
         chunk_production_key: ChunkProductionKey,

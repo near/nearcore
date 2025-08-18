@@ -1,7 +1,6 @@
 use std::ops::ControlFlow;
 use std::str::FromStr;
 
-use actix::System;
 use awc::http::StatusCode;
 use futures::{FutureExt, future};
 use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
@@ -429,7 +428,7 @@ fn test_status_fail() {
         })
         .await
         .unwrap();
-        System::current().stop()
+        near_async::shutdown_all_actors();
     });
 }
 
@@ -442,7 +441,7 @@ fn test_health_fail() {
         let client = new_client("http://127.0.0.1:12322/health");
         actix::spawn(client.health().then(|res| {
             assert!(res.is_err());
-            System::current().stop();
+            near_async::shutdown_all_actors();
             future::ready(())
         }));
     });
@@ -467,7 +466,7 @@ fn test_health_fail_no_blocks() {
         })
         .await
         .unwrap();
-        System::current().stop()
+        near_async::shutdown_all_actors();
     });
 }
 

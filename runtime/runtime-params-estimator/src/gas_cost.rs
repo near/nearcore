@@ -212,6 +212,13 @@ impl GasCost {
             serde_json::Value::Null
         }
     }
+
+    pub(crate) fn round_nanos(mut self) -> Self {
+        if let Some(time_ns) = &mut self.time_ns {
+            *time_ns = time_ns.round();
+        }
+        self
+    }
 }
 
 /// Defines what negative solutions are allowed in a least-squares result.

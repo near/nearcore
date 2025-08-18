@@ -16,7 +16,6 @@ use nearcore::config::NearConfig;
 use crate::node::Node;
 use crate::user::User;
 use crate::user::rpc_user::RpcUser;
-use actix::System;
 use near_jsonrpc_client_internal::new_client;
 use near_network::test_utils::wait_or_timeout;
 
@@ -63,7 +62,7 @@ impl Node for ProcessNode {
                     })
                     .await
                     .unwrap();
-                    System::current().stop()
+                    near_async::shutdown_all_actors();
                 });
             }
             ProcessNodeState::Running(_) => panic!("Node is already running"),

@@ -1,4 +1,4 @@
-use actix::{Actor, System};
+use actix::Actor;
 use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
@@ -31,6 +31,7 @@ use std::sync::Arc;
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use crate::utils::test_helpers::heavy_test;
+use near_async::ActorSystem;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -54,13 +55,16 @@ fn slow_test_sync_state_nodes() {
         let _dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
         let dir2 = _dir2.clone();
 
+        let actor_system = ActorSystem::new();
         run_actix(async move {
             let nearcore::NearNode { view_client: view_client1, .. } =
-                start_with_config(dir1.path(), near1).expect("start_with_config");
+                start_with_config(dir1.path(), near1, actor_system.clone())
+                    .expect("start_with_config");
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder;
+            let actor_system = actor_system.clone();
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
@@ -69,6 +73,7 @@ fn slow_test_sync_state_nodes() {
                         let arbiters_holder2 = arbiters_holder2.clone();
                         let genesis2 = genesis.clone();
                         let dir2 = dir2.clone();
+                        let actor_system = actor_system.clone();
 
                         let actor = view_client1.send(GetBlock::latest());
                         let actor = actor.then(move |res| {
@@ -89,8 +94,12 @@ fn slow_test_sync_state_nodes() {
                                             view_client: view_client2,
                                             arbiters,
                                             ..
-                                        } = start_with_config(dir2.path(), near2)
-                                            .expect("start_with_config");
+                                        } = start_with_config(
+                                            dir2.path(),
+                                            near2,
+                                            actor_system.clone(),
+                                        )
+                                        .expect("start_with_config");
                                         *view_client2_holder2 = Some(view_client2);
                                         *arbiters_holder2 = arbiters;
                                     }
@@ -110,7 +119,9 @@ fn slow_test_sync_state_nodes() {
                         let actor = view_client2.send(GetBlock::latest());
                         let actor = actor.then(|res| {
                             match &res {
-                                Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
+                                Ok(Ok(b)) if b.header.height >= 101 => {
+                                    near_async::shutdown_all_actors()
+                                }
                                 Ok(Ok(b)) if b.header.height < 101 => {
                                     println!("SECOND STAGE {}", b.header.height)
                                 }
@@ -159,6 +170,7 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
         let dir3 = _dir3.clone();
         let _dir4 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_4").tempdir().unwrap());
         let dir4 = _dir4.clone();
+        let actor_system = ActorSystem::new();
 
         run_actix(async move {
             let (port1, port2, port3, port4) = (
@@ -194,14 +206,16 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                 near1.client_config.max_block_production_delay;
 
             let nearcore::NearNode { view_client: view_client1, .. } =
-                start_with_config(dir1.path(), near1).expect("start_with_config");
+                start_with_config(dir1.path(), near1, actor_system.clone())
+                    .expect("start_with_config");
 
-            start_with_config(dir3.path(), near3).expect("start_with_config");
-            start_with_config(dir4.path(), near4).expect("start_with_config");
+            start_with_config(dir3.path(), near3, actor_system.clone()).expect("start_with_config");
+            start_with_config(dir4.path(), near4, actor_system.clone()).expect("start_with_config");
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiter_holder = Arc::new(RwLock::new(vec![]));
             let arbiter_holder2 = arbiter_holder;
+            let actor_system = actor_system.clone();
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
@@ -212,6 +226,7 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                         let dir2 = dir2.clone();
 
                         let actor = view_client1.send(GetBlock::latest());
+                        let actor_system = actor_system.clone();
                         let actor = actor.then(move |res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
@@ -237,8 +252,12 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                                             view_client: view_client2,
                                             arbiters,
                                             ..
-                                        } = start_with_config(dir2.path(), near2)
-                                            .expect("start_with_config");
+                                        } = start_with_config(
+                                            dir2.path(),
+                                            near2,
+                                            actor_system.clone(),
+                                        )
+                                        .expect("start_with_config");
                                         *view_client2_holder2 = Some(view_client2);
                                         *arbiter_holder2 = arbiters;
                                     }
@@ -258,7 +277,9 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                         let actor = view_client2.send(GetBlock::latest());
                         let actor = actor.then(|res| {
                             match &res {
-                                Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
+                                Ok(Ok(b)) if b.header.height >= 101 => {
+                                    near_async::shutdown_all_actors()
+                                }
                                 Ok(Ok(b)) if b.header.height < 101 => {
                                     println!("SECOND STAGE {}", b.header.height)
                                 }
@@ -317,6 +338,7 @@ fn ultra_slow_test_sync_state_dump() {
         let dir1 = _dir1.clone();
         let _dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
         let dir2 = _dir2.clone();
+        let actor_system = ActorSystem::new();
 
         run_actix(async move {
             let (port1, port2) =
@@ -346,11 +368,13 @@ fn ultra_slow_test_sync_state_dump() {
                 // State sync dumper should be kept in the scope to avoid dropping it, which stops the state dumper loop.
                 mut state_sync_dumper,
                 ..
-            } = start_with_config(dir1.path(), near1).expect("start_with_config");
+            } = start_with_config(dir1.path(), near1, actor_system.clone())
+                .expect("start_with_config");
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder;
+            let actor_system = actor_system.clone();
 
             wait_or_timeout(1000, 120000, || async {
                 if view_client2_holder.read().is_none() {
@@ -394,7 +418,7 @@ fn ultra_slow_test_sync_state_dump() {
 
                                 let nearcore::NearNode {
                                     view_client: view_client2, arbiters, ..
-                                } = start_with_config(dir2.path(), near2)
+                                } = start_with_config(dir2.path(), near2, actor_system.clone())
                                     .expect("start_with_config");
                                 *view_client2_holder2 = Some(view_client2);
                                 *arbiters_holder2 = arbiters;
@@ -435,7 +459,7 @@ fn ultra_slow_test_sync_state_dump() {
             .await
             .unwrap();
             state_sync_dumper.stop_and_await();
-            System::current().stop();
+            near_async::shutdown_all_actors();
         });
         drop(_dump_dir);
         drop(_dir1);
@@ -680,6 +704,7 @@ fn slow_test_state_sync_headers() {
         let _dir1 =
             Arc::new(tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap());
         let dir1 = _dir1.clone();
+        let actor_system = ActorSystem::new();
 
         run_actix(async {
             let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
@@ -696,7 +721,8 @@ fn slow_test_state_sync_headers() {
                 view_client: view_client1,
                 state_request_client: state_request_client1,
                 ..
-            } = start_with_config(dir1.path(), near1).expect("start_with_config");
+            } = start_with_config(dir1.path(), near1, actor_system.clone())
+                .expect("start_with_config");
 
             // First we need to find sync_hash. That is done in 3 steps:
             // 1. Get the latest block
@@ -796,7 +822,7 @@ fn slow_test_state_sync_headers() {
             })
             .await
             .unwrap();
-            System::current().stop();
+            near_async::shutdown_all_actors();
         });
         drop(_dir1);
     });
@@ -822,6 +848,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 .unwrap(),
         );
         let dir2 = _dir2.clone();
+        let actor_system = ActorSystem::new();
         run_actix(async {
             let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
             // Increase epoch_length if the test is flaky.
@@ -838,7 +865,8 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             near1.config.state_sync_enabled = false;
             near1.client_config.state_sync_enabled = false;
 
-            let _node1 = start_with_config(dir1.path(), near1).expect("start_with_config");
+            let _node1 = start_with_config(dir1.path(), near1, actor_system.clone())
+                .expect("start_with_config");
 
             let mut near2 =
                 load_test_config("test2", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
@@ -854,7 +882,8 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 view_client: view_client2,
                 state_request_client: state_request_client2,
                 ..
-            } = start_with_config(dir2.path(), near2).expect("start_with_config");
+            } = start_with_config(dir2.path(), near2, actor_system.clone())
+                .expect("start_with_config");
 
             // First we need to find sync_hash. That is done in 3 steps:
             // 1. Get the latest block
@@ -944,7 +973,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             })
             .await
             .unwrap();
-            System::current().stop();
+            near_async::shutdown_all_actors();
         });
         drop(_dir1);
         drop(_dir2);
