@@ -225,17 +225,26 @@ start execution will have the execution gas unspent. This gas is converted back
 to NEAR tokens and sent as a refund transfer to the original signer.
 
 Before protocol version 78, the full gas amount would be refunded and the refund
-transfer action was executed for free. Since version 78, the network charges a
+transfer action was executed for free. With [NEP-536](https://github.com/near/NEPs/pull/536)
+which was implemented in version 78, the plan was to have the network charge a
 fee of 5% of unspent gas or a minimum of 1 Tgas. This often removes the need to
 send a refund, which avoids additional load on the network, and it compensates
 for the load of the refund receipt when it needs to be issued. This is intended
 to discourage users from attaching more gas than needed to their transactions.
 In the nearcore code, you will find this fee under the name `gas_refund_penalty`.
 
-Technically, the refund transfer is still executed for free, since the gas price
-is set to 0. This keeps it in line with balance refunds. However, when the gas
-refund is produced, at least 1 Tgas has been burnt on receipt execution, which
-more than covers for a transfer.
+However, due to existing projects that need to attach more gas than they
+actually use, the introduction of the new fee has been postponed. The code is
+still in place but the parameters were set to 0 in PR
+[#13579](https://github.com/near/nearcore/pull/13579). Among other problems, in
+the reference FT implementation, `ft_transfer_call` requires at least 30 TGas
+even if most of the time only a fraction of that is burnt. Once all known
+problems are resolved, the plan is to try and introduce the 5% / 1 Tgas parameters.
+
+Technically, even when the parameters are increased again, the refund transfer
+is still executed for free, since the gas price is set to 0. This keeps it in
+line with balance refunds. However, when the gas refund is produced, at least 1
+Tgas has been burnt on receipt execution, which more than covers for a transfer.
 
 Finally, we can have a complete diagram, including the gas refund penalty.
 
