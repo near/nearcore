@@ -110,9 +110,9 @@ fn pretty_type_name<T>() -> &'static str {
 
 #[inline(always)]
 fn debug_description<M: Debug>(message: &M) -> String {
-    if tracing::enabled!(target: "tokio_runtime", tracing::Level::DEBUG) {
-        format!("{:?}", message)
-    } else {
-        pretty_type_name::<M>().to_string()
-    }
+    // XXX: This check doesn't work:
+    //let enabled = tracing::enabled!(target: "tokio_runtime", tracing::Level::DEBUG);
+    // XXX: Override it for now to check performance:
+    let enabled = false;
+    if enabled { format!("{:?}", message) } else { pretty_type_name::<M>().to_string() }
 }
