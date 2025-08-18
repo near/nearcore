@@ -125,40 +125,30 @@ impl schemars::JsonSchema for NonDelegateAction {
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         // Get the actual Action schema by calling its json_schema method directly
         // This gives us the full schema with the oneOf array, not just a reference
-        let action_schema = Action::json_schema(generator);
+        let mut action_schema = Action::json_schema(generator);
 
-        // Serialize to JSON to manipulate it
-        let mut schema_value = serde_json::to_value(&action_schema).unwrap();
-
-        // Find and filter the oneOf array
-        if let Some(obj) = schema_value.as_object_mut() {
-            if let Some(one_of) = obj.get_mut("oneOf") {
-                if let Some(arr) = one_of.as_array_mut() {
-                    // Remove the Delegate variant
-                    arr.retain(|variant| {
-                        !variant
-                            .get("properties")
-                            .and_then(|p| p.as_object())
-                            .map(|p| p.contains_key("Delegate"))
-                            .unwrap_or(false)
-                    });
-                }
+        // Find and filter the oneOf array directly on the Schema object
+        if let Some(one_of) = action_schema.get_mut("oneOf") {
+            if let Some(arr) = one_of.as_array_mut() {
+                // Remove the Delegate variant
+                arr.retain(|variant| {
+                    !variant
+                        .get("properties")
+                        .and_then(|p| p.as_object())
+                        .map(|p| p.contains_key("Delegate"))
+                        .unwrap_or(false)
+                });
             }
-
-            // Update description
-            obj.insert("description".to_string(), serde_json::json!(
-                "This is Action which mustn't contain DelegateAction.\n\n\
-                This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.\n\n\
-                Important: Don't make the inner Action public, this must only be constructed\n\
-                through the correct interface that ensures the inner Action is actually not\n\
-                a delegate action. That would break an assumption of this type, which we use\n\
-                in several places. For example, borsh de-/serialization relies on it. If the\n\
-                invariant is broken, we may end up with a `Transaction` or `Receipt` that we\n\
-                can serialize but deserializing it back causes a parsing error."
-            ));
         }
 
-        serde_json::from_value(schema_value).unwrap()
+        // Update description to be more client-friendly
+        action_schema.insert("description".to_string(), serde_json::json!(
+            "An Action that can be included in a transaction or receipt, excluding delegate actions. \
+            This type represents all possible action types except DelegateAction to prevent \
+            infinite recursion in meta-transactions."
+        ));
+
+        action_schema
     }
 }
 
@@ -298,11 +288,11 @@ mod tests {
         // Convert to JSON for inspection
         let schema_json = serde_json::to_value(&non_delegate_schema).unwrap();
 
-        // Verify it has oneOf array
-        assert!(schema_json.get("oneOf").is_some(), "NonDelegateAction schema should have oneOf");
-
         // Get the oneOf array
-        let one_of = schema_json.get("oneOf").unwrap().as_array().unwrap();
+        let one_of = schema_json.get("oneOf")
+            .expect("NonDelegateAction schema must have oneOf")
+            .as_array()
+            .expect("NonDelegateAction oneOf must be an array");
 
         // Verify that none of the variants have a Delegate property
         for variant in one_of {
@@ -321,9 +311,11 @@ mod tests {
         let action_json = serde_json::to_value(&action_schema).unwrap();
 
         // Action MUST have a oneOf array
-        assert!(action_json.get("oneOf").is_some(), "Action schema must have oneOf");
-        let action_one_of =
-            action_json.get("oneOf").unwrap().as_array().expect("Action oneOf must be an array");
+        let action_one_of = action_json
+            .get("oneOf")
+            .expect("Action schema must have oneOf")
+            .as_array()
+            .expect("Action oneOf must be an array");
 
         // Count how many variants have Delegate
         let delegate_count = action_one_of
