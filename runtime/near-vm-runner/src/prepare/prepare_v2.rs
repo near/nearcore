@@ -1,3 +1,4 @@
+use crate::MEMORY_EXPORT;
 use crate::logic::errors::PrepareError;
 use finite_wasm::wasmparser as wp;
 use near_parameters::vm::{Config, VMKind};
@@ -12,6 +13,8 @@ struct PrepareContext<'a> {
     validator: wp::Validator,
     func_validator_allocations: wp::FuncValidatorAllocations,
     before_import_section: bool,
+    before_memory_section: bool,
+    before_export_section: bool,
 }
 
 impl<'a> PrepareContext<'a> {
@@ -28,6 +31,8 @@ impl<'a> PrepareContext<'a> {
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
+            before_memory_section: true,
+            before_export_section: true,
         }
     }
 
@@ -39,6 +44,8 @@ impl<'a> PrepareContext<'a> {
     /// This will validate the module, normalize the memories within, apply limits.
     fn run(&mut self) -> Result<Vec<u8>, PrepareError> {
         self.before_import_section = true;
+        self.before_memory_section = true;
+        self.before_export_section = true;
         let parser = wp::Parser::new(0);
         for payload in parser.parse_all(self.code) {
             let payload = payload.map_err(|err| {
@@ -87,56 +94,91 @@ impl<'a> PrepareContext<'a> {
                 }
                 wp::Payload::MemorySection(reader) => {
                     // We do not want to include the implicit memory anymore as we normalized it by
-                    // importing the memory instead.
+                    // importing the memory instead in NearVm.
                     self.ensure_import_section();
+                    self.before_memory_section = false;
                     self.validator
                         .memory_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
+                    if self.config.vm_kind == VMKind::Wasmtime {
+                        wasm_encoder::MemorySection::new()
+                            .memory(self.memory_type())
+                            .append_to(&mut self.output_code);
+                    }
                 }
                 wp::Payload::GlobalSection(reader) => {
-                    self.ensure_import_section();
+                    self.ensure_memory_section();
                     self.validator
                         .global_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
                     self.copy_section(SectionId::Global, reader.range())?;
                 }
                 wp::Payload::ExportSection(reader) => {
-                    self.ensure_import_section();
+                    self.ensure_memory_section();
+                    self.before_export_section = false;
                     self.validator
                         .export_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
-                    self.copy_section(SectionId::Export, reader.range())?;
+                    let mut new_section = wasm_encoder::ExportSection::new();
+                    for res in reader {
+                        let wp::Export { name, kind, index } =
+                            res.map_err(|_| PrepareError::Deserialization)?;
+                        match kind {
+                            wp::ExternalKind::Func => {
+                                new_section.export(name, wasm_encoder::ExportKind::Func, index);
+                            }
+                            wp::ExternalKind::Table => {
+                                new_section.export(name, wasm_encoder::ExportKind::Table, index);
+                            }
+                            wp::ExternalKind::Memory => continue,
+                            wp::ExternalKind::Global => {
+                                new_section.export(name, wasm_encoder::ExportKind::Global, index);
+                            }
+                            wp::ExternalKind::Tag => {
+                                new_section.export(name, wasm_encoder::ExportKind::Tag, index);
+                            }
+                        }
+                        if name == MEMORY_EXPORT {
+                            // Something other than memory is exported under the name of
+                            // [MEMORY_EXPORT]
+                            return Err(PrepareError::Instantiate);
+                        }
+                    }
+                    if self.config.vm_kind == VMKind::Wasmtime {
+                        new_section.export(MEMORY_EXPORT, wasm_encoder::ExportKind::Memory, 0);
+                    }
+                    new_section.append_to(&mut self.output_code)
                 }
                 wp::Payload::StartSection { func, range } => {
-                    self.ensure_import_section();
+                    self.ensure_export_section();
                     self.validator
                         .start_section(func, &range)
                         .map_err(|_| PrepareError::Deserialization)?;
                     self.copy_section(SectionId::Start, range.clone())?;
                 }
                 wp::Payload::ElementSection(reader) => {
-                    self.ensure_import_section();
+                    self.ensure_export_section();
                     self.validator
                         .element_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
                     self.copy_section(SectionId::Element, reader.range())?;
                 }
                 wp::Payload::DataCountSection { count, range } => {
-                    self.ensure_import_section();
+                    self.ensure_export_section();
                     self.validator
                         .data_count_section(count, &range)
                         .map_err(|_| PrepareError::Deserialization)?;
                     self.copy_section(SectionId::DataCount, range.clone())?;
                 }
                 wp::Payload::DataSection(reader) => {
-                    self.ensure_import_section();
+                    self.ensure_export_section();
                     self.validator
                         .data_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
                     self.copy_section(SectionId::Data, reader.range())?;
                 }
                 wp::Payload::CodeSectionStart { size: _, count, range } => {
-                    self.ensure_import_section();
+                    self.ensure_export_section();
                     self.function_limit = self
                         .function_limit
                         .checked_sub(u64::from(count))
@@ -174,7 +216,7 @@ impl<'a> PrepareContext<'a> {
                 }
                 wp::Payload::CustomSection(reader) => {
                     if !self.config.discard_custom_sections {
-                        self.ensure_import_section();
+                        self.ensure_export_section();
                         self.copy_section(SectionId::Custom, reader.range())?;
                     }
                 }
@@ -198,6 +240,7 @@ impl<'a> PrepareContext<'a> {
                 }
             }
         }
+        self.ensure_export_section();
         Ok(std::mem::replace(&mut self.output_code, Vec::new()))
     }
 
@@ -225,7 +268,9 @@ impl<'a> PrepareContext<'a> {
             };
             new_section.import(import.module, import.name, new_type);
         }
-        new_section.import("env", "memory", self.memory_import());
+        if self.config.vm_kind != VMKind::Wasmtime {
+            new_section.import("env", "memory", self.memory_type());
+        }
         // wasm_encoder a section with all imports and the imported standardized memory.
         new_section.append_to(&mut self.output_code);
         Ok(())
@@ -234,21 +279,47 @@ impl<'a> PrepareContext<'a> {
     fn ensure_import_section(&mut self) {
         if self.before_import_section {
             self.before_import_section = false;
-            let mut new_section = wasm_encoder::ImportSection::new();
-            new_section.import("env", "memory", self.memory_import());
-            // wasm_encoder a section with all imports and the imported standardized memory.
-            new_section.append_to(&mut self.output_code);
+            if self.config.vm_kind != VMKind::Wasmtime {
+                // wasm_encoder a section with all imports and the imported standardized memory.
+                wasm_encoder::ImportSection::new()
+                    .import("env", "memory", self.memory_type())
+                    .append_to(&mut self.output_code);
+            }
         }
     }
 
-    fn memory_import(&self) -> wasm_encoder::EntityType {
-        wasm_encoder::EntityType::Memory(wasm_encoder::MemoryType {
+    fn ensure_memory_section(&mut self) {
+        self.ensure_import_section();
+        if self.before_memory_section {
+            self.before_memory_section = false;
+            if self.config.vm_kind == VMKind::Wasmtime {
+                wasm_encoder::MemorySection::new()
+                    .memory(self.memory_type())
+                    .append_to(&mut self.output_code);
+            }
+        }
+    }
+
+    fn ensure_export_section(&mut self) {
+        self.ensure_memory_section();
+        if self.before_export_section {
+            self.before_export_section = false;
+            if self.config.vm_kind == VMKind::Wasmtime {
+                wasm_encoder::ExportSection::new()
+                    .export(MEMORY_EXPORT, wasm_encoder::ExportKind::Memory, 0)
+                    .append_to(&mut self.output_code);
+            }
+        }
+    }
+
+    fn memory_type(&self) -> wasm_encoder::MemoryType {
+        wasm_encoder::MemoryType {
             minimum: u64::from(self.config.limit_config.initial_memory_pages),
             maximum: Some(u64::from(self.config.limit_config.max_memory_pages)),
             memory64: false,
             shared: false,
             page_size_log2: None,
-        })
+        }
     }
 
     fn copy_section(

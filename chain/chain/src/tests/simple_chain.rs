@@ -37,7 +37,7 @@ fn build_chain() {
         insta::assert_snapshot!(hash, @"EAc2t48pf5BtysasG98CYcuMwovGVSqexpckKCvtDfco");
     } else {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"6dPrdK9cqmJv5fRGBVMHTjFD1dPGeJqWTpJf1C32AXhT");
+        insta::assert_snapshot!(hash, @"29v1yk13bodFUYHAkTG8nRu2SvBScCEESreie3hEmc78");
     }
 
     for i in 1..5 {
@@ -57,7 +57,7 @@ fn build_chain() {
         insta::assert_snapshot!(hash, @"HgcqkqdeLB4PrY6212BtPYkkK7p7cCxnsYsFL62VAeLK");
     } else {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"5c3drE3U9PTYLo2tMnwWZh8iX67NcDr8ozJg1MwwX28p");
+        insta::assert_snapshot!(hash, @"FwKRg6eY9dSgUWrN45ZxFTeJ8Eqgfwe6s3EboqD1PvhF");
     }
 }
 

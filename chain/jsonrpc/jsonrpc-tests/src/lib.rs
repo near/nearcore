@@ -83,7 +83,7 @@ macro_rules! test_with_client {
                 // If runtime tempdir is dropped some parts of the runtime would stop working.
                 let _runtime_tempdir = _runtime_tempdir;
                 $block.await;
-                System::current().stop();
+                near_async::shutdown_all_actors();
             });
         });
     };

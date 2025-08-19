@@ -5,11 +5,11 @@ use crate::env::test_env_builder::TestEnvBuilder;
 use crate::utils::process_blocks::{
     deploy_test_contract, prepare_env_with_congestion, set_block_protocol_version,
 };
-use actix::System;
 use assert_matches::assert_matches;
 use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
+use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -89,7 +89,7 @@ fn produce_two_blocks() {
                 if let NetworkRequests::Block { .. } = msg.as_network_requests_ref() {
                     count.fetch_add(1, Ordering::Relaxed);
                     if count.load(Ordering::Relaxed) >= 2 {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 }
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
@@ -120,7 +120,7 @@ fn receive_network_block() {
                     if *first_header_announce {
                         *first_header_announce = false;
                     } else {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 }
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
@@ -160,7 +160,7 @@ fn receive_network_block() {
                 None,
                 vec![],
             );
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.into(),
                     peer_id: PeerInfo::random().id,
@@ -198,7 +198,7 @@ fn produce_block_with_approvals() {
                     // runs 10 iterations, which is way further in the future than them producing the
                     // block
                     if block.header().num_approvals() == validators.len() as u64 - 2 {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     } else if block.header().height() == 10 {
                         println!("{}", block.header().height());
                         println!(
@@ -251,7 +251,7 @@ fn produce_block_with_approvals() {
                 None,
                 vec![],
             );
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -276,7 +276,7 @@ fn produce_block_with_approvals() {
                 );
                 actor_handles
                     .client_actor
-                    .do_send(BlockApproval(approval, PeerInfo::random().id).span_wrap());
+                    .send(BlockApproval(approval, PeerInfo::random().id).span_wrap());
             }
 
             future::ready(())
@@ -308,7 +308,7 @@ fn invalid_blocks_common(is_requested: bool) {
                             assert_eq!(block.header().chunk_mask().len(), 1);
                             assert_eq!(block.header().latest_protocol_version(), PROTOCOL_VERSION);
                             assert_eq!(ban_counter, 3);
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                     }
                     NetworkRequests::BanPeer { ban_reason, .. } => {
@@ -316,7 +316,7 @@ fn invalid_blocks_common(is_requested: bool) {
                         ban_counter += 1;
                         let expected_ban_counter = 4;
                         if ban_counter == expected_ban_counter && is_requested {
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                     }
                     _ => {}
@@ -362,7 +362,7 @@ fn invalid_blocks_common(is_requested: bool) {
             let mut block = valid_block.clone();
             block.mut_header().set_chunk_mask(vec![]);
             block.mut_header().init();
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -375,7 +375,7 @@ fn invalid_blocks_common(is_requested: bool) {
             let mut block = valid_block.clone();
             block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
             block.mut_header().init();
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -400,7 +400,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 }
             };
             block.set_chunks(chunks);
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -411,7 +411,7 @@ fn invalid_blocks_common(is_requested: bool) {
 
             // Send proper block.
             let block2 = valid_block;
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block2.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -423,7 +423,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 let mut block3 = block2;
                 block3.mut_header().set_chunk_headers_root(hash(&[1]));
                 block3.mut_header().init();
-                actor_handles.client_actor.do_send(
+                actor_handles.client_actor.send(
                     BlockResponse {
                         block: block3.clone().into(),
                         peer_id: PeerInfo::random().id,
@@ -465,7 +465,7 @@ fn skip_block_production() {
                 match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if block.header().height() > 3 {
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                     }
                     _ => {}
@@ -496,7 +496,7 @@ fn client_sync_headers() {
                         assert_eq!(*peer_id, peer_info1.id);
                         assert_eq!(hashes.len(), 1);
                         // TODO: check it requests correct hashes.
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
 
                         PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
                     }
@@ -504,7 +504,7 @@ fn client_sync_headers() {
                 }
             }),
         );
-        actor_handles.client_actor.do_send(
+        actor_handles.client_actor.send(
             SetNetworkInfo(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo {
                     full_peer_info: FullPeerInfo {
