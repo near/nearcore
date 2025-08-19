@@ -4,7 +4,7 @@ use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::Sender;
 use near_async::time::{Clock, Instant};
-use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
+use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::StateSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
