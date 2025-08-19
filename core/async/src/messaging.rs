@@ -22,6 +22,8 @@ pub trait Actor {
     ) -> R {
         f(self, msg, ctx)
     }
+
+    fn stop_actor(&mut self) {}
 }
 
 /// All handled messages shall implement this trait.

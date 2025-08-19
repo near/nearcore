@@ -1,5 +1,6 @@
 use crate::PeerManagerActor;
 use crate::accounts_data::AccountDataCacheSnapshot;
+use crate::actix::AutoStopActor;
 use crate::broadcast;
 use crate::client::ClientSenderForNetworkInput;
 use crate::client::ClientSenderForNetworkMessage;
@@ -24,22 +25,23 @@ use crate::state_witness::PartialWitnessSenderForNetworkInput;
 use crate::state_witness::PartialWitnessSenderForNetworkMessage;
 use crate::tcp;
 use crate::test_utils;
-use crate::testonly::actix::ActixSystem;
-use crate::types::StateRequestSenderForNetworkInput;
 use crate::types::StateRequestSenderForNetworkMessage;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
 };
+use crate::types::{PeerManagerMessageResponse, StateRequestSenderForNetworkInput};
 use futures::FutureExt;
-use near_async::messaging::IntoMultiSender;
-use near_async::messaging::Sender;
-use near_async::time;
+use near_async::futures::FutureSpawnerExt;
+use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
+use near_async::messaging::{CanSend, Sender};
+use near_async::{ActorSystem, time};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::ShardStateSyncResponse;
 use near_primitives::state_sync::ShardStateSyncResponseV2;
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -59,14 +61,15 @@ struct WithNetworkState(
     Box<dyn Send + FnOnce(Arc<NetworkState>) -> Pin<Box<dyn Send + 'static + Future<Output = ()>>>>,
 );
 
-impl actix::Handler<WithNetworkState> for PeerManagerActor {
-    type Result = ();
-    fn handle(
-        &mut self,
-        WithNetworkState(f): WithNetworkState,
-        _: &mut Self::Context,
-    ) -> Self::Result {
-        assert!(actix::Arbiter::current().spawn(f(self.state.clone())));
+impl Debug for WithNetworkState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("WithNetworkState").finish()
+    }
+}
+
+impl messaging::Handler<WithNetworkState> for PeerManagerActor {
+    fn handle(&mut self, WithNetworkState(f): WithNetworkState) {
+        self.future_spawner.spawn("with_network_state", f(self.state.clone()));
     }
 }
 
@@ -84,7 +87,7 @@ pub enum Event {
 pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
-    pub actix: ActixSystem<PeerManagerActor>,
+    pub actix: AutoStopActor<PeerManagerActor>,
 }
 
 pub(crate) fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
@@ -184,12 +187,11 @@ impl ActorHandler {
     }
 
     pub async fn send_outbound_connect(&self, peer_info: &PeerInfo, tier: tcp::Tier) {
-        let addr = self.actix.addr.clone();
         let peer_info = peer_info.clone();
         let stream = tcp::Stream::connect(&peer_info, tier, &config::SocketOptions::default())
             .await
             .unwrap();
-        addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
+        self.actix.send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
     }
 
     pub fn connect_to(
@@ -197,7 +199,7 @@ impl ActorHandler {
         peer_info: &PeerInfo,
         tier: tcp::Tier,
     ) -> impl 'static + Send + Future<Output = tcp::StreamId> {
-        let addr = self.actix.addr.clone();
+        let addr = self.actix.0.clone();
         let events = self.events.clone();
         let peer_info = peer_info.clone();
         async move {
@@ -206,7 +208,7 @@ impl ActorHandler {
                 .unwrap();
             let mut events = events.from_now();
             let stream_id = stream.id();
-            addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
+            addr.send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
             events
                 .recv_until(|ev| match &ev {
                     Event::PeerManager(PME::HandshakeCompleted(ev))
@@ -229,8 +231,7 @@ impl ActorHandler {
     ) -> R {
         let (send, recv) = tokio::sync::oneshot::channel();
         self.actix
-            .addr
-            .send(WithNetworkState(Box::new(|s| {
+            .send_async(WithNetworkState(Box::new(|s| {
                 Box::pin(async { send.send(f(s).await).ok().unwrap() })
             })))
             .await
@@ -287,7 +288,7 @@ impl ActorHandler {
             tcp::Stream::loopback(network_cfg.node_id(), tier).await;
         let stream_id = outbound_stream.id();
         let events = self.events.from_now();
-        self.actix.addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(outbound_stream));
+        self.actix.send(PeerManagerMessageRequest::OutboundTcpConnect(outbound_stream));
         let conn = RawConnection {
             events,
             stream: inbound_stream,
@@ -416,9 +417,11 @@ impl ActorHandler {
     }
 
     pub async fn announce_account(&self, aa: AnnounceAccount) {
-        self.actix
-            .addr
-            .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(aa)))
+        let _: () = self
+            .actix
+            .send_async(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::AnnounceAccount(aa),
+            ))
             .await
             .unwrap();
     }
@@ -567,110 +570,103 @@ impl ActorHandler {
 pub(crate) async fn start(
     clock: time::Clock,
     store: Arc<dyn near_store::db::Database>,
-    cfg: config::NetworkConfig,
+    mut cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
 ) -> ActorHandler {
     let (send, mut recv) = broadcast::unbounded_channel();
-    let actix = ActixSystem::spawn({
-        let mut cfg = cfg.clone();
-        let chain = chain.clone();
-        move || {
-            let genesis_id = chain.genesis_id.clone();
-            cfg.event_sink = Sender::from_fn({
-                let send = send.clone();
-                move |event| {
-                    send.send(Event::PeerManager(event));
-                }
-            });
-            let client_sender = Sender::from_fn({
-                let send = send.clone();
-                move |event: ClientSenderForNetworkMessage| {
-                    // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
-                    // of the test code.
-                    // For some specific events we craft a response and send it back, while for
-                    // most other events we send it to the sink (for what? I have no idea).
-                    match event {
-                        ClientSenderForNetworkMessage::_announce_account(msg) => {
-                            (msg.callback)(
-                                std::future::ready(Ok(Ok(msg
-                                    .message
-                                    .0
-                                    .iter()
-                                    .map(|(account, _)| account.clone())
-                                    .collect())))
-                                .boxed(),
-                            );
-                            send.send(Event::Client(
-                                ClientSenderForNetworkInput::_announce_account(msg.message),
-                            ));
-                        }
-                        _ => {
-                            send.send(Event::Client(event.into_input()));
-                        }
-                    }
-                }
-            });
-            let state_request_sender = Sender::from_fn({
-                let send = send.clone();
-                move |event: StateRequestSenderForNetworkMessage| {
-                    // NOTE: See above comment for explanation about this code.
-                    match event {
-                        StateRequestSenderForNetworkMessage::_state_request_part(msg) => {
-                            let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
-                            let part = Some((part_id, vec![]));
-                            let state_response =
-                                ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
-                                    header: None,
-                                    part,
-                                });
-                            let result =
-                                Some(StateResponse(Box::new(StateResponseInfo::V2(Box::new(
-                                    StateResponseInfoV2 { shard_id, sync_hash, state_response },
-                                )))));
-                            (msg.callback)(std::future::ready(Ok(result)).boxed());
-                            send.send(Event::StateRequestSender(
-                                StateRequestSenderForNetworkInput::_state_request_part(msg.message),
-                            ));
-                        }
-                        _ => {
-                            send.send(Event::StateRequestSender(event.into_input()));
-                        }
-                    }
-                }
-            });
-            let peer_manager_sender = Sender::from_fn({
-                let send = send.clone();
-                move |event: PeerManagerSenderForNetworkMessage| {
-                    send.send(Event::PeerManagerSender(event.into_input()));
-                }
-            });
-            let shards_manager_sender = Sender::from_fn({
-                let send = send.clone();
-                move |event| {
-                    send.send(Event::ShardsManager(event));
-                }
-            });
-            let state_witness_sender = Sender::from_fn({
-                let send = send.clone();
-                move |event: PartialWitnessSenderForNetworkMessage| {
-                    send.send(Event::PartialWitness(event.into_input()));
-                }
-            });
-            PeerManagerActor::spawn(
-                clock,
-                store,
-                cfg,
-                client_sender.break_apart().into_multi_sender(),
-                state_request_sender.break_apart().into_multi_sender(),
-                peer_manager_sender.break_apart().into_multi_sender(),
-                shards_manager_sender,
-                state_witness_sender.break_apart().into_multi_sender(),
-                genesis_id,
-            )
-            .unwrap()
+    let chain = chain.clone();
+    let genesis_id = chain.genesis_id.clone();
+    cfg.event_sink = Sender::from_fn({
+        let send = send.clone();
+        move |event| {
+            send.send(Event::PeerManager(event));
         }
-    })
-    .await;
+    });
+    let client_sender = Sender::from_fn({
+        let send = send.clone();
+        move |event: ClientSenderForNetworkMessage| {
+            // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
+            // of the test code.
+            // For some specific events we craft a response and send it back, while for
+            // most other events we send it to the sink (for what? I have no idea).
+            match event {
+                ClientSenderForNetworkMessage::_announce_account(msg) => {
+                    (msg.callback)(
+                        std::future::ready(Ok(Ok(msg
+                            .message
+                            .0
+                            .iter()
+                            .map(|(account, _)| account.clone())
+                            .collect())))
+                        .boxed(),
+                    );
+                    send.send(Event::Client(ClientSenderForNetworkInput::_announce_account(
+                        msg.message,
+                    )));
+                }
+                _ => {
+                    send.send(Event::Client(event.into_input()));
+                }
+            }
+        }
+    });
+    let state_request_sender = Sender::from_fn({
+        let send = send.clone();
+        move |event: StateRequestSenderForNetworkMessage| {
+            // NOTE: See above comment for explanation about this code.
+            match event {
+                StateRequestSenderForNetworkMessage::_state_request_part(msg) => {
+                    let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
+                    let part = Some((part_id, vec![]));
+                    let state_response =
+                        ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
+                    let result = Some(StateResponse(Box::new(StateResponseInfo::V2(Box::new(
+                        StateResponseInfoV2 { shard_id, sync_hash, state_response },
+                    )))));
+                    (msg.callback)(std::future::ready(Ok(result)).boxed());
+                    send.send(Event::StateRequestSender(
+                        StateRequestSenderForNetworkInput::_state_request_part(msg.message),
+                    ));
+                }
+                _ => {
+                    send.send(Event::StateRequestSender(event.into_input()));
+                }
+            }
+        }
+    });
+    let peer_manager_sender = Sender::from_fn({
+        let send = send.clone();
+        move |event: PeerManagerSenderForNetworkMessage| {
+            send.send(Event::PeerManagerSender(event.into_input()));
+        }
+    });
+    let shards_manager_sender = Sender::from_fn({
+        let send = send.clone();
+        move |event| {
+            send.send(Event::ShardsManager(event));
+        }
+    });
+    let state_witness_sender = Sender::from_fn({
+        let send = send.clone();
+        move |event: PartialWitnessSenderForNetworkMessage| {
+            send.send(Event::PartialWitness(event.into_input()));
+        }
+    });
+    let actor_system = ActorSystem::new();
+    let actor = PeerManagerActor::spawn(
+        clock,
+        actor_system,
+        store,
+        cfg.clone(),
+        client_sender.break_apart().into_multi_sender(),
+        state_request_sender.break_apart().into_multi_sender(),
+        peer_manager_sender.break_apart().into_multi_sender(),
+        shards_manager_sender,
+        state_witness_sender.break_apart().into_multi_sender(),
+        genesis_id,
+    )
+    .unwrap();
+    let actix = AutoStopActor(actor);
     let h = ActorHandler { cfg, actix, events: recv.clone() };
     // Wait for the server to start.
     recv.recv_until(|ev| match ev {

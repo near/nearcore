@@ -12,7 +12,7 @@ pub mod tokio;
 // FIXME: near_time re-export is not optimal solution, but it would require to change time in many places
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, spawn_multithread_actor};
 use crate::tokio::TokioRuntimeHandle;
-use crate::tokio::runtime_handle::spawn_tokio_actor;
+use crate::tokio::runtime_handle::{TokioRuntimeBuilder, spawn_tokio_actor};
 pub use near_time as time;
 use parking_lot::Mutex;
 use std::any::type_name;
@@ -66,6 +66,12 @@ impl ActorSystem {
         actor: A,
     ) -> TokioRuntimeHandle<A> {
         spawn_tokio_actor(self.clone(), actor)
+    }
+
+    pub fn new_tokio_builder<A: messaging::Actor + Send + 'static>(
+        &self,
+    ) -> TokioRuntimeBuilder<A> {
+        TokioRuntimeBuilder::new(self.clone())
     }
 
     /// Spawns a multi-threaded actor which handles messages in a synchronous thread pool.
