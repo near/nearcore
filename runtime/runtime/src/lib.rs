@@ -2350,14 +2350,7 @@ impl Runtime {
             .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound);
         let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
-            if apply_state.apply_reason == ApplyChunkReason::ValidateChunkStateWitness {
-                // Skip heavy trie-change materialization during stateless validation.
-                // We still need the new root to be correct, which is computed by the in-memory
-                // state update; however, we avoid generating refcount deltas and flattened nodes.
-                state_update.finalize_ephemeral()?
-            } else {
-                state_update.finalize()?
-            };
+            state_update.finalize()?;
 
         if let Some(prefetcher) = &processing_state.prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
@@ -2485,12 +2478,7 @@ fn missing_chunk_apply_result(
     bandwidth_scheduler_output: &BandwidthSchedulerOutput,
 ) -> Result<ApplyResult, RuntimeError> {
     let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
-        if processing_state.apply_state.apply_reason == ApplyChunkReason::ValidateChunkStateWitness
-        {
-            processing_state.state_update.finalize_ephemeral()?
-        } else {
-            processing_state.state_update.finalize()?
-        };
+        processing_state.state_update.finalize()?;
     let proof = trie.recorded_storage();
 
     // For old chunks, copy the congestion info exactly as it came in,

@@ -283,36 +283,6 @@ impl TrieUpdate {
         Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_updates })
     }
 
-    /// Finalize without materializing on-disk trie changes.
-    ///
-    /// This computes the new root and state changes but skips generating
-    /// refcount deltas and flattening nodes. Intended for stateless validation
-    /// where only the resulting root and tallies are needed.
-    pub fn finalize_ephemeral(self) -> Result<TrieUpdateResult, StorageError> {
-        assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
-        let TrieUpdate { trie, committed, contract_storage, .. } = self;
-        let mut state_changes = Vec::with_capacity(committed.len());
-        let mut trie_changes = TrieChanges::empty(*trie.get_root());
-        let computed = trie.update(
-            committed.into_iter().map(|(k, changes_with_trie_key)| {
-                let data = changes_with_trie_key
-                    .changes
-                    .last()
-                    .expect("Committed entry should have at least one change")
-                    .data
-                    .clone();
-                state_changes.push(changes_with_trie_key);
-                (k, data)
-            }),
-            AccessOptions::DEFAULT,
-        )?;
-        trie_changes.new_root = computed.new_root;
-        trie_changes.memtrie_changes = computed.memtrie_changes;
-        trie_changes.children_memtrie_changes = computed.children_memtrie_changes;
-        let contract_updates = contract_storage.finalize();
-        Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_updates })
-    }
-
     /// Returns Error if the underlying storage fails
     pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator<'_>, StorageError> {
         TrieUpdateIterator::new(self, key_prefix, None)
