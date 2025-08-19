@@ -240,3 +240,4 @@ action_use_global_contract_per_identifier_byte
 - send_not_sir:           47_683_715
 - execution:              64_572_944
 global_contract_host_fns                true
+deterministic_account_ids               false
