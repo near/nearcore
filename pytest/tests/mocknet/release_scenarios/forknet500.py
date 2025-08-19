@@ -18,7 +18,7 @@ class Test28(TestSetup):
         self.start_height = 158710624
         self.args.start_height = self.start_height
         self.node_hardware_config = NodeHardware.SmallChunkValidatorsConfig(
-            num_chunk_producer_seats=9, num_chunk_validator_seats=12)
+            num_chunk_producer_seats=1, num_chunk_validator_seats=1)
         self.epoch_len = 200
         self.has_state_dumper = False
         self.genesis_protocol_version = 79
