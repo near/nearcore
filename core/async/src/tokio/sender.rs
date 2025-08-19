@@ -13,10 +13,10 @@ use crate::tokio::runtime_handle::{TokioRuntimeHandle, TokioRuntimeMessage};
 impl<A, M> CanSend<M> for TokioRuntimeHandle<A>
 where
     A: HandlerWithContext<M> + 'static,
-    M: Message + Debug + Send + 'static,
+    M: Message + Send + 'static,
 {
     fn send(&self, message: M) {
-        let description = format!("{}({})", pretty_type_name::<A>(), debug_description(&message));
+        let description = format!("{}({})", pretty_type_name::<A>(), pretty_type_name::<M>());
         tracing::debug!(target: "tokio_runtime", "Sending sync message: {}", description);
 
         let function =
@@ -31,11 +31,11 @@ where
 impl<A, M, R> CanSend<MessageWithCallback<M, R>> for TokioRuntimeHandle<A>
 where
     A: HandlerWithContext<M, R> + 'static,
-    M: Message + Debug + Send + 'static,
+    M: Message + Send + 'static,
     R: Send + 'static,
 {
     fn send(&self, message: MessageWithCallback<M, R>) {
-        let description = format!("{}({})", pretty_type_name::<A>(), debug_description(&message));
+        let description = format!("{}({})", pretty_type_name::<A>(), pretty_type_name::<M>());
         tracing::debug!(target: "tokio_runtime", "Sending sync message with callback: {}", description);
 
         let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
@@ -51,11 +51,11 @@ where
 impl<A, M, R> CanSendAsync<M, R> for TokioRuntimeHandle<A>
 where
     A: HandlerWithContext<M, R> + 'static,
-    M: Message + Debug + Send + 'static,
+    M: Message + Send + 'static,
     R: Debug + Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
-        let description = format!("{}({})", pretty_type_name::<A>(), debug_description(&message));
+        let description = format!("{}({})", pretty_type_name::<A>(), pretty_type_name::<M>());
         tracing::debug!(target: "tokio_runtime", "Sending async message: {}", description);
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -106,13 +106,4 @@ where
 // example near_chunks::shards_manager_actor::ShardsManagerActor -> ShardsManagerActor
 fn pretty_type_name<T>() -> &'static str {
     type_name::<T>().split("::").last().unwrap()
-}
-
-#[inline(always)]
-fn debug_description<M: Debug>(message: &M) -> String {
-    // XXX: This check doesn't work:
-    //let enabled = tracing::enabled!(target: "tokio_runtime", tracing::Level::DEBUG);
-    // XXX: Override it for now to check performance:
-    let enabled = false;
-    if enabled { format!("{:?}", message) } else { pretty_type_name::<M>().to_string() }
 }
