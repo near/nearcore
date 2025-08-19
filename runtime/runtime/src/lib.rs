@@ -1567,12 +1567,15 @@ impl Runtime {
             .into_iter()
             .flat_map(|mask| (0..chunk_size).map(move |idx| ((mask >> idx) & 1) == 1));
 
+        let default_hash = CryptoHash::default();
+        let mut last_tx_hash = &default_hash;
         for (tx, is_valid) in tx_vec.iter().zip(valid_mask_iterator) {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
             if !is_valid {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 continue;
             }
+            last_tx_hash = tx.hash();
             let signer_id = tx.transaction.signer_id();
             let pubkey = tx.transaction.public_key();
             let gas_price = apply_state.gas_price;
@@ -1712,8 +1715,7 @@ impl Runtime {
             }
         }
 
-        state_update
-            .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
+        state_update.commit(StateChangeCause::TransactionProcessing { tx_hash: *last_tx_hash });
 
         Ok(())
     }
