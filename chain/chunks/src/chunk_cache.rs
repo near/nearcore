@@ -51,6 +51,7 @@ pub struct EncodedChunksCacheEntry {
     pub header_fully_validated: bool,
     pub created_at_parts: Option<Instant>,
     pub created_at_receipts: Option<Instant>,
+    pub created_at_reconstruct: Option<Instant>,
 }
 
 pub struct EncodedChunksCache {
@@ -83,6 +84,7 @@ impl EncodedChunksCacheEntry {
             header_fully_validated: false,
             created_at_parts: Some(Instant::now()),
             created_at_receipts: Some(Instant::now()),
+            created_at_reconstruct: Some(Instant::now()),
         }
     }
 
@@ -157,6 +159,19 @@ impl EncodedChunksCache {
                     .with_label_values(&[entry.header.shard_id().to_string().as_str()])
                     .observe(time_to_last_part.as_seconds_f64());
                 entry.created_at_parts = None;
+            }
+        }
+    }
+
+    pub fn mark_can_reconstruct(&mut self, chunk_hash: &ChunkHash) {
+        if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
+            if let Some(created_at_reconstruct) = entry.created_at_reconstruct {
+                let time_to_reconstruct =
+                    Instant::now().signed_duration_since(created_at_reconstruct);
+                metrics::PARTIAL_CHUNK_TIME_TO_RECONSTRUCT
+                    .with_label_values(&[entry.header.shard_id().to_string().as_str()])
+                    .observe(time_to_reconstruct.as_seconds_f64());
+                entry.created_at_reconstruct = None;
             }
         }
     }
