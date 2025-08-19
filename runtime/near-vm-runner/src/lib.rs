@@ -43,12 +43,12 @@ pub(crate) const MEMORY_EXPORT: &str = "\0nearcore_memory";
 /// The maximum amount of elements in a single table.
 /// Wasmtime defaults to `20_000`
 #[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
-pub(crate) const MAX_ELEMENTS_PER_TABLE: usize = 1_000_000;
+pub(crate) const MAX_ELEMENTS_PER_TABLE: usize = 10_000;
 
 /// The maximum amount of tables per module.
 /// Wasmtime defaults to `1`
 #[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
-pub(crate) const MAX_TABLES_PER_MODULE: u32 = 5;
+pub(crate) const MAX_TABLES_PER_MODULE: u32 = 1;
 
 /// This is public for internal experimentation use only, and should otherwise be considered an
 /// implementation detail of `near-vm-runner`.
