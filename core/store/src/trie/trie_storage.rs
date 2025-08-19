@@ -1,10 +1,7 @@
 use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
-use crate::trie::raw_node::RawTrieNodeWithSize;
 use crate::{MissingTrieValue, MissingTrieValueContext, PrefetchApi, StorageError, metrics};
-use borsh::BorshDeserialize;
-use dashmap::DashMap;
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -320,8 +317,6 @@ pub struct TrieMemoryPartialStorage<const TRACK_VISITED_NODES: bool> {
     // in the vector, and `fetch_or(compute_bit())` is a really cheap way to set values in such a
     // type.
     pub(crate) visited_nodes: dashmap::DashSet<CryptoHash>,
-    /// Cache of decoded trie nodes to avoid repeated Borsh deserialization.
-    pub(crate) decoded_nodes: DashMap<CryptoHash, Arc<RawTrieNodeWithSize>>,
 }
 
 impl<const TRACK_VISITED_NODES: bool> TrieStorage
@@ -350,31 +345,13 @@ impl<const TRACK_VISITED_NODES: bool> TrieMemoryPartialStorage<TRACK_VISITED_NOD
         } else {
             dashmap::DashSet::new()
         };
-        Self { visited_nodes, recorded_storage, decoded_nodes: DashMap::new() }
-    }
-
-    /// Returns a cached decoded node if available; otherwise decodes from bytes,
-    /// inserts into the cache and returns it.
-    pub fn get_or_decode_node(
-        &self,
-        hash: &CryptoHash,
-        bytes: &Arc<[u8]>,
-    ) -> Result<RawTrieNodeWithSize, StorageError> {
-        if let Some(entry) = self.decoded_nodes.get(hash) {
-            return Ok((**entry).clone());
-        }
-        let node = RawTrieNodeWithSize::try_from_slice(bytes).map_err(|err| {
-            StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
-        })?;
-        let arc_node: Arc<RawTrieNodeWithSize> = Arc::new(node.clone());
-        self.decoded_nodes.insert(*hash, arc_node);
-        Ok(node)
+        Self { visited_nodes, recorded_storage }
     }
 }
 
 impl TrieMemoryPartialStorage<true> {
     pub fn partial_state(self) -> PartialState {
-        let Self { recorded_storage, visited_nodes, .. } = self;
+        let Self { recorded_storage, visited_nodes } = self;
         let mut nodes: Vec<_> = recorded_storage
             .into_iter()
             .filter_map(|(node_hash, value)| visited_nodes.contains(&node_hash).then_some(value))
