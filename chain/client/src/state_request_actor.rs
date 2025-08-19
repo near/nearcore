@@ -9,6 +9,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
 use near_performance_metrics_macros::perf;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::{
@@ -144,17 +145,9 @@ impl StateRequestActor {
     fn get_protocol_version_from_sync_hash(
         &self,
         sync_hash: &CryptoHash,
-    ) -> Option<ProtocolVersion> {
-        let protocol_version = self
-            .epoch_manager
-            .get_epoch_id_from_prev_block(sync_hash)
-            .and_then(|epoch_id| self.epoch_manager.get_epoch_protocol_version(&epoch_id));
-
-        protocol_version
-            .map_err(|err| {
-                tracing::error!(target: "sync", ?err, "Failed to get sync_hash protocol version");
-            })
-            .ok()
+    ) -> Result<ProtocolVersion, EpochError> {
+        let epoch_id = self.epoch_manager.get_epoch_id(sync_hash)?;
+        self.epoch_manager.get_epoch_protocol_version(&epoch_id)
     }
 }
 
@@ -223,11 +216,12 @@ impl Handler<StateRequestHeader, Option<StateResponse>> for StateRequestActor {
             return None;
         }
 
-        let Some(protocol_version) = self.get_protocol_version_from_sync_hash(&sync_hash) else {
-            return None;
-        };
-
-        tracing::debug!(target: "sync", "Handle state request header");
+        let protocol_version = self
+            .get_protocol_version_from_sync_hash(&sync_hash)
+            .inspect_err(|err| {
+                tracing::error!(target: "sync", ?err, "Failed to get sync_hash protocol version");
+            })
+            .ok()?;
 
         match self.validate_sync_hash(&sync_hash) {
             SyncHashValidationResult::Valid => {
@@ -275,9 +269,12 @@ impl Handler<StateRequestPart, Option<StateResponse>> for StateRequestActor {
             return None;
         }
 
-        let Some(protocol_version) = self.get_protocol_version_from_sync_hash(&sync_hash) else {
-            return None;
-        };
+        let protocol_version = self
+            .get_protocol_version_from_sync_hash(&sync_hash)
+            .inspect_err(|err| {
+                tracing::error!(target: "sync", ?err, "Failed to get sync_hash protocol version");
+            })
+            .ok()?;
 
         tracing::debug!(target: "sync", "Computing state request part");
         match self.validate_sync_hash(&sync_hash) {

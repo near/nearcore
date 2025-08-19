@@ -424,13 +424,11 @@ impl NightshadeRuntime {
         part_id: PartId,
         part: &StatePart,
     ) -> bool {
-        let partial_state = match part.to_partial_state() {
-            Ok(partial_state) => partial_state,
+        let partial_state = part.to_partial_state();
+        let Ok(partial_state) = part.to_partial_state() else {
             // Deserialization error means we've got the data from malicious peer
-            Err(err) => {
-                tracing::error!(target: "state-parts", ?err, "State part deserialization error");
-                return false;
-            }
+            tracing::error!(target: "state-parts", ?partial_state, "State part deserialization error");
+            return false;
         };
         match Trie::validate_state_part(state_root, part_id, partial_state) {
             Ok(_) => true,

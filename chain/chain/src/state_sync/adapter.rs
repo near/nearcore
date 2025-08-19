@@ -539,7 +539,7 @@ impl ChainStateSyncAdapter {
                 state_root
             )));
         }
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&sync_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id(&sync_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         // Saving the part data.
