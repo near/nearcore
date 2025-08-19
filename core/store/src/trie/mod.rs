@@ -1148,6 +1148,19 @@ impl Trie {
         }
         let bytes =
             self.internal_retrieve_trie_node(hash, use_accounting_cache, operation_options)?;
+
+        // If the backing storage is TrieMemoryPartialStorage, use its decoded-node cache.
+        let storage_any = (&*self.storage) as &dyn std::any::Any;
+        if let Some(mem) = storage_any.downcast_ref::<TrieMemoryPartialStorage<false>>() {
+            let node = mem.get_or_decode_node(hash, &bytes)?;
+            return Ok(Some((bytes, node)));
+        }
+        if let Some(mem) = storage_any.downcast_ref::<TrieMemoryPartialStorage<true>>() {
+            let node = mem.get_or_decode_node(hash, &bytes)?;
+            return Ok(Some((bytes, node)));
+        }
+
+        // Fallback decode when not using recorded storage.
         let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
             StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
         })?;
