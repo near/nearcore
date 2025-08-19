@@ -12,7 +12,8 @@ use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+    ActionReceipt, ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+    VersionedActionReceipt,
 };
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
@@ -281,13 +282,37 @@ pub(crate) fn action_function_call(
                     );
                 }
 
-                let new_action_receipt = ActionReceipt {
-                    signer_id: action_receipt.signer_id.clone(),
-                    signer_public_key: action_receipt.signer_public_key.clone(),
-                    gas_price: action_receipt.gas_price,
-                    output_data_receivers: receipt.output_data_receivers,
-                    input_data_ids: receipt.input_data_ids,
-                    actions: receipt.actions,
+                let new_receipt = if ProtocolFeature::DeterministicAccountIds
+                    .enabled(apply_state.current_protocol_version)
+                {
+                    let new_action_receipt = ActionReceiptV2 {
+                        signer_id: action_receipt.signer_id.clone(),
+                        signer_public_key: action_receipt.signer_public_key.clone(),
+                        refund_to: receipt.refund_to,
+                        gas_price: action_receipt.gas_price,
+                        output_data_receivers: receipt.output_data_receivers,
+                        input_data_ids: receipt.input_data_ids,
+                        actions: receipt.actions,
+                    };
+                    if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYieldV2(new_action_receipt)
+                    } else {
+                        ReceiptEnum::ActionV2(new_action_receipt)
+                    }
+                } else {
+                    let new_action_receipt = ActionReceipt {
+                        signer_id: action_receipt.signer_id.clone(),
+                        signer_public_key: action_receipt.signer_public_key.clone(),
+                        gas_price: action_receipt.gas_price,
+                        output_data_receivers: receipt.output_data_receivers,
+                        input_data_ids: receipt.input_data_ids,
+                        actions: receipt.actions,
+                    };
+                    if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYield(new_action_receipt)
+                    } else {
+                        ReceiptEnum::Action(new_action_receipt)
+                    }
                 };
 
                 Receipt::V0(ReceiptV0 {
@@ -296,11 +321,7 @@ pub(crate) fn action_function_call(
                     // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                     // "Generating receipt IDs" section
                     receipt_id: CryptoHash::default(),
-                    receipt: if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYield(new_action_receipt)
-                    } else {
-                        ReceiptEnum::Action(new_action_receipt)
-                    },
+                    receipt: new_receipt,
                 })
             })
             .collect();
@@ -833,22 +854,32 @@ pub(crate) fn apply_delegate_action(
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-            let mut required_gas = total_prepaid_exec_fees(
-                &apply_state.config,
-                &action_receipt.actions,
-                receipt.receiver_id(),
-            )?
-            .checked_add_result(total_prepaid_gas(&action_receipt.actions)?)?;
-            required_gas = required_gas.checked_add_result(
-                apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-            )?;
-
-            required_gas
+            action_receipt_required_gas(apply_state, receipt, action_receipt.into())?
+        }
+        ReceiptEnum::ActionV2(action_receipt) | ReceiptEnum::PromiseYieldV2(action_receipt) => {
+            action_receipt_required_gas(apply_state, receipt, action_receipt.into())?
         }
         ReceiptEnum::GlobalContractDistribution(_)
         | ReceiptEnum::Data(_)
         | ReceiptEnum::PromiseResume(_) => Gas::ZERO,
     })
+}
+
+fn action_receipt_required_gas(
+    apply_state: &ApplyState,
+    receipt: &Receipt,
+    action_receipt: VersionedActionReceipt,
+) -> Result<u64, RuntimeError> {
+    let mut required_gas = total_prepaid_exec_fees(
+        &apply_state.config,
+        &action_receipt.actions,
+        receipt.receiver_id(),
+    )?
+    .checked_add_result(total_prepaid_gas(&action_receipt.actions)?)?;
+    required_gas = required_gas.checked_add_result(
+        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
+    )?;
+    Ok(required_gas)
 }
 
 /// Validate access key which was used for signing DelegateAction:

@@ -43,7 +43,7 @@ use near_primitives::errors::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
+    ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData, VersionedActionReceipt,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -927,7 +927,7 @@ impl Runtime {
 
         if deposit_refund > 0 {
             result.new_receipts.push(Receipt::new_balance_refund(
-                receipt.predecessor_id(),
+                receipt.balance_refund_receiver(),
                 deposit_refund,
                 receipt.priority(),
             ));
@@ -1016,7 +1016,7 @@ impl Runtime {
 
         if deposit_refund > 0 {
             result.new_receipts.push(Receipt::new_balance_refund(
-                receipt.predecessor_id(),
+                receipt.balance_refund_receiver(),
                 deposit_refund,
                 receipt.priority(),
             ));
@@ -1144,53 +1144,46 @@ impl Runtime {
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
                 // If not, then we will postpone this receipt for later.
-                let mut pending_data_count: u32 = 0;
-                for data_id in &action_receipt.input_data_ids {
-                    if !has_received_data(state_update, account_id, *data_id)? {
-                        pending_data_count += 1;
-                        // The data for a given data_id is not available, so we save a link to this
-                        // receipt_id for the pending data_id into the state.
-                        set(
-                            state_update,
-                            TrieKey::PostponedReceiptId {
-                                receiver_id: account_id.clone(),
-                                data_id: *data_id,
-                            },
-                            receipt.receipt_id(),
-                        )
-                    }
-                }
-                if pending_data_count == 0 {
-                    // All input data is available. Executing the receipt. It will cleanup
-                    // input data from the state.
-                    return self
-                        .apply_action_receipt(
-                            state_update,
-                            apply_state,
-                            pipeline_manager,
-                            receipt,
-                            receipt_sink,
-                            validator_proposals,
-                            stats,
-                            epoch_info_provider,
-                        )
-                        .map(Some);
-                } else {
-                    // Not all input data is available now.
-                    // Save the counter for the number of pending input data items into the state.
-                    set(
-                        state_update,
-                        TrieKey::PendingDataCount {
-                            receiver_id: account_id.clone(),
-                            receipt_id: *receipt.receipt_id(),
-                        },
-                        &pending_data_count,
-                    );
-                    // Save the receipt itself into the state.
-                    set_postponed_receipt(state_update, receipt);
+                let executed = self.process_action_receipt(
+                    receipt,
+                    receipt_sink,
+                    validator_proposals,
+                    state_update,
+                    apply_state,
+                    epoch_info_provider,
+                    pipeline_manager,
+                    stats,
+                    account_id,
+                    action_receipt.into(),
+                )?;
+
+                if executed.is_some() {
+                    return Ok(executed);
                 }
             }
-            ReceiptEnum::PromiseYield(_) => {
+            ReceiptEnum::ActionV2(action_receipt) => {
+                // Received a new action receipt. We'll first check how many input data items
+                // were already received before and saved in the state.
+                // And if we have all input data, then we can immediately execute the receipt.
+                // If not, then we will postpone this receipt for later.
+                let executed = self.process_action_receipt(
+                    receipt,
+                    receipt_sink,
+                    validator_proposals,
+                    state_update,
+                    apply_state,
+                    epoch_info_provider,
+                    pipeline_manager,
+                    stats,
+                    account_id,
+                    action_receipt.into(),
+                )?;
+
+                if executed.is_some() {
+                    return Ok(executed);
+                }
+            }
+            ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_) => {
                 // Received a new PromiseYield receipt. We simply store it and await
                 // the corresponding PromiseResume receipt.
                 set_promise_yield_receipt(state_update, receipt);
@@ -1248,6 +1241,69 @@ impl Runtime {
         // We didn't trigger execution, so we need to commit the state.
         state_update
             .commit(StateChangeCause::PostponedReceipt { receipt_hash: receipt.get_hash() });
+        Ok(None)
+    }
+
+    fn process_action_receipt(
+        &self,
+        receipt: &Receipt,
+        receipt_sink: &mut ReceiptSink,
+        validator_proposals: &mut Vec<ValidatorStake>,
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+        epoch_info_provider: &dyn EpochInfoProvider,
+        pipeline_manager: &ReceiptPreparationPipeline,
+        stats: &mut ChunkApplyStatsV0,
+        account_id: &AccountId,
+        action_receipt: VersionedActionReceipt<'_>,
+    ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+        let mut pending_data_count: u32 = 0;
+        for data_id in action_receipt.input_data_ids() {
+            if !has_received_data(state_update, account_id, *data_id)? {
+                pending_data_count += 1;
+                // The data for a given data_id is not available, so we save a link to this
+                // receipt_id for the pending data_id into the state.
+                set(
+                    state_update,
+                    TrieKey::PostponedReceiptId {
+                        receiver_id: account_id.clone(),
+                        data_id: *data_id,
+                    },
+                    receipt.receipt_id(),
+                )
+            }
+        }
+
+        if pending_data_count == 0 {
+            // All input data is available. Executing the receipt. It will cleanup
+            // input data from the state.
+            return self
+                .apply_action_receipt(
+                    state_update,
+                    apply_state,
+                    pipeline_manager,
+                    receipt,
+                    receipt_sink,
+                    validator_proposals,
+                    stats,
+                    epoch_info_provider,
+                )
+                .map(Some);
+        } else {
+            // Not all input data is available now.
+            // Save the counter for the number of pending input data items into the state.
+            set(
+                state_update,
+                TrieKey::PendingDataCount {
+                    receiver_id: account_id.clone(),
+                    receipt_id: *receipt.receipt_id(),
+                },
+                &pending_data_count,
+            );
+            // Save the receipt itself into the state.
+            set_postponed_receipt(state_update, receipt);
+        }
+
         Ok(None)
     }
 
@@ -2717,7 +2773,10 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
             receipt: &Receipt,
         ) -> bool {
             match receipt.receipt() {
-                ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_) => {
+                ReceiptEnum::Action(_)
+                | ReceiptEnum::PromiseYield(_)
+                | ReceiptEnum::ActionV2(_)
+                | ReceiptEnum::PromiseYieldV2(_) => {
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)
