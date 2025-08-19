@@ -55,7 +55,7 @@ use node_runtime::{
     verify_and_charge_tx_ephemeral,
 };
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -633,6 +633,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
 
+        let mut seen_tx_hashes: HashSet<CryptoHash> = HashSet::new();
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
@@ -650,9 +651,16 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
 
             // Take a single transaction from this transaction group
-            while let Some(tx_peek) = transaction_group_iter.peek_next() {
+            if let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
+                    break 'add_txs_loop;
+                }
+                if !seen_tx_hashes.insert(tx_peek.get_hash()) {
+                    // If we have already seen this transaction, we looped through mempool
+                    tracing::warn!(target: "runtime",
+                        "Skipping transaction {} in shard {} because it was already seen.",
+                        tx_peek.get_hash(), shard_id);
                     break 'add_txs_loop;
                 }
 
