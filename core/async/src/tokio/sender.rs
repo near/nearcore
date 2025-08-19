@@ -16,8 +16,8 @@ where
     M: Message + Debug + Send + 'static,
 {
     fn send(&self, message: M) {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
-        tracing::debug!(target: "tokio_runtime", "Sending sync message: {}", description);
+        tracing::debug!(target: "tokio_runtime", "Sending sync message: {}",
+            format!("{}({:?})", pretty_type_name::<A>(), &message));
 
         let function =
             |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| actor.handle(message, ctx);
