@@ -297,6 +297,9 @@ impl ChunkProducer {
             }
         };
 
+        // XXX: find the right spot for this
+        self.prefetch_transactions(shard_uid, prev_block, state_root)?;
+
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adversarial.produce_mode {
@@ -398,6 +401,36 @@ impl ChunkProducer {
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
         }))
+    }
+
+    fn prefetch_transactions(
+        &self,
+        shard_uid: ShardUId,
+        prev_block: &Block,
+        state_root: CryptoHash,
+    ) -> Result<(), Error> {
+        let shard_id = shard_uid.shard_id();
+        let mut pool_guard = self.sharded_tx_pool.lock();
+        let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) else {
+            tracing::warn!(
+            target: "runtime",
+            "No transaction pool iterator found for shard {}. Skipping prefetch.",
+            shard_id);
+            return Ok(());
+        };
+        let storage_config = RuntimeStorageConfig {
+            state_root,
+            use_flat_storage: true,
+            source: near_chain::types::StorageDataSource::Db,
+            state_patch: Default::default(),
+        };
+        self.runtime_adapter.prefetch_transactions(
+            storage_config,
+            shard_id,
+            prev_block.into(),
+            &mut iter,
+        )?;
+        Ok(())
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.

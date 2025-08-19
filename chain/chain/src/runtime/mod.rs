@@ -26,6 +26,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateRoot, StateRootNode,
@@ -38,20 +39,22 @@ use near_primitives::views::{
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
+use near_store::trie::AccessOptions;
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges,
+    TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::config::tx_cost;
+use node_runtime::config::{gas_burnt, tx_cost};
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
     get_signer_and_access_key, set_tx_state_changes, validate_transaction,
     verify_and_charge_tx_ephemeral,
 };
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -76,6 +79,25 @@ pub struct NightshadeRuntime {
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
     gc_num_epochs_to_keep: u64,
+    prefetch_transaction_cache: PrefetchTransactionCache,
+}
+
+pub(crate) struct PrefetchTransactionCache {
+    pub cache: RwLock<HashMap<(CryptoHash, ShardId), TrieUpdate>>,
+}
+
+impl PrefetchTransactionCache {
+    pub fn new() -> Self {
+        Self { cache: RwLock::new(HashMap::new()) }
+    }
+
+    pub fn remove(&self, key: &(CryptoHash, ShardId)) -> Option<TrieUpdate> {
+        self.cache.write().remove(key)
+    }
+
+    pub fn insert(&self, key: (CryptoHash, ShardId), value: TrieUpdate) -> Option<TrieUpdate> {
+        self.cache.write().insert(key, value)
+    }
 }
 
 impl NightshadeRuntime {
@@ -127,6 +149,7 @@ impl NightshadeRuntime {
             trie_viewer,
             epoch_manager,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
+            prefetch_transaction_cache: PrefetchTransactionCache::new(),
         })
     }
 
@@ -562,6 +585,112 @@ impl RuntimeAdapter for NightshadeRuntime {
         .map(|_vr| ())
     }
 
+    fn prefetch_transactions(
+        &self,
+        storage_config: RuntimeStorageConfig,
+        shard_id: ShardId,
+        prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
+    ) -> Result<(), Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+
+        let mut trie = match storage_config.source {
+            StorageDataSource::Db => {
+                self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
+            }
+            StorageDataSource::DbTrieOnly => {
+                // If there is no flat storage on disk, use trie but simulate costs with enabled
+                // flat storage by not charging gas for trie nodes.
+                // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
+                let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
+                trie.set_use_trie_accounting_cache(false);
+                trie
+            }
+            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
+                storage,
+                storage_config.state_root,
+                storage_config.use_flat_storage,
+            ),
+        };
+        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
+        // enabled in the next epoch. We need to save the state transition data in the current epoch
+        // to be able to produce the state witness in the next epoch.
+        let proof_size_limit =
+            runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
+        trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
+
+        let mut state_update = TrieUpdate::new(trie);
+
+        // Total amount of gas burnt for converting transactions towards receipts.
+        let mut total_gas_burnt = 0;
+        let mut total_size = 0u64;
+
+        let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
+
+        let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
+
+        // Add new transactions to the result until some limit is hit or the transactions run out.
+        'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
+            if total_gas_burnt >= transactions_gas_limit {
+                break;
+            }
+            if total_size >= size_limit {
+                break;
+            }
+
+            // FIXME(nagisa): why is this not using `check_proof_size_limit_exceed`? Comment.
+            if state_update.trie.recorded_storage_size() as u64
+                > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
+            {
+                break;
+            }
+
+            // Take a single transaction from this transaction group
+            while let Some(tx_peek) = transaction_group_iter.peek_next() {
+                // Stop adding transactions if the size limit would be exceeded
+                if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
+                    break 'add_txs_loop;
+                }
+
+                // We just want to cache the account & access key in the trie update.
+                let account_id = tx_peek.signer_id();
+                let key = TrieKey::Account { account_id: account_id.clone() };
+                if let Some(val) = state_update.get(&key, AccessOptions::DEFAULT)? {
+                    state_update.set(key, val);
+                }
+                let key = TrieKey::AccessKey {
+                    account_id: account_id.clone(),
+                    public_key: tx_peek.public_key().clone(),
+                };
+                if let Some(val) = state_update.get(&key, AccessOptions::DEFAULT)? {
+                    state_update.set(key, val);
+                }
+
+                // Optimistically, assume the gas will work
+                match gas_burnt(&runtime_config, &tx_peek.to_tx()).map_err(InvalidTxError::from) {
+                    Ok(gas_burnt) => {
+                        total_gas_burnt += gas_burnt;
+                    }
+                    Err(err) => {
+                        tracing::warn!(target:"runtime", "Failed to calculate gas burnt for transaction: {}", err);
+                    }
+                }
+                total_size += tx_peek.get_size();
+            }
+        }
+        // This is just to get cached for now
+        state_update.commit(StateChangeCause::NotWritableToDisk);
+        self.prefetch_transaction_cache.insert((storage_config.state_root, shard_id), state_update);
+        tracing::warn!(target: "runtime",
+            "Prefetched transactions for shard {} with state root {}. Total gas burnt: {}, total size: {}",
+            shard_id, storage_config.state_root, total_gas_burnt, total_size);
+        Ok(())
+    }
+
     fn prepare_transactions(
         &self,
         storage_config: RuntimeStorageConfig,
@@ -608,7 +737,16 @@ impl RuntimeAdapter for NightshadeRuntime {
             runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
         trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
 
-        let mut state_update = TrieUpdate::new(trie);
+        let mut state_update =
+            match self.prefetch_transaction_cache.remove(&(storage_config.state_root, shard_id)) {
+                Some(cached) => {
+                    tracing::warn!(target: "runtime",
+                        "Using prefetched transactions for shard {} with state root {}.",
+                        shard_id, storage_config.state_root);
+                    cached
+                }
+                None => TrieUpdate::new(trie),
+            };
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
