@@ -58,7 +58,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, OptimisticBlockMessage, SetNetworkInfo,
-    StateResponseReceived,
+    StateResponseReceived, StateResponse,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -627,15 +627,18 @@ impl Handler<SpanWrapped<BlockApproval>> for ClientActorInner {
 /// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
 impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
     fn handle(&mut self, msg: SpanWrapped<StateResponseReceived>) {
-        let StateResponseReceived { peer_id, state_response_info } = msg.span_unwrap();
-        let shard_id = state_response_info.shard_id();
-        let hash = state_response_info.sync_hash();
-        let state_response = state_response_info.take_state_response();
+        let StateResponseReceived { peer_id, state_response } = msg.span_unwrap();
+        let hash = state_response.sync_hash();
 
-        trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
-               shard_id,
-               hash,
-               state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
+        let response_type = match state_response {
+            StateResponse::Ack(_) => "ack",
+            StateResponse::State(_) => "state",
+        };
+        trace!(target: "sync", "Received state response {:?} shard_id: {:?} sync_hash: {:?} part_id: {:?}",
+            response_type,
+            state_response.shard_id(),
+            hash,
+            state_response.part_id_or_header(),
         );
         // Get the download that matches the shard_id and hash
 
@@ -644,12 +647,9 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
             &mut self.client.sync_handler.sync_status
         {
             if hash == *sync_hash {
-                if let Err(err) = self.client.sync_handler.state_sync.apply_peer_message(
-                    peer_id,
-                    shard_id,
-                    *sync_hash,
-                    state_response,
-                ) {
+                if let Err(err) =
+                    self.client.sync_handler.state_sync.apply_peer_message(peer_id, state_response)
+                {
                     tracing::error!(?err, "Error applying state sync response");
                 }
                 return;
@@ -660,8 +660,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
         if let Some(CatchupState { state_sync, .. }) =
             self.client.catchup_state_syncs.get_mut(&hash)
         {
-            if let Err(err) = state_sync.apply_peer_message(peer_id, shard_id, hash, state_response)
-            {
+            if let Err(err) = state_sync.apply_peer_message(peer_id, state_response) {
                 tracing::error!(?err, "Error applying catchup state sync response");
             }
             return;

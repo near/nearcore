@@ -10,6 +10,7 @@ use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
+pub use near_primitives::state_sync::StateRequestAck;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
@@ -924,7 +925,7 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::StateRequestAck(ack) => write!(
                 f,
                 "StateRequestAck(sync_hash={:?}, shard_id={:?}, header_or_part_id={:?}, body={:?})",
-                ack.sync_hash, ack.shard_id, ack.header_or_part_id, ack.body,
+                ack.sync_hash, ack.shard_id, ack.part_id_or_header, ack.body,
             ),
         }
     }
@@ -1506,6 +1507,13 @@ impl StateResponseInfo {
         match self {
             Self::V1(info) => info.sync_hash,
             Self::V2(info) => info.sync_hash,
+        }
+    }
+
+    pub fn part_id(&self) -> Option<u64> {
+        match self {
+            Self::V1(info) => info.state_response.part_id(),
+            Self::V2(info) => info.state_response.part_id(),
         }
     }
 

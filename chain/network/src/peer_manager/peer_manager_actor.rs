@@ -17,11 +17,11 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ConnectedPeerInfo, HeaderOrPartId, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerInfo, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerManagerSenderForNetwork, PeerType, SetChainInfo,
-    SnapshotHostInfo, StateHeaderRequestBody, StatePartRequestBody, StateRequestAckBody,
-    StateRequestSenderForNetwork, StateSyncEvent, Tier3Request, Tier3RequestBody,
+    ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
+    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StateHeaderRequestBody,
+    StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent, Tier3Request,
+    Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -33,6 +33,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_performance_metrics_macros::perf;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, NetworkRoutesView,
     PeerStoreView, RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
@@ -924,7 +925,7 @@ impl PeerManagerActor {
             NetworkRequests::StateRequestAck {
                 shard_id,
                 sync_hash,
-                header_or_part_id,
+                part_id_or_header,
                 body,
                 peer_id,
             } => {
@@ -935,7 +936,7 @@ impl PeerManagerActor {
                         body: T2MessageBody::StateRequestAck(StateRequestAck {
                             shard_id,
                             sync_hash,
-                            header_or_part_id,
+                            part_id_or_header,
                             body,
                         })
                         .into(),
@@ -946,7 +947,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?header_or_part_id, ?body, "ack state request from host {peer_id}");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, "ack state request from host {peer_id}");
                 NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {
@@ -1407,7 +1408,7 @@ impl actix::Handler<Tier3Request> for PeerManagerActor {
                             T2MessageBody::StateRequestAck(StateRequestAck {
                                 shard_id,
                                 sync_hash,
-                                header_or_part_id: HeaderOrPartId::Header,
+                                part_id_or_header: PartIdOrHeader::Header,
                                 body: ack,
                             }).into(),
                             response
@@ -1432,7 +1433,7 @@ impl actix::Handler<Tier3Request> for PeerManagerActor {
                             T2MessageBody::StateRequestAck(StateRequestAck {
                                 shard_id,
                                 sync_hash,
-                                header_or_part_id: HeaderOrPartId::Part(part_id),
+                                part_id_or_header: PartIdOrHeader::Part { part_id },
                                 body: ack,
                             }).into(),
                             response
