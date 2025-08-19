@@ -410,8 +410,7 @@ impl InfoHelper {
 
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log =
-            Some(display_sync_status(sync_status, head, &client_config.state_sync.sync));
+        let sync_status_log = Some(display_sync_status(sync_status, head));
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
                 " {}{} validator{}",
@@ -702,11 +701,7 @@ pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
     }
 }
 
-pub fn display_sync_status(
-    sync_status: &SyncStatus,
-    head: &Tip,
-    state_sync_config: &SyncConfig,
-) -> String {
+pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
