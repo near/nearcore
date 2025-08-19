@@ -13,7 +13,8 @@ class Test28(TestSetup):
     """
 
     def __init__(self, args):
-        args.neard_binary_url = 'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/2.7.0_forknet/neard'
+        # args.neard_binary_url = 'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/2.7.0_forknet/neard'
+        args.neard_binary_url = 'https://storage.googleapis.com/logunov-s/neard-0819'
         super().__init__(args)
         self.start_height = 158710624
         self.args.start_height = self.start_height
@@ -21,7 +22,7 @@ class Test28(TestSetup):
             num_chunk_producer_seats=1, num_chunk_validator_seats=2)
         self.epoch_len = 200
         self.has_state_dumper = False
-        self.genesis_protocol_version = 79
+        self.genesis_protocol_version = 80  # 79
         self.has_archival = False
         self.regions = "us-east1,europe-west4,asia-east1,us-west1,asia-south1,europe-west1,asia-southeast1"
         self.upgrade_interval_minutes = 5  # Within the first 2 epochs

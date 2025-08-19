@@ -18,7 +18,7 @@ CHAIN_ID = "mainnet"
 def call_gh_workflow(action,
                      unique_id,
                      start_height,
-                     hardware_config,
+                     hardware_config=None,
                      regions=None,
                      has_archival=None,
                      has_state_dumper=None,
@@ -29,9 +29,9 @@ def call_gh_workflow(action,
     cmd += f"-f start_height={start_height} "
     if regions:
         cmd += f"-f location_set={regions} "
-
-    cmd += f"-f chunk_producers={hardware_config.chunk_producers_hosts()} "
-    cmd += f"-f chunk_validators={hardware_config.only_chunk_validators_hosts()} "
+    if hardware_config != None:
+        cmd += f"-f chunk_producers={hardware_config.chunk_producers_hosts()} "
+        cmd += f"-f chunk_validators={hardware_config.only_chunk_validators_hosts()} "
 
     if has_archival != None:
         cmd += f"-f archival_nodes={'true' if has_archival else 'false'} "
