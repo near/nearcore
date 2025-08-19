@@ -1118,13 +1118,11 @@ class NeardRunner:
         return config
 
     def set_shard_tracking_config(self, config):
-        # TODO: Enable saving witness after fixing the performance problems.
-        config['save_latest_witnesses'] = False
         if self.can_validate():
-            config['tracked_shards'] = []
+            config['tracked_shards_config'] = "NoShards"
             config['store']['load_mem_tries_for_tracked_shards'] = True
         else:
-            config['tracked_shards'] = [0]
+            config['tracked_shards_config'] = "AllShards"
             config['store']['load_mem_tries_for_tracked_shards'] = False
         return config
 
