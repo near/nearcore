@@ -14,7 +14,7 @@ use near_primitives::congestion_info::{CongestionControl, CongestionInfo, Conges
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
     Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, StateStoredReceipt,
-    StateStoredReceiptMetadata,
+    StateStoredReceiptMetadata, VersionedActionReceipt,
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
@@ -676,19 +676,11 @@ pub(crate) fn compute_receipt_congestion_gas(
     match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) => {
             // account for gas guaranteed to be used for executing the receipts
-            let prepaid_exec_gas = safe_add_gas(
-                total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
-                config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-            )?;
-            // account for gas guaranteed to be used for creating new receipts
-            let prepaid_send_gas = total_prepaid_send_fees(config, &action_receipt.actions)?;
-            let prepaid_gas = safe_add_gas(prepaid_exec_gas, prepaid_send_gas)?;
-
-            // account for gas potentially used for dynamic execution
-            let gas_attached_to_fns = total_prepaid_gas(&action_receipt.actions)?;
-            let gas = safe_add_gas(gas_attached_to_fns, prepaid_gas)?;
-
-            Ok(gas)
+            action_receipt_congestion_gas(receipt, config, action_receipt.into())
+        }
+        ReceiptEnum::ActionV2(action_receipt) => {
+            // account for gas guaranteed to be used for executing the receipts
+            action_receipt_congestion_gas(receipt, config, action_receipt.into())
         }
         ReceiptEnum::Data(_data_receipt) => {
             // Data receipts themselves don't cost gas to execute, their cost is
@@ -699,7 +691,7 @@ pub(crate) fn compute_receipt_congestion_gas(
             // receipts or postponed receipts.
             Ok(0)
         }
-        ReceiptEnum::PromiseYield(_) => {
+        ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_) => {
             // The congestion control MVP does not account for yielding a
             // promise. Yielded promises are confined to a single account, hence
             // they never cross the shard boundaries. This makes it irrelevant
@@ -717,6 +709,26 @@ pub(crate) fn compute_receipt_congestion_gas(
         }
         ReceiptEnum::GlobalContractDistribution(_) => Ok(0),
     }
+}
+
+fn action_receipt_congestion_gas(
+    receipt: &Receipt,
+    config: &RuntimeConfig,
+    action_receipt: VersionedActionReceipt,
+) -> Result<u64, IntegerOverflowError> {
+    let prepaid_exec_gas = safe_add_gas(
+        total_prepaid_exec_fees(config, action_receipt.actions(), receipt.receiver_id())?,
+        config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
+    )?;
+    // account for gas guaranteed to be used for creating new receipts
+    let prepaid_send_gas = total_prepaid_send_fees(config, &action_receipt.actions())?;
+    let prepaid_gas = safe_add_gas(prepaid_exec_gas, prepaid_send_gas)?;
+
+    // account for gas potentially used for dynamic execution
+    let gas_attached_to_fns = total_prepaid_gas(action_receipt.actions())?;
+    let gas = safe_add_gas(gas_attached_to_fns, prepaid_gas)?;
+
+    Ok(gas)
 }
 
 /// Iterate all columns in the trie holding unprocessed receipts and

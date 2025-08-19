@@ -20,7 +20,7 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
     ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
-    ReceiptEnum, ReceiptV1,
+    ReceiptEnum, ReceiptV1, VersionedActionReceipt,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -2202,26 +2202,11 @@ impl From<Receipt> for ReceiptView {
             receipt_id: *receipt.receipt_id(),
             receipt: match receipt.take_receipt() {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                    ReceiptEnumView::Action {
-                        signer_id: action_receipt.signer_id,
-                        signer_public_key: action_receipt.signer_public_key,
-                        gas_price: action_receipt.gas_price,
-                        output_data_receivers: action_receipt
-                            .output_data_receivers
-                            .into_iter()
-                            .map(|data_receiver| DataReceiverView {
-                                data_id: data_receiver.data_id,
-                                receiver_id: data_receiver.receiver_id,
-                            })
-                            .collect(),
-                        input_data_ids: action_receipt
-                            .input_data_ids
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                        actions: action_receipt.actions.into_iter().map(Into::into).collect(),
-                        is_promise_yield,
-                    }
+                    ReceiptEnumView::from_action_receipt(action_receipt.into(), is_promise_yield)
+                }
+                ReceiptEnum::ActionV2(action_receipt)
+                | ReceiptEnum::PromiseYieldV2(action_receipt) => {
+                    ReceiptEnumView::from_action_receipt(action_receipt.into(), is_promise_yield)
                 }
                 ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
                     ReceiptEnumView::Data {
@@ -2240,6 +2225,36 @@ impl From<Receipt> for ReceiptView {
                 }
             },
             priority,
+        }
+    }
+}
+
+impl ReceiptEnumView {
+    fn from_action_receipt(
+        action_receipt: VersionedActionReceipt,
+        is_promise_yield: bool,
+    ) -> ReceiptEnumView {
+        ReceiptEnumView::Action {
+            signer_id: action_receipt.signer_id().clone(),
+            signer_public_key: action_receipt.signer_public_key().clone(),
+            gas_price: action_receipt.gas_price().clone(),
+            output_data_receivers: action_receipt
+                .output_data_receivers()
+                .iter()
+                .cloned()
+                .map(|data_receiver| DataReceiverView {
+                    data_id: data_receiver.data_id,
+                    receiver_id: data_receiver.receiver_id,
+                })
+                .collect(),
+            input_data_ids: action_receipt
+                .input_data_ids()
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect(),
+            actions: action_receipt.actions().iter().cloned().map(Into::into).collect(),
+            is_promise_yield,
         }
     }
 }

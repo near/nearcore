@@ -188,6 +188,14 @@ pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receip
             };
             set(state_update, key, receipt);
         }
+        ReceiptEnum::PromiseYieldV2(action_receipt) => {
+            assert!(action_receipt.input_data_ids.len() == 1);
+            let key = TrieKey::PromiseYieldReceipt {
+                receiver_id: receipt.receiver_id().clone(),
+                data_id: action_receipt.input_data_ids[0],
+            };
+            set(state_update, key, receipt);
+        }
         _ => unreachable!("Expected PromiseYield receipt"),
     }
 }
