@@ -544,6 +544,10 @@ pub(crate) fn commit_shard(
     Ok(new_root)
 }
 
+/// Removes all state data associated with the specified shards.
+/// Used when shards become obsolete and their state can be discarded.
+/// WARNING: This function modifies DBCol::State directly - use with caution.
+/// For more information about the deletion process, refer to StoreUpdate::delete_range documentation.
 pub(crate) fn remove_shards(
     shard_tries: &ShardTries,
     shard_uids: &Vec<&ShardUId>,
