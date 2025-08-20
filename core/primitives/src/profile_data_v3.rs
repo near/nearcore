@@ -234,7 +234,7 @@ impl fmt::Debug for ProfileDataV3 {
                     f,
                     "{} -> {} [{}% host]",
                     cost,
-                    d,
+                    d.as_gas(),
                     Ratio::new(
                         d.checked_mul(100).unwrap().as_gas(),
                         core::cmp::max(host_gas.as_gas(), 1)

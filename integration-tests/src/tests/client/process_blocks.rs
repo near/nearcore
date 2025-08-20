@@ -2439,13 +2439,13 @@ fn test_execution_metadata() {
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "BASE",
-        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::base).to_string()
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::base).as_gas().to_string()
       },
       // We include compilation costs into running the function.
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "CONTRACT_LOADING_BASE",
-        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).to_string()
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).as_gas().to_string()
       },
       {
         "cost_category": "WASM_HOST_COST",

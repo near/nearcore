@@ -310,8 +310,8 @@ fn check_action_gas_exceeds_attached(
 
     let actual = format!(
         "{} burnt {} used",
-        logic.gas_counter().burnt_gas(),
-        logic.gas_counter().used_gas()
+        logic.gas_counter().burnt_gas().as_gas(),
+        logic.gas_counter().used_gas().as_gas()
     );
     expected.assert_eq(&actual);
 }

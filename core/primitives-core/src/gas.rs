@@ -12,7 +12,6 @@ use near_gas::NearGas;
     borsh::BorshDeserialize,
     borsh::BorshSerialize,
     derive_more::Display,
-    Debug,
     serde::Deserialize,
     Clone,
     Copy,
@@ -172,6 +171,12 @@ impl serde::Serialize for Gas {
         S: serde::Serializer,
     {
         serializer.serialize_u64(self.as_gas())
+    }
+}
+
+impl core::fmt::Debug for Gas {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.as_gas())
     }
 }
 
