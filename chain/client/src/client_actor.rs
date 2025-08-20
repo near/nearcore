@@ -58,7 +58,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, OptimisticBlockMessage, SetNetworkInfo,
-    StateResponseReceived, StateResponse,
+    StateResponse, StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{

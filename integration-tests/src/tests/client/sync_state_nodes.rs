@@ -776,7 +776,9 @@ fn slow_test_state_sync_headers() {
                         .send(StateRequestHeader { shard_id, sync_hash })
                         .await
                     {
-                        Ok(Some(StateRequestResult(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StateRequestResult(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
@@ -797,7 +799,9 @@ fn slow_test_state_sync_headers() {
                         .send(StateRequestPart { shard_id, sync_hash, part_id: 0 })
                         .await
                     {
-                        Ok(Some(StateRequestResult(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StateRequestResult(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
@@ -940,7 +944,9 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                         .send(StateRequestHeader { shard_id, sync_hash })
                         .await
                     {
-                        Ok(Some(StateRequestResult(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StateRequestResult(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
@@ -957,7 +963,9 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                         .send(StateRequestPart { shard_id, sync_hash, part_id: 0 })
                         .await
                     {
-                        Ok(Some(StateRequestResult(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StateRequestResult(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
