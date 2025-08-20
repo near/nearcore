@@ -72,6 +72,9 @@ class LocalTestNeardRunner:
     def name(self):
         return self._name
 
+    def get_label(self, label_name: str) -> str:
+        return 'local-test-node'
+
     def ip_addr(self):
         return '0.0.0.0'
 

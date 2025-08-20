@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use actix::{Actor, System};
+use actix::Actor;
 use futures::{FutureExt, TryFutureExt, future};
 use parking_lot::Mutex;
 
@@ -73,7 +73,7 @@ fn test_send_tx_async() {
                                 if let FinalExecutionStatus::SuccessValue(_) =
                                     result.final_execution_outcome.unwrap().into_outcome().status
                                 {
-                                    System::current().stop();
+                                    near_async::shutdown_all_actors();
                                 }
                             })
                             .map(drop),
@@ -162,7 +162,7 @@ fn test_expired_tx() {
                                                     "InvalidTxError": "Expired"
                                                 }})
                                             );
-                                            System::current().stop();
+                                            near_async::shutdown_all_actors();
                                         })
                                         .map(|_| ()),
                                 );

@@ -1,0 +1,10 @@
+{
+    "version": "0.2",
+    "language": "en",
+    "words": [
+        "lovecruft",
+    ],
+    "ignorePaths": [
+        "tests/extensive_test_instances.json"
+    ]
+}

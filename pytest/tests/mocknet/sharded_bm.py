@@ -56,9 +56,9 @@ def fetch_forknet_details(forknet_name, bm_params):
     nodes_data = find_instances_cmd_result.stdout.splitlines()[1:]
 
     num_cp_instances = bm_params['chunk_producers']
-    if len(nodes_data) != num_cp_instances + 1:
+    if len(nodes_data) != num_cp_instances:
         logger.error(
-            f"Expected {num_cp_instances + 1} instances, got {len(nodes_data)}")
+            f"Expected {num_cp_instances} instances, got {len(nodes_data)}")
         sys.exit(1)
 
     # cratch to refresh the local keystore
@@ -71,8 +71,6 @@ def fetch_forknet_details(forknet_name, bm_params):
         ]
         subprocess.run(login_cmd, text=True, check=True)
 
-    rpc_instance = nodes_data[-1]
-    rpc_instance_name, rpc_instance_ip, _ = rpc_instance.split()
     cp_instances = list(map(lambda x: x.split(), nodes_data[:num_cp_instances]))
     cp_instance_names = [instance[0] for instance in cp_instances]
     cp_instance_zones = [instance[2] for instance in cp_instances]
@@ -91,8 +89,6 @@ def fetch_forknet_details(forknet_name, bm_params):
     output = tracing_server_cmd_result.stdout.strip()
     internal_ip, external_ip = output.split() if output else (None, None)
     return {
-        "rpc_instance_name": rpc_instance_name,
-        "rpc_instance_ip": rpc_instance_ip,
         "cp_instance_names": cp_instance_names,
         "tracing_server_internal_ip": internal_ip,
         "tracing_server_external_ip": external_ip
@@ -184,6 +180,9 @@ def handle_init(args):
         **vars(args),
     )
     new_test_cmd(CommandContext(new_test_cmd_args))
+
+    # Must be run after new_test to override some OS settings
+    apply_network_config(args)
 
     status_cmd_args = copy.deepcopy(args)
     status_cmd_ctx = CommandContext(status_cmd_args)
@@ -352,6 +351,31 @@ def start_nodes(args, enable_tx_generator=False):
     start_nodes_cmd_args = copy.deepcopy(args)
     start_nodes_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
     start_nodes_cmd(CommandContext(start_nodes_cmd_args))
+
+
+def apply_network_config(args):
+    """Apply network configuration optimizations."""
+    logger.info("Applying network configuration optimizations")
+
+    run_cmd_args = copy.deepcopy(args)
+
+    # This command does the following:
+    # - Set overrides for some configs
+    # - Update default interface to use larger initial congestion window
+    run_cmd_args.cmd = "\
+        sudo sysctl -w net.core.rmem_max=134217728 && \
+        sudo sysctl -w net.core.wmem_max=134217728 && \
+        sudo sysctl -w net.ipv4.tcp_rmem='10240 87380 134217728' && \
+        sudo sysctl -w net.ipv4.tcp_wmem='4096 87380 134217728' && \
+        sudo sysctl -w net.core.netdev_max_backlog=30000 && \
+        sudo sysctl -w net.ipv4.tcp_no_metrics_save=1 && \
+        gw=$(ip route show default | head -1 | awk '{{print $3}}') && \
+        dev=$(ip route show default | head -1 | awk '{{print $5}}') && \
+        sudo ip route flush table main exact 0.0.0.0/0 2>/dev/null || true && \
+        sudo ip route add default via $gw dev $dev metric 100 initcwnd 255 initrwnd 255 \
+    "
+
+    run_remote_cmd(CommandContext(run_cmd_args))
 
 
 def handle_get_traces(args):

@@ -136,8 +136,7 @@ class CommandContext:
                 f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
             )
             traffic_generator, nodes = local_test_node.get_nodes()
-            node_config.configure_nodes(nodes + to_list(traffic_generator),
-                                        node_config.TEST_CONFIG)
+            node_config.configure_nodes(nodes + to_list(traffic_generator))
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
@@ -157,8 +156,7 @@ class CommandContext:
                 f'must give all of --chain-id --start-height and --unique-id or --mocknet-id'
             )
         traffic_generator, nodes = remote_node.get_nodes(mocknet_id)
-        node_config.configure_nodes(nodes + to_list(traffic_generator),
-                                    node_config.REMOTE_CONFIG)
+        node_config.configure_nodes(nodes + to_list(traffic_generator))
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
@@ -337,23 +335,6 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
     return validators, boot_nodes
 
 
-def new_genesis_timestamp(node):
-    version = node.neard_runner_version()
-    err = version.get('error')
-    if err is not None:
-        if err['code'] != -32601:
-            sys.exit(
-                f'bad response calling version RPC on {node.name()}: {err}')
-        return None
-    genesis_time = None
-    result = version.get('result')
-    if result is not None:
-        if result.get('node_setup_version') == '1':
-            genesis_time = datetime.datetime.now(
-                tz=datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-    return genesis_time
-
-
 def _apply_stateless_config(args, node):
     """Applies configuration changes to the node for stateless validation,
     including changing config.json file and updating TCP buffer size at OS level."""
@@ -364,9 +345,16 @@ def _apply_stateless_config(args, node):
         do_update_config(node, 'tracked_shards=[]')
         do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
     if not args.local_test:
-        node.run_cmd(
-            "sudo sysctl -w net.core.rmem_max=8388608 && sudo sysctl -w net.core.wmem_max=8388608 && sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0"
-        )
+        # Apply baseline network configuration (same as defined in set_kernel_params.sh)
+        node.run_cmd("sudo sysctl -w net.core.rmem_max=8388608 && "
+                     "sudo sysctl -w net.core.wmem_max=8388608 && "
+                     "sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && "
+                     "sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && "
+                     "sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0 && "
+                     "sudo sysctl -w net.ipv4.tcp_congestion_control=bbr && "
+                     "sudo sysctl -w net.core.default_qdisc=fq && "
+                     "sudo sysctl -w net.ipv4.tcp_mtu_probing=1 && "
+                     "sudo sysctl -w net.ipv4.tcp_max_syn_backlog=8096")
 
 
 def _apply_config_changes(node, state_sync_location):
@@ -446,8 +434,8 @@ def new_test_cmd(ctx: CommandContext):
             f'--num-validators is {args.num_validators} but only found {len(nodes)} under test'
         )
 
-    ref_node = traffic_generator if traffic_generator else nodes[0]
-    genesis_time = new_genesis_timestamp(ref_node)
+    genesis_time = datetime.datetime.now(
+        tz=datetime.timezone.utc).isoformat().replace("`+00:00", "Z")
 
     targeted = nodes + to_list(traffic_generator)
 

@@ -27,6 +27,8 @@ use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::INDEXER;
 use crate::streamer::fetchers::fetch_protocol_config;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
+use near_async::tokio::TokioRuntimeHandle;
+use near_client::client_actor::ClientActorInner;
 use near_epoch_manager::shard_tracker::ShardTracker;
 
 mod errors;
@@ -362,7 +364,7 @@ async fn find_local_receipt_by_id_in_block(
 /// We have to pass `client: Addr<near_client::ClientActor>` and `view_client: Addr<near_client::ViewClientActor>`.
 pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
-    client: Addr<near_client::ClientActor>,
+    client: TokioRuntimeHandle<ClientActorInner>,
     shard_tracker: ShardTracker,
     indexer_config: IndexerConfig,
     store_config: near_store::StoreConfig,

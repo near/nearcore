@@ -1,6 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
+use near_async::ActorSystem;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
@@ -570,6 +571,7 @@ impl RunCmd {
             } = nearcore::start_with_config_and_synchronization(
                 home_dir,
                 near_config,
+                ActorSystem::new(),
                 Some(tx_crash),
                 Some(config_updater),
             )
@@ -596,7 +598,7 @@ impl RunCmd {
                 debug!(target: "neard", "{} server stopped", name);
             }))
             .await;
-            actix::System::current().stop();
+            near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
         });
@@ -924,12 +926,20 @@ fn check_kernel_params() {
     let expected_tcp_rmem = "4096 87380 8388608";
     let expected_tcp_wmem = "4096 16384 8388608";
     let expected_slow_start = "0";
+    let expected_congestion_control = "bbr";
+    let expected_qdisc = "fq";
+    let expected_mtu_probing = "1";
+    let expected_syn_backlog = "8096";
 
     check_kernel_param("net.core.rmem_max", expected_rmem_max);
     check_kernel_param("net.core.wmem_max", expected_wmem_max);
     check_kernel_param("net.ipv4.tcp_rmem", expected_tcp_rmem);
     check_kernel_param("net.ipv4.tcp_wmem", expected_tcp_wmem);
     check_kernel_param("net.ipv4.tcp_slow_start_after_idle", expected_slow_start);
+    check_kernel_param("net.ipv4.tcp_congestion_control", expected_congestion_control);
+    check_kernel_param("net.core.default_qdisc", expected_qdisc);
+    check_kernel_param("net.ipv4.tcp_mtu_probing", expected_mtu_probing);
+    check_kernel_param("net.ipv4.tcp_max_syn_backlog", expected_syn_backlog);
 }
 
 #[cfg(test)]
