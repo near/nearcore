@@ -100,7 +100,7 @@ impl fmt::Debug for ProfileDataV2 {
                     f,
                     "{} -> {} [{}% host]",
                     cost,
-                    d.as_gas(),
+                    d,
                     Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
                 )?;
             }
