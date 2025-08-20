@@ -10,15 +10,13 @@ use crate::logic::{
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
-    MAX_ELEMENTS_PER_TABLE, MAX_TABLES_PER_MODULE, MEMORY_EXPORT, NoContractRuntimeCache,
-    get_contract_cache_key, imports, prepare,
+    MEMORY_EXPORT, NoContractRuntimeCache, get_contract_cache_key, imports, prepare,
 };
 use core::mem::transmute;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
 use near_parameters::RuntimeFeesConfig;
-use near_parameters::vm::VMKind;
-use parking_lot::RwLock;
+use near_parameters::vm::{LimitConfig, VMKind};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -39,15 +37,25 @@ type Caller = wasmtime::Caller<'static, Ctx>;
 /// Wasmtime defaults to `1_000`
 const MAX_CONCURRENCY: u32 = 1_000;
 
-/// The maximum amount of tables that can concurrently exist.
-/// This should be greater than or equal to [MAX_CONCURRENCY].
-/// Wasmtime defaults to `1_000`
-const MAX_TABLES: u32 = MAX_CONCURRENCY * MAX_TABLES_PER_MODULE;
+/// The default maximum amount of tables per module.
+///
+/// This value is used if `max_tables_per_contract` is not set.
+///
+/// Wasmtime defaults to `1`
+const DEFAULT_MAX_TABLES_PER_MODULE: u32 = 1;
+
+/// The default maximum amount of elements in a single table.
+///
+/// This value is used if `max_elements_per_contract_table` is not set.
+///
+/// Wasmtime defaults to `20_000`
+const DEFAULT_MAX_ELEMENTS_PER_TABLE: usize = 10_000;
 
 /// Guest page size, in bytes
 const GUEST_PAGE_SIZE: usize = 1 << 16;
 
-static VMS: LazyLock<RwLock<HashMap<Arc<Config>, WasmtimeVM>>> = LazyLock::new(RwLock::default);
+static VMS: LazyLock<parking_lot::RwLock<HashMap<Arc<Config>, WasmtimeVM>>> =
+    LazyLock::new(parking_lot::RwLock::default);
 
 fn guest_memory_size(pages: u32) -> Option<usize> {
     let pages = usize::try_from(pages).ok()?;
@@ -74,8 +82,8 @@ impl Drop for InstancePermit<'_> {
 }
 
 /// State stored in [ConcurrencySemaphore]
-#[derive(Default)]
 struct ConcurrencySemaphoreState {
+    max_tables: u32,
     instances: AtomicU64,
     tables: AtomicU64,
     release_notify: parking_lot::Condvar,
@@ -83,8 +91,23 @@ struct ConcurrencySemaphoreState {
 }
 
 /// A simple semaphore, which is not expected to be contended often.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct ConcurrencySemaphore(Arc<ConcurrencySemaphoreState>);
+
+impl ConcurrencySemaphore {
+    /// Constructs a new [ConcurrencySemaphore].
+    ///
+    /// `max_tables` is the maximum amount of tables that can concurrently exist.
+    pub fn new(max_tables: u32) -> Self {
+        Self(Arc::new(ConcurrencySemaphoreState {
+            max_tables,
+            instances: AtomicU64::default(),
+            tables: AtomicU64::default(),
+            release_notify: parking_lot::Condvar::default(),
+            release_mutex: parking_lot::Mutex::default(),
+        }))
+    }
+}
 
 impl Deref for ConcurrencySemaphore {
     type Target = ConcurrencySemaphoreState;
@@ -104,7 +127,7 @@ impl ConcurrencySemaphore {
     /// Attempts to reserve `n` table slots, returns `true` on success
     fn try_reserve_tables(&self, n: u32) -> bool {
         let prev = self.tables.fetch_add(n.into(), Ordering::Acquire);
-        prev.checked_add(n.into()).is_some_and(|n| n <= MAX_TABLES.into())
+        prev.checked_add(n.into()).is_some_and(|n| n <= self.max_tables.into())
     }
 
     /// Releases a single instance slot returning the amount of previously active instances
@@ -119,7 +142,7 @@ impl ConcurrencySemaphore {
 
     /// Attempt to acquire the semaphore using the specified number of tables
     fn try_acquire(&self, num_tables: u32) -> Option<InstancePermit<'_>> {
-        debug_assert!(num_tables <= MAX_TABLES);
+        debug_assert!(num_tables <= self.max_tables);
 
         // At most [`u16::MAX`] iterations per lock
         let mut iterations: u16 = 0;
@@ -131,7 +154,7 @@ impl ConcurrencySemaphore {
                 let mut guard = self.release_mutex.lock();
                 while !self.try_reserve_tables(num_tables) {
                     iterations = iterations.checked_add(1)?;
-                    if self.release_tables(num_tables) <= MAX_TABLES.into() {
+                    if self.release_tables(num_tables) <= self.max_tables.into() {
                         continue;
                     }
                     self.release_notify.wait(&mut guard);
@@ -171,15 +194,24 @@ pub struct Ctx {
 
 impl Ctx {
     fn new(logic: VMLogic<'static>, caller: Arc<RefCell<Option<Caller>>>) -> Self {
-        let memory_size =
-            guest_memory_size(logic.result_state.config.limit_config.max_memory_pages)
-                .unwrap_or(usize::MAX);
+        let LimitConfig {
+            max_memory_pages,
+            max_tables_per_contract,
+            max_elements_per_contract_table,
+            ..
+        } = logic.result_state.config.limit_config;
+        let max_tables_per_contract =
+            max_tables_per_contract.unwrap_or(DEFAULT_MAX_TABLES_PER_MODULE);
+        let max_elements_per_contract_table =
+            max_elements_per_contract_table.unwrap_or(DEFAULT_MAX_ELEMENTS_PER_TABLE);
+        let max_memory_size = guest_memory_size(max_memory_pages).unwrap_or(usize::MAX);
+
         let limits = StoreLimitsBuilder::new()
             .instances(1)
             .memories(1)
-            .memory_size(memory_size)
-            .table_elements(MAX_ELEMENTS_PER_TABLE)
-            .tables(MAX_TABLES_PER_MODULE.try_into().unwrap_or(usize::MAX))
+            .memory_size(max_memory_size)
+            .tables(max_tables_per_contract.try_into().unwrap_or(usize::MAX))
+            .table_elements(max_elements_per_contract_table)
             .build();
         Self { logic: Some(logic), caller, limits }
     }
@@ -286,54 +318,6 @@ impl IntoVMError for anyhow::Error {
     }
 }
 
-pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
-    let features = crate::features::WasmFeatures::new(c);
-
-    // NOTE: Configuration values are based on:
-    // - https://docs.wasmtime.dev/examples-fast-execution.html
-    // - https://docs.wasmtime.dev/examples-fast-instantiation.html
-
-    let max_memory_size = guest_memory_size(c.limit_config.max_memory_pages).unwrap_or(usize::MAX);
-    let mut pooling = PoolingAllocationConfig::default();
-    pooling
-        .max_memory_size(max_memory_size)
-        .table_elements(MAX_ELEMENTS_PER_TABLE)
-        .total_component_instances(0)
-        .total_core_instances(MAX_CONCURRENCY)
-        .total_memories(MAX_CONCURRENCY)
-        .total_tables(MAX_TABLES)
-        .max_memories_per_module(1)
-        .max_tables_per_module(MAX_TABLES_PER_MODULE)
-        // Minimize page faults on Linux
-        .linear_memory_keep_resident(max_memory_size)
-        .table_keep_resident(MAX_ELEMENTS_PER_TABLE * size_of::<*const ()>());
-
-    let mut config = wasmtime::Config::from(features);
-    config
-        .allocation_strategy(InstanceAllocationStrategy::Pooling(pooling))
-        // From official documentation:
-        // > Note that systems loading many modules may wish to disable this
-        // > configuration option instead of leaving it on-by-default.
-        // > Some platforms exhibit quadratic behavior when registering/unregistering
-        // > unwinding information which can greatly slow down the module loading/unloading process.
-        // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
-        .native_unwind_info(false)
-        .wasm_backtrace(false)
-        // Enable copy-on-write heap images.
-        .memory_init_cow(true)
-        // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
-        .max_wasm_stack(1024 * 1024 * 1024)
-        // enable the Cranelift optimizing compiler.
-        .strategy(Strategy::Cranelift)
-        // Enable signals-based traps. This is required to elide explicit bounds-checking.
-        .signals_based_traps(true)
-        // Configure linear memories such that explicit bounds-checking can be elided.
-        .memory_reservation(1 << 32)
-        .memory_guard_size(1 << 32)
-        .cranelift_nan_canonicalization(true);
-    config
-}
-
 pub(crate) fn wasmtime_vm_hash() -> u64 {
     // TODO: take into account compiler and engine used to compile the contract.
     64
@@ -363,10 +347,71 @@ impl WasmtimeVM {
         VMS.write()
             .entry(config)
             .or_insert_with_key(|config| {
-                let engine = Engine::new(&default_wasmtime_config(config))
-                    .expect("failed to construct Wasmtime engine");
+                let features = crate::features::WasmFeatures::new(config);
+
+                // NOTE: Configuration values are based on:
+                // - https://docs.wasmtime.dev/examples-fast-execution.html
+                // - https://docs.wasmtime.dev/examples-fast-instantiation.html
+
+                let LimitConfig {
+                    max_memory_pages,
+                    max_tables_per_contract,
+                    max_elements_per_contract_table,
+                    ..
+                } = config.limit_config;
+
+                let max_memory_size = guest_memory_size(max_memory_pages).unwrap_or(usize::MAX);
+                let max_tables_per_contract =
+                    max_tables_per_contract.unwrap_or(DEFAULT_MAX_TABLES_PER_MODULE);
+                let max_elements_per_contract_table =
+                    max_elements_per_contract_table.unwrap_or(DEFAULT_MAX_ELEMENTS_PER_TABLE);
+                let max_tables = MAX_CONCURRENCY.saturating_mul(max_tables_per_contract);
+
+                let mut pooling_config = PoolingAllocationConfig::default();
+                pooling_config
+                    .max_memory_size(max_memory_size)
+                    .table_elements(max_elements_per_contract_table)
+                    .total_component_instances(0)
+                    .total_core_instances(MAX_CONCURRENCY)
+                    .total_memories(MAX_CONCURRENCY)
+                    .total_tables(max_tables)
+                    .max_memories_per_module(1)
+                    .max_tables_per_module(max_tables_per_contract)
+                    // Minimize page faults on Linux
+                    .linear_memory_keep_resident(max_memory_size)
+                    .table_keep_resident(
+                        max_elements_per_contract_table.saturating_mul(size_of::<*const ()>()),
+                    );
+
+                let mut engine_config = wasmtime::Config::from(features);
+                engine_config
+                    .allocation_strategy(InstanceAllocationStrategy::Pooling(pooling_config))
+                    // From official documentation:
+                    // > Note that systems loading many modules may wish to disable this
+                    // > configuration option instead of leaving it on-by-default.
+                    // > Some platforms exhibit quadratic behavior when registering/unregistering
+                    // > unwinding information which can greatly slow down the module loading/unloading process.
+                    // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
+                    .native_unwind_info(false)
+                    .wasm_backtrace(false)
+                    // Enable copy-on-write heap images.
+                    .memory_init_cow(true)
+                    // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+                    .max_wasm_stack(1024 * 1024 * 1024)
+                    // enable the Cranelift optimizing compiler.
+                    .strategy(Strategy::Cranelift)
+                    // Enable signals-based traps. This is required to elide explicit bounds-checking.
+                    .signals_based_traps(true)
+                    // Configure linear memories such that explicit bounds-checking can be elided.
+                    .memory_reservation(1 << 32)
+                    .memory_guard_size(1 << 32)
+                    .cranelift_nan_canonicalization(true);
+
                 let config = Arc::clone(config);
-                Self { engine, config, concurrency: ConcurrencySemaphore::default() }
+                let engine =
+                    Engine::new(&engine_config).expect("failed to construct Wasmtime engine");
+                let concurrency = ConcurrencySemaphore::new(max_tables);
+                Self { config, engine, concurrency }
             })
             .clone()
     }
@@ -747,7 +792,9 @@ mod tests {
 
     #[test]
     fn test_semaphore() {
-        let concurrency = ConcurrencySemaphore::default();
+        const MAX_TABLES: u32 = 5 * MAX_CONCURRENCY;
+
+        let concurrency = ConcurrencySemaphore::new(MAX_TABLES);
         let permit = concurrency.try_acquire(MAX_TABLES).expect("failed to acquire permit");
         let thread = spawn({
             let concurrency = concurrency.clone();

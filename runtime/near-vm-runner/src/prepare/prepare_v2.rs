@@ -1,5 +1,5 @@
+use crate::MEMORY_EXPORT;
 use crate::logic::errors::PrepareError;
-use crate::{MAX_ELEMENTS_PER_TABLE, MAX_TABLES_PER_MODULE, MEMORY_EXPORT};
 use finite_wasm::wasmparser as wp;
 use near_parameters::vm::{Config, VMKind};
 use wasm_encoder::{Encode, Section, SectionId};
@@ -22,6 +22,13 @@ struct PrepareContext<'a> {
 impl<'a> PrepareContext<'a> {
     fn new(code: &'a [u8], features: crate::features::WasmFeatures, config: &'a Config) -> Self {
         let limits = &config.limit_config;
+        let table_element_limit = limits
+            .max_elements_per_contract_table
+            .map(u32::try_from)
+            .transpose()
+            .ok()
+            .flatten()
+            .unwrap_or(u32::MAX);
         Self {
             code,
             config,
@@ -30,8 +37,8 @@ impl<'a> PrepareContext<'a> {
             // specified, use that as a limit.
             function_limit: limits.max_functions_number_per_contract.unwrap_or(u64::MAX),
             local_limit: limits.max_locals_per_contract.unwrap_or(u64::MAX),
-            table_limit: MAX_TABLES_PER_MODULE,
-            table_element_limit: MAX_ELEMENTS_PER_TABLE.try_into().unwrap_or(u32::MAX),
+            table_limit: limits.max_tables_per_contract.unwrap_or(u32::MAX),
+            table_element_limit,
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
@@ -454,7 +461,6 @@ mod test {
     use super::VMKind;
     use crate::logic::errors::PrepareError;
     use crate::tests::test_vm_config;
-    use crate::{MAX_ELEMENTS_PER_TABLE, MAX_TABLES_PER_MODULE};
     use finite_wasm::wasmparser as wp;
 
     fn wasmparser_decode(
@@ -512,7 +518,7 @@ mod test {
         features: crate::features::WasmFeatures,
         config: &near_parameters::vm::Config,
     ) -> Result<(), PrepareError> {
-        let (function_count, local_count, table_count, max_elements_per_table) =
+        let (function_count, local_count, table_count, element_count) =
             wasmparser_decode(code, features).map_err(|e| {
                 tracing::debug!(err=?e, "wasmparser failed decoding a contract");
                 PrepareError::Deserialization
@@ -534,15 +540,18 @@ mod test {
             }
         }
         // Similarly, do the same for the number of tables.
-        if table_count.ok_or(PrepareError::TooManyTables)? > MAX_TABLES_PER_MODULE {
-            return Err(PrepareError::TooManyTables);
+        if let Some(max_tables) = config.limit_config.max_tables_per_contract {
+            if table_count.ok_or(PrepareError::TooManyTables)? > max_tables {
+                return Err(PrepareError::TooManyTables);
+            }
         }
         // Similarly, do the same for the number of table elements.
-        if usize::try_from(max_elements_per_table)
-            .map_err(|_| PrepareError::TooManyTableElements)?
-            > MAX_ELEMENTS_PER_TABLE
-        {
-            return Err(PrepareError::TooManyTableElements);
+        if let Some(max_elements) = config.limit_config.max_elements_per_contract_table {
+            if usize::try_from(element_count).map_err(|_| PrepareError::TooManyTableElements)?
+                > max_elements
+            {
+                return Err(PrepareError::TooManyTableElements);
+            }
         }
         Ok(())
     }
