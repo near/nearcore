@@ -6,14 +6,13 @@ pub mod scenario_builder;
 
 pub use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
 pub use crate::scenario_builder::ScenarioBuilder;
-use near_primitives::types::Gas;
 
 #[test]
 // Use this test as a base for creating reproducers.
 fn scenario_smoke_test() {
     use near_crypto::InMemorySigner;
     use near_primitives::transaction::{Action, TransferAction};
-    use near_primitives::types::AccountId;
+    use near_primitives::types::{AccountId, Gas};
 
     let num_accounts = 5;
 

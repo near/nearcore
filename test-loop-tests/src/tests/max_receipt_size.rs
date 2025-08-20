@@ -18,7 +18,6 @@ use near_primitives::views::FinalExecutionStatus;
 
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::TGAS;
 use crate::utils::setups::standard_setup_1;
 use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block_hash, run_tx};
 

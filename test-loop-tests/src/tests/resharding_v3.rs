@@ -40,7 +40,7 @@ use crate::utils::transactions::{
     use_global_contract,
 };
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
-use crate::utils::{ONE_NEAR, TGAS};
+use crate::utils::ONE_NEAR;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore, vm};
 
 /// Default and minimal epoch length used in resharding tests.

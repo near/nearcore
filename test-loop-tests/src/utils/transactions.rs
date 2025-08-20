@@ -30,7 +30,6 @@ use parking_lot::Mutex;
 
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::TGAS;
 
 use super::client_queries::ClientQueries;
 use super::{ONE_NEAR, get_node_data};

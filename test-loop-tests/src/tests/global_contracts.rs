@@ -27,7 +27,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::{self, TransactionRunner};
-use crate::utils::{ONE_NEAR, TGAS, retrieve_all_clients};
+use crate::utils::{ONE_NEAR, retrieve_all_clients};
 
 const GAS_PRICE: Balance = 1;
 

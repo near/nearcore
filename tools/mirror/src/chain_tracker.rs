@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::Transaction;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView};
-use near_primitives_core::types::{Gas, Nonce};
+use near_primitives_core::types::Nonce;
 use parking_lot::Mutex;
 use rocksdb::DB;
 use std::cmp::Ordering;
