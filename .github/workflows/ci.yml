@@ -371,6 +371,12 @@ jobs:
           files: unit-linux-nightly.json
           fail_ci_if_error: true
           flags: unittests-nightly
+      # TODO(#13341): Remove separate spice test checks once spice tests can run as part of nightly or stable tests.
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: unit-linux-spice.json
+          fail_ci_if_error: true
+          flags: unittests-spice
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py.json
