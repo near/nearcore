@@ -50,7 +50,6 @@ pub fn get_chain_with_epoch_length_and_num_shards(
     epoch_length: NumBlocks,
     num_shards: NumShards,
 ) -> Chain {
-    let store = create_test_store();
     let mut genesis = Genesis::test_sharded(
         clock.clone(),
         vec!["test1".parse::<AccountId>().unwrap()],
@@ -58,6 +57,11 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         vec![1; num_shards as usize],
     );
     genesis.config.epoch_length = epoch_length;
+    get_chain_with_genesis(clock, genesis)
+}
+
+pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
+    let store = create_test_store();
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let chain_genesis = ChainGenesis::new(&genesis.config);
