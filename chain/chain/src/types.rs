@@ -440,6 +440,20 @@ pub trait RuntimeAdapter: Send + Sync {
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error>;
 
+    /// Optionally prefetch signer/access key and transaction cost for a set of transactions
+    /// and record results into an internal cache for the current block context.
+    /// Applies similar limits as prepare_transactions to avoid excessive prefetching.
+    fn prefetch_signers_and_costs(
+        &self,
+        shard_id: ShardId,
+        prev_block_hash: &CryptoHash,
+        state_root: StateRoot,
+        protocol_version: ProtocolVersion,
+        gas_price: Balance,
+        prev_block: &PrepareTransactionsBlockContext,
+        txs: Vec<ValidatedTransaction>,
+    );
+
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;

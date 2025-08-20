@@ -5,6 +5,7 @@ use crate::types::{
     RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
 use borsh::BorshDeserialize;
+use dashmap::DashMap;
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
@@ -45,7 +46,7 @@ use near_store::{
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::config::tx_cost;
+use node_runtime::config::{TransactionCost, tx_cost};
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
@@ -76,6 +77,8 @@ pub struct NightshadeRuntime {
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
     gc_num_epochs_to_keep: u64,
+    /// Cache of precomputed signer/access key
+    signer_cache: DashMap<CryptoHash, (Account, AccessKey, TransactionCost)>,
 }
 
 impl NightshadeRuntime {
@@ -127,6 +130,7 @@ impl NightshadeRuntime {
             trie_viewer,
             epoch_manager,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
+            signer_cache: DashMap::new(),
         })
     }
 
@@ -687,17 +691,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let (mut signer, mut access_key) =
-                    get_signer_and_access_key(&state_update, &validated_tx)
-                        .map_err(|_| Error::InvalidTransactions)?;
-                let verify_result = tx_cost(
-                    runtime_config,
-                    &validated_tx.to_tx(),
-                    prev_block.next_gas_price,
-                    protocol_version,
-                )
-                .map_err(InvalidTxError::from)
-                .and_then(|cost| {
+                let cache_key = validated_tx.get_hash();
+
+                let verify_result = if let Some((_, (mut signer, mut access_key, cost))) =
+                    self.signer_cache.remove(&cache_key)
+                {
+                    metrics::SIGNER_CACHE_HITS.with_label_values(&[]).inc();
                     verify_and_charge_tx_ephemeral(
                         runtime_config,
                         &mut signer,
@@ -706,11 +705,57 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &cost,
                         Some(next_block_height),
                     )
-                })
-                .and_then(|verification_res| {
-                    set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
-                    Ok(verification_res)
-                });
+                    .and_then(|verification_res| {
+                        set_tx_state_changes(
+                            &mut state_update,
+                            &validated_tx,
+                            &signer,
+                            &access_key,
+                        );
+                        Ok(verification_res)
+                    })
+                } else {
+                    metrics::SIGNER_CACHE_MISSES.with_label_values(&[]).inc();
+                    let (mut signer, mut access_key) =
+                        get_signer_and_access_key(&state_update, &validated_tx)
+                            .map_err(|_| Error::InvalidTransactions)?;
+                    let cost = match tx_cost(
+                        runtime_config,
+                        &validated_tx.to_tx(),
+                        prev_block.next_gas_price,
+                        protocol_version,
+                    ) {
+                        Ok(c) => c,
+                        Err(err) => {
+                            tracing::trace!(
+                                target: "runtime",
+                                tx=?validated_tx.get_hash(),
+                                ?err,
+                                "discarding transaction that failed tx_cost computation"
+                            );
+                            rejected_invalid_tx += 1;
+                            state_update.rollback();
+                            continue;
+                        }
+                    };
+                    verify_and_charge_tx_ephemeral(
+                        runtime_config,
+                        &mut signer,
+                        &mut access_key,
+                        &validated_tx,
+                        &cost,
+                        Some(next_block_height),
+                    )
+                    .and_then(|verification_res| {
+                        set_tx_state_changes(
+                            &mut state_update,
+                            &validated_tx,
+                            &signer,
+                            &access_key,
+                        );
+                        Ok(verification_res)
+                    })
+                };
 
                 match verify_result {
                     Ok(cost) => {
@@ -730,6 +775,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
         }
+        // Clear the cache; in normal case it's fully consumed anyway.
+        self.signer_cache.clear();
+
         debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
@@ -1221,6 +1269,87 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         });
         Ok(())
+    }
+
+    fn prefetch_signers_and_costs(
+        &self,
+        shard_id: ShardId,
+        prev_block_hash: &CryptoHash,
+        state_root: StateRoot,
+        protocol_version: ProtocolVersion,
+        gas_price: Balance,
+        prev_block: &PrepareTransactionsBlockContext,
+        txs: Vec<ValidatedTransaction>,
+    ) {
+        if txs.is_empty() {
+            return;
+        }
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+        let epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash) {
+            Ok(id) => id,
+            Err(_) => return,
+        };
+
+        // Apply similar limits as prepare_transactions to avoid excessive prefetching
+        let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, prev_block, shard_id);
+        let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
+
+        let mut total_gas_burnt = 0;
+        let mut total_size = 0u64;
+        let mut processed = 0;
+
+        for vtx in txs {
+            if total_gas_burnt >= transactions_gas_limit {
+                break;
+            }
+            if total_size >= size_limit {
+                break;
+            }
+
+            // Quick congestion check (without expensive trie read)
+            if !congestion_control_accepts_transaction(
+                self.epoch_manager.as_ref(),
+                &runtime_config,
+                &epoch_id,
+                &prev_block,
+                &vtx,
+            )
+            .unwrap_or(false)
+            {
+                continue;
+            }
+
+            let tx_size = vtx.get_size();
+            if total_size.saturating_add(tx_size) > size_limit {
+                break;
+            }
+
+            let Ok(trie) = self.get_trie_for_shard(shard_id, prev_block_hash, state_root, true)
+            else {
+                continue;
+            };
+            let state_update = near_store::trie::update::TrieUpdate::new(trie);
+            if let Ok((signer, access_key)) = get_signer_and_access_key(&state_update, &vtx) {
+                let cost = tx_cost(runtime_config, &vtx.to_tx(), gas_price, protocol_version);
+                if let Ok(cost) = cost {
+                    total_gas_burnt += cost.gas_burnt;
+                    total_size += tx_size;
+                    processed += 1;
+
+                    let key = vtx.get_hash();
+                    self.signer_cache.insert(key, (signer, access_key, cost));
+                }
+            }
+        }
+
+        tracing::debug!(
+            target: "runtime",
+            shard_id = %shard_id,
+            processed,
+            total_gas_burnt,
+            total_size,
+            "prefetched signer data for transactions"
+        );
     }
 }
 

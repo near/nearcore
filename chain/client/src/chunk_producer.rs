@@ -2,7 +2,9 @@ use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
 use itertools::Itertools;
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::types::{PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig};
+use near_chain::types::{
+    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+};
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
 use near_chunks::client::ShardedTransactionPool;
@@ -12,6 +14,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
+use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
@@ -27,6 +30,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
 #[cfg(feature = "test_features")]
 use rand::{Rng, SeedableRng};
+
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -370,6 +374,91 @@ impl ChunkProducer {
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
         }))
+    }
+
+    pub fn prefetch_signer_and_access_key(
+        &self,
+        prev_block: Arc<Block>,
+        validator_signer: &Arc<ValidatorSigner>,
+    ) {
+        let prev_block_hash = *prev_block.hash();
+        let epoch_id = *prev_block.header().epoch_id();
+        let gas_price = prev_block.header().next_gas_price();
+        let height = prev_block.header().height();
+        let Ok(shard_layout) = self.epoch_manager.get_shard_layout(&epoch_id) else { return };
+
+        for shard_id in shard_layout.shard_ids() {
+            let key = ChunkProductionKey { epoch_id, height_created: height + 1, shard_id };
+            let Ok(info) = self.epoch_manager.get_chunk_producer_info(&key) else { continue };
+            if &info.take_account_id() != validator_signer.validator_id() {
+                continue;
+            }
+
+            let epoch_manager = self.epoch_manager.clone();
+            let runtime = self.runtime_adapter.clone();
+            let sharded_tx_pool = self.sharded_tx_pool.clone();
+            let epoch_id_cloned = epoch_id;
+            let prev_block_cloned = prev_block.clone();
+
+            rayon::spawn(move || {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "prefetch_signers_for_shard",
+                    height,
+                    %shard_id,
+                    ?prev_block_hash,
+                    tag_block_production = true
+                )
+                .entered();
+                let Ok(shard_uid) =
+                    shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id_cloned)
+                else {
+                    return;
+                };
+                let Ok(last_header) =
+                    epoch_manager.get_prev_chunk_header(&prev_block_cloned, shard_id)
+                else {
+                    return;
+                };
+                let state_root_for_prefetch = last_header.prev_state_root();
+
+                let mut pool = sharded_tx_pool.lock();
+                const MAX_CANDIDATES: usize = 25_000;
+                let candidates = pool.peek_head_candidates(shard_uid, MAX_CANDIDATES);
+                drop(pool);
+                if candidates.is_empty() {
+                    tracing::debug!(target: "client", %shard_id, "no transactions in pool for prefetch");
+                    return;
+                }
+
+                let Ok(protocol_version) =
+                    epoch_manager.get_epoch_protocol_version(&epoch_id_cloned)
+                else {
+                    return;
+                };
+                let _ = match epoch_manager.get_shard_layout(&epoch_id_cloned) {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+
+                let prev_block_context = PrepareTransactionsBlockContext {
+                    next_gas_price: gas_price,
+                    height: height,
+                    block_hash: prev_block_hash,
+                    // TODO: use real congestion info
+                    congestion_info: BlockCongestionInfo::default(),
+                };
+                runtime.prefetch_signers_and_costs(
+                    shard_id,
+                    &prev_block_hash,
+                    state_root_for_prefetch,
+                    protocol_version,
+                    gas_price,
+                    &prev_block_context,
+                    candidates,
+                );
+            });
+        }
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.

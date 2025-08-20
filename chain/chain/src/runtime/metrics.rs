@@ -1,6 +1,6 @@
 use near_o11y::metrics::{
-    HistogramVec, IntGaugeVec, exponential_buckets, linear_buckets, try_create_histogram_vec,
-    try_create_int_gauge_vec,
+    HistogramVec, IntCounterVec, IntGaugeVec, exponential_buckets, linear_buckets,
+    try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge_vec,
 };
 
 use std::sync::LazyLock;
@@ -114,6 +114,24 @@ pub(crate) static STATE_SYNC_APPLY_PART_DELAY: LazyLock<HistogramVec> = LazyLock
         "Latency of applying a state part",
         &["shard_id"],
         Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static SIGNER_CACHE_HITS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_signer_cache_hits_total",
+        "Number of signer cache hits during transaction preparation",
+        &[],
+    )
+    .unwrap()
+});
+
+pub(crate) static SIGNER_CACHE_MISSES: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_signer_cache_misses_total",
+        "Number of signer cache misses during transaction preparation",
+        &[],
     )
     .unwrap()
 });

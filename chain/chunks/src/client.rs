@@ -57,6 +57,34 @@ impl ShardedTransactionPool {
         self.tx_pools.get_mut(&shard_uid).map(|pool| pool.pool_iterator())
     }
 
+    /// Returns up to `max_candidates` head-of-group transactions for the shard without
+    /// consuming them from the pool.
+    pub fn peek_head_candidates(
+        &mut self,
+        shard_uid: ShardUId,
+        max_candidates: usize,
+    ) -> Vec<ValidatedTransaction> {
+        let mut candidates: Vec<ValidatedTransaction> = Vec::new();
+        if max_candidates == 0 {
+            return candidates;
+        }
+        if let Some(mut iter) = self.get_pool_iterator(shard_uid) {
+            let mut scanned = 0usize;
+            while scanned < max_candidates {
+                match iter.next() {
+                    Some(group) => {
+                        if let Some(vtx) = group.peek_next() {
+                            candidates.push(vtx.clone());
+                        }
+                        scanned += 1;
+                    }
+                    None => break,
+                }
+            }
+        }
+        candidates
+    }
+
     /// Tries to insert the transaction into the pool for a given shard.
     pub fn insert_transaction(
         &mut self,

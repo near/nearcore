@@ -1206,12 +1206,18 @@ impl Client {
 
         let result = {
             self.chain.start_process_block_async(
-                block,
+                block.clone(),
                 provenance,
                 &mut block_processing_artifacts,
                 apply_chunks_done_sender,
             )
         };
+
+        if let Some(signer) = self.validator_signer.get() {
+            if let Ok(prev_block) = self.chain.get_block(block.header().prev_hash()) {
+                self.chunk_producer.prefetch_signer_and_access_key(prev_block, &signer);
+            }
+        }
 
         self.process_block_processing_artifact(block_processing_artifacts);
 
