@@ -8397,6 +8397,13 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_elements_per_contract_table": {
+            "description": "If present, stores max number of elements in a single contract's table",
+            "format": "uint",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "max_functions_number_per_contract": {
             "description": "If present, stores max number of functions in one contract",
             "format": "uint64",
@@ -8493,6 +8500,13 @@
             "description": "How tall the stack is allowed to grow?\n\nSee <https://wiki.parity.io/WebAssembly-StackHeight> to find out how the stack frame cost\nis calculated.",
             "format": "uint32",
             "minimum": 0,
+            "type": "integer"
+          },
+          "max_tables_per_contract": {
+            "description": "If present, stores max number of tables declared globally in one contract",
+            "format": "uint32",
+            "minimum": 0,
+            "nullable": true,
             "type": "integer"
           },
           "max_total_log_length": {
