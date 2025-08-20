@@ -4,6 +4,10 @@ from datetime import datetime
 
 class ScheduleContext:
 
-    def __init__(self, id: Optional[str], time_spec: str):
+    def __init__(self,
+                 id: str | None,
+                 relative_time_spec: str | None = None,
+                 calendar_time_spec: str | None = None):
         self.id = id or str(int(datetime.utcnow().timestamp()))
-        self.time_spec = time_spec
+        self.relative_time_spec = relative_time_spec
+        self.calendar_time_spec = calendar_time_spec

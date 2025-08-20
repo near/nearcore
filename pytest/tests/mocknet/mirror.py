@@ -206,12 +206,14 @@ class CommandContext:
         """
         Make a schedule context if the command is scheduled.
         """
-        if getattr(self.args, 'schedule_in', None) is None:
+        if (getattr(self.args, 'schedule_in', None) is None and
+                getattr(self.args, 'schedule_at', None) is None):
             return None
 
         context = ScheduleContext(
             id=getattr(self.args, 'schedule_id', None),
-            time_spec=self.args.schedule_in,
+            relative_time_spec=getattr(self.args, 'schedule_in', None),
+            calendar_time_spec=getattr(self.args, 'schedule_at', None),
         )
         return context
 
@@ -761,12 +763,18 @@ def register_schedule_subcommands(subparsers):
         help='additional help')
     cmd_subparsers = subparsers.add_parser(
         'cmd', help='Schedule commands to run in the future.')
-    cmd_subparsers.add_argument(
+    group = cmd_subparsers.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         '--schedule-in',
-        required=True,
         type=str,
         help=
-        'Schedule the command to run after the specified time. Can be in the format of "10s", "10m", "10h", "10d"'
+        'Schedule the command to run after the specified time. Can be in the format of "10s", "10m", "10h", "10d". Check https://man.archlinux.org/man/systemd.time.7.en#PARSING_TIME_SPANS'
+    )
+    group.add_argument(
+        '--schedule-at',
+        type=str,
+        help=
+        'Schedule the command to run at a specified time. Can be in the format of "2025-08-20 15:00:00 UTC". Check https://man.archlinux.org/man/systemd.time.7.en#PARSING_TIMESTAMPS'
     )
     cmd_subparsers.add_argument(
         '--schedule-id',
