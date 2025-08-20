@@ -1,29 +1,27 @@
 use crate::utils::genesis_helpers::genesis_block;
-use crate::utils::test_helpers::heavy_test;
-use actix::Actor;
-use futures::{FutureExt, future};
-use near_actix_test_utils::run_actix;
+use crate::utils::test_helpers::heavy_test_async;
 use near_async::ActorSystem;
-use near_async::messaging::CanSendAsync;
+use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::Duration;
 use near_chain_configs::Genesis;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_client::{GetBlock, ProcessTxRequest};
 use near_crypto::InMemorySigner;
 use near_network::tcp;
-use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
+use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use nearcore::{load_test_config, start_with_config};
 use parking_lot::RwLock;
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Starts one validation node, it reduces it's stake to 1/2 of the stake.
 /// Second node starts after 1s, needs to catchup & state sync and then make sure it's
-#[test]
-fn ultra_slow_test_sync_state_stake_change() {
-    heavy_test(|| {
+#[tokio::test]
+async fn ultra_slow_test_sync_state_stake_change() {
+    heavy_test_async(async move {
         init_integration_logger();
 
         let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
@@ -46,86 +44,79 @@ fn ultra_slow_test_sync_state_stake_change() {
         let dir1 = tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
         let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
         let actor_system = ActorSystem::new();
-        run_actix(async {
-            let nearcore::NearNode {
-                view_client: view_client1, rpc_handler: tx_processor1, ..
-            } = start_with_config(dir1.path(), near1.clone(), actor_system.clone())
+        let nearcore::NearNode { view_client: view_client1, rpc_handler: tx_processor1, .. } =
+            start_with_config(dir1.path(), near1.clone(), actor_system.clone())
                 .expect("start_with_config");
 
-            let genesis_hash = *genesis_block(&genesis).hash();
-            let signer = Arc::new(InMemorySigner::test_signer(&"test1".parse().unwrap()));
-            let unstake_transaction = SignedTransaction::stake(
-                1,
-                "test1".parse().unwrap(),
-                &*signer,
-                TESTING_INIT_STAKE / 2,
-                near1.validator_signer.get().unwrap().public_key(),
-                genesis_hash,
-            );
-            actix::spawn(
-                tx_processor1
-                    .send_async(ProcessTxRequest {
-                        transaction: unstake_transaction,
-                        is_forwarded: false,
-                        check_only: false,
-                    })
-                    .map(drop::<Result<near_client::ProcessTxResponse, _>>),
-            );
-
-            let started = Arc::new(AtomicBool::new(false));
-            let dir2_path = dir2.path().to_path_buf();
-            let arbiters_holder = Arc::new(RwLock::new(vec![]));
-            let arbiters_holder2 = arbiters_holder;
-            let actor_system = actor_system.clone();
-            WaitOrTimeoutActor::new(
-                Box::new(move |_ctx| {
-                    let started_copy = started.clone();
-                    let near2_copy = near2.clone();
-                    let dir2_path_copy = dir2_path.clone();
-                    let arbiters_holder2 = arbiters_holder2.clone();
-                    let actor = view_client1.send_async(GetBlock::latest());
-                    let actor_system = actor_system.clone();
-                    let actor = actor.then(move |res| {
-                        let latest_height =
-                            if let Ok(Ok(block)) = res { block.header.height } else { 0 };
-                        if !started_copy.load(Ordering::SeqCst) && latest_height > 2 * epoch_length
-                        {
-                            started_copy.store(true, Ordering::SeqCst);
-                            let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
-                                start_with_config(
-                                    &dir2_path_copy,
-                                    near2_copy,
-                                    actor_system.clone(),
-                                )
-                                .expect("start_with_config");
-                            *arbiters_holder2.write() = arbiters;
-
-                            WaitOrTimeoutActor::new(
-                                Box::new(move |_ctx| {
-                                    actix::spawn(view_client2.send_async(GetBlock::latest()).then(
-                                        move |res| {
-                                            if let Ok(Ok(block)) = res {
-                                                if block.header.height > latest_height + 1 {
-                                                    near_async::shutdown_all_actors();
-                                                }
-                                            }
-                                            future::ready(())
-                                        },
-                                    ));
-                                }),
-                                100,
-                                30000,
-                            )
-                            .start();
-                        }
-                        future::ready(())
-                    });
-                    actix::spawn(actor);
-                }),
-                100,
-                35000,
-            )
-            .start();
+        let genesis_hash = *genesis_block(&genesis).hash();
+        let signer = Arc::new(InMemorySigner::test_signer(&"test1".parse().unwrap()));
+        let unstake_transaction = SignedTransaction::stake(
+            1,
+            "test1".parse().unwrap(),
+            &*signer,
+            TESTING_INIT_STAKE / 2,
+            near1.validator_signer.get().unwrap().public_key(),
+            genesis_hash,
+        );
+        tx_processor1.send(ProcessTxRequest {
+            transaction: unstake_transaction,
+            is_forwarded: false,
+            check_only: false,
         });
-    });
+
+        let started = Arc::new(AtomicBool::new(false));
+        let dir2_path = dir2.path().to_path_buf();
+        let arbiters_holder = Arc::new(RwLock::new(vec![]));
+        let arbiters_holder2 = arbiters_holder;
+        let actor_system_clone = actor_system.clone();
+
+        Box::pin(wait_or_timeout(100, 35000, move || {
+            let started = started.clone();
+            let near2 = near2.clone();
+            let dir2_path = dir2_path.clone();
+            let arbiters_holder2 = arbiters_holder2.clone();
+            let view_client1 = view_client1.clone();
+            let actor_system = actor_system_clone.clone();
+            async move {
+                let latest_height =
+                    if let Ok(Ok(block)) = view_client1.send_async(GetBlock::latest()).await {
+                        block.header.height
+                    } else {
+                        0
+                    };
+
+                if !started.load(Ordering::SeqCst) && latest_height > 2 * epoch_length {
+                    started.store(true, Ordering::SeqCst);
+                    let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
+                        start_with_config(&dir2_path, near2, actor_system.clone())
+                            .expect("start_with_config");
+                    *arbiters_holder2.write() = arbiters;
+
+                    wait_or_timeout(100, 30000, move || {
+                        let view_client2 = view_client2.clone();
+                        async move {
+                            if let Ok(Ok(block)) = view_client2.send_async(GetBlock::latest()).await
+                            {
+                                if block.header.height > latest_height + 1 {
+                                    return ControlFlow::Break(());
+                                }
+                            }
+                            ControlFlow::Continue(())
+                        }
+                    })
+                    .await
+                    .unwrap();
+
+                    return ControlFlow::Break(());
+                }
+                ControlFlow::Continue(())
+            }
+        }))
+        .await
+        .unwrap();
+
+        actor_system.stop();
+        near_store::db::RocksDB::block_until_all_instances_are_dropped();
+    })
+    .await;
 }

@@ -153,11 +153,9 @@ async fn setup_test_peers(clock: &FakeClock, mut rng: &mut Rng) -> (PeerHandle, 
         actor_system.clone(),
         inbound_cfg,
         inbound_stream,
-    )
-    .await;
+    );
     let mut outbound =
-        PeerHandle::start_endpoint(clock.clock(), actor_system, outbound_cfg, outbound_stream)
-            .await;
+        PeerHandle::start_endpoint(clock.clock(), actor_system, outbound_cfg, outbound_stream);
 
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;

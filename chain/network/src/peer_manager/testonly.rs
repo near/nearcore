@@ -69,7 +69,7 @@ impl Debug for WithNetworkState {
 
 impl messaging::Handler<WithNetworkState> for PeerManagerActor {
     fn handle(&mut self, WithNetworkState(f): WithNetworkState) {
-        self.future_spawner.spawn("with_network_state", f(self.state.clone()));
+        self.handle.spawn("with_network_state", f(self.state.clone()));
     }
 }
 
@@ -141,8 +141,7 @@ impl RawConnection {
             self.actor_system.clone(),
             self.cfg,
             self.stream,
-        )
-        .await;
+        );
 
         // Wait for the new peer to complete the handshake.
         peer.complete_handshake().await;
@@ -170,8 +169,7 @@ impl RawConnection {
             self.actor_system.clone(),
             self.cfg,
             self.stream,
-        )
-        .await;
+        );
         let reason = self
             .events
             .recv_until(|ev| match ev {

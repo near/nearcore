@@ -99,7 +99,7 @@ impl PeerHandle {
         )
     }
 
-    pub async fn start_endpoint(
+    pub fn start_endpoint(
         clock: time::Clock,
         actor_system: ActorSystem,
         cfg: PeerConfig,
@@ -141,14 +141,13 @@ impl PeerHandle {
             }
         });
         let state_witness_sender = Sender::from_fn({
-            let send = send.clone();
             move |event: PartialWitnessSenderForNetworkMessage| {
                 send.send(Event::PartialWitness(event.into_input()));
             }
         });
         let network_state = Arc::new(NetworkState::new(
             &clock,
-            store.clone(),
+            store,
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),

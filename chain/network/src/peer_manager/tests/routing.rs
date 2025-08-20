@@ -908,8 +908,7 @@ async fn ttl_and_num_hops() {
         .await
         .unwrap();
     let mut peer =
-        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream)
-            .await;
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
     peer.complete_handshake().await;
     pm.wait_for_routing_table(&[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
@@ -968,8 +967,7 @@ async fn repeated_data_in_sync_routing_table() {
         .await
         .unwrap();
     let mut peer =
-        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream)
-            .await;
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
     peer.complete_handshake().await;
 
     let mut edges_got = HashSet::new();

@@ -727,7 +727,6 @@ impl PeerActor {
         self.handle.spawn("register peer", {
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
-            let conn = conn.clone();
             let handle = self.handle.clone();
             async move {
                 let register_result = network_state.register(&clock, edge, conn.clone()).await;
@@ -1283,7 +1282,6 @@ impl PeerActor {
             }
             PeerMessage::SyncRoutingTable(rtu) => {
                 let clock = self.clock.clone();
-                let conn = conn.clone();
                 let network_state = self.network_state.clone();
                 self.handle.spawn("handle sync routing table", async move {
                     Self::handle_sync_routing_table(&clock, &network_state, conn.clone(), rtu)

@@ -358,12 +358,12 @@ impl PeerManagerActor {
             }
         });
         builder.spawn_tokio_actor(Self {
-            my_peer_id: my_peer_id.clone(),
+            my_peer_id,
             started_connect_attempts: false,
             state,
             clock,
             actor_system,
-            handle,
+            handle: handle.clone(),
         });
         Ok(handle)
     }
