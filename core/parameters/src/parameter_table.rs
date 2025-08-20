@@ -150,11 +150,9 @@ impl TryFrom<&ParameterValue> for Fee {
 
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
-            &ParameterValue::Fee { send_sir, send_not_sir, execution } => Ok(Fee {
-                send_sir: send_sir,
-                send_not_sir: send_not_sir,
-                execution: execution,
-            }),
+            &ParameterValue::Fee { send_sir, send_not_sir, execution } => {
+                Ok(Fee { send_sir: send_sir, send_not_sir: send_not_sir, execution: execution })
+            }
             _ => Err(ValueConversionError::ParseType(std::any::type_name::<Fee>(), value.clone())),
         }
     }

@@ -94,21 +94,6 @@ impl Ord for TxId {
     }
 }
 
-fn gas_pretty(gas: Gas) -> String {
-    let gas_value = gas.as_gas();
-    if gas_value < 1000 {
-        format!("{} gas", gas_value)
-    } else if gas_value < 1_000_000 {
-        format!("{} Kgas", gas_value / 1000)
-    } else if gas_value < 1_000_000_000 {
-        format!("{} Mgas", gas_value / 1_000_000)
-    } else if gas_value < 1_000_000_000_000 {
-        format!("{} Ggas", gas_value / 1_000_000_000)
-    } else {
-        format!("{} Tgas", gas_value / 1_000_000_000_000)
-    }
-}
-
 #[derive(Clone, Debug)]
 struct NonceInfo {
     target_nonce: TargetNonce,
