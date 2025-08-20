@@ -8,7 +8,6 @@ use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
-use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -61,7 +60,7 @@ pub mod migrations;
 pub mod state_sync;
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::tokio::TokioRuntimeHandle;
+use near_async::tokio::{EmptyActor, TokioRuntimeHandle};
 use near_client::client_actor::ClientActorInner;
 #[cfg(feature = "tx_generator")]
 use near_transactions_generator::actix_actor::GeneratorActorImpl;
@@ -233,8 +232,6 @@ pub struct NearNode {
     // A handle that allows the main process to interrupt resharding if needed.
     // This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
-    // The threads that state sync runs in.
-    pub state_sync_runtime: Arc<tokio::runtime::Runtime>,
     /// Shard tracker, allows querying of which shards are tracked by this node.
     pub shard_tracker: ShardTracker,
 }
@@ -431,10 +428,8 @@ pub fn start_with_config_and_synchronization(
         resharding_handle.clone(),
         config.client_config.resharding_config.clone(),
     ));
-    let state_sync_runtime =
-        Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
+    let state_sync_runtime = actor_system.spawn_tokio_actor(EmptyActor);
 
-    let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone()));
     let StartClientResult {
         client_actor,
         tx_pool,
@@ -449,7 +444,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker.clone(),
         runtime.clone(),
         node_id,
-        state_sync_spawner.clone(),
+        state_sync_runtime.future_spawner().into(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
@@ -506,7 +501,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker: shard_tracker.clone(),
         runtime,
         validator: config.validator_signer.clone(),
-        future_spawner: state_sync_spawner,
+        future_spawner: state_sync_runtime.future_spawner().into(),
         handle: None,
     };
     state_sync_dumper.start()?;
@@ -595,7 +590,6 @@ pub fn start_with_config_and_synchronization(
         cold_store_loop_handle,
         state_sync_dumper,
         resharding_handle,
-        state_sync_runtime,
         shard_tracker,
     })
 }

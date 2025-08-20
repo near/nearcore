@@ -17,7 +17,7 @@ cargo-fuzz = true
 [dependencies]
 actix.workspace = true
 arbitrary.workspace = true
-awc.workspace = true
+reqwest.workspace = true
 libfuzzer-sys.workspace = true
 parking_lot.workspace = true
 serde.workspace = true

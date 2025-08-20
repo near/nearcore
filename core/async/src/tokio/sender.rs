@@ -97,7 +97,8 @@ where
             tokio::time::sleep(dur.unsigned_abs()).await;
             let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| f(actor, ctx);
             let message = TokioRuntimeMessage { description, function: Box::new(function) };
-            sender.send(message).unwrap();
+            // It's ok for this to fail; it means the runtime is shutting down already.
+            sender.send(message).ok();
         });
     }
 }

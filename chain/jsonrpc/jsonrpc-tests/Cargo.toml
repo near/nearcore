@@ -13,7 +13,7 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
-awc.workspace = true
+reqwest.workspace = true
 futures.workspace = true
 borsh.workspace = true
 parking_lot.workspace = true

@@ -1,7 +1,7 @@
 use std::ops::ControlFlow;
 use std::str::FromStr;
 
-use awc::http::StatusCode;
+use reqwest::StatusCode;
 use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::transaction::SignedTransaction;
@@ -559,11 +559,11 @@ async fn test_invalid_methods() {
                 "method": &method_name,
                 "params": serde_json::json!([]),
             });
-            let response = &mut client
+            let response = client
                 .client
                 .post(&client.server_addr)
-                .insert_header(("Content-Type", "application/json"))
-                .send_json(&json)
+                .header("Content-Type", "application/json")
+                .json(&json).send()
                 .await
                 .unwrap();
 
@@ -599,8 +599,8 @@ async fn test_parse_error_status_code() {
         let response = &mut client
             .client
             .post(&client.server_addr)
-            .insert_header(("Content-Type", "application/json"))
-            .send_json(&json)
+            .header("Content-Type", "application/json")
+            .json(&json).send()
             .await
             .unwrap();
 
@@ -624,8 +624,8 @@ async fn slow_test_bad_handler_error_status_code() {
         let response = &mut client
             .client
             .post(&client.server_addr)
-            .insert_header(("Content-Type", "application/json"))
-            .send_json(&json)
+            .header("Content-Type", "application/json")
+            .json(&json).send()
             .await
             .unwrap();
 
@@ -646,8 +646,8 @@ async fn test_good_handler_error_status_code() {
         let response = &mut client
             .client
             .post(&client.server_addr)
-            .insert_header(("Content-Type", "application/json"))
-            .send_json(&json)
+            .header("Content-Type", "application/json")
+            .json(&json).send()
             .await
             .unwrap();
 

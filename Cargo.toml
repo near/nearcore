@@ -167,7 +167,6 @@ assert_matches = "1.5.0"
 async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
-awc = { version = "3", features = ["openssl"] }
 backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
@@ -362,7 +361,7 @@ redis = "0.23.0"
 reed-solomon-erasure = { version = "6.0.0", features = ["simd-accel"] }
 regex = "1.7.1"
 region = "3.0"
-reqwest = { version = "0.12.0", features = ["blocking"] }
+reqwest = { version = "0.12.0", features = ["blocking", "json", "stream"] }
 ripemd = "0.1.1"
 rkyv = "0.8.0"
 rlimit = "0.7"

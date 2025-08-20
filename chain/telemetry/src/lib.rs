@@ -1,10 +1,9 @@
 mod metrics;
 
-use awc::{Client, Connector};
-use futures::FutureExt;
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Duration, Instant};
 use near_performance_metrics_macros::perf;
+use reqwest::Client;
 use std::ops::Sub;
 
 /// Timeout for establishing connection.
@@ -36,18 +35,10 @@ pub struct TelemetryEvent {
     pub content: serde_json::Value,
 }
 
-thread_local! {
-    static TELEMETRY_CLIENT: Client = {
-        Client::builder()
-            .timeout(CONNECT_TIMEOUT)
-            .connector(Connector::new().max_http_version(awc::http::Version::HTTP_11))
-            .finish()
-    };
-}
-
 pub struct TelemetryActor {
     config: TelemetryConfig,
     last_telemetry_update: Instant,
+    client: Client,
 }
 
 impl Default for TelemetryActor {
@@ -69,11 +60,17 @@ impl TelemetryActor {
             }
         }
 
+        let client = Client::builder()
+            .timeout(CONNECT_TIMEOUT)
+            .build()
+            .expect("Failed to create HTTP client for telemetry");
+
         let reporting_interval = config.reporting_interval;
         Self {
             config,
             // Let the node report telemetry info at the startup.
             last_telemetry_update: Instant::now().sub(reporting_interval),
+            client,
         }
     }
 }
@@ -90,28 +87,40 @@ impl Handler<TelemetryEvent> for TelemetryActor {
         }
         for endpoint in &self.config.endpoints {
             let endpoint = endpoint.clone();
-            // TODO(#14005): This is ugly... but Client is not Send, so it's very difficult to use
-            // it in a tokio runtime. Can we do better?
-            futures::executor::block_on(TELEMETRY_CLIENT.with(|client: &Client| {
-                client
-                    .post(endpoint.clone())
-                    .insert_header(("Content-Type", "application/json"))
-                    .force_close() // See https://github.com/near/nearcore/pull/11914
-                    .send_json(&msg.content)
-                    .map(move |response| {
-                        let result = if let Err(error) = response {
+            let client = self.client.clone();
+            let content = msg.content.clone();
+
+            tokio::spawn(async move {
+                let result = match client
+                    .post(&endpoint)
+                    .header("Content-Type", "application/json")
+                    .json(&content)
+                    .send()
+                    .await
+                {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            "ok"
+                        } else {
                             tracing::warn!(
                                 target: "telemetry",
-                                err = ?error,
-                                endpoint = ?endpoint,
-                                "Failed to send telemetry data");
+                                status = %response.status(),
+                                endpoint = %endpoint,
+                                "Telemetry request failed with HTTP error");
                             "failed"
-                        } else {
-                            "ok"
-                        };
-                        metrics::TELEMETRY_RESULT.with_label_values(&[result]).inc();
-                    })
-            }));
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            target: "telemetry",
+                            err = ?error,
+                            endpoint = %endpoint,
+                            "Failed to send telemetry data");
+                        "failed"
+                    }
+                };
+                metrics::TELEMETRY_RESULT.with_label_values(&[result]).inc();
+            });
         }
         self.last_telemetry_update = now;
     }
