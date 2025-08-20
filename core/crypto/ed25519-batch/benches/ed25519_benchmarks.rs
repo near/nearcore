@@ -26,7 +26,7 @@ mod ed25519_benches {
     fn verify(c: &mut Criterion) {
         let mut csprng: ThreadRng = thread_rng();
         let keypair: SigningKey = SigningKey::generate(&mut csprng);
-        let msg: &[u8] = b"";
+        let msg: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let sig: Signature = keypair.sign(msg);
 
         c.bench_function("Ed25519 signature verification", move |b| {
