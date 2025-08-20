@@ -135,8 +135,10 @@ class CommandContext:
             sys.exit(
                 f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
             )
-            traffic_generator, nodes = local_test_node.get_nodes()
-            node_config.configure_nodes(nodes + to_list(traffic_generator))
+
+        # FIX???
+        traffic_generator, nodes = local_test_node.get_nodes()
+        node_config.configure_nodes(nodes + to_list(traffic_generator))
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
@@ -216,52 +218,56 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
     nodes = ctx.nodes
     traffic_generator = ctx.traffic_generator
     prompt_init_flags(args)
-    if args.neard_upgrade_binary_url is None or args.neard_upgrade_binary_url == '':
-        configs = [{
+
+    if args.neard_upgrade_binary_url is not None and args.neard_upgrade_binary_url != '':
+        neard_upgrade_binary_url = args.neard_upgrade_binary_url
+    else:
+        neard_upgrade_binary_url = None
+
+    all_nodes = []
+    all_configs = []
+
+    for node in nodes:
+        node_binaries = [{"url": args.neard_binary_url, "epoch_height": 0}]
+        if neard_upgrade_binary_url:
+            # Upgrade the binary at a random epoch.
+            # TODO: Consider upgrading specific portions of stake at every
+            # epoch.
+            node_binaries.append({
+                "url": neard_upgrade_binary_url,
+                "epoch_height": random.randint(1, 4)
+            })
+
+        node_config = {
             "is_traffic_generator": False,
-            "binaries": [{
-                "url": args.neard_binary_url,
-                "epoch_height": 0
-            }]
-        }] * len(nodes)
+            "binaries": node_binaries,
+            "role": node.role()
+        }
+        all_nodes.append(node)
+        all_configs.append(node_config)
+
+    if traffic_generator:
+        if neard_upgrade_binary_url:
+            # If our scenario upgrades the binary, use the latest binary for
+            # the traffic generator.
+            traffic_generator_binary = neard_upgrade_binary_url
+        else:
+            traffic_generator_binary = args.neard_binary_url
+
         traffic_generator_config = {
             "is_traffic_generator": True,
             "binaries": [{
-                "url": args.neard_binary_url,
+                "url": traffic_generator_binary,
                 "epoch_height": 0
-            }]
-        }
-    else:
-        # for now this test starts all validators with the same stake, so just make the upgrade
-        # epoch random. If we change the stakes, we should change this to choose how much stake
-        # we want to upgrade during each epoch
-        configs = []
-        for i in range(len(nodes)):
-            configs.append({
-                "is_traffic_generator":
-                    False,
-                "binaries": [{
-                    "url": args.neard_binary_url,
-                    "epoch_height": 0
-                }, {
-                    "url": args.neard_upgrade_binary_url,
-                    "epoch_height": random.randint(1, 4)
-                }]
-            })
-        traffic_generator_config = {
-            "is_traffic_generator":
-                True,
-            "binaries": [{
-                "url": args.neard_upgrade_binary_url,
-                "epoch_height": 0
-            }]
+            }],
+            "role": traffic_generator.role()
         }
 
-    if traffic_generator is not None:
-        traffic_generator.init_neard_runner(traffic_generator_config,
-                                            remove_home_dir)
+        all_nodes.append(traffic_generator)
+        all_configs.append(traffic_generator_config)
+
     pmap(lambda x: x[0].init_neard_runner(x[1], remove_home_dir),
-         zip(nodes, configs))
+         zip(all_nodes, all_configs))
 
 
 def init_cmd(ctx: CommandContext):

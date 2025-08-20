@@ -399,6 +399,13 @@ class NeardRunner:
 
     def reset_starting_data_dir(self):
         self.remove_data_dir()
+        if self.config.get('role') == 'validator':
+            logging.info(
+                "We are chunk validator, DB will be created from scratch")
+            return
+        else:
+            logging.info("DB will be created from snapshot from setup folder")
+
         cmd = [
             self.data['binaries'][0]['system_path'],
             '--home',
@@ -420,6 +427,9 @@ class NeardRunner:
         logging.info(f'running {" ".join(cmd)}')
         self.execute_neard_subcmd(cmd)
 
+        shutil.copyfile(self.setup_path('genesis.json'),
+                        self.target_near_home_path('genesis.json'))
+
     def move_init_files(self):
         try:
             os.mkdir(self.target_near_home_path())
@@ -437,8 +447,6 @@ class NeardRunner:
         for path in paths:
             shutil.move(self.tmp_near_home_path(path),
                         self.target_near_home_path(path))
-        shutil.copyfile(self.setup_path('genesis.json'),
-                        self.target_near_home_path('genesis.json'))
 
     # This RPC method tells to stop neard and re-initialize its home dir. This returns the
     # validator and node key that resulted from the initialization. We can't yet call amend-genesis
