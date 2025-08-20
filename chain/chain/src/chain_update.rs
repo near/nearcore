@@ -12,6 +12,7 @@ use crate::types::{
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
 use crate::{Chain, Doomslug};
 use crate::{DoomslugThresholdMode, metrics};
+use near_chain_configs::EpochToCheck;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -24,7 +25,8 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::LightClientBlockView;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
@@ -74,6 +76,27 @@ impl<'a> ChainUpdate<'a> {
             doomslug_threshold_mode,
             spice_core_processor,
         }
+    }
+
+    pub fn check_protocol_version(
+        &self,
+        block_hash: &CryptoHash,
+        epoch_to_check: EpochToCheck,
+    ) -> Result<(), Error> {
+        if self.epoch_manager.is_next_block_epoch_start(block_hash)? {
+            let epoch_id = match epoch_to_check {
+                EpochToCheck::Next => self.epoch_manager.get_next_epoch_id(block_hash)?,
+                EpochToCheck::NextNext => EpochId(*block_hash),
+            };
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            if protocol_version > PROTOCOL_VERSION {
+                panic!(
+                    "The client protocol version is older than the protocol version of the network: {} > {}",
+                    PROTOCOL_VERSION, protocol_version
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Commit changes to the chain into the database.

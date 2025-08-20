@@ -11,7 +11,7 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, EpochToCheck, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
     GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
     GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
@@ -395,6 +395,15 @@ pub struct Config {
     /// This option can cause extra load on the database and is not recommended for production use.
     pub save_invalid_witnesses: bool,
     pub transaction_request_handler_threads: usize,
+    /// If set to true, node will exit if the next next epoch's protocol version is not supported.
+    /// If set to false, node will exit if the next epoch's protocol version is not supported.
+    /// If set to `None`, the value will be treated as true if either
+    /// - `archive` is true, or
+    /// - All shards are tracked (i.e. node is an RPC node).
+    /// This avoids persisting a potentially incorrect EpochInfo, which can complicate node recovery
+    /// if the node misses the protocol upgrade.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_version_check_next_next_epoch: Option<bool>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -461,6 +470,7 @@ impl Default for Config {
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
+            protocol_version_check_next_next_epoch: None,
         }
     }
 }
@@ -619,6 +629,8 @@ impl NearConfig {
         network_key_pair: KeyFile,
         validator_signer: MutableValidatorSigner,
     ) -> anyhow::Result<Self> {
+        let is_archive_or_rpc =
+            config.archive || config.tracked_shards_config() == TrackedShardsConfig::AllShards;
         Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
@@ -664,10 +676,7 @@ impl NearConfig {
                 tracked_shards_config: config.tracked_shards_config(),
                 archive: config.archive,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
-                save_tx_outcomes: config.save_tx_outcomes.unwrap_or_else(|| {
-                    config.archive
-                        || config.tracked_shards_config() == TrackedShardsConfig::AllShards
-                }),
+                save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
@@ -701,6 +710,14 @@ impl NearConfig {
                 save_latest_witnesses: config.save_latest_witnesses,
                 save_invalid_witnesses: config.save_invalid_witnesses,
                 transaction_request_handler_threads: config.transaction_request_handler_threads,
+                protocol_version_epoch_to_check: if config
+                    .protocol_version_check_next_next_epoch
+                    .unwrap_or(is_archive_or_rpc)
+                {
+                    EpochToCheck::NextNext
+                } else {
+                    EpochToCheck::Next
+                },
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,

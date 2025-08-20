@@ -601,6 +601,14 @@ pub struct ChunkDistributionUris {
     pub set: String,
 }
 
+#[derive(Default, Clone, Copy, serde::Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum EpochToCheck {
+    #[default]
+    Next,
+    NextNext,
+}
+
 /// ClientConfig where some fields can be updated at runtime.
 #[derive(Clone, serde::Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -775,6 +783,9 @@ pub struct ClientConfig {
     /// This option can cause extra load on the database and is not recommended for production use.
     pub save_invalid_witnesses: bool,
     pub transaction_request_handler_threads: usize,
+    /// Determines whether client should exit if the protocol version is not supported
+    /// for the next or next next epoch.
+    pub protocol_version_epoch_to_check: EpochToCheck,
 }
 
 impl ClientConfig {
@@ -868,6 +879,7 @@ impl ClientConfig {
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
+            protocol_version_epoch_to_check: Default::default(),
         }
     }
 }

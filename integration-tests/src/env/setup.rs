@@ -21,7 +21,7 @@ use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_async::ActorSystem;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::{
-    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
+    ChunkDistributionNetworkConfig, ClientConfig, EpochToCheck, Genesis, MutableConfigValue,
     MutableValidatorSigner, ReshardingConfig, ReshardingHandle, TrackedShardsConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -442,6 +442,7 @@ pub fn setup_client_with_runtime(
     archive: bool,
     save_trie_changes: bool,
     save_tx_outcomes: bool,
+    protocol_version_epoch_to_check: EpochToCheck,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: MutableValidatorSigner,
@@ -450,6 +451,7 @@ pub fn setup_client_with_runtime(
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.save_tx_outcomes = save_tx_outcomes;
+    config.protocol_version_epoch_to_check = protocol_version_epoch_to_check;
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
@@ -543,6 +545,7 @@ pub fn setup_synchronous_shards_manager(
                 ReshardingConfig::default(),
                 "resharding_config",
             ),
+            protocol_version_epoch_to_check: Default::default(),
         }, // irrelevant
         None,
         Default::default(),

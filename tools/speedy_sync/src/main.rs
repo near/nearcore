@@ -267,6 +267,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
                 ReshardingConfig::default(),
                 "resharding_config",
             ),
+            protocol_version_epoch_to_check: Default::default(),
         },
         None,
         Default::default(),
