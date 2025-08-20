@@ -67,6 +67,9 @@ pub mod trie_storage_update;
 mod trie_tests;
 pub mod update;
 
+/// Number of children for a trie branch
+pub const NUM_CHILDREN: usize = 16;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PartialStorage {
     pub nodes: PartialState,

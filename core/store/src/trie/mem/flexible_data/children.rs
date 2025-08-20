@@ -1,8 +1,8 @@
 use super::FlexibleDataHeader;
 use super::encoding::BorshFixedSize;
-use crate::trie::Children;
 use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 use crate::trie::mem::node::{MemTrieNodeId, MemTrieNodePtr};
+use crate::trie::{Children, NUM_CHILDREN};
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_where::derive_where;
 use std::mem::size_of;
@@ -20,12 +20,12 @@ impl BorshFixedSize for EncodedChildrenHeader {
 }
 
 impl FlexibleDataHeader for EncodedChildrenHeader {
-    type InputData = [Option<MemTrieNodeId>; 16];
+    type InputData = [Option<MemTrieNodeId>; NUM_CHILDREN];
     type View<'a, M: ArenaMemory> = ChildrenView<'a, M>;
 
-    fn from_input(children: &[Option<MemTrieNodeId>; 16]) -> EncodedChildrenHeader {
+    fn from_input(children: &[Option<MemTrieNodeId>; NUM_CHILDREN]) -> EncodedChildrenHeader {
         let mut mask = 0u16;
-        for i in 0..16 {
+        for i in 0..NUM_CHILDREN {
             if children[i].is_some() {
                 mask |= 1 << i;
             }
@@ -39,7 +39,7 @@ impl FlexibleDataHeader for EncodedChildrenHeader {
 
     fn encode_flexible_data<M: ArenaMemoryMut>(
         &self,
-        children: &[Option<MemTrieNodeId>; 16],
+        children: &[Option<MemTrieNodeId>; NUM_CHILDREN],
         target: &mut ArenaSliceMut<M>,
     ) {
         let mut j = 0;
@@ -71,7 +71,7 @@ pub struct ChildrenView<'a, M: ArenaMemory> {
 impl<'a, M: ArenaMemory> ChildrenView<'a, M> {
     /// Gets the child at a specific index (0 to 15).
     pub fn get(&self, i: usize) -> Option<MemTrieNodePtr<'a, M>> {
-        assert!(i < 16);
+        assert!(i < NUM_CHILDREN);
         let bit = 1u16 << (i as u16);
         if self.mask & bit == 0 {
             None
@@ -84,18 +84,18 @@ impl<'a, M: ArenaMemory> ChildrenView<'a, M> {
 
     /// Converts to a Children struct used in RawTrieNode.
     pub fn to_children(&self) -> Children {
-        let mut nodes = [None; 16];
+        let mut nodes = [None; NUM_CHILDREN];
         if self.mask == 0 {
             return Children(nodes);
         };
 
         // cspell:words ptrs
-        let mut node_ptrs = [None; 16];
+        let mut node_ptrs = [None; NUM_CHILDREN];
         let mut j = size_of::<usize>() * self.mask.count_ones() as usize;
         // Execute all `read_ptr_at` in reverse to avoid repeat bound checks.
         // Additionally, issue reads for the node kinds before moving on to compute sha256 hashes,
         // thus hopefully giving CPU more time to load the relevant lines into the cache.
-        for i in (0..16).rev() {
+        for i in (0..NUM_CHILDREN).rev() {
             let bit = self.mask & (1 << i);
             if bit != 0 {
                 j -= size_of::<usize>();

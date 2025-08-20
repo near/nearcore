@@ -1,7 +1,7 @@
 """
 Test case classes for release tests on forknet.
 """
-from .base import TestSetup
+from .base import TestSetup, NodeHardware
 from mirror import CommandContext, update_config_cmd
 import copy
 
@@ -17,8 +17,8 @@ class Test27(TestSetup):
         super().__init__(args)
         self.start_height = 149655594
         self.args.start_height = self.start_height
-        self.validators = 24
-        self.block_producers = 19
+        self.node_hardware_config = NodeHardware.SameConfig(
+            num_chunk_producer_seats=19, num_chunk_validator_seats=24)
         self.epoch_len = 18000  # roughly 2h 30m @ 2bps
         self.has_state_dumper = True
         self.genesis_protocol_version = 77
@@ -62,8 +62,8 @@ class Test27Small(Test27):
 
     def __init__(self, args):
         super().__init__(args)
-        self.validators = 10
-        self.block_producers = 9
+        self.node_hardware_config = NodeHardware.SameConfig(
+            num_chunk_producer_seats=9, num_chunk_validator_seats=10)
         self.upgrade_interval_minutes = 20  # Within the first 2 epochs
 
     def amend_configs_before_test_start(self):

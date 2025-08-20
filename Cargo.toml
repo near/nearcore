@@ -43,6 +43,7 @@ members = [
     "core/async-derive",
     "core/chain-configs",
     "core/crypto",
+    "core/crypto/ed25519-batch",
     "core/dyn-configs",
     "core/o11y",
     "core/parameters",
@@ -212,7 +213,7 @@ dirs = "4"
 dynasm = "2.0"
 dynasmrt = "2.0"
 easy-ext = "0.2"
-ed25519-dalek = { version = "2.1.0", default-features = false }
+ed25519-dalek = { version = "2.2.0", default-features = false }
 enum-map = "2.1.0"
 enumset = "1.0"
 ethabi = "18"
@@ -241,6 +242,7 @@ libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"
 lru = "0.12.3"
 memoffset = "0.8"
+merlin = { version = "3", default-features = false }
 more-asserts = "0.2"
 near-account-id = { version = "1.1.3", features = [
     "internal_unstable",
@@ -356,7 +358,7 @@ protobuf-codegen = "3.0.1"
 quote = "1.0"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
-rand_core = "0.5"
+rand_core = "0.6.1"
 rand_hc = "0.3.1"
 rand_xorshift = "0.3"
 rayon = "1.10"
