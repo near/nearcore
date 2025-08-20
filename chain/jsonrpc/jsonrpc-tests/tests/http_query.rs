@@ -1,29 +1,27 @@
-use futures::{FutureExt, future};
-
-use near_actix_test_utils::run_actix;
 use near_jsonrpc::client::new_http_client;
 use near_o11y::testonly::init_test_logger;
 use near_time::Clock;
 
 use near_jsonrpc_tests as test_utils;
+use near_store::db::RocksDB;
 
 /// Retrieve client status via HTTP GET.
-#[test]
-fn test_status() {
+#[tokio::test]
+async fn test_status() {
     init_test_logger();
 
-    run_actix(async {
-        let (_view_client_addr, addr, _runtime_temp_dir) =
-            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+    let actor_system = near_async::ActorSystem::new();
+    let (_view_client_addr, addr, _runtime_temp_dir) = test_utils::start_all(
+        Clock::real(),
+        actor_system.clone(),
+        test_utils::NodeType::NonValidator,
+    );
 
-        let client = new_http_client(&format!("http://{}", addr));
-        actix::spawn(client.status().then(|res| {
-            let res = res.unwrap();
-            assert_eq!(res.chain_id, "unittest");
-            assert_eq!(res.sync_info.latest_block_height, 0);
-            assert_eq!(res.sync_info.syncing, false);
-            near_async::shutdown_all_actors();
-            future::ready(())
-        }));
-    });
+    let client = new_http_client(&format!("http://{}", addr));
+    let res = client.status().await.unwrap();
+    assert_eq!(res.chain_id, "unittest");
+    assert_eq!(res.sync_info.latest_block_height, 0);
+    assert_eq!(res.sync_info.syncing, false);
+    actor_system.stop();
+    RocksDB::block_until_all_instances_are_dropped();
 }

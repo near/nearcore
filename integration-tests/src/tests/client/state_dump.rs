@@ -1,6 +1,5 @@
 use assert_matches::assert_matches;
 
-use near_async::actix::futures::ActixArbiterHandleFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -25,6 +24,7 @@ use std::sync::Arc;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
+use near_async::futures::TokioRuntimeFutureSpawner;
 
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
@@ -60,7 +60,9 @@ fn slow_test_state_dump() {
         "validator_signer",
     );
 
-    let arbiter = actix::Arbiter::new();
+    let tokio_runtime = Arc::new(
+        tokio::runtime::Builder::new_multi_thread().enable_all().worker_threads(1).build().unwrap(),
+    );
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config,
@@ -69,7 +71,7 @@ fn slow_test_state_dump() {
         shard_tracker,
         runtime,
         validator,
-        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
+        future_spawner: Arc::new(TokioRuntimeFutureSpawner(tokio_runtime)),
         handle: None,
     };
     state_sync_dumper.start().unwrap();
@@ -170,7 +172,9 @@ fn run_state_sync_with_dumped_parts(
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
     });
-    let arbiter = actix::Arbiter::new();
+    let tokio_runtime = Arc::new(
+        tokio::runtime::Builder::new_multi_thread().enable_all().worker_threads(1).build().unwrap(),
+    );
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config.clone(),
@@ -179,7 +183,7 @@ fn run_state_sync_with_dumped_parts(
         shard_tracker,
         runtime,
         validator,
-        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
+        future_spawner: Arc::new(TokioRuntimeFutureSpawner(tokio_runtime)),
         handle: None,
     };
     state_sync_dumper.start().unwrap();

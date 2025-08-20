@@ -2,13 +2,11 @@ use std::ops::ControlFlow;
 use std::str::FromStr;
 
 use awc::http::StatusCode;
-use futures::{FutureExt, future};
 use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::transaction::SignedTransaction;
 use serde_json::json;
 
-use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, Signature};
 use near_jsonrpc::client::{ChunkId, JsonRpcClient, new_client};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
@@ -23,11 +21,13 @@ use near_primitives::types::{
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use near_time::Clock;
 
+use near_async::ActorSystem;
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
+use near_store::db::RocksDB;
 
 /// Retrieve blocks via json rpc
-#[test]
-fn test_block_by_id_height() {
+#[tokio::test]
+async fn test_block_by_id_height() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let block = client.block_by_id(BlockId::Height(0)).await.unwrap();
         assert_eq!(block.author, "test1");
@@ -45,8 +45,8 @@ fn test_block_by_id_height() {
 }
 
 /// Retrieve blocks via json rpc
-#[test]
-fn test_block_by_id_hash() {
+#[tokio::test]
+async fn test_block_by_id_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let block = client.block_by_id(BlockId::Height(0)).await.unwrap();
         let same_block = client.block_by_id(BlockId::Hash(block.header.hash)).await.unwrap();
@@ -56,8 +56,8 @@ fn test_block_by_id_hash() {
 }
 
 /// Retrieve blocks via json rpc
-#[test]
-fn test_block_query() {
+#[tokio::test]
+async fn test_block_query() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let block_response1 =
             client.block(BlockReference::BlockId(BlockId::Height(0))).await.unwrap();
@@ -91,8 +91,8 @@ fn test_block_query() {
 }
 
 /// Retrieve chunk via json rpc
-#[test]
-fn test_chunk_by_hash() {
+#[tokio::test]
+async fn test_chunk_by_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk =
             client.chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::new(0))).await.unwrap();
@@ -120,8 +120,8 @@ fn test_chunk_by_hash() {
 }
 
 /// Retrieve chunk via json rpc
-#[test]
-fn test_chunk_invalid_shard_id() {
+#[tokio::test]
+async fn test_chunk_invalid_shard_id() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk =
             client.chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::new(100))).await;
@@ -136,8 +136,8 @@ fn test_chunk_invalid_shard_id() {
 }
 
 /// Connect to json rpc and query account info with soft-deprecated query API.
-#[test]
-fn test_query_by_path_account() {
+#[tokio::test]
+async fn test_query_by_path_account() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let status = client.status().await.unwrap();
         let block_hash = status.sync_info.latest_block_hash;
@@ -160,8 +160,8 @@ fn test_query_by_path_account() {
 }
 
 /// Connect to json rpc and query account info.
-#[test]
-fn test_query_account() {
+#[tokio::test]
+async fn test_query_account() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let status = client.status().await.unwrap();
         let block_hash = status.sync_info.latest_block_hash;
@@ -207,8 +207,8 @@ fn test_query_account() {
 }
 
 /// Connect to json rpc and query account info with soft-deprecated query API.
-#[test]
-fn test_query_by_path_access_keys() {
+#[tokio::test]
+async fn test_query_by_path_access_keys() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let account = "test".parse().unwrap();
         let signer = InMemorySigner::test_signer(&account);
@@ -228,8 +228,8 @@ fn test_query_by_path_access_keys() {
 }
 
 /// Connect to json rpc and query account info.
-#[test]
-fn test_query_access_keys() {
+#[tokio::test]
+async fn test_query_access_keys() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
@@ -253,8 +253,8 @@ fn test_query_access_keys() {
 }
 
 /// Connect to json rpc and query account info with soft-deprecated query API.
-#[test]
-fn test_query_by_path_access_key() {
+#[tokio::test]
+async fn test_query_by_path_access_key() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let account = "test".parse().unwrap();
         let signer = InMemorySigner::test_signer(&account);
@@ -274,8 +274,8 @@ fn test_query_by_path_access_key() {
 }
 
 /// Connect to json rpc and query account info.
-#[test]
-fn test_query_access_key() {
+#[tokio::test]
+async fn test_query_access_key() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let account = "test".parse().unwrap();
         let signer = InMemorySigner::test_signer(&account);
@@ -301,8 +301,8 @@ fn test_query_access_key() {
 }
 
 /// Connect to json rpc and query state.
-#[test]
-fn test_query_state() {
+#[tokio::test]
+async fn test_query_state() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
@@ -326,8 +326,8 @@ fn test_query_state() {
 }
 
 /// Connect to json rpc and call function
-#[test]
-fn test_query_call_function() {
+#[tokio::test]
+async fn test_query_call_function() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let account = "test".parse().unwrap();
         let code = near_test_contracts::rs_contract().to_vec();
@@ -358,8 +358,8 @@ fn test_query_call_function() {
 }
 
 /// query contract code
-#[test]
-fn test_query_contract_code() {
+#[tokio::test]
+async fn test_query_contract_code() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let account = "test".parse().unwrap();
         let code = near_test_contracts::rs_contract().to_vec();
@@ -396,8 +396,8 @@ async fn deploy_contract(client: &JsonRpcClient, account: &AccountId, code: Vec<
 }
 
 /// Retrieve client status via JSON RPC.
-#[test]
-fn test_status() {
+#[tokio::test]
+async fn test_status() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let status = client.status().await.unwrap();
         assert_eq!(status.chain_id, "unittest");
@@ -409,77 +409,78 @@ fn test_status() {
 }
 
 /// Retrieve client status failed.
-#[test]
-fn test_status_fail() {
+#[tokio::test]
+async fn test_status_fail() {
     init_test_logger();
 
-    run_actix(async {
-        let (_, addr, _runtime_temp_dir) =
-            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+    let actor_system = ActorSystem::new();
+    let (_, addr, _runtime_temp_dir) = test_utils::start_all(
+        Clock::real(),
+        actor_system.clone(),
+        test_utils::NodeType::NonValidator,
+    );
 
-        let client = new_client(&format!("http://{}", addr));
-        wait_or_timeout(100, 10000, || async {
-            let res = client.health().await;
-            if res.is_err() {
-                return ControlFlow::Break(());
-            }
-            ControlFlow::Continue(())
-        })
-        .await
-        .unwrap();
-        near_async::shutdown_all_actors();
-    });
+    let client = new_client(&format!("http://{}", addr));
+    wait_or_timeout(100, 10000, || async {
+        let res = client.health().await;
+        if res.is_err() {
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
+    })
+    .await
+    .unwrap();
+    actor_system.stop();
+    RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Check health fails when node is absent.
-#[test]
-fn test_health_fail() {
+#[tokio::test]
+async fn test_health_fail() {
     init_test_logger();
 
-    run_actix(async {
-        let client = new_client("http://127.0.0.1:12322/health");
-        actix::spawn(client.health().then(|res| {
-            assert!(res.is_err());
-            near_async::shutdown_all_actors();
-            future::ready(())
-        }));
-    });
+    let client = new_client("http://127.0.0.1:12322/health");
+    let res = client.health().await;
+    assert!(res.is_err());
 }
 
 /// Health fails when node doesn't produce block for period of time.
-#[test]
-fn test_health_fail_no_blocks() {
+#[tokio::test]
+async fn test_health_fail_no_blocks() {
     init_test_logger();
 
-    run_actix(async {
-        let (_, addr, _runtime_temp_dir) =
-            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+    let actor_system = ActorSystem::new();
+    let (_, addr, _runtime_temp_dir) = test_utils::start_all(
+        Clock::real(),
+        actor_system.clone(),
+        test_utils::NodeType::NonValidator,
+    );
 
-        let client = new_client(&format!("http://{}", addr));
-        wait_or_timeout(300, 10000, || async {
-            let res = client.health().await;
-            if res.is_err() {
-                return ControlFlow::Break(());
-            }
-            ControlFlow::Continue(())
-        })
-        .await
-        .unwrap();
-        near_async::shutdown_all_actors();
-    });
+    let client = new_client(&format!("http://{}", addr));
+    wait_or_timeout(300, 10000, || async {
+        let res = client.health().await;
+        if res.is_err() {
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
+    })
+    .await
+    .unwrap();
+    actor_system.stop();
+    RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Retrieve client health.
-#[test]
-fn test_health_ok() {
+#[tokio::test]
+async fn test_health_ok() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let health = client.health().await;
         assert_eq!(health, Ok(()));
     });
 }
 
-#[test]
-fn test_validators_ordered() {
+#[tokio::test]
+async fn test_validators_ordered() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let validators = client
             .EXPERIMENTAL_validators_ordered(RpcValidatorsOrderedRequest { block_id: None })
@@ -494,8 +495,8 @@ fn test_validators_ordered() {
 
 /// Retrieve genesis config via JSON RPC.
 /// WARNING: Be mindful about changing genesis structure as it is part of the public protocol!
-#[test]
-fn test_genesis_config() {
+#[tokio::test]
+async fn test_genesis_config() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let genesis_config = client.genesis_config().await.unwrap();
         if !cfg!(feature = "nightly") {
@@ -510,8 +511,8 @@ fn test_genesis_config() {
 }
 
 /// Retrieve gas price
-#[test]
-fn test_gas_price_by_height() {
+#[tokio::test]
+async fn test_gas_price_by_height() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let gas_price = client.gas_price(Some(BlockId::Height(0))).await.unwrap();
         assert!(gas_price.gas_price > 0);
@@ -519,8 +520,8 @@ fn test_gas_price_by_height() {
 }
 
 /// Retrieve gas price
-#[test]
-fn test_gas_price_by_hash() {
+#[tokio::test]
+async fn test_gas_price_by_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let block = client.block(BlockReference::BlockId(BlockId::Height(0))).await.unwrap();
         let gas_price = client.gas_price(Some(BlockId::Hash(block.header.hash))).await.unwrap();
@@ -529,16 +530,16 @@ fn test_gas_price_by_hash() {
 }
 
 /// Retrieve gas price
-#[test]
-fn test_gas_price() {
+#[tokio::test]
+async fn test_gas_price() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let gas_price = client.gas_price(None).await.unwrap();
         assert!(gas_price.gas_price > 0);
     });
 }
 
-#[test]
-fn test_invalid_methods() {
+#[tokio::test]
+async fn test_invalid_methods() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let method_names = vec![
             serde_json::json!(
@@ -581,8 +582,8 @@ fn test_invalid_methods() {
     });
 }
 
-#[test]
-fn test_parse_error_status_code() {
+#[tokio::test]
+async fn test_parse_error_status_code() {
     // cspell:ignore badtx frolik
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let json = serde_json::json!({
@@ -607,8 +608,8 @@ fn test_parse_error_status_code() {
     });
 }
 
-#[test]
-fn slow_test_bad_handler_error_status_code() {
+#[tokio::test]
+async fn slow_test_bad_handler_error_status_code() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let json = serde_json::json!({
             "jsonrpc": "2.0",
@@ -632,8 +633,8 @@ fn slow_test_bad_handler_error_status_code() {
     });
 }
 
-#[test]
-fn test_good_handler_error_status_code() {
+#[tokio::test]
+async fn test_good_handler_error_status_code() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let json = serde_json::json!({
             "jsonrpc": "2.0",
@@ -654,8 +655,8 @@ fn test_good_handler_error_status_code() {
     });
 }
 
-#[test]
-fn test_get_chunk_with_object_in_params() {
+#[tokio::test]
+async fn test_get_chunk_with_object_in_params() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk: near_primitives::views::ChunkView = test_utils::call_method(
             &client.client,
@@ -691,17 +692,17 @@ fn test_get_chunk_with_object_in_params() {
     });
 }
 
-#[test]
-fn test_query_global_contract_code_by_hash() {
-    test_query_global_contract_code(GlobalContractDeployMode::CodeHash);
+#[tokio::test]
+async fn test_query_global_contract_code_by_hash() {
+    test_query_global_contract_code(GlobalContractDeployMode::CodeHash).await;
 }
 
-#[test]
-fn test_query_global_contract_code_by_account_id() {
-    test_query_global_contract_code(GlobalContractDeployMode::AccountId);
+#[tokio::test]
+async fn test_query_global_contract_code_by_account_id() {
+    test_query_global_contract_code(GlobalContractDeployMode::AccountId).await;
 }
 
-fn test_query_global_contract_code(deploy_mode: GlobalContractDeployMode) {
+async fn test_query_global_contract_code(deploy_mode: GlobalContractDeployMode) {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let account = "test".parse().unwrap();
         let code = near_test_contracts::rs_contract().to_vec();

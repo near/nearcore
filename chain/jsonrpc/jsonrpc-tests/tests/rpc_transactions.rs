@@ -14,6 +14,7 @@ use near_primitives::types::BlockReference;
 use near_primitives::views::{FinalExecutionStatus, TxExecutionStatus};
 use near_time::Clock;
 
+use near_async::ActorSystem;
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
 use std::ops::ControlFlow;
 
@@ -22,8 +23,9 @@ use std::ops::ControlFlow;
 async fn test_send_tx_async() {
     init_test_logger();
 
+    let actor_system = ActorSystem::new();
     let (_, addr, _runtime_temp_dir) =
-        test_utils::start_all(Clock::real(), test_utils::NodeType::Validator);
+        test_utils::start_all(Clock::real(), actor_system.clone(), test_utils::NodeType::Validator);
 
     let tx_hash2 = Arc::new(Mutex::new(None));
     let tx_hash2_1 = tx_hash2.clone();
@@ -84,12 +86,13 @@ async fn test_send_tx_async() {
     })
     .await
     .unwrap();
+    actor_system.stop();
     near_store::db::RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Test sending transaction and waiting for it to be committed to a block.
-#[test]
-fn test_send_tx_commit() {
+#[tokio::test]
+async fn test_send_tx_commit() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
         let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
@@ -120,8 +123,10 @@ fn test_send_tx_commit() {
 async fn test_expired_tx() {
     init_integration_logger();
 
+    let actor_system = ActorSystem::new();
     let (_, addr, _runtime_tempdir) = test_utils::start_all_with_validity_period(
         Clock::real(),
+        actor_system.clone(),
         test_utils::NodeType::Validator,
         1,
         false,
@@ -180,12 +185,13 @@ async fn test_expired_tx() {
     })
     .await
     .unwrap();
+    actor_system.stop();
     near_store::db::RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Test sending transaction based on a different fork should be rejected
-#[test]
-fn test_replay_protection() {
+#[tokio::test]
+async fn test_replay_protection() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
         let tx = SignedTransaction::send_money(
@@ -203,8 +209,8 @@ fn test_replay_protection() {
     });
 }
 
-#[test]
-fn test_tx_status_missing_tx() {
+#[tokio::test]
+async fn test_tx_status_missing_tx() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let request = RpcTransactionStatusRequest {
             transaction_info: TransactionInfo::TransactionId {
@@ -223,8 +229,8 @@ fn test_tx_status_missing_tx() {
     });
 }
 
-#[test]
-fn test_check_invalid_tx() {
+#[tokio::test]
+async fn test_check_invalid_tx() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
         // invalid base hash

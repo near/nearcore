@@ -1,9 +1,8 @@
 use anyhow::{Context, anyhow, bail};
 use near_async::ActorSystem;
-use near_async::actix::futures::ActixFutureSpawner;
 use near_async::messaging::{CanSendAsync, IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
-use near_async::tokio::TokioRuntimeHandle;
+use near_async::tokio::{EmptyActor, TokioRuntimeHandle};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
@@ -99,6 +98,7 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
+    let state_sync_runtime = actor_system.spawn_tokio_actor(EmptyActor);
     let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
         actor_system.clone(),
@@ -108,7 +108,7 @@ fn setup_network_node(
         shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
-        Arc::new(ActixFutureSpawner),
+        state_sync_runtime.future_spawner().into(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         validator_signer.clone(),

@@ -3477,7 +3477,6 @@ dependencies = [
  "hex",
  "insta",
  "itertools 0.12.1",
- "near-actix-test-utils",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -3521,6 +3520,7 @@ dependencies = [
  "thiserror 2.0.12",
  "time",
  "tokio",
+ "tokio-util",
  "tracing",
  "wat",
 ]
@@ -4149,16 +4149,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-actix-test-utils"
-version = "0.0.0"
-dependencies = [
- "actix-rt",
- "near-async",
- "near-store",
- "parking_lot 0.12.1",
-]
-
-[[package]]
 name = "near-amend-genesis"
 version = "0.0.0"
 dependencies = [
@@ -4360,7 +4350,6 @@ dependencies = [
  "futures",
  "itertools 0.12.1",
  "lru 0.12.3",
- "near-actix-test-utils",
  "near-async",
  "near-cache",
  "near-chain",
@@ -4584,6 +4573,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
+ "tokio",
  "tracing",
 ]
 
@@ -4673,6 +4663,7 @@ dependencies = [
  "arbitrary",
  "awc",
  "libfuzzer-sys",
+ "near-async",
  "near-jsonrpc-primitives",
  "near-jsonrpc-tests",
  "near-primitives",
@@ -4723,7 +4714,6 @@ dependencies = [
  "borsh",
  "futures",
  "integration-tests",
- "near-actix-test-utils",
  "near-async",
  "near-chain-configs",
  "near-client",
@@ -5219,6 +5209,7 @@ dependencies = [
  "near-performance-metrics-macros",
  "serde",
  "serde_json",
+ "tokio",
  "tracing",
 ]
 
@@ -5669,7 +5660,6 @@ dependencies = [
  "hyper-tls 0.5.0",
  "indicatif",
  "itertools 0.12.1",
- "near-actix-test-utils",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -8089,6 +8079,7 @@ dependencies = [
  "strum",
  "testlib",
  "thiserror 2.0.12",
+ "tokio",
  "tracing",
  "yansi",
 ]

@@ -123,8 +123,11 @@ impl SingleCheckCommand {
         s3_region: Option<String>,
         gcs_bucket: Option<String>,
     ) -> anyhow::Result<()> {
-        let sys = actix::System::new();
-        sys.block_on(async move {
+        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        tokio_runtime.block_on(async move {
             let _check_result = run_single_check_with_3_retries(
                 None,
                 chain_id,
@@ -296,11 +299,14 @@ fn run_loop_all_shards(
 
     let mut is_prometheus_server_up: bool = false;
 
-    let sys = actix::System::new();
+    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create Tokio runtime");
     loop {
         tracing::info!("running the loop inside run_loop_all_shards");
-        let dump_check_iter_info_res =
-            sys.block_on(async move { get_processing_epoch_information(&rpc_client).await });
+        let dump_check_iter_info_res = tokio_runtime
+            .block_on(async move { get_processing_epoch_information(&rpc_client).await });
         if let Err(err) = dump_check_iter_info_res {
             tracing::info!(
                 "get_processing_epoch_information errs out with {}. sleeping for {loop_interval}s.",
@@ -389,7 +395,7 @@ fn run_loop_all_shards(
             let s3_region = s3_region.clone();
             let gcs_bucket = gcs_bucket.clone();
             let old_status = status.as_ref().ok().cloned();
-            let new_status = sys.block_on(async move {
+            let new_status = tokio_runtime.block_on(async move {
                 if !is_prometheus_server_up {
                     let server = HttpServer::new(move || {
                         App::new().service(

@@ -46,7 +46,7 @@ async fn slow_test_sync_state_nodes() {
         near1.client_config.min_num_peers = 0;
 
         // In this test and the ones below, we have an Arc<TempDir>, that we make sure to keep alive by cloning it
-        // and keeping the original one around after we pass the clone to run_actix(). Otherwise it will be dropped early
+        // and keeping the original one around before passing it into any closures. Otherwise it will be dropped early
         // and the directories will actually be removed while the nodes are running.
         let _dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
         let dir1 = _dir1.clone();

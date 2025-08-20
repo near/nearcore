@@ -689,14 +689,12 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn test_db_metrics_loop() {
+    #[tokio::test]
+    async fn test_db_metrics_loop() {
         init_test_logger();
 
-        let sys = actix::System::new();
-        sys.block_on(test_db_metrics_loop_impl()).expect("test impl failed");
+        test_db_metrics_loop_impl().await.expect("test impl failed");
 
         near_async::shutdown_all_actors();
-        sys.run().unwrap();
     }
 }

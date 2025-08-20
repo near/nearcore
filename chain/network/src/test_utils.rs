@@ -4,11 +4,8 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     SetChainInfo, StateSyncEvent, Tier3Request,
 };
-use futures::{Future, FutureExt, future};
-use near_async::ActorSystem;
-use near_async::futures::DelayedActionRunnerExt;
+use futures::{Future, FutureExt};
 use near_async::messaging::{self, CanSend, MessageWithCallback};
-use near_async::tokio::TokioRuntimeHandle;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
@@ -40,82 +37,9 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, std::net::SocketAddr)>) -> Vec<
 /// Timeouts by stopping system without any condition and raises panic.
 /// Useful in tests to prevent them from running forever.
 #[allow(unreachable_code)]
-pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(tokio::time::sleep(tokio::time::Duration::from_millis(max_wait_ms)).then(|_| {
-        panic!("Timeout exceeded.");
-        future::ready(())
-    }));
-}
-
-/// Waits until condition or timeouts with panic.
-/// Use in tests to check for a condition and stop or fail otherwise.
-///
-/// Prefer using [`wait_or_timeout`], which is not specific to actix.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use actix::{System, Actor};
-/// use near_network::test_utils::WaitOrTimeoutActor;
-/// use std::time::{Instant, Duration};
-///
-/// near_actix_test_utils::run_actix(async {
-///     let start = Instant::now();
-///     WaitOrTimeoutActor::new(
-///         Box::new(move |ctx| {
-///             if start.elapsed() > Duration::from_millis(10) {
-///                 near_async::shutdown_all_actors();
-///             }
-///         }),
-///         1000,
-///         60000,
-///     ).start();
-/// });
-/// ```
-pub struct WaitOrTimeoutActor {
-    f: Box<dyn FnMut(&TokioRuntimeHandle<WaitOrTimeoutActor>) + Send>,
-    handle: TokioRuntimeHandle<Self>,
-    check_interval_ms: u64,
-    max_wait_ms: u64,
-    ms_slept: u64,
-}
-
-impl WaitOrTimeoutActor {
-    pub fn spawn(
-        actor_system: ActorSystem,
-        f: Box<dyn FnMut(&TokioRuntimeHandle<WaitOrTimeoutActor>) + Send>,
-        check_interval_ms: u64,
-        max_wait_ms: u64,
-    ) {
-        let builder = actor_system.new_tokio_builder();
-        let handle = builder.handle();
-
-        let actor = WaitOrTimeoutActor { f, handle, check_interval_ms, max_wait_ms, ms_slept: 0 };
-        builder.spawn_tokio_actor(actor);
-    }
-
-    fn wait_or_timeout(&mut self) {
-        (self.f)(&self.handle);
-
-        self.handle.run_later(
-            "wait_or_timeout",
-            ::time::Duration::milliseconds(self.check_interval_ms as i64),
-            move |act, _ctx| {
-                act.ms_slept += act.check_interval_ms;
-                if act.ms_slept > act.max_wait_ms {
-                    println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
-                    panic!("Timed out waiting for the condition");
-                }
-                act.wait_or_timeout();
-            },
-        );
-    }
-}
-
-impl messaging::Actor for WaitOrTimeoutActor {
-    fn start_actor(&mut self, _ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
-        self.wait_or_timeout();
-    }
+pub async fn wait_or_panic(max_wait_ms: u64) {
+    tokio::time::sleep(tokio::time::Duration::from_millis(max_wait_ms)).await;
+    panic!("Timeout exceeded.");
 }
 
 /// Blocks until `cond` returns `ControlFlow::Break`, checking it every

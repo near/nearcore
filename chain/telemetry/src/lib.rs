@@ -90,29 +90,28 @@ impl Handler<TelemetryEvent> for TelemetryActor {
         }
         for endpoint in &self.config.endpoints {
             let endpoint = endpoint.clone();
-            near_performance_metrics::actix::spawn(
-                "telemetry",
-                TELEMETRY_CLIENT.with(|client| {
-                    client
-                        .post(endpoint.clone())
-                        .insert_header(("Content-Type", "application/json"))
-                        .force_close() // See https://github.com/near/nearcore/pull/11914
-                        .send_json(&msg.content)
-                        .map(move |response| {
-                            let result = if let Err(error) = response {
-                                tracing::warn!(
+            // TODO(#14005): This is ugly... but Client is not Send, so it's very difficult to use
+            // it in a tokio runtime. Can we do better?
+            futures::executor::block_on(TELEMETRY_CLIENT.with(|client: &Client| {
+                client
+                    .post(endpoint.clone())
+                    .insert_header(("Content-Type", "application/json"))
+                    .force_close() // See https://github.com/near/nearcore/pull/11914
+                    .send_json(&msg.content)
+                    .map(move |response| {
+                        let result = if let Err(error) = response {
+                            tracing::warn!(
                                 target: "telemetry",
                                 err = ?error,
                                 endpoint = ?endpoint,
                                 "Failed to send telemetry data");
-                                "failed"
-                            } else {
-                                "ok"
-                            };
-                            metrics::TELEMETRY_RESULT.with_label_values(&[result]).inc();
-                        })
-                }),
-            );
+                            "failed"
+                        } else {
+                            "ok"
+                        };
+                        metrics::TELEMETRY_RESULT.with_label_values(&[result]).inc();
+                    })
+            }));
         }
         self.last_telemetry_update = now;
     }

@@ -100,8 +100,6 @@ pub(crate) struct NetworkState {
     /// PeerActor can be stopped at any moment.
     /// WARNING: DO NOT spawn infinite futures/background loops on this runtime,
     /// as it will be automatically closed only when the NetworkState is dropped.
-    /// WARNING: actix actors can be spawned only when actix::System::current() is set.
-    /// DO NOT spawn actors from a task on this runtime.
     runtime: Runtime,
     /// PeerManager config.
     pub config: config::VerifiedConfig,
@@ -642,7 +640,8 @@ impl NetworkState {
                 &clock,
                 RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
             );
-            actix::spawn(async move {
+            // TODO(#14005): Should use a handle to spawn into the actor, not tokio::spawn.
+            tokio::spawn(async move {
                 let hash = msg.hash();
                 this.receive_routed_message(
                     &clock,

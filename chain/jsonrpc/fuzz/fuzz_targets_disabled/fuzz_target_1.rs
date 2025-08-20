@@ -1,11 +1,11 @@
 #![no_main]
-use actix::System;
 use libfuzzer_sys::{arbitrary, fuzz_target};
 use near_time::Clock;
 use serde::ser::{Serialize, Serializer};
 use serde_json::json;
 use tokio;
 
+use near_async::ActorSystem;
 use near_jsonrpc_primitives::types;
 use near_jsonrpc_tests as test_utils;
 use near_primitives::hash::CryptoHash;
@@ -102,9 +102,14 @@ static RUNTIME: std::sync::LazyLock<parking_lot::Mutex<tokio::runtime::Runtime>>
 fuzz_target!(|requests: Vec<JsonRpcRequest>| {
     NODE_INIT.call_once(|| {
         std::thread::spawn(|| {
-            System::new().block_on(async {
-                let (_view_client_addr, addr, _runtime_temp_dir) =
-                    test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+            let runtime =
+                tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            runtime.block_on(async {
+                let (_view_client_addr, addr, _runtime_temp_dir) = test_utils::start_all(
+                    Clock::real(),
+                    ActorSystem::new(),
+                    test_utils::NodeType::NonValidator,
+                );
                 unsafe { NODE_ADDR = Some(addr.to_string()) }
             });
         });
