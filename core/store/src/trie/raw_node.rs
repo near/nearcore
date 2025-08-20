@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::trie::NUM_CHILDREN;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
 use near_schema_checker_lib::ProtocolSchema;
@@ -47,7 +48,7 @@ impl RawTrieNode {
 
 /// Children of a branch node.
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Children<T = CryptoHash>(pub [Option<T>; 16]);
+pub struct Children<T = CryptoHash>(pub [Option<T>; NUM_CHILDREN]);
 
 impl<T> Children<T> {
     /// Iterates over existing children; `None` entries are omitted.

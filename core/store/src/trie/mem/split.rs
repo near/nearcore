@@ -1,5 +1,6 @@
 use super::arena::ArenaMemory;
 use crate::NibbleSlice;
+use crate::trie::NUM_CHILDREN;
 use crate::trie::mem::flexible_data::children::ChildrenView;
 use crate::trie::mem::node::{MemTrieNodePtr, MemTrieNodeView};
 use derive_where::derive_where;
@@ -7,28 +8,32 @@ use itertools::Itertools;
 use near_primitives::trie_key::col::{ACCESS_KEY, ACCOUNT, CONTRACT_CODE, CONTRACT_DATA};
 use near_primitives::types::AccountId;
 use smallvec::SmallVec;
-use tracing::debug;
 
 const MAX_NIBBLES: usize = AccountId::MAX_LEN * 2;
 // The order of subtrees matters - accounts must go first (!)
+// We don't want to go deeper into other subtrees when reaching a leaf in the accounts' tree.
+// Chunks are split by account IDs, not arbitrary byte sequences.
 const SUBTREES: [u8; 4] = [ACCOUNT, CONTRACT_CODE, ACCESS_KEY, CONTRACT_DATA];
-const NUM_CHILDREN: usize = 16;
 
+/// This represents a descent stage of a single subtree (e.g. accounts or access keys)
+/// in a descent that involves multiple subtrees.
 #[derive_where(Debug)]
 enum TrieDescentStage<'a, M: ArenaMemory> {
+    /// The current descent path is not present in this subtree. Either we have descended
+    /// below a leaf or took a branch that was not consistent with an extension in this subtree.
     CutOff,
-    AtLeaf {
-        memory_usage: u64,
-    },
+    /// The current descent path leads to a leaf node (and includes all extension nibbles from
+    /// that node if it has any).
+    AtLeaf { memory_usage: u64 },
+    /// The current descent path leads to an extension node (or leaf node with an extension),
+    /// possibly including some (but not all) nibbles belonging to that extension.  
     AtExtension {
         memory_usage: u64,
         remaining_nibbles: SmallVec<[u8; MAX_NIBBLES]>, // non-empty (!)
         child: Option<MemTrieNodePtr<'a, M>>,
     },
-    AtBranch {
-        memory_usage: u64,
-        children: ChildrenView<'a, M>,
-    },
+    /// The current descent path leads to a branch node.
+    AtBranch { memory_usage: u64, children: ChildrenView<'a, M> },
 }
 
 impl<'a, M: ArenaMemory> From<MemTrieNodePtr<'a, M>> for TrieDescentStage<'a, M> {
@@ -106,36 +111,40 @@ impl<'a, M: ArenaMemory> TrieDescentStage<'a, M> {
         }
     }
 
-    fn descend(mut self, nibble: u8) -> Self {
-        debug!(?self, %nibble, "descending");
-        match &mut self {
-            Self::CutOff | Self::AtLeaf { .. } => Self::CutOff,
+    fn descend(&mut self, nibble: u8) {
+        tracing::trace!(?self, %nibble, "descending");
+        match self {
+            Self::CutOff => {}
+            Self::AtLeaf { .. } => *self = Self::CutOff,
             Self::AtExtension { memory_usage, remaining_nibbles, child } => {
                 if remaining_nibbles.get(0).is_some_and(|x| *x == nibble) {
                     remaining_nibbles.remove(0);
                 } else {
-                    return Self::CutOff;
+                    *self = Self::CutOff;
+                    return;
                 }
 
                 if remaining_nibbles.is_empty() {
                     match child {
-                        None => Self::AtLeaf { memory_usage: *memory_usage },
-                        Some(child) => (*child).into(),
+                        None => *self = Self::AtLeaf { memory_usage: *memory_usage },
+                        Some(child) => *self = (*child).into(),
                     }
-                } else {
-                    self
                 }
             }
-            Self::AtBranch { children, .. } => children.get(nibble as usize).into(),
+            Self::AtBranch { children, .. } => *self = children.get(nibble as usize).into(),
         }
     }
 }
 
+/// This struct is used to find an account ID which splits a state trie into two, possibly even
+/// parts, according to the `memory_usage` stored in nodes. It descends all `SUBTREES`
+/// simultaneously, choosing a path which provides the best split (binary search).
 #[derive(Debug)]
 struct TrieDescent<'a, M: ArenaMemory> {
     /// Descent stage of each subtree
     subtree_stages: SmallVec<[TrieDescentStage<'a, M>; SUBTREES.len()]>,
     /// Nibbles walked so far (path from subtree root to current node)
+    /// Doesn't include the first byte, which identifies the subtree.
     nibbles: SmallVec<[u8; MAX_NIBBLES]>,
     /// Total memory usage of nodes that will go into the left part
     left_memory: u64,
@@ -151,9 +160,10 @@ impl<'a, M: ArenaMemory> TrieDescent<'a, M> {
         let mut middle_memory = 0;
 
         for subtree_key in SUBTREES {
-            let root: TrieDescentStage<M> = root.into();
+            let mut subtree_stage: TrieDescentStage<M> = root.into();
             let (nib1, nib2) = byte_to_nibbles(subtree_key);
-            let subtree_stage = root.descend(nib1).descend(nib2);
+            subtree_stage.descend(nib1);
+            subtree_stage.descend(nib2);
             middle_memory += subtree_stage.current_node_memory_usage();
             subtree_stages.push(subtree_stage);
         }
@@ -202,17 +212,17 @@ impl<'a, M: ArenaMemory> TrieDescent<'a, M> {
     fn next_step(&self) -> Option<(u8, u64, u64)> {
         // Stop when a leaf is reached in the accounts subtree
         if !self.subtree_stages[0].can_descend() {
-            debug!("leaf reached in accounts subtree");
+            tracing::debug!("leaf reached in accounts subtree");
             return None;
         }
 
         // Find the middle child
         let children_mem_usage = self.aggregate_children_mem_usage();
         let threshold = self.total_memory() / 2 - self.left_memory;
-        debug!(?children_mem_usage, %threshold, "finding middle child");
+        tracing::debug!(?children_mem_usage, %threshold, "finding middle child");
         let (middle_child, left_mem_usage) = find_middle_child(&children_mem_usage, threshold)?;
         let child_mem_usage = children_mem_usage[middle_child];
-        debug!(%middle_child, %child_mem_usage, %left_mem_usage, "middle child found");
+        tracing::debug!(%middle_child, %child_mem_usage, %left_mem_usage, "middle child found");
 
         Some((middle_child as u8, child_mem_usage, left_mem_usage))
     }
@@ -222,14 +232,14 @@ impl<'a, M: ArenaMemory> TrieDescent<'a, M> {
         self.left_memory += left_mem_usage;
         self.right_memory += self.middle_memory - left_mem_usage - child_mem_usage;
         self.middle_memory = child_mem_usage;
-        debug!(%self.left_memory, %self.right_memory, %self.middle_memory, "remaining memory updated");
+        tracing::debug!(%self.left_memory, %self.right_memory, %self.middle_memory, "remaining memory updated");
 
         // Update descent stages for all subtrees
-        let subtree_stages = std::mem::take(&mut self.subtree_stages);
-        self.subtree_stages =
-            subtree_stages.into_iter().map(|subtree| subtree.descend(nibble)).collect();
+        for stage in &mut self.subtree_stages {
+            stage.descend(nibble);
+        }
         self.nibbles.push(nibble);
-        debug!(?self.nibbles, nibble_str = String::from_utf8_lossy(&nibbles_to_bytes(&self.nibbles)).to_string(), "nibbles updated");
+        tracing::debug!(?self.nibbles, nibble_str = String::from_utf8_lossy(&nibbles_to_bytes(&self.nibbles)).to_string(), "nibbles updated");
     }
 }
 
