@@ -12,7 +12,6 @@ use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use nearcore::{load_test_config, start_with_config};
-use parking_lot::RwLock;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -66,15 +65,12 @@ async fn ultra_slow_test_sync_state_stake_change() {
 
         let started = Arc::new(AtomicBool::new(false));
         let dir2_path = dir2.path().to_path_buf();
-        let arbiters_holder = Arc::new(RwLock::new(vec![]));
-        let arbiters_holder2 = arbiters_holder;
         let actor_system_clone = actor_system.clone();
 
         Box::pin(wait_or_timeout(100, 35000, move || {
             let started = started.clone();
             let near2 = near2.clone();
             let dir2_path = dir2_path.clone();
-            let arbiters_holder2 = arbiters_holder2.clone();
             let view_client1 = view_client1.clone();
             let actor_system = actor_system_clone.clone();
             async move {
@@ -87,10 +83,9 @@ async fn ultra_slow_test_sync_state_stake_change() {
 
                 if !started.load(Ordering::SeqCst) && latest_height > 2 * epoch_length {
                     started.store(true, Ordering::SeqCst);
-                    let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
+                    let nearcore::NearNode { view_client: view_client2, .. } =
                         start_with_config(&dir2_path, near2, actor_system.clone())
                             .expect("start_with_config");
-                    *arbiters_holder2.write() = arbiters;
 
                     wait_or_timeout(100, 30000, move || {
                         let view_client2 = view_client2.clone();

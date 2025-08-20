@@ -6,7 +6,6 @@ use crate::metrics::spawn_trie_metrics_loop;
 
 use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::StateSyncDumper;
-use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::futures::TokioRuntimeFutureSpawner;
@@ -225,7 +224,6 @@ pub struct NearNode {
     pub rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: TokioRuntimeHandle<GeneratorActorImpl>,
-    pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to a background thread that copies data from the hot store to the cold store.
@@ -259,13 +257,10 @@ pub fn start_with_config_and_synchronization(
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &mut config)?;
-    let db_metrics_arbiter = if config.client_config.enable_statistics_export {
+    if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
-        let db_metrics_arbiter_handle = spawn_db_metrics_loop(&storage, period)?;
-        Some(db_metrics_arbiter_handle)
-    } else {
-        None
-    };
+        spawn_db_metrics_loop(actor_system.clone(), &storage, period);
+    }
 
     let epoch_manager = EpochManager::new_arc_handle(
         storage.get_hot_store(),
@@ -273,12 +268,13 @@ pub fn start_with_config_and_synchronization(
         Some(home_dir),
     );
 
-    let trie_metrics_arbiter = spawn_trie_metrics_loop(
+    spawn_trie_metrics_loop(
+        actor_system.clone(),
         config.clone(),
         storage.get_hot_store(),
         config.client_config.log_summary_period,
         epoch_manager.clone(),
-    )?;
+    );
 
     let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
@@ -577,11 +573,6 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let mut arbiters = vec![trie_metrics_arbiter];
-    if let Some(db_metrics_arbiter) = db_metrics_arbiter {
-        arbiters.push(db_metrics_arbiter);
-    }
-
     #[cfg(feature = "tx_generator")]
     let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
         actor_system.clone(),
@@ -601,7 +592,6 @@ pub fn start_with_config_and_synchronization(
         #[cfg(feature = "tx_generator")]
         tx_generator,
         rpc_servers,
-        arbiters,
         cold_store_loop_handle,
         state_sync_dumper,
         resharding_handle,

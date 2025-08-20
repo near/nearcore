@@ -213,7 +213,7 @@ type HandshakeSignalSender = tokio::sync::oneshot::Sender<std::convert::Infallib
 pub type HandshakeSignal = tokio::sync::oneshot::Receiver<std::convert::Infallible>;
 
 impl PeerActor {
-    /// Spawns a PeerActor on a separate actix::Arbiter and awaits for the
+    /// Spawns a PeerActor on a separate tokio runtime and awaits for the
     /// handshake to succeed/fail. The actual result is not returned because
     /// actix makes everything complicated.
     pub(crate) async fn spawn_and_handshake(
@@ -231,7 +231,7 @@ impl PeerActor {
         Ok(addr)
     }
 
-    /// Spawns a PeerActor on a separate actix arbiter.
+    /// Spawns a PeerActor on a separate tokio runtime.
     /// Returns the actor address and a HandshakeSignal: an asynchronous channel
     /// which will be closed as soon as the handshake is finished (successfully or not).
     /// You can asynchronously await the returned HandshakeSignal.

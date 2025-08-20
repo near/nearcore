@@ -1,6 +1,8 @@
 use crate::NearConfig;
-use actix_rt::ArbiterHandle;
+use near_async::ActorSystem;
+use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
+use near_async::tokio::EmptyActor;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::metrics::{
@@ -192,19 +194,20 @@ fn get_postponed_receipt_count_for_trie(trie: Trie) -> Result<i64, anyhow::Error
 
 /// Spawns a background loop that will periodically log trie related metrics.
 pub fn spawn_trie_metrics_loop(
+    actor_system: ActorSystem,
     near_config: NearConfig,
     store: Store,
     period: Duration,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> anyhow::Result<ArbiterHandle> {
+) {
     tracing::debug!(target:"metrics", "Spawning the trie metrics loop.");
-    let arbiter = actix_rt::Arbiter::new();
+    let handle = actor_system.spawn_tokio_actor(EmptyActor);
 
     let start = tokio::time::Instant::now();
-    let mut interval = actix_rt::time::interval_at(start, period.unsigned_abs());
+    let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    arbiter.spawn(async move {
+    handle.spawn("trie metrics loop", async move {
         tracing::debug!(target:"metrics", "Starting the spawn metrics loop.");
         loop {
             interval.tick().await;
@@ -218,8 +221,6 @@ pub fn spawn_trie_metrics_loop(
             tracing::trace!(target: "metrics", "exporting postponed receipt count took {:?}.", start_time.elapsed());
         }
     });
-
-    Ok(arbiter.handle())
 }
 
 #[cfg(test)]

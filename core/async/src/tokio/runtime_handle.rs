@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 use crate::ActorSystem;
 use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::messaging::Actor;
+use crate::tokio::runtime::AsyncDroppableRuntime;
 use tokio_util::sync::CancellationToken;
 
 /// TokioRuntimeMessage is a type alias for a boxed function that can be sent to the Tokio runtime.
@@ -19,7 +20,7 @@ pub struct TokioRuntimeHandle<A> {
     /// The sender is used to send messages to the actor running in the Tokio runtime.
     pub(super) sender: mpsc::UnboundedSender<TokioRuntimeMessage<A>>,
     /// The runtime is the Tokio runtime that runs the actor and processes messages.
-    pub(super) runtime: Arc<tokio::runtime::Runtime>,
+    pub(super) runtime: Arc<AsyncDroppableRuntime>,
     /// Cancellation token used to signal shutdown of this specific Tokio runtime.
     /// There is also a global shutdown signal in the ActorSystem. These are separate
     /// shutdown mechanisms that can both be used to shut down the actor.
@@ -115,7 +116,11 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
         let (sender, receiver) = mpsc::unbounded_channel::<TokioRuntimeMessage<A>>();
         let cancel = CancellationToken::new();
 
-        let handle = TokioRuntimeHandle { sender, runtime: Arc::new(runtime), cancel };
+        let handle = TokioRuntimeHandle {
+            sender,
+            runtime: Arc::new(AsyncDroppableRuntime::new(runtime)),
+            cancel,
+        };
 
         Self { handle, receiver, actor_system }
     }

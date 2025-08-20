@@ -98,7 +98,7 @@ pub(crate) struct NetworkState {
     /// Async methods of NetworkState are not cancellable,
     /// so calling them from, for example, PeerActor is dangerous because
     /// PeerActor can be stopped at any moment.
-    /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
+    /// WARNING: DO NOT spawn infinite futures/background loops on this runtime,
     /// as it will be automatically closed only when the NetworkState is dropped.
     /// WARNING: actix actors can be spawned only when actix::System::current() is set.
     /// DO NOT spawn actors from a task on this runtime.

@@ -1,7 +1,9 @@
 mod rocksdb_metrics;
 
 use crate::{NodeStorage, Store, Temperature};
-use actix_rt::ArbiterHandle;
+use near_async::ActorSystem;
+use near_async::futures::FutureSpawnerExt;
+use near_async::tokio::EmptyActor;
 use near_o11y::metrics::{
     Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
     try_create_histogram, try_create_histogram_vec, try_create_histogram_with_buckets,
@@ -594,21 +596,18 @@ fn export_store_stats(store: &Store, temperature: Temperature) {
     }
 }
 
-pub fn spawn_db_metrics_loop(
-    storage: &NodeStorage,
-    period: Duration,
-) -> anyhow::Result<ArbiterHandle> {
+pub fn spawn_db_metrics_loop(actor_system: ActorSystem, storage: &NodeStorage, period: Duration) {
     tracing::debug!(target:"metrics", "Spawning the db metrics loop.");
-    let db_metrics_arbiter = actix_rt::Arbiter::new();
+    let handle = actor_system.spawn_tokio_actor(EmptyActor);
 
     let start = tokio::time::Instant::now();
-    let mut interval = actix_rt::time::interval_at(start, period.unsigned_abs());
+    let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
-    db_metrics_arbiter.spawn(async move {
+    handle.spawn("db metrics loop", async move {
         tracing::debug!(target:"metrics", "Starting the db metrics loop.");
         loop {
             interval.tick().await;
@@ -619,8 +618,6 @@ pub fn spawn_db_metrics_loop(
             }
         }
     });
-
-    Ok(db_metrics_arbiter.handle())
 }
 
 #[cfg(test)]
@@ -634,6 +631,7 @@ mod test {
     use near_time::Duration;
 
     use super::spawn_db_metrics_loop;
+    use near_async::ActorSystem;
 
     fn stat(name: &str, count: i64) -> (String, Vec<StatsValue>) {
         (name.into(), vec![StatsValue::Count(count)])
@@ -643,7 +641,8 @@ mod test {
         let (storage, hot, cold) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Cold);
         let period = Duration::milliseconds(100);
 
-        let handle = spawn_db_metrics_loop(&storage, period)?;
+        let actor_system = ActorSystem::new();
+        spawn_db_metrics_loop(actor_system.clone(), &storage, period);
 
         let hot_column_name = "hot.column".to_string();
         let cold_column_name = "cold.column".to_string();
@@ -675,13 +674,17 @@ mod test {
         let hot_gauge = int_gauges.get(&hot_gauge_name);
         let hot_gauge = hot_gauge.ok_or_else(|| anyhow::anyhow!("hot gauge is missing"))?;
 
-        let cold_gauge = int_gauges.get(&cold_gauge_name);
+        let cold_gauge: Option<
+            &near_o11y::metrics::prometheus::core::GenericGauge<
+                near_o11y::metrics::prometheus::core::AtomicI64,
+            >,
+        > = int_gauges.get(&cold_gauge_name);
         let cold_gauge = cold_gauge.ok_or_else(|| anyhow::anyhow!("cold gauge is missing"))?;
 
         assert_eq!(hot_gauge.get(), 42);
         assert_eq!(cold_gauge.get(), 52);
 
-        handle.stop();
+        actor_system.stop();
 
         Ok(())
     }
