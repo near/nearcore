@@ -14,12 +14,10 @@
 
 use ed25519_dalek::*;
 
-// Arbitrary message to sign
-const MESSAGE_TO_SIGN: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
 mod integrations {
     use super::*;
     use near_crypto_ed25519_batch::safe_verify_batch;
+    use near_crypto_ed25519_batch::test_utils::MESSAGE_TO_SIGN;
     use rand::rngs::OsRng;
 
     #[test]

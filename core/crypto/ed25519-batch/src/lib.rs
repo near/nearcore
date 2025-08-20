@@ -9,3 +9,9 @@ mod signature;
 
 pub use batch::safe_verify_batch;
 pub use errors::SignatureError;
+
+pub mod test_utils {
+    // Arbitrary message tests and benchmarks can use to sign.
+    pub const MESSAGE_TO_SIGN: &[u8] =
+        b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+}

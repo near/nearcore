@@ -14,15 +14,13 @@
 
 use criterion::{Criterion, criterion_group};
 
-// Arbitrary message to sign
-const MESSAGE_TO_SIGN: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
 mod ed25519_benches {
     use super::*;
     use ed25519_dalek::Signature;
     use ed25519_dalek::Signer;
     use ed25519_dalek::SigningKey;
     use near_crypto_ed25519_batch::safe_verify_batch;
+    use near_crypto_ed25519_batch::test_utils::MESSAGE_TO_SIGN;
     use rand::prelude::ThreadRng;
     use rand::thread_rng;
 
