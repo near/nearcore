@@ -100,7 +100,7 @@ impl fmt::Debug for ProfileDataV2 {
                     f,
                     "{} -> {} [{}% host]",
                     cost,
-                    d,
+                    d.as_gas(),
                     Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
                 )?;
             }
@@ -108,7 +108,7 @@ impl fmt::Debug for ProfileDataV2 {
         writeln!(f, "------ Actions --------")?;
         for (cost, gas) in self.legacy_action_costs() {
             if gas != Gas::from_gas(0) {
-                writeln!(f, "{} -> {}", cost.to_ascii_lowercase(), gas)?;
+                writeln!(f, "{} -> {}", cost.to_ascii_lowercase(), gas.as_gas())?;
             }
         }
         writeln!(f, "------------------------------")?;

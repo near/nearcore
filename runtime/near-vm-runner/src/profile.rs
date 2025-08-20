@@ -244,7 +244,7 @@ impl fmt::Debug for ProfileDataV3 {
         for cost in ActionCosts::iter() {
             let d = self.get_action_cost(cost);
             if d != Gas::from_gas(0) {
-                writeln!(f, "{} -> {}", cost, d)?;
+                writeln!(f, "{} -> {}", cost, d.as_gas())?;
             }
         }
         writeln!(f, "------------------------------")?;
