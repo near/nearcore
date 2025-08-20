@@ -92,7 +92,7 @@ impl<'a> ChainUpdate<'a> {
             if protocol_version > PROTOCOL_VERSION {
                 panic!(
                     "The client protocol version is older than the protocol version of the network: {} > {}",
-                    PROTOCOL_VERSION, protocol_version
+                    protocol_version, PROTOCOL_VERSION
                 );
             }
         }
