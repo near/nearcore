@@ -3850,6 +3850,13 @@
         ],
         "type": "object"
       },
+      "EpochToCheck": {
+        "enum": [
+          "Next",
+          "NextNext"
+        ],
+        "type": "string"
+      },
       "ExecutionMetadataView": {
         "properties": {
           "gas_profile": {
@@ -9682,6 +9689,14 @@
             "description": "Produce empty blocks, use `false` for testing.",
             "type": "boolean"
           },
+          "protocol_version_epoch_to_check": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EpochToCheck"
+              }
+            ],
+            "description": "Determines whether client should exit if the protocol version is not supported\nfor the next or next next epoch."
+          },
           "resharding_config": {
             "$ref": "#/components/schemas/MutableConfigValue"
           },
@@ -9934,7 +9949,8 @@
           "orphan_state_witness_max_size",
           "save_latest_witnesses",
           "save_invalid_witnesses",
-          "transaction_request_handler_threads"
+          "transaction_request_handler_threads",
+          "protocol_version_epoch_to_check"
         ],
         "type": "object"
       },
