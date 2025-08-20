@@ -225,7 +225,7 @@ impl fmt::Debug for ProfileDataV3 {
         let action_gas = self.action_gas();
 
         writeln!(f, "------------------------------")?;
-        writeln!(f, "Action gas: {}", action_gas)?;
+        writeln!(f, "Action gas: {}", action_gas.as_gas())?;
         writeln!(f, "------ Host functions --------")?;
         for cost in ExtCosts::iter() {
             let d = self.get_ext_cost(cost);
