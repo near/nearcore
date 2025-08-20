@@ -18,9 +18,11 @@ use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
+use parking_lot::RwLock;
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
 use tracing::warn;
 use wasmtime::{
     Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre, Linker, Module,
@@ -44,6 +46,8 @@ const MAX_TABLES: u32 = MAX_CONCURRENCY * MAX_TABLES_PER_MODULE;
 
 /// Guest page size, in bytes
 const GUEST_PAGE_SIZE: usize = 1 << 16;
+
+static VMS: LazyLock<RwLock<HashMap<Arc<Config>, WasmtimeVM>>> = LazyLock::new(RwLock::default);
 
 fn guest_memory_size(pages: u32) -> Option<usize> {
     let pages = usize::try_from(pages).ok()?;
@@ -282,11 +286,6 @@ impl IntoVMError for anyhow::Error {
     }
 }
 
-#[allow(clippy::needless_pass_by_ref_mut)]
-pub fn get_engine(config: &wasmtime::Config) -> Engine {
-    Engine::new(config).expect("failed to construct engine")
-}
-
 pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
     let features = crate::features::WasmFeatures::new(c);
 
@@ -340,6 +339,7 @@ pub(crate) fn wasmtime_vm_hash() -> u64 {
     64
 }
 
+#[derive(Clone)]
 pub(crate) struct WasmtimeVM {
     config: Arc<Config>,
     engine: wasmtime::Engine,
@@ -355,11 +355,20 @@ struct PreparedModule {
 
 impl WasmtimeVM {
     pub(crate) fn new(config: Arc<Config>) -> Self {
-        Self {
-            engine: get_engine(&default_wasmtime_config(&config)),
-            config,
-            concurrency: ConcurrencySemaphore::default(),
+        {
+            if let Some(vm) = VMS.read().get(&config) {
+                return vm.clone();
+            }
         }
+        VMS.write()
+            .entry(config)
+            .or_insert_with_key(|config| {
+                let engine = Engine::new(&default_wasmtime_config(config))
+                    .expect("failed to construct Wasmtime engine");
+                let config = Arc::clone(config);
+                Self { engine, config, concurrency: ConcurrencySemaphore::default() }
+            })
+            .clone()
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
