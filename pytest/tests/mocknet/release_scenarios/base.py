@@ -99,6 +99,7 @@ class TestSetup:
         init_args = copy.deepcopy(self.args)
         init_args.neard_upgrade_binary_url = ''
         init_args.yes = True
+        init_args.gcs_state_sync = self.has_state_dumper
         hard_reset_cmd(CommandContext(init_args))
 
         # Traffic node should always run the latest binary to avoid restarting it.
@@ -164,9 +165,6 @@ class TestSetup:
         new_test_args.patches_path = None
 
         new_test_cmd(CommandContext(new_test_args))
-
-        if self.has_archival:
-            self._setup_archival()
 
     def wait_for_network_to_be_ready(self):
         """
@@ -239,7 +237,8 @@ class TestSetup:
         """
         Amend the configs for the test.
         """
-        pass
+        if self.has_archival:
+            self._setup_archival()
 
     def start_network(self):
         """
