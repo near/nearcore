@@ -3018,12 +3018,12 @@ fn test_not_broadcast_block_on_accept() {
 fn test_node_shutdown_with_old_protocol_version() {
     let epoch_length = 5;
     // These should not panic
-    run_node_with_version_upgrade_scheduled_in_next_epoch(
+    run_with_version_upgrade_scheduled_in_next_next_epoch(
         epoch_length,
         epoch_length - 1,
         EpochToCheck::NextNext,
     );
-    run_node_with_version_upgrade_scheduled_in_next_epoch(
+    run_with_version_upgrade_scheduled_in_next_next_epoch(
         epoch_length,
         epoch_length * 2 - 1,
         EpochToCheck::Next,
@@ -3034,7 +3034,7 @@ fn test_node_shutdown_with_old_protocol_version() {
         "The client protocol version is older than the protocol version of the network";
     must_panic(
         || {
-            run_node_with_version_upgrade_scheduled_in_next_epoch(
+            run_with_version_upgrade_scheduled_in_next_next_epoch(
                 epoch_length,
                 epoch_length,
                 EpochToCheck::NextNext,
@@ -3044,7 +3044,7 @@ fn test_node_shutdown_with_old_protocol_version() {
     );
     must_panic(
         || {
-            run_node_with_version_upgrade_scheduled_in_next_epoch(
+            run_with_version_upgrade_scheduled_in_next_next_epoch(
                 epoch_length,
                 epoch_length * 2,
                 EpochToCheck::Next,
@@ -3067,7 +3067,7 @@ fn must_panic<F: FnOnce() + std::panic::UnwindSafe>(f: F, expected_msg: &str) {
     assert!(msg.contains(expected_msg));
 }
 
-fn run_node_with_version_upgrade_scheduled_in_next_epoch(
+fn run_with_version_upgrade_scheduled_in_next_next_epoch(
     epoch_length: u64,
     num_blocks: u64,
     epoch_to_check: EpochToCheck,
