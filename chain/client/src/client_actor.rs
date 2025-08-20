@@ -1240,7 +1240,7 @@ impl ClientActorInner {
             }
         }
 
-        self.try_process_unfinished_blocks();
+        let accepted_blocks = self.try_process_unfinished_blocks();
 
         let mut delay = near_async::time::Duration::seconds(1);
         let now = self.clock.now_utc();
@@ -1291,6 +1291,35 @@ impl ClientActorInner {
             |act, _ctx| act.log_summary(),
             "log_summary",
         );
+
+        // XXX: Optimistic chunk (prefetch_transactions) can be triggered here
+        if let Some(signer) = validator_signer {
+            for block in accepted_blocks {
+                let prev_block_hash = block;
+                let block = self.client.chain.get_block(&prev_block_hash).unwrap();
+                // TODO: need to handle end of epoch properly
+                let epoch_id = self
+                    .client
+                    .epoch_manager
+                    .get_epoch_id_from_prev_block(&prev_block_hash)
+                    .unwrap();
+                let next_height = block.header().height() + 2;
+                // TODO: avoid this if is_syncing?
+                for shard_id in self.client.epoch_manager.shard_ids(&epoch_id).unwrap() {
+                    self.client
+                        .chunk_producer
+                        .prefetch_transactions(
+                            block.as_ref(),
+                            &epoch_id,
+                            next_height,
+                            shard_id,
+                            &signer,
+                        )
+                        .unwrap();
+                }
+            }
+        }
+
         delay = core::cmp::min(delay, self.log_summary_timer_next_attempt - now);
         timer.observe_duration();
         delay
@@ -1306,7 +1335,7 @@ impl ClientActorInner {
     /// calls this function to finish processing the unfinished blocks. ClientActor also calls
     /// this function in `check_triggers`, because the actix queue may be blocked by other messages
     /// and we want to prioritize block processing.
-    fn try_process_unfinished_blocks(&mut self) {
+    fn try_process_unfinished_blocks(&mut self) -> Vec<CryptoHash> {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
         let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
             Some(self.client.myself_sender.apply_chunks_done.clone()),
@@ -1315,7 +1344,8 @@ impl ClientActorInner {
         if !errors.is_empty() {
             error!(target: "client", ?errors, "try_process_unfinished_blocks got errors");
         }
-        self.process_accepted_blocks(accepted_blocks);
+        self.process_accepted_blocks(accepted_blocks.clone());
+        accepted_blocks
     }
 
     fn try_handle_block_production(&mut self) {
