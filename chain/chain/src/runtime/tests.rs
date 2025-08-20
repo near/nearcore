@@ -692,7 +692,7 @@ fn test_state_sync() {
 
     let state_part = env
         .runtime
-        .obtain_state_part(shard_id, &block_hash, &env.state_roots[0], PartId::new(0, 1))
+        .obtain_state_part(shard_id, &block_hash, &env.state_roots[0], PartId::new(0, 1), None)
         .unwrap();
     let root_node =
         env.runtime.get_state_root_node(shard_id, &block_hash, &env.state_roots[0]).unwrap();

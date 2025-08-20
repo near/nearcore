@@ -382,6 +382,7 @@ impl NightshadeRuntime {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
+        pv: Option<ProtocolVersion>,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -413,7 +414,8 @@ impl NightshadeRuntime {
                 return Err(err.into());
             }
         };
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let protocol_version =
+            pv.unwrap_or(self.epoch_manager.get_epoch_protocol_version(&epoch_id)?);
         let state_part = StatePart::from_partial_state(partial_state, protocol_version);
         Ok(state_part)
     }
@@ -1037,6 +1039,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
+        pv: Option<ProtocolVersion>,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -1048,7 +1051,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             num_parts = part_id.total)
         .entered();
         let instant = Instant::now();
-        let res = self.obtain_state_part_impl(shard_id, prev_hash, state_root, part_id);
+        let res = self.obtain_state_part_impl(shard_id, prev_hash, state_root, part_id, pv);
         let elapsed = instant.elapsed();
         let is_ok = if res.is_ok() { "ok" } else { "error" };
         metrics::STATE_SYNC_OBTAIN_PART_DELAY

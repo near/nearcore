@@ -1256,6 +1256,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "afb84c814227b90d6895e01398aee0d8033c00e7466aca416fb6a8e0eb19d8a7"
 
 [[package]]
+name = "cloud-archival-tool"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "anyhow",
+ "borsh",
+ "bytesize",
+ "clap",
+ "futures-util",
+ "near-async",
+ "near-chain",
+ "near-chain-configs",
+ "near-client",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "near-time",
+ "nearcore",
+ "object_store",
+ "rand 0.8.5",
+ "reqwest 0.12.4",
+ "strum",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
 name = "cobs"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5613,6 +5642,7 @@ dependencies = [
  "actix",
  "anyhow",
  "clap",
+ "cloud-archival-tool",
  "cold-store-tool",
  "futures",
  "near-amend-genesis",

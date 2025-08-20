@@ -261,6 +261,7 @@ near-chunks = { path = "chain/chunks" }
 near-chunks-primitives = { path = "chain/chunks-primitives" }
 near-client = { path = "chain/client" }
 near-client-primitives = { path = "chain/client-primitives" }
+near-cloud-archival-tool = { path = "tools/cloud-archival", package = "cloud-archival-tool" }
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
 nearcore = { path = "nearcore" }

@@ -486,6 +486,7 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
+        pv: Option<ProtocolVersion>,
     ) -> Result<StatePart, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
