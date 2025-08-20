@@ -9,8 +9,8 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_o11y::default_subscriber;
 use near_o11y::env_filter::EnvFilterBuilder;
+use near_o11y::{default_subscriber, tracing};
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -288,7 +288,7 @@ impl FindBoundaryAccountCommand {
         home: &Path,
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
-        let env_filter = EnvFilterBuilder::from_env().verbose(Some("memtrie")).finish()?;
+        let env_filter = EnvFilterBuilder::from_env().finish()?;
         let _subscriber = default_subscriber(env_filter, &Default::default()).global();
         let mut near_config = nearcore::config::load_config(&home, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
@@ -312,7 +312,7 @@ impl FindBoundaryAccountCommand {
         let final_head = chain_store.final_head()?;
         let block = chain_store.get_block(&final_head.prev_block_hash)?;
         let block_hash = *block.hash();
-        println!("Block height: {} block hash: {block_hash}", block.header().height());
+        tracing::info!("Block height: {} block hash: {block_hash}", block.header().height());
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
@@ -320,9 +320,9 @@ impl FindBoundaryAccountCommand {
             .context("could not create the transaction runtime")?;
         let shard_tries = runtime.get_tries();
         let shard_uid = self.shard_uid;
-        println!("Loading memtries for {shard_uid}...");
+        tracing::info!("Loading memtries for {shard_uid}...");
         shard_tries.load_memtrie(&shard_uid, None, false)?;
-        println!("Memtries loaded");
+        tracing::info!("Memtries loaded");
 
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
         let chunk_extra = runtime.store().chain_store().get_chunk_extra(&block_hash, &shard_uid)?;
@@ -330,18 +330,19 @@ impl FindBoundaryAccountCommand {
         let trie = shard_tries.get_trie_for_shard(shard_uid, *state_root);
         let memtries = trie.lock_memtries().context("memtries not found")?;
         let root_ptr = memtries.get_root(state_root)?;
-        println!("Searching for boundary account...");
+        tracing::info!("Searching for boundary account...");
         let trie_split = find_trie_split(root_ptr);
 
         let boundary_account =
             AccountId::from_str(std::str::from_utf8(&trie_split.split_path_bytes())?)?;
         let left_memory = ByteSize::b(trie_split.left_memory);
         let right_memory = ByteSize::b(trie_split.right_memory);
-        println!("Boundary account for shard {shard_uid}: {boundary_account}");
-        println!("Left child memory usage: {left_memory}");
-        println!("Right child memory usage: {right_memory}");
+        tracing::info!("Boundary account found");
+        println!("{boundary_account}"); // Printing to stdout for script usage 
+        tracing::info!("Left child memory usage: {left_memory}");
+        tracing::info!("Right child memory usage: {right_memory}");
 
-        println!(
+        tracing::info!(
             "WARNING: Calculated memory usages are artificial values that differ significantly\n\
             from actual RAM allocation when the shards are loaded into memory. For a better\n\
             approximation run the following command:\n\
