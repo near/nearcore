@@ -14,6 +14,9 @@
 
 use criterion::{Criterion, criterion_group};
 
+// Arbitrary message to sign
+const MESSAGE_TO_SIGN: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
 mod ed25519_benches {
     use super::*;
     use ed25519_dalek::Signature;
@@ -26,11 +29,10 @@ mod ed25519_benches {
     fn verify(c: &mut Criterion) {
         let mut csprng: ThreadRng = thread_rng();
         let keypair: SigningKey = SigningKey::generate(&mut csprng);
-        let msg: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        let sig: Signature = keypair.sign(msg);
+        let sig: Signature = keypair.sign(MESSAGE_TO_SIGN);
 
         c.bench_function("Ed25519 signature verification", move |b| {
-            b.iter(|| keypair.verify(msg, &sig))
+            b.iter(|| keypair.verify(MESSAGE_TO_SIGN, &sig))
         });
     }
 
@@ -46,9 +48,9 @@ mod ed25519_benches {
                 let mut csprng: ThreadRng = thread_rng();
                 let keypairs: Vec<SigningKey> =
                     (0..size).map(|_| SigningKey::generate(&mut csprng)).collect();
-                let msg: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-                let messages: Vec<&[u8]> = (0..size).map(|_| msg).collect();
-                let signatures: Vec<Signature> = keypairs.iter().map(|key| key.sign(msg)).collect();
+                let messages: Vec<&[u8]> = (0..size).map(|_| MESSAGE_TO_SIGN).collect();
+                let signatures: Vec<Signature> =
+                    keypairs.iter().map(|key| key.sign(MESSAGE_TO_SIGN)).collect();
                 let verifying_keys: Vec<_> =
                     keypairs.iter().map(|key| key.verifying_key()).collect();
 

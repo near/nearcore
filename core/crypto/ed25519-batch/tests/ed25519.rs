@@ -14,6 +14,9 @@
 
 use ed25519_dalek::*;
 
+// Arbitrary message to sign
+const MESSAGE_TO_SIGN: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
 mod integrations {
     use super::*;
     use near_crypto_ed25519_batch::safe_verify_batch;
@@ -22,8 +25,7 @@ mod integrations {
     #[test]
     fn safe_verify_batch_seven_signatures() {
         let num_messages = 7;
-        let msg: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        let messages: Vec<&[u8]> = (0..num_messages).map(|_| msg).collect();
+        let messages: Vec<&[u8]> = (0..num_messages).map(|_| MESSAGE_TO_SIGN).collect();
         let mut csprng = OsRng;
         let mut verifying_keys: Vec<VerifyingKey> = Vec::new();
         let mut signatures: Vec<Signature> = Vec::new();
@@ -48,8 +50,7 @@ mod integrations {
 
         // Same seven messages as safe_verify_batch_seven_signatures
         let num_messages = 7;
-        let msg: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        let messages: Vec<&[u8]> = (0..num_messages).map(|_| msg).collect();
+        let messages: Vec<&[u8]> = (0..num_messages).map(|_| MESSAGE_TO_SIGN).collect();
         let mut csprng = OsRng;
         let mut signing_keys: Vec<SigningKey> = Vec::new();
         let mut signatures: Vec<Signature> = Vec::new();
