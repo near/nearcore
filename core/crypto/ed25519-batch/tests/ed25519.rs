@@ -28,7 +28,7 @@ mod integrations {
         let mut verifying_keys: Vec<VerifyingKey> = Vec::new();
         let mut signatures: Vec<Signature> = Vec::new();
 
-        for msg in messages.iter() {
+        for msg in &messages {
             let signing_key: SigningKey = SigningKey::generate(&mut csprng);
             signatures.push(signing_key.sign(msg));
             verifying_keys.push(signing_key.verifying_key());
@@ -70,7 +70,7 @@ mod integrations {
             panic!("Problem in deserializing the test instances file");
         };
 
-        for msg in messages.iter() {
+        for msg in &messages {
             let signing_key = SigningKey::generate(&mut csprng);
             signatures.push(signing_key.sign(msg));
             signing_keys.push(signing_key);
