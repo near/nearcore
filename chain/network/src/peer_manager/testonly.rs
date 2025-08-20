@@ -25,12 +25,12 @@ use crate::state_witness::PartialWitnessSenderForNetworkInput;
 use crate::state_witness::PartialWitnessSenderForNetworkMessage;
 use crate::tcp;
 use crate::test_utils;
+use crate::types::StateRequestSenderForNetworkInput;
 use crate::types::StateRequestSenderForNetworkMessage;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
 };
-use crate::types::{PeerManagerMessageResponse, StateRequestSenderForNetworkInput};
 use futures::FutureExt;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{self, CanSendAsync, IntoMultiSender};
@@ -88,6 +88,7 @@ pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
     pub actix: AutoStopActor<PeerManagerActor>,
+    pub actor_system: ActorSystem,
 }
 
 pub(crate) fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
@@ -129,13 +130,19 @@ pub(crate) struct RawConnection {
     pub events: broadcast::Receiver<Event>,
     pub stream: tcp::Stream,
     pub cfg: peer::testonly::PeerConfig,
+    pub actor_system: ActorSystem,
 }
 
 impl RawConnection {
     pub async fn handshake(mut self, clock: &time::Clock) -> peer::testonly::PeerHandle {
         let stream_id = self.stream.id();
-        let mut peer =
-            peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
+        let mut peer = peer::testonly::PeerHandle::start_endpoint(
+            clock.clone(),
+            self.actor_system.clone(),
+            self.cfg,
+            self.stream,
+        )
+        .await;
 
         // Wait for the new peer to complete the handshake.
         peer.complete_handshake().await;
@@ -158,8 +165,13 @@ impl RawConnection {
     // Try to perform a handshake. PeerManager is expected to reject the handshake.
     pub async fn manager_fail_handshake(mut self, clock: &time::Clock) -> ClosingReason {
         let stream_id = self.stream.id();
-        let peer =
-            peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
+        let peer = peer::testonly::PeerHandle::start_endpoint(
+            clock.clone(),
+            self.actor_system.clone(),
+            self.cfg,
+            self.stream,
+        )
+        .await;
         let reason = self
             .events
             .recv_until(|ev| match ev {
@@ -260,6 +272,7 @@ impl ActorHandler {
                 chain,
                 force_encoding: Some(Encoding::Proto),
             },
+            actor_system: self.actor_system.clone(),
         };
         // Wait until the TCP connection is accepted or rejected.
         // The Handshake is not performed yet.
@@ -297,6 +310,7 @@ impl ActorHandler {
                 chain,
                 force_encoding: Some(Encoding::Proto),
             },
+            actor_system: self.actor_system.clone(),
         };
         // Wait until the handshake started or connection is closed.
         // The Handshake is not performed yet.
@@ -367,7 +381,11 @@ impl ActorHandler {
         clock: &time::Clock,
     ) -> Option<Arc<SignedAccountData>> {
         let clock = clock.clone();
-        self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
+        let actor_system = self.actor_system.clone();
+        self.with_state(
+            move |s| async move { s.tier1_advertise_proxies(&clock, actor_system).await },
+        )
+        .await
     }
 
     pub async fn disconnect(&self, peer_id: &PeerId) {
@@ -551,8 +569,9 @@ impl ActorHandler {
     /// Executes `NetworkState::tier1_connect` method.
     pub async fn tier1_connect(&self, clock: &time::Clock) {
         let clock = clock.clone();
+        let actor_system = self.actor_system.clone();
         self.with_state(move |s| async move {
-            s.tier1_connect(&clock).await;
+            s.tier1_connect(&clock, actor_system).await;
         })
         .await;
     }
@@ -655,7 +674,7 @@ pub(crate) async fn start(
     let actor_system = ActorSystem::new();
     let actor = PeerManagerActor::spawn(
         clock,
-        actor_system,
+        actor_system.clone(),
         store,
         cfg.clone(),
         client_sender.break_apart().into_multi_sender(),
@@ -667,7 +686,7 @@ pub(crate) async fn start(
     )
     .unwrap();
     let actix = AutoStopActor(actor);
-    let h = ActorHandler { cfg, actix, events: recv.clone() };
+    let h = ActorHandler { cfg, actix, events: recv.clone(), actor_system };
     // Wait for the server to start.
     recv.recv_until(|ev| match ev {
         Event::PeerManager(PME::ServerStarted) => Some(()),

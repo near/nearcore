@@ -4,9 +4,11 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     SetChainInfo, StateSyncEvent, Tier3Request,
 };
-use actix::{Actor, ActorContext, Context, Handler};
 use futures::{Future, FutureExt, future};
-use near_async::messaging::{CanSend, MessageWithCallback};
+use near_async::ActorSystem;
+use near_async::futures::DelayedActionRunnerExt;
+use near_async::messaging::{self, CanSend, MessageWithCallback};
+use near_async::tokio::TokioRuntimeHandle;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
@@ -71,44 +73,48 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 /// });
 /// ```
 pub struct WaitOrTimeoutActor {
-    f: Box<dyn FnMut(&mut Context<WaitOrTimeoutActor>)>,
+    f: Box<dyn FnMut(&TokioRuntimeHandle<WaitOrTimeoutActor>) + Send>,
+    handle: TokioRuntimeHandle<Self>,
     check_interval_ms: u64,
     max_wait_ms: u64,
     ms_slept: u64,
 }
 
 impl WaitOrTimeoutActor {
-    pub fn new(
-        f: Box<dyn FnMut(&mut Context<WaitOrTimeoutActor>)>,
+    pub fn spawn(
+        actor_system: ActorSystem,
+        f: Box<dyn FnMut(&TokioRuntimeHandle<WaitOrTimeoutActor>) + Send>,
         check_interval_ms: u64,
         max_wait_ms: u64,
-    ) -> Self {
-        WaitOrTimeoutActor { f, check_interval_ms, max_wait_ms, ms_slept: 0 }
+    ) {
+        let builder = actor_system.new_tokio_builder();
+        let handle = builder.handle();
+
+        let actor = WaitOrTimeoutActor { f, handle, check_interval_ms, max_wait_ms, ms_slept: 0 };
+        builder.spawn_tokio_actor(actor);
     }
 
-    fn wait_or_timeout(&mut self, ctx: &mut Context<Self>) {
-        (self.f)(ctx);
+    fn wait_or_timeout(&mut self) {
+        (self.f)(&self.handle);
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            tokio::time::Duration::from_millis(self.check_interval_ms),
-            move |act, ctx| {
+        self.handle.run_later(
+            "wait_or_timeout",
+            ::time::Duration::milliseconds(self.check_interval_ms as i64),
+            move |act, _ctx| {
                 act.ms_slept += act.check_interval_ms;
                 if act.ms_slept > act.max_wait_ms {
                     println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
                     panic!("Timed out waiting for the condition");
                 }
-                act.wait_or_timeout(ctx);
+                act.wait_or_timeout();
             },
         );
     }
 }
 
-impl Actor for WaitOrTimeoutActor {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Context<Self>) {
-        self.wait_or_timeout(ctx);
+impl messaging::Actor for WaitOrTimeoutActor {
+    fn start_actor(&mut self, _ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
+        self.wait_or_timeout();
     }
 }
 
@@ -185,10 +191,8 @@ pub fn expected_routing_tables(
 #[rtype(result = "NetworkInfo")]
 pub struct GetInfo {}
 
-impl Handler<GetInfo> for PeerManagerActor {
-    type Result = crate::types::NetworkInfo;
-
-    fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
+impl messaging::Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
+    fn handle(&mut self, _msg: GetInfo) -> crate::types::NetworkInfo {
         self.get_network_info()
     }
 }
@@ -206,16 +210,14 @@ impl StopSignal {
     }
 }
 
-impl Handler<StopSignal> for PeerManagerActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+impl messaging::Handler<StopSignal> for PeerManagerActor {
+    fn handle(&mut self, msg: StopSignal) {
         debug!(target: "network", "Receive Stop Signal.");
 
         if msg.should_panic {
             panic!("Node crashed");
         } else {
-            ctx.stop();
+            self.handle.stop();
         }
     }
 }

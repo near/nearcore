@@ -39,7 +39,7 @@ use crate::types::{
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
-use near_async::time;
+use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -467,6 +467,7 @@ impl NetworkState {
     pub async fn reconnect(
         self: &Arc<Self>,
         clock: time::Clock,
+        actor_system: ActorSystem,
         peer_info: PeerInfo,
         max_attempts: usize,
     ) {
@@ -479,9 +480,15 @@ impl NetworkState {
                     tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
                         .await
                         .context("tcp::Stream::connect()")?;
-                PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
-                    .await
-                    .context("PeerActor::spawn()")?;
+                PeerActor::spawn_and_handshake(
+                    clock.clone(),
+                    actor_system.clone(),
+                    stream,
+                    None,
+                    self.clone(),
+                )
+                .await
+                .context("PeerActor::spawn()")?;
                 anyhow::Ok(())
             }
             .await;

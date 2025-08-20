@@ -25,9 +25,7 @@ use crate::types::{
 };
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
-use near_async::futures::{
-    DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner, FutureSpawnerExt,
-};
+use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
 use near_async::messaging::{self, SendAsync, Sender};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
@@ -97,8 +95,10 @@ const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
     pub(crate) clock: time::Clock,
-    /// Future spawner for spawning asynchronous tasks.
-    pub(crate) future_spawner: Box<dyn FutureSpawner>,
+    /// Actor system for spawning PeerActors.
+    pub(crate) actor_system: ActorSystem,
+    /// Handle to spawning futures as well as stopping ourselves for testing.
+    pub(crate) handle: TokioRuntimeHandle<Self>,
     /// Peer information for this node.
     my_peer_id: PeerId,
     /// Flag that track whether we started attempts to establish outbound connections.
@@ -171,7 +171,7 @@ impl messaging::Actor for PeerManagerActor {
         // Periodically fix local edges.
         let clock = self.clock.clone();
         let state = self.state.clone();
-        self.future_spawner.spawn("fix_local_edges loop", async move {
+        self.handle.spawn("fix_local_edges loop", async move {
             let mut interval = time::Interval::new(clock.now(), FIX_LOCAL_EDGES_INTERVAL);
             loop {
                 interval.tick(&clock).await;
@@ -182,7 +182,7 @@ impl messaging::Actor for PeerManagerActor {
         // Periodically update the connection store.
         let clock = self.clock.clone();
         let state = self.state.clone();
-        self.future_spawner.spawn("update_connection_store loop", async move {
+        self.handle.spawn("update_connection_store loop", async move {
             let mut interval = time::Interval::new(clock.now(), UPDATE_CONNECTION_STORE_INTERVAL);
             loop {
                 interval.tick(&clock).await;
@@ -257,6 +257,7 @@ impl PeerManagerActor {
             let handle = handle.clone();
             let state = state.clone();
             let clock = clock.clone();
+            let actor_system = actor_system.clone();
             async move {
                 // Start server if address provided.
                 if let Some(server_addr) = &state.config.node_addr {
@@ -272,6 +273,7 @@ impl PeerManagerActor {
                     handle.spawn("PeerManagerActor listener loop", {
                         let clock = clock.clone();
                         let state = state.clone();
+                        let actor_system = actor_system.clone();
                         async move {
                             loop {
                                 if let Ok(stream) = listener.accept().await {
@@ -282,7 +284,7 @@ impl PeerManagerActor {
                                     // a proper connection.
                                     tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
                                     if let Err(err) =
-                                        PeerActor::spawn(clock.clone(), stream, None, state.clone())
+                                        PeerActor::spawn(clock.clone(), actor_system.clone(), stream, None, state.clone())
                                     {
                                         tracing::info!(target:"network", ?err, "PeerActor::spawn()");
                                     }
@@ -297,12 +299,13 @@ impl PeerManagerActor {
                 handle.spawn("connect to TIER1 proxies", {
                     let clock = clock.clone();
                     let state = state.clone();
+                    let actor_system = actor_system.clone();
                     let mut interval = time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
                     async move {
                         loop {
                             interval.tick(&clock).await;
                             state.tier1_request_full_sync();
-                            state.tier1_advertise_proxies(&clock).await;
+                            state.tier1_advertise_proxies(&clock, actor_system.clone()).await;
                         }
                     }
                 });
@@ -311,12 +314,13 @@ impl PeerManagerActor {
                 handle.spawn("update TIER1 connections", {
                     let clock = clock.clone();
                     let state = state.clone();
+                    let actor_system = actor_system.clone();
                     let mut interval = tokio::time::interval(tier1.connect_interval.try_into().unwrap());
                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                     async move {
                         loop {
                             interval.tick().await;
-                            state.tier1_connect(&clock).await;
+                            state.tier1_connect(&clock, actor_system.clone()).await;
                         }
                     }
                 });
@@ -324,6 +328,7 @@ impl PeerManagerActor {
                 // Periodically poll the connection store for connections we'd like to re-establish
                 handle.spawn("poll connection store for reconnects", {
                     let clock = clock.clone();
+                    let actor_system = actor_system.clone();
                     let state = state.clone();
                     let handle = handle.clone();
                     let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
@@ -338,8 +343,9 @@ impl PeerManagerActor {
                                     let state = state.clone();
                                     let clock = clock.clone();
                                     let peer_info = peer_info.clone();
+                                    let actor_system = actor_system.clone();
                                     async move {
-                                        state.reconnect(clock, peer_info, MAX_RECONNECT_ATTEMPTS).await;
+                                        state.reconnect(clock, actor_system, peer_info, MAX_RECONNECT_ATTEMPTS).await;
                                     }
                                 });
 
@@ -356,7 +362,8 @@ impl PeerManagerActor {
             started_connect_attempts: false,
             state,
             clock,
-            future_spawner: handle.future_spawner(),
+            actor_system,
+            handle,
         });
         Ok(handle)
     }
@@ -632,13 +639,14 @@ impl PeerManagerActor {
                     self.started_connect_attempts = true;
                     interval = default_interval;
                 }
-                self.future_spawner.spawn("monitor_peers_trigger_connect", {
+                self.handle.spawn("monitor_peers_trigger_connect", {
                     let state = self.state.clone();
                     let clock = self.clock.clone();
+                    let actor_system = self.actor_system.clone();
                     async move {
                         let result = async {
                             let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2, &state.config.socket_options).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                            PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream,None,state.clone()).await.context("PeerActor::spawn()")?;
                             anyhow::Ok(())
                         }.await;
 
@@ -674,12 +682,13 @@ impl PeerManagerActor {
     /// Re-establish each outbound connection in the connection store (single attempt)
     fn bootstrap_outbound_from_recent_connections(&self) {
         for conn_info in self.state.connection_store.get_recent_outbound_connections() {
-            self.future_spawner.spawn("bootstrap_outbound_from_recent_connections", {
+            self.handle.spawn("bootstrap_outbound_from_recent_connections", {
                 let state = self.state.clone();
                 let clock = self.clock.clone();
+                let actor_system = self.actor_system.clone();
                 let peer_info = conn_info.peer_info.clone();
                 async move {
-                    state.reconnect(clock, peer_info, 1).await;
+                    state.reconnect(clock, actor_system, peer_info, 1).await;
                 }
             });
 
@@ -755,7 +764,7 @@ impl PeerManagerActor {
             .start_timer();
         // TODO(gprusak): just spawn a loop.
         let state = self.state.clone();
-        self.future_spawner.spawn(
+        self.handle.spawn(
             "push_network_info_trigger_future",
             async move {
                 state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await.ok();
@@ -977,7 +986,7 @@ impl PeerManagerActor {
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
                 let state = self.state.clone();
-                self.future_spawner.spawn("announce_account", async move {
+                self.handle.spawn("announce_account", async move {
                     state.add_accounts(vec![announce_account]).await;
                 });
                 NetworkResponses::NoResponse
@@ -1260,16 +1269,21 @@ impl PeerManagerActor {
             PeerManagerMessageRequest::AdvertiseTier1Proxies => {
                 let state = self.state.clone();
                 let clock = self.clock.clone();
-                self.future_spawner.spawn("advertise_tier1_proxies", async move {
-                    state.tier1_advertise_proxies(&clock).await;
+                let actor_system = self.actor_system.clone();
+                self.handle.spawn("advertise_tier1_proxies", async move {
+                    state.tier1_advertise_proxies(&clock, actor_system).await;
                 });
                 PeerManagerMessageResponse::AdvertiseTier1Proxies
             }
             PeerManagerMessageRequest::OutboundTcpConnect(stream) => {
                 let peer_addr = stream.peer_addr;
-                if let Err(err) =
-                    PeerActor::spawn(self.clock.clone(), stream, None, self.state.clone())
-                {
+                if let Err(err) = PeerActor::spawn(
+                    self.clock.clone(),
+                    self.actor_system.clone(),
+                    stream,
+                    None,
+                    self.state.clone(),
+                ) {
                     tracing::info!(target:"network", ?err, ?peer_addr, "spawn_outbound()");
                 }
                 PeerManagerMessageResponse::OutboundTcpConnect
@@ -1298,7 +1312,8 @@ impl messaging::Handler<SetChainInfo> for PeerManagerActor {
 
         let state = self.state.clone();
         let clock = self.clock.clone();
-        self.future_spawner.spawn(
+        let actor_system = self.actor_system.clone();
+        self.handle.spawn(
             "handle set_chain_info",
             async move {
                 // This node might have become a TIER1 node due to the change of the key set.
@@ -1308,7 +1323,7 @@ impl messaging::Handler<SetChainInfo> for PeerManagerActor {
                 // and this node won't be able to connect to proxies until it happens (and only the
                 // connected proxies are included in the advertisement). We run tier1_advertise_proxies
                 // periodically in the background anyway to cover those cases.
-                state.tier1_advertise_proxies(&clock).await;
+                state.tier1_advertise_proxies(&clock, actor_system).await;
             }
             .in_current_span(),
         );
@@ -1357,7 +1372,8 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
 
         let state = self.state.clone();
         let clock = self.clock.clone();
-        self.future_spawner.spawn("handle tier3 request", 
+        let actor_system = self.actor_system.clone();
+        self.handle.spawn("handle tier3 request", 
             async move {
                 let tier3_response = match request.body {
                     Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
@@ -1400,7 +1416,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                             tcp::Tier::T3,
                             &state.config.socket_options
                         ).await.context("tcp::Stream::connect()")?;
-                        PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                        PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, None, state.clone()).await.context("PeerActor::spawn()")?;
                         anyhow::Ok(())
                     }.await;
 

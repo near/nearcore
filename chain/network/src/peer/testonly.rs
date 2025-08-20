@@ -1,3 +1,4 @@
+use crate::actix::AutoStopActor;
 use crate::broadcast;
 use crate::client::{ClientSenderForNetworkInput, ClientSenderForNetworkMessage};
 use crate::config::NetworkConfig;
@@ -16,13 +17,12 @@ use crate::state_witness::{
 };
 use crate::store;
 use crate::tcp;
-use crate::testonly::actix::ActixSystem;
 use crate::types::{
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage,
     StateRequestSenderForNetworkInput, StateRequestSenderForNetworkMessage,
 };
-use near_async::messaging::{IntoMultiSender, Sender};
-use near_async::time;
+use near_async::messaging::{CanSendAsync, IntoMultiSender, Sender};
+use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
@@ -56,14 +56,17 @@ pub(crate) enum Event {
 
 pub(crate) struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
-    actix: ActixSystem<PeerActor>,
+    actix: AutoStopActor<PeerActor>,
     pub events: broadcast::Receiver<Event>,
     pub edge: Option<Edge>,
 }
 
 impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
-        self.actix.addr.send(SendMessage { message: Arc::new(message) }.span_wrap()).await.unwrap();
+        self.actix
+            .send_async(SendMessage { message: Arc::new(message) }.span_wrap())
+            .await
+            .unwrap();
     }
 
     pub async fn complete_handshake(&mut self) {
@@ -98,6 +101,7 @@ impl PeerHandle {
 
     pub async fn start_endpoint(
         clock: time::Clock,
+        actor_system: ActorSystem,
         cfg: PeerConfig,
         stream: tcp::Stream,
     ) -> PeerHandle {
@@ -155,12 +159,11 @@ impl PeerHandle {
             state_witness_sender.break_apart().into_multi_sender(),
             vec![],
         ));
-        let actix = ActixSystem::spawn({
-            let clock = clock.clone();
-            let cfg = cfg.clone();
-            move || PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap().0
-        })
-        .await;
+        let actix = AutoStopActor(
+            PeerActor::spawn(clock, actor_system, stream, cfg.force_encoding, network_state)
+                .unwrap()
+                .0,
+        );
         Self { actix, cfg, events: recv, edge: None }
     }
 }
