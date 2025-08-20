@@ -562,6 +562,7 @@ def update_config_cmd(ctx: CommandContext):
 
 def start_nodes_cmd(ctx: CommandContext):
     nodes = ctx.nodes
+    binary_idx = getattr(ctx.args, 'binary_idx', None)
     if not all(pmap(lambda node: node.neard_runner_ready(), nodes)):
         logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
@@ -569,7 +570,7 @@ def start_nodes_cmd(ctx: CommandContext):
         return
     pmap(
         lambda node: node.with_schedule_ctx(ctx.schedule_ctx).
-        neard_runner_start(), nodes)
+        neard_runner_start(binary_idx=binary_idx), nodes)
     # Wait for the nodes to be up if not scheduling
     if not ctx.is_scheduled():
         pmap(lambda node: node.wait_node_up(), nodes)
@@ -970,6 +971,13 @@ def register_subcommands(subparsers):
     start_nodes_parser = subparsers.add_parser(
         'start-nodes',
         help='Starts all nodes, but does not start the traffic generator.')
+    start_nodes_parser.add_argument(
+        '--binary-idx',
+        type=int,
+        help='''The index of the neard binary to start.
+        If not provided, the current binary will be started.
+        If the binary index is different from the current binary index, the nodes will be restarted with the binary at the given index.
+        ''')
     start_nodes_parser.set_defaults(func=start_nodes_cmd)
 
     stop_parser = subparsers.add_parser('stop-nodes',
