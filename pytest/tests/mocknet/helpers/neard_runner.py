@@ -22,6 +22,7 @@ import time
 import http
 import http.server
 import dotenv
+from pydantic import BaseModel, ValidationError
 
 # cspell:ignore dotenv CREAT RDWR gethostname levelname
 
@@ -36,6 +37,36 @@ def get_lock(home):
         raise Exception(f'{lock_file} is currently locked by another process')
     return fd
 
+class NewTestParams(BaseModel):
+    mocknet_id: str
+    role: str
+    can_validate: bool = True
+    want_state_dump: bool = False
+    rpc_port: int = 3030
+    protocol_port: int = 24567
+    validator_id: str | None = None
+
+class NetworkInitParams(BaseModel):
+    validators: list[str]
+    boot_nodes: list[str]
+    state_source: str = "dump"
+    patches_path: str | None = None
+    epoch_length: int = 1000
+    num_seats: int = 100
+    new_chain_id: str | None = None
+    protocol_version: int | None = None
+    genesis_time: str
+    state_sync_location: str | None = None
+
+    @validator("state_sync_location")
+    def validate_state_sync_location(cls, v, values):
+        if v is None:
+            return v
+        try:
+            values["state_sync_location_parsed"] = json.loads(v)
+        except json.JSONDecodeError:
+            raise ValueError("state_sync_location must be valid JSON string")
+        return v
 
 class JSONHandler(http.server.BaseHTTPRequestHandler):
 
@@ -229,6 +260,12 @@ class NeardRunner:
 
     def is_traffic_generator(self):
         return self.config.get('is_traffic_generator', False)
+
+    def want_state_dump(self):
+        return self.config.get('want_state_dump', False)
+
+    def can_validate(self):
+        return self.config.get('can_validate', False)
 
     def save_data(self):
         with open(self.home_path('data.json'), 'w') as f:
@@ -440,6 +477,14 @@ class NeardRunner:
         shutil.copyfile(self.setup_path('genesis.json'),
                         self.target_near_home_path('genesis.json'))
 
+    def set_node_type_config(self, role, can_validate, want_state_dump,
+                             mocknet_id):
+        self.config['role'] = role
+        self.config['can_validate'] = can_validate
+        self.config['want_state_dump'] = want_state_dump
+        self.config['mocknet_id'] = mocknet_id
+        self.save_config()
+
     # This RPC method tells to stop neard and re-initialize its home dir. This returns the
     # validator and node key that resulted from the initialization. We can't yet call amend-genesis
     # and compute state roots, because the caller of this method needs to hear back from
@@ -448,19 +493,13 @@ class NeardRunner:
     # TODO: add a binaries argument that tells what binaries we want to use in the test. Before we do
     # this, it is pretty mandatory to implement some sort of client authentication, because without it,
     # anyone would be able to get us to download and run arbitrary code
-    def do_new_test(self,
-                    rpc_port=3030,
-                    protocol_port=24567,
-                    validator_id=None):
-        if not isinstance(rpc_port, int):
+    def do_new_test(self, **kwargs):
+        try:
+            params = NewTestParams(**kwargs)
+        except ValidationError as e:
             raise jsonrpc.exceptions.JSONRPCDispatchException(
-                code=-32600, message='rpc_port argument not an int')
-        if not isinstance(protocol_port, int):
-            raise jsonrpc.exceptions.JSONRPCDispatchException(
-                code=-32600, message='protocol_port argument not an int')
-        if validator_id is not None and not isinstance(validator_id, str):
-            raise jsonrpc.exceptions.JSONRPCDispatchException(
-                code=-32600, message='validator_id argument not a string')
+                code=-32600, message=str(e)
+            )
 
         with self.lock:
             self.kill_neard()
@@ -477,10 +516,13 @@ class NeardRunner:
             except FileNotFoundError:
                 pass
 
+            self.set_node_type_config(params.role, params.can_validate, params.want_state_dump,
+                                      params.mocknet_id)
+
             self.reset_current_neard_path()
             self.save_data()
 
-            self.neard_init(rpc_port, protocol_port, validator_id)
+            self.neard_init(params.rpc_port, params.protocol_port, params.validator_id)
             self.move_init_files()
 
             with open(self.target_near_home_path('config.json'), 'r') as f:
@@ -513,37 +555,12 @@ class NeardRunner:
     # After the new_test RPC, we wait to get this RPC that gives us the list of validators
     # and boot nodes for the test network. After this RPC call, we run amend-genesis and
     # start neard to compute genesis state roots.
-    def do_network_init(self,
-                        validators,
-                        boot_nodes,
-                        state_source="dump",
-                        patches_path=None,
-                        epoch_length=1000,
-                        num_seats=100,
-                        new_chain_id=None,
-                        protocol_version=None,
-                        genesis_time=None):
-        if not isinstance(validators, list):
+    def do_network_init(self, **kwargs):
+        try:
+            params = NetworkInitParams(**kwargs)
+        except ValidationError as e:
             raise jsonrpc.exceptions.JSONRPCDispatchException(
-                code=-32600, message='validators argument not a list')
-        if not isinstance(boot_nodes, list):
-            raise jsonrpc.exceptions.JSONRPCDispatchException(
-                code=-32600, message='boot_nodes argument not a list')
-
-        # TODO: maybe also check validity of these arguments?
-        if len(validators) == 0:
-            raise jsonrpc.exceptions.JSONRPCDispatchException(
-                code=-32600, message='validators argument must not be empty')
-        if len(boot_nodes) == 0:
-            raise jsonrpc.exceptions.JSONRPCDispatchException(
-                code=-32600, message='boot_nodes argument must not be empty')
-
-        if genesis_time is None:
-            raise jsonrpc.exceptions.JSONRPCDispatchException(
-                code=-32600,
-                message=
-                'genesis_time argument required for nodes running via neard fork-network'
-            )
+                code=-32600, message=str(e))
 
         with self.lock:
             state = self.get_state()
@@ -552,25 +569,26 @@ class NeardRunner:
                     code=-32600,
                     message='Can only call network_init after a call to init')
 
-            if len(validators) <= 3:
+            if len(params.validators) <= 3:
                 with open(self.target_near_home_path('config.json'), 'r') as f:
                     config = json.load(f)
-                config['consensus']['min_num_peers'] = len(validators) - 1
+                config['consensus']['min_num_peers'] = len(params.validators) - 1
                 with open(self.target_near_home_path('config.json'), 'w') as f:
                     json.dump(config, f)
             with open(self.home_path('validators.json'), 'w') as f:
-                json.dump(validators, f)
+                json.dump(params.validators, f)
             with open(self.home_path('network_init.json'), 'w') as f:
                 json.dump(
                     {
-                        'state_source': state_source,
-                        'patches_path': patches_path,
-                        'boot_nodes': boot_nodes,
-                        'epoch_length': epoch_length,
-                        'num_seats': num_seats,
-                        'new_chain_id': new_chain_id,
-                        'protocol_version': protocol_version,
-                        'genesis_time': genesis_time,
+                        'state_source': params.state_source,
+                        'patches_path': params.patches_path,
+                        'boot_nodes': params.boot_nodes,
+                        'epoch_length': params.epoch_length,
+                        'num_seats': params.num_seats,
+                        'new_chain_id': params.new_chain_id,
+                        'protocol_version': params.protocol_version,
+                        'genesis_time': params.genesis_time,
+                        'state_sync_location': params.get("state_sync_location_parsed", None),
                     }, f)
 
     def do_update_config(self, key_value):
@@ -1047,6 +1065,41 @@ class NeardRunner:
         backup_data = {'backup_id': backup_id, 'description': description}
         self.set_state(TestState.MAKING_BACKUP, data=backup_data)
 
+    def set_state_sync_config(self, config, location):
+        config['store']['state_snapshot_config'] = {
+            'state_snapshot_type': "Enabled"
+        }
+        if location is None:
+            return config
+
+        config['state_sync'] = config.get('state_sync', {})
+        config['state_sync']['sync'] = {
+            'ExternalStorage': {
+                'location': location
+            }
+        }
+        if self.want_state_dump():
+            config['state_sync']['dump'] = {'location': location}
+
+        return config
+
+    def set_boot_nodes(self, config, raw_boot_nodes, own_public_key):
+        boot_nodes = []
+        for b in raw_boot_nodes:
+            if own_public_key != b.split('@')[0]:
+                boot_nodes.append(b)
+        config['network']['boot_nodes'] = ','.join(boot_nodes)
+        return config
+
+    def set_shard_tracking_config(self, config):
+        if self.can_validate():
+            config['tracked_shards_config'] = "NoShards"
+            config['store']['load_mem_tries_for_tracked_shards'] = True
+        else:
+            config['tracked_shards_config'] = "AllShards"
+            config['store']['load_mem_tries_for_tracked_shards'] = False
+        return config
+
     def network_init(self):
         # wait til we get a network_init RPC
         if not os.path.exists(self.home_path('validators.json')):
@@ -1058,15 +1111,17 @@ class NeardRunner:
             node_key = json.load(f)
         with open(self.target_near_home_path('config.json'), 'r') as f:
             config = json.load(f)
-        boot_nodes = []
-        for b in n['boot_nodes']:
-            if node_key['public_key'] != b.split('@')[0]:
-                boot_nodes.append(b)
 
-        config['network']['boot_nodes'] = ','.join(boot_nodes)
+        config = self.set_boot_nodes(config, n['boot_nodes'],
+                                     node_key['public_key'])
+        config = self.set_state_sync_config(config, n['state_sync_location'])
+        config = self.set_shard_tracking_config(config)
+
         with open(self.target_near_home_path('config.json'), 'w') as f:
             config = json.dump(config, f, indent=2)
 
+        # TODO(CV support): If the node has state, build the genesis and publish it.
+        #                   If the node has no state, download the genesis from the setup bucket.
         new_chain_id = n.get('new_chain_id')
 
         if n['state_source'] == 'empty':
