@@ -7,6 +7,7 @@ import pathlib
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
 
 from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
                     get_nodes_status, hard_reset_cmd, new_test_cmd,
@@ -16,6 +17,47 @@ from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
+
+
+class NodeHardware:
+    """
+    Hardware configuration for validators.
+    """
+
+    @dataclass
+    class Config:
+        # The number of chunk producers.
+        num_chunk_producer_seats: int
+        # The number of chunk validators.
+        num_chunk_validator_seats: int
+
+        def chunk_producers_hosts(self) -> int:
+            pass
+
+        def only_chunk_validators_hosts(self) -> int:
+            pass
+
+    class SameConfig(Config):
+        """
+        All validators have the same hardware.
+        """
+
+        def chunk_producers_hosts(self) -> int:
+            return self.num_chunk_validator_seats
+
+        def only_chunk_validators_hosts(self) -> int:
+            return 0
+
+    class SmallChunkValidatorsConfig(Config):
+        """
+        Separate chunk producers and validators hardware.
+        """
+
+        def chunk_producers_hosts(self) -> int:
+            return self.num_chunk_producer_seats
+
+        def only_chunk_validators_hosts(self) -> int:
+            return self.num_chunk_validator_seats - self.num_chunk_producer_seats
 
 
 class TestSetup:
@@ -38,10 +80,9 @@ class TestSetup:
         self.tracing_server = False
         # The GCP regions to be used for the nodes.
         self.regions = None
-        # The number of validators.
-        self.validators = None
-        # The number of block producers. The rest will be chunk validators.
-        self.block_producers = None
+        # Hardware configuration for validators
+        self.node_hardware_config = NodeHardware.SameConfig(
+            num_chunk_producer_seats=0, num_chunk_validator_seats=0)
         # The base binary url to be used for the nodes.
         self.neard_binary_url = None
         # The new binary url to be used for the nodes.
@@ -112,8 +153,9 @@ class TestSetup:
         new_test_args = copy.deepcopy(self.args)
         new_test_args.epoch_length = self.epoch_len
         new_test_args.genesis_protocol_version = self.genesis_protocol_version
-        new_test_args.num_validators = self.validators
-        new_test_args.num_seats = self.block_producers
+        new_test_args.num_validators = self.node_hardware_config.num_chunk_validator_seats
+        # Set all seats to the lower value. This will be increased later in epoch config.
+        new_test_args.num_seats = self.node_hardware_config.num_chunk_producer_seats
         new_test_args.stateless_setup = True
         new_test_args.new_chain_id = self.unique_id
         new_test_args.yes = True
@@ -189,7 +231,8 @@ class TestSetup:
     def amend_epoch_config(self):
         self._share_epoch_configs()
         self._amend_epoch_config(
-            f".num_chunk_validator_seats = {self.validators}")
+            f".num_chunk_validator_seats = {self.node_hardware_config.num_chunk_validator_seats}"
+        )
         self._reduce_chunk_validators_stake()
 
     def amend_configs_before_test_start(self):
