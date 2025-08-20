@@ -33,7 +33,6 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::{Approval, Chunks};
-use near_primitives::epoch_block_info;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::genesis::GenesisId;
