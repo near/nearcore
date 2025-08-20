@@ -58,8 +58,8 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
 use crate::utils::ONE_NEAR;
+use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
 
 /// 3 shards, random receipt sizes
 #[test]

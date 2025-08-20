@@ -259,8 +259,8 @@ fn fmt_outcome_without_abort(
         outcome.balance,
         outcome.storage_usage,
         return_data_str,
-        outcome.burnt_gas,
-        outcome.used_gas
+        outcome.burnt_gas.as_gas(),
+        outcome.used_gas.as_gas()
     )?;
     Ok(())
 }

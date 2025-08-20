@@ -18,6 +18,7 @@ use std::sync::Arc;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
+use crate::utils::ONE_NEAR;
 use crate::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::utils::receipts::{
     ReceiptKind, check_receipts_presence_after_resharding_block,
@@ -40,7 +41,6 @@ use crate::utils::transactions::{
     use_global_contract,
 };
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
-use crate::utils::ONE_NEAR;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore, vm};
 
 /// Default and minimal epoch length used in resharding tests.
