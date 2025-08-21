@@ -20,12 +20,13 @@ use near_parameters::vm::{LimitConfig, VMKind};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 use tracing::warn;
 use wasmtime::{
     Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre, Linker, Module,
     ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store, StoreLimits,
-    StoreLimitsBuilder, Strategy,
+    StoreLimitsBuilder, Strategy, WasmBacktraceDetails,
 };
 
 type Caller = wasmtime::Caller<'static, Ctx>;
@@ -187,13 +188,13 @@ impl ConcurrencySemaphore {
 }
 
 pub struct Ctx {
-    logic: Option<VMLogic<'static>>,
-    caller: Arc<RefCell<Option<Caller>>>,
+    logic: Option<Box<VMLogic<'static>>>,
+    caller: Rc<RefCell<Option<Caller>>>,
     limits: StoreLimits,
 }
 
 impl Ctx {
-    fn new(logic: VMLogic<'static>, caller: Arc<RefCell<Option<Caller>>>) -> Self {
+    fn new(logic: VMLogic<'static>, caller: Rc<RefCell<Option<Caller>>>) -> Self {
         let LimitConfig {
             max_memory_pages,
             max_tables_per_contract,
@@ -213,7 +214,7 @@ impl Ctx {
             .tables(max_tables_per_contract.try_into().unwrap_or(usize::MAX))
             .table_elements(max_elements_per_contract_table)
             .build();
-        Self { logic: Some(logic), caller, limits }
+        Self { logic: Some(Box::new(logic)), caller, limits }
     }
 }
 
@@ -221,7 +222,7 @@ impl Ctx {
 #[derive(Clone)]
 pub struct WasmtimeMemory {
     memory: ModuleExport,
-    caller: Arc<RefCell<Option<Caller>>>,
+    caller: Rc<RefCell<Option<Caller>>>,
 }
 
 impl WasmtimeMemory {
@@ -369,6 +370,9 @@ impl WasmtimeVM {
 
                 let mut pooling_config = PoolingAllocationConfig::default();
                 pooling_config
+                    .decommit_batch_size(
+                        MAX_CONCURRENCY.saturating_sub(2).try_into().unwrap_or(usize::MAX),
+                    )
                     .max_memory_size(max_memory_size)
                     .table_elements(max_elements_per_contract_table)
                     .total_component_instances(0)
@@ -376,7 +380,9 @@ impl WasmtimeVM {
                     .total_memories(MAX_CONCURRENCY)
                     .total_tables(max_tables)
                     .max_memories_per_module(1)
-                    .max_tables_per_module(max_tables_per_contract);
+                    .max_tables_per_module(max_tables_per_contract)
+                    // keep 1 / (pointer size) of maximum table element count resident
+                    .table_keep_resident(max_elements_per_contract_table);
 
                 let mut engine_config = wasmtime::Config::from(features);
                 engine_config
@@ -389,17 +395,25 @@ impl WasmtimeVM {
                     // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
                     .native_unwind_info(false)
                     .wasm_backtrace(false)
+                    .wasm_backtrace_details(WasmBacktraceDetails::Disable)
                     // Enable copy-on-write heap images.
                     .memory_init_cow(true)
-                    // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+                    // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
                     .max_wasm_stack(1024 * 1024 * 1024)
-                    // enable the Cranelift optimizing compiler.
+                    // Enable the Cranelift optimizing compiler.
                     .strategy(Strategy::Cranelift)
                     // Enable signals-based traps. This is required to elide explicit bounds-checking.
                     .signals_based_traps(true)
                     // Configure linear memories such that explicit bounds-checking can be elided.
-                    .memory_reservation(1 << 32)
-                    .memory_guard_size(1 << 32)
+                    .force_memory_init_memfd(true)
+                    .memory_guaranteed_dense_image_size(
+                        max_memory_size.try_into().unwrap_or(u64::MAX),
+                    )
+                    .guard_before_linear_memory(false)
+                    .memory_guard_size(0)
+                    .memory_may_move(false)
+                    .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
+                    .memory_reservation_for_growth(0)
                     .cranelift_nan_canonicalization(true);
 
                 let config = Arc::clone(config);
@@ -684,8 +698,8 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             }
         };
 
-        let caller = Arc::default();
-        let mut memory = WasmtimeMemory { caller: Arc::clone(&caller), memory };
+        let caller = Rc::default();
+        let mut memory = WasmtimeMemory { caller: Rc::clone(&caller), memory };
         let logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
         // SAFETY:
         // Although the 'static here is a lie, we are pretty confident that the `VMLogic` here
@@ -741,35 +755,45 @@ impl std::fmt::Display for ErrorContainer {
     }
 }
 
+fn with_logic<T>(
+    mut caller: wasmtime::Caller<'_, Ctx>,
+    f: impl FnOnce(&mut VMLogic<'_>) -> T,
+) -> T {
+    let ctx = caller.data_mut();
+    let mut logic = ctx.logic.take().expect("logic missing");
+    let memory_caller = Rc::clone(&ctx.caller);
+    // SAFETY:
+    // Although the 'static here is a lie, we are pretty confident that the `Caller` here
+    // only lives for the duration of the contract method call (which is covered by the original
+    // lifetime), and we're doing `memory_caller.take()` just below, which should be safe.
+    memory_caller.replace(Some(unsafe {
+        transmute::<wasmtime::Caller<'_, Ctx>, wasmtime::Caller<'static, Ctx>>(caller)
+    }));
+    let res = f(&mut logic);
+    let mut caller = memory_caller.take().expect("caller missing");
+    caller.data_mut().logic.replace(logic);
+    res
+}
+
 fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
     macro_rules! add_import {
         (
           $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
         ) => {
             #[allow(unused_parens)]
-            fn $name(mut caller: wasmtime::Caller<'_, Ctx>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
+            fn $name(caller: wasmtime::Caller<'_, Ctx>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
                 const TRACE: bool = imports::should_trace_host_function(stringify!($name));
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
                 });
-
-                let ctx = caller.data_mut();
-                let mut logic = ctx.logic.take().expect("logic missing");
-                let memory_caller = Arc::clone(&ctx.caller);
-                // SAFETY:
-                // Although the 'static here is a lie, we are pretty confident that the `Caller` here
-                // only lives for the duration of the contract method call (which is covered by the original
-                // lifetime), and we're doing `memory_caller.take()` just below, which should be safe.
-                memory_caller.replace(Some(unsafe {transmute::<wasmtime::Caller<'_, Ctx>, wasmtime::Caller<'static, Ctx>>(caller)}));
-                let res = match logic.$func( $( $arg_name as $arg_type, )* ) {
-                    Ok(result) => Ok(result as ($( $returns ),* ) ),
-                    Err(err) => {
-                        Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
+                with_logic(caller, |logic| {
+                    match logic.$func( $( $arg_name as $arg_type, )* ) {
+                        Ok(result) => Ok(result as ($( $returns ),* ) ),
+                        Err(err) => {
+                            Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
+                        }
                     }
-                };
-                let mut caller = memory_caller.take().expect("caller missing");
-                caller.data_mut().logic.replace(logic);
-                res
+                })
             }
 
             linker.func_wrap(stringify!($mod), stringify!($name), $name).expect("cannot link external");
