@@ -89,6 +89,12 @@ class TestSetup:
         self.neard_upgrade_binary_url = getattr(args,
                                                 'neard_upgrade_binary_url', '')
 
+    def _needs_upgrade(self):
+        """
+        Check if the test needs to go through the upgrade process.
+        """
+        return self.neard_upgrade_binary_url is not None and self.neard_upgrade_binary_url != ''
+
     def init_env(self):
         """
         Setup the forknet environment for the test.
@@ -103,7 +109,7 @@ class TestSetup:
         hard_reset_cmd(CommandContext(init_args))
 
         # Traffic node should always run the latest binary to avoid restarting it.
-        if self.neard_upgrade_binary_url is not None and self.neard_upgrade_binary_url != '':
+        if self._needs_upgrade():
             logger.info(
                 f"Amending binaries on traffic node with url: {self.neard_upgrade_binary_url}"
             )
@@ -227,7 +233,9 @@ class TestSetup:
         pass
 
     def amend_epoch_config(self):
-        self._share_epoch_configs()
+        if self._needs_upgrade():
+            # We need to share the epoch configs before the upgrade.
+            self._share_epoch_configs()
         self._amend_epoch_config(
             f".num_chunk_validator_seats = {self.node_hardware_config.num_chunk_validator_seats}"
         )
