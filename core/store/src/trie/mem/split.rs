@@ -84,6 +84,7 @@ impl<'a, M: ArenaMemory> TrieDescentStage<'a, M> {
             Self::AtExtension { .. } | Self::AtBranch { .. } => true,
         }
     }
+    
     fn current_node_memory_usage(&self) -> u64 {
         match self {
             Self::CutOff => 0,
@@ -243,7 +244,7 @@ impl<'a, M: ArenaMemory> TrieDescent<'a, M> {
     }
 }
 
-/// Find the lowest child index `i` fox which `sum(children_mem_usage[..i+1]) >= threshold`.
+/// Find the lowest child index `i` for which `sum(children_mem_usage[..i+1]) >= threshold`.
 /// Returns `Some(i, sum(children_mem_usage[..i])` if such `i` exists, otherwise `None`.
 fn find_middle_child(
     children_mem_usage: &[u64; NUM_CHILDREN],
