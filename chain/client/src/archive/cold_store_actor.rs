@@ -71,103 +71,6 @@ impl From<EpochError> for ColdStoreError {
     }
 }
 
-impl ColdStoreActor {
-    /// Checks if cold store head is behind the final head and if so copies data
-    /// for the next available produced block after current cold store head.
-    /// Updates cold store head after.
-    fn cold_store_copy(&self) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
-        let (cold_head_height, hot_final_head_height, hot_tail_height) = self.get_heights();
-        let _span = tracing::debug_span!(target: "cold_store", "cold_store_copy", cold_head_height, hot_final_head_height, hot_tail_height).entered();
-
-        sanity_check(cold_head_height, hot_final_head_height, hot_tail_height)?;
-
-        if cold_head_height >= hot_final_head_height {
-            return Ok(ColdStoreCopyResult::NoBlockCopied);
-        }
-
-        let mut next_height = cold_head_height + 1;
-        let next_height_block_hash = loop {
-            if next_height > hot_final_head_height {
-                return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
-                    cold_head_height,
-                    next_height,
-                    hot_final_head_height,
-                });
-            }
-            // Here it should be sufficient to just read from hot storage.
-            // Because BlockHeight is never garbage collectable and is not even copied to cold.
-            if let Ok(next_height_block_hash) =
-                self.hot_store.chain_store().get_block_hash_by_height(next_height)
-            {
-                break next_height_block_hash;
-            }
-            next_height = next_height + 1;
-        };
-
-        // The next block hash exists in hot store so we can use it to get epoch id.
-        let epoch_id = self.epoch_manager.get_epoch_id(&next_height_block_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let tracked_shards =
-            self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
-        let block_info = self.epoch_manager.get_block_info(&next_height_block_hash)?;
-        let is_resharding_boundary =
-            self.epoch_manager.is_resharding_boundary(block_info.prev_hash())?;
-
-        update_cold_db(
-            &self.cold_db,
-            &self.hot_store,
-            &shard_layout,
-            &tracked_shards,
-            &next_height,
-            is_resharding_boundary,
-            self.split_storage_config.num_cold_store_read_threads,
-        )?;
-
-        if let Some(cloud_storage) = &self.cloud_storage {
-            update_cloud_storage(cloud_storage, &self.hot_store, &next_height)?;
-        }
-
-        update_cold_head(&self.cold_db, &self.hot_store, &next_height)?;
-
-        let result = if next_height >= hot_final_head_height {
-            Ok(ColdStoreCopyResult::LatestBlockCopied)
-        } else {
-            Ok(ColdStoreCopyResult::OtherBlockCopied)
-        };
-
-        tracing::trace!(target: "cold_store", ?result, "ending");
-        result
-    }
-}
-
-// Check some basic sanity conditions.
-// * cold head <= hot final head
-// * cold head >= hot tail
-fn sanity_check(
-    cold_head_height: u64,
-    hot_final_head_height: u64,
-    hot_tail_height: u64,
-) -> anyhow::Result<(), ColdStoreError> {
-    // We should only copy final blocks to cold storage.
-    if cold_head_height > hot_final_head_height {
-        return Err(ColdStoreError::ColdHeadAheadOfFinalHeadError {
-            cold_head_height,
-            hot_final_head_height,
-        });
-    }
-
-    // Cold and Hot storages need to overlap. Without this check we would skip
-    // blocks from cold_head_height to hot_tail_height. This will result in
-    // corrupted cold storage.
-    if cold_head_height < hot_tail_height {
-        return Err(ColdStoreError::ColdHeadBehindHotTailError {
-            cold_head_height,
-            hot_tail_height,
-        });
-    }
-    Ok(())
-}
-
 fn cold_store_copy_result_to_string(
     result: &anyhow::Result<ColdStoreCopyResult, ColdStoreError>,
 ) -> &str {
@@ -436,6 +339,73 @@ impl ColdStoreActor {
 
         result
     }
+
+    /// Checks if cold store head is behind the final head and if so copies data
+    /// for the next available produced block after current cold store head.
+    /// Updates cold store head after.
+    fn cold_store_copy(&self) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
+        let (cold_head_height, hot_final_head_height, hot_tail_height) = self.get_heights();
+        let _span = tracing::debug_span!(target: "cold_store", "cold_store_copy", cold_head_height, hot_final_head_height, hot_tail_height).entered();
+
+        sanity_check(cold_head_height, hot_final_head_height, hot_tail_height)?;
+
+        if cold_head_height >= hot_final_head_height {
+            return Ok(ColdStoreCopyResult::NoBlockCopied);
+        }
+
+        let mut next_height = cold_head_height + 1;
+        let next_height_block_hash = loop {
+            if next_height > hot_final_head_height {
+                return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
+                    cold_head_height,
+                    next_height,
+                    hot_final_head_height,
+                });
+            }
+            // Here it should be sufficient to just read from hot storage.
+            // Because BlockHeight is never garbage collectable and is not even copied to cold.
+            if let Ok(next_height_block_hash) =
+                self.hot_store.chain_store().get_block_hash_by_height(next_height)
+            {
+                break next_height_block_hash;
+            }
+            next_height = next_height + 1;
+        };
+
+        // The next block hash exists in hot store so we can use it to get epoch id.
+        let epoch_id = self.epoch_manager.get_epoch_id(&next_height_block_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let tracked_shards =
+            self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
+        let block_info = self.epoch_manager.get_block_info(&next_height_block_hash)?;
+        let is_resharding_boundary =
+            self.epoch_manager.is_resharding_boundary(block_info.prev_hash())?;
+
+        update_cold_db(
+            &self.cold_db,
+            &self.hot_store,
+            &shard_layout,
+            &tracked_shards,
+            &next_height,
+            is_resharding_boundary,
+            self.split_storage_config.num_cold_store_read_threads,
+        )?;
+
+        if let Some(cloud_storage) = &self.cloud_storage {
+            update_cloud_storage(cloud_storage, &self.hot_store, &next_height)?;
+        }
+
+        update_cold_head(&self.cold_db, &self.hot_store, &next_height)?;
+
+        let result = if next_height >= hot_final_head_height {
+            Ok(ColdStoreCopyResult::LatestBlockCopied)
+        } else {
+            Ok(ColdStoreCopyResult::OtherBlockCopied)
+        };
+
+        tracing::trace!(target: "cold_store", ?result, "ending");
+        result
+    }
 }
 
 /// Creates the cold store actor and keep_going handle if cold store is configured.
@@ -494,4 +464,32 @@ pub fn create_cold_store_actor(
     );
 
     Ok(Some((actor, keep_going)))
+}
+
+// Check some basic sanity conditions.
+// * cold head <= hot final head
+// * cold head >= hot tail
+fn sanity_check(
+    cold_head_height: u64,
+    hot_final_head_height: u64,
+    hot_tail_height: u64,
+) -> anyhow::Result<(), ColdStoreError> {
+    // We should only copy final blocks to cold storage.
+    if cold_head_height > hot_final_head_height {
+        return Err(ColdStoreError::ColdHeadAheadOfFinalHeadError {
+            cold_head_height,
+            hot_final_head_height,
+        });
+    }
+
+    // Cold and Hot storages need to overlap. Without this check we would skip
+    // blocks from cold_head_height to hot_tail_height. This will result in
+    // corrupted cold storage.
+    if cold_head_height < hot_tail_height {
+        return Err(ColdStoreError::ColdHeadBehindHotTailError {
+            cold_head_height,
+            hot_tail_height,
+        });
+    }
+    Ok(())
 }
