@@ -1,6 +1,8 @@
+use actix::clock::{sleep, timeout};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
-use near_chain_configs::GenesisValidationMode;
+use bytesize::ByteSize;
+use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
+use near_chain_configs::{GenesisValidationMode, SyncConcurrency};
 use near_client::sync::external::{
     ExternalConnection, StateFileType, create_bucket_read_write, create_bucket_readonly,
     external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
@@ -9,20 +11,19 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
-use near_primitives::state::PartialState;
 use near_primitives::state_part::{PartId, StatePart};
-use near_primitives::state_record::StateRecord;
+use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
-use near_store::{DBCol, NodeStorage, PartialStorage, Store, Trie};
-use near_time::Clock;
+use near_store::{DBCol, NodeStorage, Store};
+use near_time::{Clock, Duration, Instant};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use futures_util::StreamExt;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 #[derive(clap::Parser)]
 pub struct CloudArchivalCommand {
@@ -72,21 +73,10 @@ impl CloudArchivalCommand {
     }
 }
 
-#[derive(clap::ValueEnum, Clone, Debug, Default)]
-pub(crate) enum LoadAction {
-    #[default]
-    Apply,
-    Print,
-    Validate,
-}
-
 #[derive(clap::Subcommand, Debug, Clone)]
 pub(crate) enum CloudArchivalSubCommand {
     /// Load all or a single state part of a shard and perform an action over those parts.
-    Load {
-        /// Apply, validate or print.
-        #[clap(value_enum, long)]
-        action: LoadAction,
+    Download {
         /// If provided, this value will be used instead of looking it up in the headers.
         /// Use if those headers or blocks are not available.
         #[clap(long)]
@@ -104,7 +94,7 @@ pub(crate) enum CloudArchivalSubCommand {
         epoch_selection: EpochSelection,
     },
     /// Dump all or a single state part of a shard.
-    Dump {
+    Upload {
         /// Dump part ids starting from this part.
         #[clap(long)]
         part_from: Option<u64>,
@@ -120,19 +110,6 @@ pub(crate) enum CloudArchivalSubCommand {
         /// Select an epoch to work on.
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
-    },
-    /// Read State Header from the DB
-    ReadStateHeader {
-        /// Select an epoch to work on.
-        #[clap(subcommand)]
-        epoch_selection: EpochSelection,
-    },
-    /// Finalize state sync.
-    Finalize {
-        /// If provided, this value will be used instead of looking it up in the headers.
-        /// Use if those headers or blocks are not available.
-        #[clap(long)]
-        sync_hash: CryptoHash,
     },
 }
 
@@ -181,8 +158,7 @@ impl CloudArchivalSubCommand {
         let sys = actix::System::new();
         sys.block_on(async move {
             match self {
-                CloudArchivalSubCommand::Load {
-                    action,
+                Self::Download {
                     state_root,
                     sync_hash,
                     part_id,
@@ -196,8 +172,9 @@ impl CloudArchivalSubCommand {
                         None,
                         Mode::ReadOnly,
                     );
-                    load_state_parts(
-                        action,
+                    let concurrency_config = SyncConcurrency::default();
+                    let max_attempts = 5;
+                    download_state_parts(
                         epoch_selection,
                         shard_id,
                         part_id,
@@ -207,10 +184,14 @@ impl CloudArchivalSubCommand {
                         chain_id,
                         store,
                         &external,
+                        concurrency_config.per_shard,
+                        max_attempts,
+                        near_config.client_config.state_sync_retry_backoff,
+                        near_config.client_config.state_sync_external_timeout,
                     )
-                    .await
+                    .await.unwrap()
                 }
-                CloudArchivalSubCommand::Dump {
+                Self::Upload {
                     part_from,
                     part_to,
                     dump_header,
@@ -238,12 +219,6 @@ impl CloudArchivalSubCommand {
                     )
                     .await
                 }
-                CloudArchivalSubCommand::ReadStateHeader { epoch_selection } => {
-                    read_state_header(epoch_selection, shard_id, &chain, store)
-                }
-                CloudArchivalSubCommand::Finalize { sync_hash } => {
-                    finalize_state_sync(sync_hash, shard_id, &mut chain)
-                }
             }
             near_async::shutdown_all_actors();
         });
@@ -268,9 +243,9 @@ fn create_external_connection(
         ExternalConnection::Filesystem { root_dir }
     } else if let (Some(bucket), Some(region)) = (bucket, region) {
         let bucket = match mode {
-            Mode::ReadOnly => create_bucket_readonly(&bucket, &region, Duration::from_secs(5)),
+            Mode::ReadOnly => create_bucket_readonly(&bucket, &region, std::time::Duration::from_secs(5)),
             Mode::ReadWrite => {
-                create_bucket_read_write(&bucket, &region, Duration::from_secs(5), credentials_file)
+                create_bucket_read_write(&bucket, &region, std::time::Duration::from_secs(5), credentials_file)
             }
         }
         .expect("Failed to create an S3 bucket");
@@ -374,8 +349,7 @@ fn get_any_block_hash_of_epoch(epoch_info: &EpochInfo, chain: &Chain) -> CryptoH
     }
 }
 
-async fn load_state_parts(
-    action: LoadAction,
+async fn download_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
     part_id: Option<u64>,
@@ -385,8 +359,12 @@ async fn load_state_parts(
     chain_id: &str,
     store: Store,
     external: &ExternalConnection,
-) {
-    let epoch_id = epoch_selection.to_epoch_id(store, chain);
+    concurrency_limit: u8,
+    max_attempts: u32,
+    retry_backoff: Duration,
+    request_timeout: Duration,
+) -> Result<(), Error> {
+    let epoch_id = epoch_selection.to_epoch_id(store.clone(), chain);
     let (state_root, epoch_height, epoch_id, sync_hash) =
         if let (Some(state_root), Some(sync_hash), EpochSelection::EpochHeight { epoch_height }) =
             (maybe_state_root, maybe_sync_hash, &epoch_selection)
@@ -394,21 +372,11 @@ async fn load_state_parts(
             (state_root, *epoch_height, epoch_id, sync_hash)
         } else {
             let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
-
-            let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
-            let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
-                Some(h) => h,
-                None => {
-                    tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
-                    return;
-                }
-            };
-
-            let state_header =
-                chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash).unwrap();
-            let state_root = state_header.chunk_prev_state_root();
-
-            (state_root, epoch.epoch_height(), epoch_id, sync_hash)
+            let sync_base = get_any_block_hash_of_epoch(&epoch, chain);
+            let sync_hash = chain.get_sync_hash(&sync_base).unwrap()
+                .ok_or_else(|| Error::Other(format!("sync hash not yet known for {epoch_id:?}")))?;
+            let state_header = chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash).unwrap();
+            (state_header.chunk_prev_state_root(), epoch.epoch_height(), epoch_id, sync_hash)
         };
     let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
 
@@ -419,80 +387,110 @@ async fn load_state_parts(
         shard_id,
         &StateFileType::StatePart { part_id: 0, num_parts: 0 },
     );
-    let part_file_names = external.list_objects(shard_id, &directory_path).await.unwrap();
+    let part_file_names = external.list_objects(shard_id, &directory_path).await
+        .map_err(|e| Error::Other(format!("list_objects: {e}")))?;
     assert!(!part_file_names.is_empty());
-    let num_parts = part_file_names.len() as u64;
-    assert_eq!(Some(num_parts), get_num_parts_from_filename(&part_file_names[0]));
+    let num_parts = get_num_parts_from_filename(&part_file_names[0]).unwrap();
     let part_ids = get_part_ids(part_id, part_id.map(|x| x + 1), num_parts);
-    tracing::info!(
-        target: "state-parts",
-        epoch_height,
-        %shard_id,
-        num_parts,
-        ?sync_hash,
-        ?part_ids,
-        "Loading state as seen at the beginning of the specified epoch.",
-    );
 
-    let timer = Instant::now();
-    for part_id in part_ids {
-        let timer = Instant::now();
-        assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let file_type = StateFileType::StatePart { part_id, num_parts };
-        let location =
-            external_storage_location(chain_id, &epoch_id, epoch_height, shard_id, &file_type);
-        let bytes = external.get_file(shard_id, &location, &file_type).await.unwrap();
-        let part_length = bytes.len();
-        let part = StatePart::from_bytes(bytes, protocol_version).unwrap();
+    let t_total = Instant::now();
+    let mut success = 0;
+    let mut failed = 0;
+    let mut sum_dl = 0.0;
+    let mut sum_val = 0.0;
+    let mut sum_store = 0.0;
+    let mut total_bytes: u64 = 0;
+    let mut min_bytes: u64 = u64::MAX;
+    let mut max_bytes: u64 = 0;
 
-        match action {
-            LoadAction::Apply => {
-                chain
-                    .state_sync_adapter
-                    .set_state_part(shard_id, sync_hash, PartId::new(part_id, num_parts), &part)
-                    .unwrap();
-                chain
-                    .runtime_adapter
-                    .apply_state_part(
-                        shard_id,
-                        &state_root,
-                        PartId::new(part_id, num_parts),
-                        &part,
-                        &epoch_id,
-                    )
-                    .unwrap();
-                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded a state part");
+    let results = tokio_stream::iter(part_ids.clone())
+        .map(|pid| {
+            let external = external.clone();
+            let store = store.clone();
+            let epoch_id = epoch_id.clone();
+            let state_root = state_root.clone();
+            async move {
+                let mut attempts = 0u32;
+                loop {
+                    attempts += 1;
+                    let file_type = StateFileType::StatePart { part_id: pid, num_parts };
+                    let location = external_storage_location(
+                        chain_id, &epoch_id, epoch_height, shard_id, &file_type
+                    );
+                    let t_dl = Instant::now();
+                    let request_timeout = std::time::Duration::from_secs_f64(request_timeout.as_seconds_f64());
+                    let retry_backoff = std::time::Duration::from_secs_f64(retry_backoff.as_seconds_f64());
+                    let bytes = match timeout(request_timeout, external.get_file(shard_id, &location, &file_type)).await {
+                        Ok(Ok(b)) => b,
+                        _ => {
+                            if attempts >= max_attempts { return Err(Error::Other("download failed".into())); }
+                            sleep(retry_backoff).await; continue;
+                        }
+                    };
+                    let dl_sec = t_dl.elapsed().as_secs_f64();
+                    let part_size = bytes.len() as u64;
+
+                    let t_val = Instant::now();
+                    let part = StatePart::from_bytes(bytes, protocol_version)
+                        .map_err(|e| Error::Other(format!("decode: {e}")))?;
+                    let valid = chain.runtime_adapter.validate_state_part(
+                        shard_id, &state_root, PartId::new(pid, num_parts), &part,
+                    );
+                    let val_sec = t_val.elapsed().as_secs_f64();
+                    if !valid {
+                        if attempts >= max_attempts { return Err(Error::Other("validation failed".into())); }
+                        sleep(retry_backoff).await; continue;
+                    }
+
+                    let t_store = Instant::now();
+                    let mut su = store.store_update();
+                    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, pid)).unwrap();
+                    let raw = part.to_bytes(protocol_version);
+                    su.set(DBCol::StateParts, &key, &raw);
+                    su.commit().map_err(|e| Error::Other(format!("store commit: {e}")))?;
+                    let store_sec = t_store.elapsed().as_secs_f64();
+
+                    return Ok((dl_sec, val_sec, store_sec, part_size));
+                }
             }
-            LoadAction::Validate => {
-                assert!(chain.runtime_adapter.validate_state_part(
-                    shard_id,
-                    &state_root,
-                    PartId::new(part_id, num_parts),
-                    &part
-                ));
-                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
+        })
+        .buffer_unordered(concurrency_limit as usize)
+        .collect::<Vec<_>>()
+        .await;
+
+    for res in results {
+        match res {
+            Ok((dl, val, st, size)) => {
+                success += 1;
+                sum_dl += dl;
+                sum_val += val;
+                sum_store += st;
+                total_bytes = total_bytes.saturating_add(size);
+                if size < min_bytes { min_bytes = size; }
+                if size > max_bytes { max_bytes = size; }
             }
-            LoadAction::Print => {
-                let trie_nodes = part.to_partial_state().unwrap();
-                print_state_part(&state_root, PartId::new(part_id, num_parts), trie_nodes)
-            }
+            Err(_) => failed += 1,
         }
     }
-    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded all requested state parts");
-}
 
-fn print_state_part(state_root: &StateRoot, _part_id: PartId, trie_nodes: PartialState) {
-    let trie =
-        Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
-    trie.print_recursive(
-        &mut std::io::stdout().lock(),
-        &state_root,
-        u32::MAX,
-        None,
-        None,
-        &None,
-        &None,
-    );
+    let total_sec = t_total.elapsed().as_secs();
+    println!("\n=== State Part Download Report ===");
+    println!("shard_id: {shard_id}");
+    println!("num_parts: {num_parts}");
+    println!("succeeded: {success}, failed: {failed}");
+    println!("total_time_sec: {}", total_sec);
+    if success > 0 {
+        println!("avg_download_ms: {:.2}", (sum_dl / success as f64) * 1000.0);
+        println!("avg_validate_ms: {:.2}", (sum_val / success as f64) * 1000.0);
+        println!("avg_store_ms: {:.2}", (sum_store / success as f64) * 1000.0);
+        let avg_bytes = total_bytes / success as u64;
+        println!("total_size: {}", ByteSize::b(total_bytes));
+        println!("avg_part_size: {}", ByteSize::b(avg_bytes));
+        println!("min_part_size: {}", ByteSize::b(min_bytes));
+        println!("max_part_size: {}", ByteSize::b(max_bytes));
+    }
+
+    Ok(())
 }
 
 async fn dump_state_parts(
@@ -581,59 +579,15 @@ async fn dump_state_parts(
         );
         let bytes = state_part.to_bytes(protocol_version);
         external.put_file(file_type, &bytes, shard_id, &location).await.unwrap();
-        // part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();
-        let trie_nodes = state_part.to_partial_state().unwrap();
-        let first_state_record = get_first_state_record(&state_root, trie_nodes);
         tracing::info!(
             target: "state-parts",
             part_id,
             part_length = bytes.len(),
             elapsed_sec,
-            first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),
             "Wrote a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
-}
-
-/// Returns the first `StateRecord` encountered while iterating over a sub-trie in the state part.
-fn get_first_state_record(state_root: &StateRoot, trie_nodes: PartialState) -> Option<StateRecord> {
-    let trie =
-        Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
-
-    for (key, value) in trie.disk_iter().unwrap().flatten() {
-        if let Some(sr) = StateRecord::from_raw_key_value(&key, value) {
-            return Some(sr);
-        }
-    }
-    None
-}
-
-/// Reads `StateHeader` stored in the DB.
-fn read_state_header(
-    epoch_selection: EpochSelection,
-    shard_id: ShardId,
-    chain: &Chain,
-    store: Store,
-) {
-    let epoch_id = epoch_selection.to_epoch_id(store, chain);
-    let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
-
-    let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
-    let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
-        Some(h) => h,
-        None => {
-            tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
-            return;
-        }
-    };
-
-    let state_header = chain.chain_store().get_state_header(shard_id, sync_hash);
-    tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
-}
-
-fn finalize_state_sync(sync_hash: CryptoHash, shard_id: ShardId, chain: &mut Chain) {
-    chain.set_state_finalize(shard_id, sync_hash).unwrap()
 }
 
 fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {

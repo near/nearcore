@@ -1369,7 +1369,9 @@ dependencies = [
  "actix",
  "anyhow",
  "borsh",
+ "bytesize",
  "clap",
+ "futures-util",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -1384,6 +1386,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest 0.12.4",
  "strum",
+ "tokio-stream",
  "tracing",
 ]
 
