@@ -794,178 +794,6 @@ mod tests {
 
     use super::*;
 
-    fn test_chunk_header(
-        height: BlockHeight,
-        shard_id: ShardId,
-        prev_block_hash: CryptoHash,
-        signer: &ValidatorSigner,
-    ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
-            signer,
-        ))
-    }
-
-    fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
-        let mut chunks = Vec::new();
-        for chunk in prev_block.chunks().iter_raw() {
-            let shard_id = chunk.shard_id();
-            let height = prev_block.header().height() + 1;
-            let chunk_producer = chain
-                .epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    shard_id,
-                    epoch_id: *prev_block.header().epoch_id(),
-                    height_created: height,
-                })
-                .unwrap();
-            let signer = create_test_signer(chunk_producer.account_id().as_str());
-            let mut chunk_header = test_chunk_header(height, shard_id, *prev_block.hash(), &signer);
-            *chunk_header.height_included_mut() = height;
-            chunks.push(chunk_header);
-        }
-        let block_producer = chain
-            .epoch_manager
-            .get_block_producer_info(
-                prev_block.header().epoch_id(),
-                prev_block.header().height() + 1,
-            )
-            .unwrap();
-        let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-        TestBlockBuilder::new(Clock::real(), prev_block, signer).chunks(chunks)
-    }
-
-    fn build_non_spice_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {
-        block_builder(chain, prev_block).build()
-    }
-
-    fn build_block(
-        chain: &Chain,
-        prev_block: &Block,
-        spice_core_statements: Vec<SpiceCoreStatement>,
-    ) -> Arc<Block> {
-        block_builder(chain, prev_block).spice_core_statements(spice_core_statements).build()
-    }
-
-    fn process_block(chain: &mut Chain, block: Arc<Block>) {
-        process_block_sync(
-            chain,
-            block.into(),
-            Provenance::PRODUCED,
-            &mut BlockProcessingArtifact::default(),
-        )
-        .unwrap();
-    }
-
-    fn test_validators() -> Vec<String> {
-        (0..4).map(|i| format!("test{i}")).collect()
-    }
-
-    fn sender_from_channel<T: Send>(sc: UnboundedSender<T>) -> Sender<T> {
-        Sender::from_fn(move |event| {
-            sc.send(event).unwrap();
-        })
-    }
-
-    fn setup() -> (Chain, CoreStatementsProcessor) {
-        setup_with_senders(noop().into_sender(), noop().into_sender())
-    }
-
-    fn setup_with_senders(
-        chunk_executor_sender: Sender<ExecutionResultEndorsed>,
-        spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
-    ) -> (Chain, CoreStatementsProcessor) {
-        init_test_logger();
-
-        let num_shards = 3;
-
-        let shard_layout = ShardLayout::multi_shard(num_shards, 0);
-
-        let validators = test_validators();
-        let validators_spec = ValidatorsSpec::desired_roles(
-            &validators.iter().map(|v| v.as_str()).collect_vec(),
-            &[],
-        );
-
-        let genesis = TestGenesisBuilder::new()
-            .genesis_time_from_clock(&Clock::real())
-            .shard_layout(shard_layout)
-            .validators_spec(validators_spec)
-            .build();
-
-        let mut chain = get_chain_with_genesis(Clock::real(), genesis);
-        let core_processor = CoreStatementsProcessor::new(
-            chain.chain_store().chain_store(),
-            chain.epoch_manager.clone(),
-            chunk_executor_sender,
-            spice_chunk_validator_sender,
-        );
-        chain.spice_core_processor = core_processor.clone();
-        (chain, core_processor)
-    }
-
-    fn test_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkExecutionResult {
-        ChunkExecutionResult {
-            // Using chunk_hash makes sure that each chunk has a different execution result.
-            chunk_extra: ChunkExtra::new_with_only_state_root(&chunk_header.chunk_hash().0),
-            outgoing_receipts_root: CryptoHash::default(),
-        }
-    }
-
-    fn invalid_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkExecutionResult {
-        let mut execution_result = test_execution_result_for_chunk(chunk_header);
-        execution_result.outgoing_receipts_root =
-            CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
-        execution_result
-    }
-
-    fn invalid_chunk_endorsement(
-        validator: &str,
-        block: &Block,
-        chunk_header: &ShardChunkHeader,
-    ) -> ChunkEndorsement {
-        let execution_result = invalid_execution_result_for_chunk(chunk_header);
-        let epoch_id = block.header().epoch_id();
-        let signer = create_test_signer(&validator);
-        ChunkEndorsement::new_with_execution_result(
-            *epoch_id,
-            execution_result,
-            *block.hash(),
-            chunk_header,
-            &signer,
-        )
-    }
-    fn test_chunk_endorsement(
-        validator: &str,
-        block: &Block,
-        chunk_header: &ShardChunkHeader,
-    ) -> ChunkEndorsement {
-        let execution_result = test_execution_result_for_chunk(chunk_header);
-        let epoch_id = block.header().epoch_id();
-        let signer = create_test_signer(&validator);
-        ChunkEndorsement::new_with_execution_result(
-            *epoch_id,
-            execution_result,
-            *block.hash(),
-            chunk_header,
-            &signer,
-        )
-    }
-
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_record_chunk_endorsement_non_spice_endorsement() {
@@ -1006,15 +834,17 @@ mod tests {
     fn test_record_chunk_endorsement_with_unknown_old_block() {
         let (mut chain, core_processor) = setup();
 
-        let mut prev_block = chain.genesis_block();
-        for _ in 0..10 {
+        let genesis = chain.genesis_block();
+        let mut prev_block = genesis.clone();
+        while chain.chain_store().final_head().unwrap().height <= genesis.header().height() {
             let block = build_block(&mut chain, &prev_block, vec![]);
             process_block(&mut chain, block.clone());
             prev_block = block;
         }
 
-        let genesis = chain.genesis_block();
         let old_block = build_block(&mut chain, &genesis, vec![]);
+        assert_eq!(old_block.header().height(), chain.chain_store().final_head().unwrap().height);
+
         let chunks = old_block.chunks();
         let chunk_header = chunks.iter_raw().next().unwrap();
         let endorsement = test_chunk_endorsement(&test_validators()[0], &old_block, chunk_header);
@@ -2501,5 +2331,178 @@ mod tests {
         assert_eq!(validator_notifications.len(), 2);
         assert!(validator_notifications.contains(&current_block_notification));
         assert!(validator_notifications.contains(&parent_block_notification));
+    }
+
+    fn test_chunk_header(
+        height: BlockHeight,
+        shard_id: ShardId,
+        prev_block_hash: CryptoHash,
+        signer: &ValidatorSigner,
+    ) -> ShardChunkHeader {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            prev_block_hash,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            height,
+            shard_id,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            CongestionInfo::default(),
+            BandwidthRequests::empty(),
+            signer,
+        ))
+    }
+
+    fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
+        let mut chunks = Vec::new();
+        for chunk in prev_block.chunks().iter_raw() {
+            let shard_id = chunk.shard_id();
+            let height = prev_block.header().height() + 1;
+            let chunk_producer = chain
+                .epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    shard_id,
+                    epoch_id: *prev_block.header().epoch_id(),
+                    height_created: height,
+                })
+                .unwrap();
+            let signer = create_test_signer(chunk_producer.account_id().as_str());
+            let mut chunk_header = test_chunk_header(height, shard_id, *prev_block.hash(), &signer);
+            *chunk_header.height_included_mut() = height;
+            chunks.push(chunk_header);
+        }
+        let block_producer = chain
+            .epoch_manager
+            .get_block_producer_info(
+                prev_block.header().epoch_id(),
+                prev_block.header().height() + 1,
+            )
+            .unwrap();
+        let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
+        TestBlockBuilder::new(Clock::real(), prev_block, signer).chunks(chunks)
+    }
+
+    fn build_non_spice_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {
+        block_builder(chain, prev_block).build()
+    }
+
+    fn build_block(
+        chain: &Chain,
+        prev_block: &Block,
+        spice_core_statements: Vec<SpiceCoreStatement>,
+    ) -> Arc<Block> {
+        block_builder(chain, prev_block).spice_core_statements(spice_core_statements).build()
+    }
+
+    fn process_block(chain: &mut Chain, block: Arc<Block>) {
+        process_block_sync(
+            chain,
+            block.into(),
+            Provenance::PRODUCED,
+            &mut BlockProcessingArtifact::default(),
+        )
+        .unwrap();
+    }
+
+    fn test_validators() -> Vec<String> {
+        (0..4).map(|i| format!("test{i}")).collect()
+    }
+
+    fn sender_from_channel<T: Send>(sc: UnboundedSender<T>) -> Sender<T> {
+        Sender::from_fn(move |event| {
+            sc.send(event).unwrap();
+        })
+    }
+
+    fn setup() -> (Chain, CoreStatementsProcessor) {
+        setup_with_senders(noop().into_sender(), noop().into_sender())
+    }
+
+    fn setup_with_senders(
+        chunk_executor_sender: Sender<ExecutionResultEndorsed>,
+        spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
+    ) -> (Chain, CoreStatementsProcessor) {
+        init_test_logger();
+
+        let num_shards = 3;
+
+        let shard_layout = ShardLayout::multi_shard(num_shards, 0);
+
+        let validators = test_validators();
+        let validators_spec = ValidatorsSpec::desired_roles(
+            &validators.iter().map(|v| v.as_str()).collect_vec(),
+            &[],
+        );
+
+        let genesis = TestGenesisBuilder::new()
+            .genesis_time_from_clock(&Clock::real())
+            .shard_layout(shard_layout)
+            .validators_spec(validators_spec)
+            .build();
+
+        let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+        let core_processor = CoreStatementsProcessor::new(
+            chain.chain_store().chain_store(),
+            chain.epoch_manager.clone(),
+            chunk_executor_sender,
+            spice_chunk_validator_sender,
+        );
+        chain.spice_core_processor = core_processor.clone();
+        (chain, core_processor)
+    }
+
+    fn test_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkExecutionResult {
+        ChunkExecutionResult {
+            // Using chunk_hash makes sure that each chunk has a different execution result.
+            chunk_extra: ChunkExtra::new_with_only_state_root(&chunk_header.chunk_hash().0),
+            outgoing_receipts_root: CryptoHash::default(),
+        }
+    }
+
+    fn invalid_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkExecutionResult {
+        let mut execution_result = test_execution_result_for_chunk(chunk_header);
+        execution_result.outgoing_receipts_root =
+            CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
+        execution_result
+    }
+
+    fn invalid_chunk_endorsement(
+        validator: &str,
+        block: &Block,
+        chunk_header: &ShardChunkHeader,
+    ) -> ChunkEndorsement {
+        let execution_result = invalid_execution_result_for_chunk(chunk_header);
+        let epoch_id = block.header().epoch_id();
+        let signer = create_test_signer(&validator);
+        ChunkEndorsement::new_with_execution_result(
+            *epoch_id,
+            execution_result,
+            *block.hash(),
+            chunk_header,
+            &signer,
+        )
+    }
+
+    fn test_chunk_endorsement(
+        validator: &str,
+        block: &Block,
+        chunk_header: &ShardChunkHeader,
+    ) -> ChunkEndorsement {
+        let execution_result = test_execution_result_for_chunk(chunk_header);
+        let epoch_id = block.header().epoch_id();
+        let signer = create_test_signer(&validator);
+        ChunkEndorsement::new_with_execution_result(
+            *epoch_id,
+            execution_result,
+            *block.hash(),
+            chunk_header,
+            &signer,
+        )
     }
 }
