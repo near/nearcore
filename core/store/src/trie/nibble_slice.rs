@@ -272,6 +272,7 @@ impl fmt::Debug for NibbleSlice<'_> {
 #[cfg(test)]
 mod tests {
     use super::NibbleSlice;
+    use crate::trie::NUM_CHILDREN;
     use rand::{Rng, thread_rng};
     use smallvec::SmallVec;
 
@@ -367,7 +368,7 @@ mod tests {
         let mut rng = thread_rng();
         for _ in 0..100 {
             let l = rng.gen_range(0..10);
-            let nibbles: Vec<_> = (0..l).map(|_| rng.gen_range(0..16) as u8).collect();
+            let nibbles: Vec<_> = (0..l).map(|_| rng.gen_range(0..NUM_CHILDREN) as u8).collect();
             encode_decode(&nibbles, true);
             encode_decode(&nibbles, false);
         }
