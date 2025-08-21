@@ -835,14 +835,14 @@ mod tests {
         let (mut chain, core_processor) = setup();
 
         let genesis = chain.genesis_block();
-        let mut prev_block = genesis.clone();
-        while chain.chain_store().final_head().unwrap().height <= genesis.header().height() {
+        let old_block = build_block(&chain, &genesis, vec![]);
+
+        let mut prev_block = genesis;
+        while chain.chain_store().final_head().unwrap().height < old_block.header().height() {
             let block = build_block(&mut chain, &prev_block, vec![]);
             process_block(&mut chain, block.clone());
             prev_block = block;
         }
-
-        let old_block = build_block(&mut chain, &genesis, vec![]);
         assert_eq!(old_block.header().height(), chain.chain_store().final_head().unwrap().height);
 
         let chunks = old_block.chunks();
