@@ -320,6 +320,22 @@ impl ChunkProducer {
             prev_block_hash,
             self.adversarial.produce_invalid_tx_in_chunks,
         );
+
+        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
+        // included into the block.
+        //let mut pool_guard = self.sharded_tx_pool.lock();
+        //let reintroduced_count = pool_guard
+        //    .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
+
+        //if reintroduced_count < prepared_transactions.transactions.len() {
+        //    debug!(
+        //        target: "client",
+        //        reintroduced_count,
+        //        num_tx = prepared_transactions.transactions.len(),
+        //        "reintroduced transactions"
+        //    );
+        //}
+
         let num_filtered_transactions = prepared_transactions.transactions.len();
         let (tx_root, _) = merklize(
             &prepared_transactions.transactions.iter().map(|vt| vt.to_signed_tx()).collect_vec(),
@@ -489,9 +505,9 @@ impl ChunkProducer {
                 "Using cached prepared transactions");
             return Ok(cached);
         }
-        self.prepare_transactions(shard_uid, prev_block, state_root, chain_validate)
+        Ok(PreparedTransactions { transactions: Vec::new(), limited_by: None })
+        //self.prepare_transactions(shard_uid, prev_block, state_root, chain_validate)
     }
-
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     fn prepare_transactions(
         &self,
@@ -530,19 +546,6 @@ impl ChunkProducer {
         } else {
             PreparedTransactions { transactions: Vec::new(), limited_by: None }
         };
-        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
-        // included into the block.
-        let reintroduced_count = pool_guard
-            .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
-
-        if reintroduced_count < prepared_transactions.transactions.len() {
-            debug!(
-                target: "client",
-                reintroduced_count,
-                num_tx = prepared_transactions.transactions.len(),
-                "reintroduced transactions"
-            );
-        }
         Ok(prepared_transactions)
     }
 

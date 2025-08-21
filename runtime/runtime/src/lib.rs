@@ -1880,7 +1880,7 @@ impl Runtime {
 
                 PerTransactionResult::Failure { error, tx_hash } => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::debug!(
+                    tracing::warn!(
                         target: "runtime",
                         ?tx_hash,
                         ?error,
