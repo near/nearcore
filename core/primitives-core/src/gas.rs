@@ -160,6 +160,58 @@ impl Gas {
         if let Some(result) = self.0.checked_div(rhs) { Some(Self(result)) } else { None }
     }
 
+        /// Saturating integer addition. Computes self + rhs, saturating at the numeric bounds instead of overflowing.
+    ///
+    /// # Examples
+    /// ```
+    /// Gasuse near_primitives_core::gas::Gas;
+    /// assert_eq!(Gas::from_gas(5).saturating_add(Gas::from_gas(5)), Gas::from_gas(10));
+    /// assert_eq!(Gas::from_gas(u64::MAX).saturating_add(Gas::from_gas(1)), Gas::from_gas(u64::MAX));
+    /// ```
+    pub const fn saturating_add(self, rhs: Gas) -> Gas {
+        Self(self.0.saturating_add(rhs.0))
+    }
+
+    /// Saturating integer subtraction. Computes self - rhs, saturating at the numeric bounds instead of overflowing.
+    ///
+    /// # Examples
+    /// ```
+    /// Gasuse near_primitives_core::gas::Gas;
+    /// assert_eq!(Gas::from_gas(5).saturating_sub(Gas::from_gas(2)), Gas::from_gas(3));
+    /// assert_eq!(Gas::from_gas(1).saturating_sub(Gas::from_gas(2)), Gas::from_gas(0));
+    /// ```
+    pub const fn saturating_sub(self, rhs: Gas) -> Gas {
+        Self(self.0.saturating_sub(rhs.0))
+    }
+
+    /// Saturating integer multiplication. Computes self * rhs, saturating at the numeric bounds instead of overflowing.
+    ///
+    /// # Examples
+    /// ```
+    /// Gasuse near_primitives_core::gas::Gas;
+    /// use std::u64;
+    /// assert_eq!(Gas::from_gas(2).saturating_mul(5), Gas::from_gas(10));
+    /// assert_eq!(Gas::from_gas(u64::MAX).saturating_mul(2), Gas::from_gas(u64::MAX));
+    /// ```
+    pub const fn saturating_mul(self, rhs: u64) -> Gas {
+        Self(self.0.saturating_mul(rhs))
+    }
+
+    /// Saturating integer division. Computes self / rhs, saturating at the numeric bounds instead of overflowing.
+    ///
+    /// # Examples
+    /// ```
+    /// Gasuse near_primitives_core::gas::Gas;
+    /// assert_eq!(Gas::from_gas(10).saturating_div(2), Gas::from_gas(5));
+    /// assert_eq!(Gas::from_gas(10).saturating_div(0), Gas::from_gas(0))
+    /// ```
+    pub const fn saturating_div(self, rhs: u64) -> Gas {
+        if rhs == 0 {
+            return Gas::from_gas(0);
+        }
+        Self(self.0.saturating_div(rhs))
+    }
+
     pub const fn gas_limit() -> Gas {
         Gas::from_gas(u64::MAX)
     }

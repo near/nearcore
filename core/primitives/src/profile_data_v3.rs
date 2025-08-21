@@ -65,7 +65,7 @@ impl ProfileDataV3 {
 
     #[inline]
     pub fn add_action_cost(&mut self, action: ActionCosts, value: Gas) {
-        self.actions_profile[action] = self.actions_profile[action].checked_add(value).unwrap();
+        self.actions_profile[action] = self.actions_profile[action].saturating_add(value);
     }
 
     #[inline]
