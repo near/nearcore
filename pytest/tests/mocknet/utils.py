@@ -1,4 +1,3 @@
-from datetime import datetime
 from pydantic import BaseModel
 from typing import Literal
 
@@ -17,5 +16,5 @@ class ScheduleMode(BaseModel):
 
 
 class ScheduleContext(BaseModel):
-    id: str = str(int(datetime.utcnow().timestamp()))
+    id: str
     schedule: ScheduleMode

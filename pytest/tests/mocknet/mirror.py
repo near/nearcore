@@ -209,9 +209,9 @@ class CommandContext:
         schedule = getattr(self.args, 'on', None)
         if schedule is None:
             return None
-
+        random_id = str(int(time.time() * 1000) % 100000000)
         context = ScheduleContext(
-            id=getattr(self.args, 'schedule_id', None),
+            id=getattr(self.args, 'schedule_id', None) or random_id,
             schedule=schedule,
         )
         logger.info(f'Schedule context: {context}')
