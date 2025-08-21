@@ -102,9 +102,9 @@ impl<A: Actor> Drop for CallStopWhenDropping<A> {
 /// for sending messages to itself).
 pub struct TokioRuntimeBuilder<A: Actor + Send + 'static> {
     handle: TokioRuntimeHandle<A>,
-    receiver: mpsc::UnboundedReceiver<TokioRuntimeMessage<A>>,
+    receiver: Option<mpsc::UnboundedReceiver<TokioRuntimeMessage<A>>>,
     actor_system: ActorSystem,
-    runtime: Runtime,
+    runtime: Option<Runtime>,
 }
 
 impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
@@ -120,7 +120,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
 
         let handle = TokioRuntimeHandle { sender, runtime: runtime.handle().clone(), cancel };
 
-        Self { handle, receiver, actor_system, runtime }
+        Self { handle, receiver: Some(receiver), actor_system, runtime: Some(runtime) }
     }
 
     pub fn handle(&self) -> TokioRuntimeHandle<A> {
@@ -129,12 +129,14 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
 
     pub fn spawn_tokio_actor(mut self, mut actor: A) {
         let mut runtime_handle = self.handle.clone();
-        let runtime = runtime_handle.runtime.clone();
-        runtime.spawn(async move {
+        let inner_runtime_handle = runtime_handle.runtime.clone();
+        let runtime = self.runtime.take().unwrap();
+        let mut receiver = self.receiver.take().unwrap();
+        inner_runtime_handle.spawn(async move {
             actor.start_actor(&mut runtime_handle);
             // The runtime gets dropped as soon as this loop exits, cancelling all other futures on
             // the same tokio runtime.
-            let _runtime = AsyncDroppableRuntime::new(self.runtime);
+            let _runtime = AsyncDroppableRuntime::new(runtime);
             let mut actor = CallStopWhenDropping { actor };
             loop {
                 tokio::select! {
@@ -146,16 +148,28 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
                         tracing::debug!(target: "tokio_runtime", "Shutting down Tokio runtime due to targeted cancellation");
                         break;
                     }
-                    message = self.receiver.recv() => {
-                        let Some(message) = message else {
-                            tracing::warn!(target: "tokio_runtime", "Exiting event loop");
-                            break;
-                        };
+                    Some(message) = receiver.recv() => {
                         tracing::debug!(target: "tokio_runtime", "Executing message: {}", message.description);
                         (message.function)(&mut actor.actor, &mut runtime_handle);
                     }
+                    // Note: If the sender is closed, that stops being a selectable option.
+                    // This is valid: we can spawn a tokio runtime without a handle, just to keep
+                    // some futures running.
                 }
             }
         });
+    }
+}
+
+impl<A> Drop for TokioRuntimeBuilder<A>
+where
+    A: Actor + Send + 'static,
+{
+    fn drop(&mut self) {
+        if self.runtime.is_some() {
+            panic!(
+                "TokioRuntimeBuilder must be built before dropping. Did you forget to call spawn_tokio_actor?"
+            );
+        }
     }
 }

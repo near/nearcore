@@ -382,7 +382,7 @@ impl PeerActor {
             network_state,
             received_messages_rate_limits,
         };
-        actor_system.spawn_tokio_actor(actor);
+        builder.spawn_tokio_actor(actor);
         Ok((handle, recv))
     }
 

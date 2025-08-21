@@ -90,7 +90,7 @@ where
         f: Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send + 'static>,
     ) {
         let description = format!("DelayedAction {}({:?})", pretty_type_name::<A>(), name);
-        tracing::debug!(target: "tokio_runtime", "Sending delayed action: {}", description);
+        tracing::debug!(target: "tokio_runtime", "Sending delayed action in {}: {}", dur, description);
 
         let sender = self.sender.clone();
         self.runtime.spawn(async move {
