@@ -1,4 +1,3 @@
-use actix::System;
 use futures::{FutureExt, future};
 
 use near_actix_test_utils::run_actix;
@@ -23,7 +22,7 @@ fn test_status() {
             assert_eq!(res.chain_id, "unittest");
             assert_eq!(res.sync_info.latest_block_height, 0);
             assert_eq!(res.sync_info.syncing, false);
-            System::current().stop();
+            near_async::shutdown_all_actors();
             future::ready(())
         }));
     });

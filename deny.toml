@@ -45,14 +45,13 @@ skip = [
     { name = "wasmparser", version = "=0.78.2" },
     { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
-    { name = "wasmparser", version = "=0.233.0" },
+    { name = "wasmparser", version = "=0.228.0" },
     { name = "wasmparser", version = "=0.235.0" },
     { name = "wasm-encoder", version = "=0.27.0" },
     { name = "wasm-encoder", version = "=0.228.0" },
-    { name = "wasm-encoder", version = "=0.233.0" },
     { name = "wasm-encoder", version = "=0.235.0" },
     { name = "wasmprinter", version = "=0.2.57" },
-    { name = "wasmprinter", version = "=0.233.0" },
+    { name = "wasmprinter", version = "=0.235.0" },
 
     # wasmer 0.17.x
     { name = "target-lexicon", version = "^0.12.0" },

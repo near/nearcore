@@ -33,6 +33,7 @@ yansi.workspace = true
 
 nearcore.workspace = true
 near-amend-genesis.workspace = true
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-client.workspace = true
 near-cold-store-tool.workspace = true

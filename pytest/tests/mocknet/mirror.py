@@ -136,15 +136,12 @@ class CommandContext:
                 f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
             )
             traffic_generator, nodes = local_test_node.get_nodes()
-            node_config.configure_nodes(nodes + to_list(traffic_generator),
-                                        node_config.TEST_CONFIG)
+            node_config.configure_nodes(nodes + to_list(traffic_generator))
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
-    def _get_remote_nodes(self):
-        """
-        Get nodes in the remote infrastructure.
-        """
+    def get_mocknet_id(self):
+        mocknet_id = None
         if (self.args.chain_id is not None and
                 self.args.start_height is not None and
                 self.args.unique_id is not None):
@@ -156,9 +153,15 @@ class CommandContext:
             sys.exit(
                 f'must give all of --chain-id --start-height and --unique-id or --mocknet-id'
             )
+        return mocknet_id
+
+    def _get_remote_nodes(self):
+        """
+        Get nodes in the remote infrastructure.
+        """
+        mocknet_id = self.get_mocknet_id()
         traffic_generator, nodes = remote_node.get_nodes(mocknet_id)
-        node_config.configure_nodes(nodes + to_list(traffic_generator),
-                                    node_config.REMOTE_CONFIG)
+        node_config.configure_nodes(nodes + to_list(traffic_generator))
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
@@ -337,65 +340,6 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
     return validators, boot_nodes
 
 
-def new_genesis_timestamp(node):
-    version = node.neard_runner_version()
-    err = version.get('error')
-    if err is not None:
-        if err['code'] != -32601:
-            sys.exit(
-                f'bad response calling version RPC on {node.name()}: {err}')
-        return None
-    genesis_time = None
-    result = version.get('result')
-    if result is not None:
-        if result.get('node_setup_version') == '1':
-            genesis_time = datetime.datetime.now(
-                tz=datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-    return genesis_time
-
-
-def _apply_stateless_config(args, node):
-    """Applies configuration changes to the node for stateless validation,
-    including changing config.json file and updating TCP buffer size at OS level."""
-    # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make multiple round trips
-    # TODO: Enable saving witness after fixing the performance problems.
-    do_update_config(node, 'save_latest_witnesses=false')
-    if not node.want_state_dump:
-        do_update_config(node, 'tracked_shards=[]')
-        do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
-    if not args.local_test:
-        # Apply baseline network configuration (same as defined in set_kernel_params.sh)
-        node.run_cmd("sudo sysctl -w net.core.rmem_max=8388608 && "
-                     "sudo sysctl -w net.core.wmem_max=8388608 && "
-                     "sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && "
-                     "sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && "
-                     "sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0 && "
-                     "sudo sysctl -w net.ipv4.tcp_congestion_control=bbr && "
-                     "sudo sysctl -w net.core.default_qdisc=fq && "
-                     "sudo sysctl -w net.ipv4.tcp_mtu_probing=1 && "
-                     "sudo sysctl -w net.ipv4.tcp_max_syn_backlog=8096")
-
-
-def _apply_config_changes(node, state_sync_location):
-    if state_sync_location is None:
-        changes = {'state_sync_enabled': False}
-    else:
-        changes = {
-            'state_sync.sync': {
-                'ExternalStorage': {
-                    'location': state_sync_location
-                }
-            }
-        }
-        if node.want_state_dump:
-            changes['state_sync.dump.location'] = state_sync_location
-            # TODO: Change this to Enabled once we remove support the for EveryEpoch alias.
-            changes[
-                'store.state_snapshot_config.state_snapshot_type'] = "EveryEpoch"
-    for key, change in changes.items():
-        do_update_config(node, f'{key}={json.dumps(change)}')
-
-
 def _clear_state_parts_if_exists(location, nodes):
     # TODO: Maybe add an argument to set the epoch height from where we want to cleanup.
     # It still works without it because the dumper node will start dumping the current epoch after reset.
@@ -427,6 +371,8 @@ def _get_state_parts_bucket_name(args):
 
 
 def _get_state_parts_location(args):
+    if not args.gcs_state_sync:
+        return None
     if args.local_test:
         return {
             "Filesystem": {
@@ -453,20 +399,21 @@ def new_test_cmd(ctx: CommandContext):
             f'--num-validators is {args.num_validators} but only found {len(nodes)} under test'
         )
 
-    ref_node = traffic_generator if traffic_generator else nodes[0]
-    genesis_time = new_genesis_timestamp(ref_node)
+    genesis_time = datetime.datetime.now(
+        tz=datetime.timezone.utc).isoformat().replace("`+00:00", "Z")
 
     targeted = nodes + to_list(traffic_generator)
 
     logger.info(f'resetting/initializing home dirs')
-    test_keys = pmap(lambda node: node.neard_runner_new_test(), targeted)
+    test_keys = pmap(
+        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id()), targeted)
 
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
                                                args.num_validators)
     logger.info("""Setting validators: {0}
 Run `status` to check if the nodes are ready. After they're ready,
  you can run `start-nodes` and `start-traffic`""".format(validators))
-
+    location = _get_state_parts_location(args)
     pmap(
         lambda node: node.neard_runner_network_init(
             validators,
@@ -478,16 +425,8 @@ Run `status` to check if the nodes are ready. After they're ready,
             args.new_chain_id,
             args.genesis_protocol_version,
             genesis_time=genesis_time,
+            state_sync_location=json.dumps(location),
         ), targeted)
-
-    location = None
-    if args.gcs_state_sync:
-        location = _get_state_parts_location(args)
-    logger.info('Applying default config changes')
-    pmap(lambda node: _apply_config_changes(node, location), targeted)
-    if args.stateless_setup:
-        logger.info('Configuring nodes for stateless protocol')
-        pmap(lambda node: _apply_stateless_config(args, node), nodes)
 
     _clear_state_parts_if_exists(location, nodes)
 

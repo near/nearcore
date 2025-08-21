@@ -693,7 +693,7 @@ mod test {
         let sys = actix::System::new();
         sys.block_on(test_db_metrics_loop_impl()).expect("test impl failed");
 
-        actix::System::current().stop();
+        near_async::shutdown_all_actors();
         sys.run().unwrap();
     }
 }
