@@ -2,7 +2,7 @@ use super::FlexibleDataHeader;
 use super::encoding::BorshFixedSize;
 use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 use crate::trie::mem::node::{MemTrieNodeId, MemTrieNodePtr};
-use crate::trie::{Children, NUM_CHILDREN};
+use crate::trie::{Children, ChildrenMask, NUM_CHILDREN};
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_where::derive_where;
 use std::mem::size_of;
@@ -12,11 +12,11 @@ use std::mem::size_of;
 /// flexible part is one pointer for each present child.
 #[derive(Clone, Copy, BorshSerialize, BorshDeserialize)]
 pub struct EncodedChildrenHeader {
-    mask: u16,
+    mask: ChildrenMask,
 }
 
 impl BorshFixedSize for EncodedChildrenHeader {
-    const SERIALIZED_SIZE: usize = size_of::<u16>();
+    const SERIALIZED_SIZE: usize = size_of::<ChildrenMask>();
 }
 
 impl FlexibleDataHeader for EncodedChildrenHeader {
@@ -24,7 +24,7 @@ impl FlexibleDataHeader for EncodedChildrenHeader {
     type View<'a, M: ArenaMemory> = ChildrenView<'a, M>;
 
     fn from_input(children: &[Option<MemTrieNodeId>; NUM_CHILDREN]) -> EncodedChildrenHeader {
-        let mut mask = 0u16;
+        let mut mask = ChildrenMask::default();
         for i in 0..NUM_CHILDREN {
             if children[i].is_some() {
                 mask |= 1 << i;
@@ -64,7 +64,7 @@ impl FlexibleDataHeader for EncodedChildrenHeader {
 /// Efficient view of the encoded children data.
 #[derive_where(Debug, Clone)]
 pub struct ChildrenView<'a, M: ArenaMemory> {
-    mask: u16,
+    mask: ChildrenMask,
     children: ArenaSlice<'a, M>,
 }
 
@@ -72,7 +72,7 @@ impl<'a, M: ArenaMemory> ChildrenView<'a, M> {
     /// Gets the child at a specific index (0 to 15).
     pub fn get(&self, i: usize) -> Option<MemTrieNodePtr<'a, M>> {
         assert!(i < NUM_CHILDREN);
-        let bit = 1u16 << (i as u16);
+        let bit = 1 << (i as ChildrenMask);
         if self.mask & bit == 0 {
             None
         } else {

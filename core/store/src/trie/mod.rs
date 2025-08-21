@@ -69,6 +69,7 @@ pub mod update;
 
 /// Number of children for a trie branch
 pub const NUM_CHILDREN: usize = 16;
+pub type ChildrenMask = u16;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PartialStorage {

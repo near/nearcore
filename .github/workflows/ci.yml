@@ -29,6 +29,13 @@ jobs:
             type: stable
             upload_profraws: true
             run_on_pr: true
+          # TODO(#13341): Remove separate spice test checks once spice tests can run as part of nightly or stable tests.
+          - name: Linux Spice
+            id: linux-spice
+            os: warp-ubuntu-2204-x64-16x
+            type: spice
+            upload_profraws: true
+            run_on_pr: true
           - name: Linux Nightly
             id: linux-nightly
             os: warp-ubuntu-2204-x64-16x
@@ -54,10 +61,17 @@ jobs:
 
       # Run the tests
       - name: just nextest-slow ${{ matrix.type }} (with coverage)
-        if: github.event_name != 'pull_request' || matrix.run_on_pr
+        if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.type != 'spice'
         run: |
           mkdir -p coverage/profraw/{unit,binaries}
           just codecov-ci "nextest-slow ${{ matrix.type }}"
+
+      # Run spice tests.
+      - name: just nextest-spice (with coverage)
+        if: matrix.type == 'spice'
+        run: |
+          mkdir -p coverage/profraw/{unit,binaries}
+          just codecov-ci "nextest-spice"
 
       # Upload the coverage files
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
@@ -357,6 +371,12 @@ jobs:
           files: unit-linux-nightly.json
           fail_ci_if_error: true
           flags: unittests-nightly
+      # TODO(#13341): Remove separate spice test checks once spice tests can run as part of nightly or stable tests.
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: unit-linux-spice.json
+          fail_ci_if_error: true
+          flags: unittests-spice
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py.json
