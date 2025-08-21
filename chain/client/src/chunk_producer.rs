@@ -239,6 +239,7 @@ impl ChunkProducer {
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let prev_block_hash = *prev_block.hash();
+        let prev_prev_block_hash = *prev_block.header().prev_hash();
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
             let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
             // If we are to start new epoch, check if the previous block is
@@ -261,9 +262,39 @@ impl ChunkProducer {
             // TODO(spice): using default values as a placeholder is a temporary hack
             Arc::new(ChunkExtra::new_with_only_state_root(&Default::default()))
         } else {
+            // Note 1: Changing this to prev_prev_block_hash will break many (>150) tests.
+            // Failed to start chunk witness validation err=InvalidStateRoot seems to be the most common error.
             self.chain
                 .get_chunk_extra(&prev_block_hash, &shard_uid)
                 .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
+        };
+
+        let state_root = if cfg!(feature = "protocol_feature_spice") {
+            // TODO(spice): using default values as a placeholder is a temporary hack
+            CryptoHash::default()
+        } else {
+            // Note 2: Just using the state root from the previous block
+            // causes only few tests to fail (~5), likely prev_prev_block_hash is genesis.
+            // self.chain
+            //     .get_chunk_extra(&prev_prev_block_hash, &shard_uid)
+            //     .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
+            //     .state_root()
+            //     .clone()
+
+            // Note 3: Using the state root from the previous block's chunk extra
+            // only if it's available seems to pass
+            // cargo nextest run --all --no-fail-fast
+            match self.chain.get_chunk_extra(&prev_prev_block_hash, &shard_uid) {
+                Ok(chunk_extra) => *chunk_extra.state_root(),
+                Err(err) => {
+                    tracing::warn!(
+                        %prev_prev_block_hash,
+                        %err,
+                        "No chunk extra available for previous block",
+                    );
+                    *chunk_extra.state_root()
+                }
+            }
         };
 
         let prepared_transactions = {
@@ -272,15 +303,12 @@ impl ChunkProducer {
                 Some(AdvProduceChunksMode::ProduceWithoutTx) => {
                     PreparedTransactions { transactions: Vec::new(), limited_by: None }
                 }
-                _ => self.prepare_transactions(
-                    shard_uid,
-                    prev_block,
-                    chunk_extra.as_ref(),
-                    chain_validate,
-                )?,
+                _ => {
+                    self.prepare_transactions(shard_uid, prev_block, state_root, chain_validate)?
+                }
             }
             #[cfg(not(feature = "test_features"))]
-            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref(), chain_validate)?
+            self.prepare_transactions(shard_uid, prev_block, state_root, chain_validate)?
         };
 
         #[cfg(feature = "test_features")]
@@ -372,12 +400,101 @@ impl ChunkProducer {
         }))
     }
 
+    pub fn prefetch_transactions(
+        &self,
+        prev_block: &Block,
+        epoch_id: &EpochId,
+        next_height: BlockHeight,
+        shard_id: ShardId,
+        signer: &Arc<ValidatorSigner>,
+    ) -> Result<Option<()>, Error> {
+        let chunk_proposer = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: *epoch_id,
+                height_created: next_height,
+                shard_id,
+            })
+            .unwrap()
+            .take_account_id();
+        if signer.validator_id() != &chunk_proposer {
+            debug!(
+                target: "client",
+                ?chunk_proposer,
+                "not a chunk producer for this height"
+            );
+            return Ok(None);
+        };
+
+        let prev_block_hash = *prev_block.header().hash();
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
+        let state_root = if cfg!(feature = "protocol_feature_spice") {
+            // TODO(spice): using default values as a placeholder is a temporary hack
+            CryptoHash::default()
+        } else {
+            // Note 2: Just using the state root from the previous block
+            // causes only few tests to fail (~5), likely prev_prev_block_hash is genesis.
+            // self.chain
+            //     .get_chunk_extra(&prev_prev_block_hash, &shard_uid)
+            //     .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
+            //     .state_root()
+            //     .clone()
+
+            // Note 3: Using the state root from the previous block's chunk extra
+            // only if it's available seems to pass
+            // cargo nextest run --all --no-fail-fast
+            match self.chain.get_chunk_extra(&prev_block_hash, &shard_uid) {
+                Ok(chunk_extra) => *chunk_extra.state_root(),
+                Err(err) => {
+                    tracing::warn!(
+                        %prev_block_hash,
+                        %err,
+                        "prefetch_transactions: No chunk extra available for previous block",
+                    );
+                    return Ok(None);
+                }
+            }
+        };
+        self.prefetch_transactions_internal(shard_uid, prev_block, state_root)?;
+        Ok(Some(()))
+    }
+
+    fn prefetch_transactions_internal(
+        &self,
+        shard_uid: ShardUId,
+        prev_block: &Block,
+        state_root: CryptoHash,
+    ) -> Result<(), Error> {
+        let shard_id = shard_uid.shard_id();
+        let mut pool_guard = self.sharded_tx_pool.lock();
+        let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) else {
+            tracing::warn!(
+            target: "runtime",
+            "No transaction pool iterator found for shard {}. Skipping prefetch.",
+            shard_id);
+            return Ok(());
+        };
+        let storage_config = RuntimeStorageConfig {
+            state_root,
+            use_flat_storage: true,
+            source: near_chain::types::StorageDataSource::Db,
+            state_patch: Default::default(),
+        };
+        self.runtime_adapter.prefetch_transactions(
+            storage_config,
+            shard_id,
+            prev_block.into(),
+            &mut iter,
+        )?;
+        Ok(())
+    }
+
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     fn prepare_transactions(
         &self,
         shard_uid: ShardUId,
         prev_block: &Block,
-        chunk_extra: &ChunkExtra,
+        state_root: CryptoHash,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
@@ -394,7 +511,7 @@ impl ChunkProducer {
             }
 
             let storage_config = RuntimeStorageConfig {
-                state_root: *chunk_extra.state_root(),
+                state_root,
                 use_flat_storage: true,
                 source: near_chain::types::StorageDataSource::Db,
                 state_patch: Default::default(),

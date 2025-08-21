@@ -423,6 +423,14 @@ pub trait RuntimeAdapter: Send + Sync {
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError>;
 
+    fn prefetch_transactions(
+        &self,
+        storage: RuntimeStorageConfig,
+        shard_id: ShardId,
+        prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
+    ) -> Result<(), Error>;
+
     /// Returns an ordered list of valid transactions from the pool up the given limits.
     /// Pulls transactions from the given pool iterators one by one. Validates each transaction
     /// against the given `chain_validate` closure and runtime's transaction verifier.

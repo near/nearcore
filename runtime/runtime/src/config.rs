@@ -238,6 +238,17 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
     }
 }
 
+pub fn gas_burnt(config: &RuntimeConfig, tx: &Transaction) -> Result<Gas, IntegerOverflowError> {
+    let sender_is_receiver = tx.receiver_id() == tx.signer_id();
+    let fees = &config.fees;
+    let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
+    gas_burnt = safe_add_gas(
+        gas_burnt,
+        total_send_fees(config, sender_is_receiver, tx.actions(), tx.receiver_id())?,
+    )?;
+    Ok(gas_burnt)
+}
+
 /// Returns transaction costs for a given transaction.
 pub fn tx_cost(
     config: &RuntimeConfig,
