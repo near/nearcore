@@ -28,6 +28,7 @@ test-ci *FLAGS: check-cargo-fmt \
                 check-cargo-udeps \
                 (nextest "stable" FLAGS) \
                 (nextest "nightly" FLAGS) \
+                nextest-spice \
                 doctests
 # order them with the fastest / most likely to fail checks first
 # when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
@@ -52,6 +53,10 @@ nextest TYPE *FLAGS:
 
 nextest-slow TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'default() + test(/^(.*::slow_test|slow_test)/)'" FLAGS)
 nextest-all TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'all()'" FLAGS)
+
+# TODO(#13341): Remove once spice tests can run as part of nightly or stable tests.
+spice_test_filter := "-E 'all() & (test(/^chunk_executor_actor/) + test(spice))'"
+nextest-spice *FLAGS: (nextest "stable" "--features protocol_feature_spice" "--ignore-default-filter" spice_test_filter FLAGS)
 
 doctests:
     cargo test --doc

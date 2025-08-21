@@ -10,7 +10,7 @@ use crate::trie::ops::interface::{
     GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
 use crate::trie::trie_recording::TrieRecorder;
-use crate::trie::{AccessOptions, Children, MemTrieChanges, TrieRefcountDeltaMap};
+use crate::trie::{AccessOptions, Children, MemTrieChanges, NUM_CHILDREN, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 
 use super::arena::{ArenaMemory, ArenaMut};
@@ -50,11 +50,11 @@ impl MemTrieNode {
         }
     }
 
-    fn convert_children_to_updated<'a, M: ArenaMemory>(
-        view: ChildrenView<'a, M>,
-    ) -> [Option<MemTrieNodeId>; 16] {
-        let mut children = [None; 16];
-        for i in 0..16 {
+    fn convert_children_to_updated<M: ArenaMemory>(
+        view: ChildrenView<M>,
+    ) -> [Option<MemTrieNodeId>; NUM_CHILDREN] {
+        let mut children = [None; NUM_CHILDREN];
+        for i in 0..NUM_CHILDREN {
             if let Some(child) = view.get(i) {
                 children[i] = Some(child.id());
             }
@@ -482,8 +482,8 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
         let node = match &node.node {
             UpdatedMemTrieNode::Empty => unreachable!(),
             UpdatedMemTrieNode::Branch { children, value } => {
-                let mut new_children = [None; 16];
-                for i in 0..16 {
+                let mut new_children = [None; NUM_CHILDREN];
+                for i in 0..NUM_CHILDREN {
                     if let Some(child) = children[i] {
                         new_children[i] = Some(map_to_new_node_id(child, &updated_to_new_map));
                     }

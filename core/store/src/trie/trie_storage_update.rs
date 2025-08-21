@@ -3,8 +3,8 @@ use super::ops::interface::{
     GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
 use super::{
-    AccessOptions, Children, RawTrieNode, RawTrieNodeWithSize, StorageHandle, StorageValueHandle,
-    Trie, TrieChanges, TrieRefcountDeltaMap, ValueHandle,
+    AccessOptions, Children, NUM_CHILDREN, RawTrieNode, RawTrieNodeWithSize, StorageHandle,
+    StorageValueHandle, Trie, TrieChanges, TrieRefcountDeltaMap, ValueHandle,
 };
 use borsh::BorshSerialize;
 use near_primitives::errors::StorageError;
@@ -187,7 +187,7 @@ impl TrieStorageUpdate<'_> {
                         if i > 0 && children[(i - 1) as usize].is_some() {
                             new_children[i - 1] = Some(last_hash);
                         }
-                        while i < 16 {
+                        while (i as usize) < NUM_CHILDREN {
                             match &children[i as usize] {
                                 Some(GenericNodeOrIndex::Updated(handle)) => {
                                     stack.push((
