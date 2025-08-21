@@ -23,7 +23,7 @@ import local_test_node
 import node_config
 import remote_node
 from node_handle import NodeHandle
-from utils import ScheduleContext
+from utils import ScheduleContext, ScheduleMode
 
 
 def to_list(item):
@@ -206,15 +206,15 @@ class CommandContext:
         """
         Make a schedule context if the command is scheduled.
         """
-        if (getattr(self.args, 'schedule_in', None) is None and
-                getattr(self.args, 'schedule_at', None) is None):
+        schedule = getattr(self.args, 'on', None)
+        if schedule is None:
             return None
 
         context = ScheduleContext(
             id=getattr(self.args, 'schedule_id', None),
-            relative_time_spec=getattr(self.args, 'schedule_in', None),
-            calendar_time_spec=getattr(self.args, 'schedule_at', None),
+            schedule=schedule,
         )
+        logger.info(f'Schedule context: {context}')
         return context
 
 
@@ -763,18 +763,18 @@ def register_schedule_subcommands(subparsers):
         help='additional help')
     cmd_subparsers = subparsers.add_parser(
         'cmd', help='Schedule commands to run in the future.')
-    group = cmd_subparsers.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        '--schedule-in',
-        type=str,
+    cmd_subparsers.add_argument(
+        '--on',
+        type=ScheduleMode.from_str,
+        metavar="MODE VALUE",
+        required=True,
         help=
-        'Schedule the command to run after the specified time. Can be in the format of "10s", "10m", "10h", "10d". Check https://man.archlinux.org/man/systemd.time.7.en#PARSING_TIME_SPANS'
-    )
-    group.add_argument(
-        '--schedule-at',
-        type=str,
-        help=
-        'Schedule the command to run at a specified time. Can be in the format of "2025-08-20 15:00:00 UTC". Check https://man.archlinux.org/man/systemd.time.7.en#PARSING_TIMESTAMPS'
+        "Choose whether to schedule by calendar(date and time) or active(relative time). "
+        "Format: 'MODE VALUE' where MODE is 'calendar' or 'active'. VALUE can be any valid time specification. "
+        "Examples: 'calendar 2024-01-01 10:00:00' or 'active 1h 30m'. "
+        "Check https://man.archlinux.org/man/systemd.time.7.en#PARSING_TIMESTAMPS "
+        "and https://man.archlinux.org/man/systemd.time.7.en#PARSING_TIME_SPANS "
+        "for the format of the values.",
     )
     cmd_subparsers.add_argument(
         '--schedule-id',

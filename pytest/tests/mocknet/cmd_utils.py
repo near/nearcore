@@ -33,12 +33,7 @@ def schedule_cmd(node,
     cmd_b64 = base64.b64encode(cmd.encode('utf-8')).decode('utf-8')
     scheduled_action = f'$(echo {cmd_b64} | base64 -d)'
     unit_name = f'mocknet-{schedule_ctx.id}'
-    on_calendar_str = f'--on-calendar="{schedule_ctx.calendar_time_spec}"' if schedule_ctx.calendar_time_spec is not None else ''
-    on_active_str = f'--on-active="{schedule_ctx.relative_time_spec}"' if schedule_ctx.relative_time_spec is not None else ''
-    if not on_calendar_str and not on_active_str:
-        raise ValueError(f'Invalid schedule context provided: {schedule_ctx}')
-
-    scheduled_cmd = f"""systemd-run --user --same-dir {on_calendar_str} {on_active_str} --timer-property=AccuracySec=100ms --unit {unit_name} sh -c "{scheduled_action}" """
+    scheduled_cmd = f"""systemd-run --user --same-dir {schedule_ctx.schedule.get_systemd_time_spec()} --timer-property=AccuracySec=100ms --unit {unit_name} sh -c "{scheduled_action}" """
     return run_cmd(node, scheduled_cmd, raise_on_fail, return_on_fail)
 
 
