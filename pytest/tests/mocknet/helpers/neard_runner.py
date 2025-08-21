@@ -107,7 +107,7 @@ class TestState(Enum):
     RESETTING = 7
     ERROR = 8
     MAKING_BACKUP = 9
-    SET_VALIDATORS = 10
+    SETTING_VALIDATORS = 10
 
 
 backup_id_pattern = re.compile(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$')
@@ -399,12 +399,11 @@ class NeardRunner:
 
     def reset_starting_data_dir(self):
         self.remove_data_dir()
-        if self.config.get('role') == 'validator':
+
+        if not os.path.exists(self.setup_path()):
             logging.info(
-                "We are chunk validator, DB will be created from scratch")
+                "We don't have a setup folder, DB will be created from scratch")
             return
-        else:
-            logging.info("DB will be created from snapshot from setup folder")
 
         cmd = [
             self.data['binaries'][0]['system_path'],
@@ -1117,40 +1116,45 @@ class NeardRunner:
             cmd.append(str(n['protocol_version']))
 
         self.run_neard(cmd)
-        self.set_state(TestState.SET_VALIDATORS)
+        self.set_state(TestState.SETTING_VALIDATORS)
         self.save_data()
 
     def check_set_validators(self):
         path, running, exit_code = self.poll_neard()
         if path is None:
             logging.error(
-                'state is SET_VALIDATORS, but no amend-genesis process is known'
+                'state is SETTING_VALIDATORS, but no set-validators process is known'
             )
             self.set_state(TestState.AWAITING_NETWORK_INIT)
             self.save_data()
-        elif not running:
-            if exit_code is not None and exit_code != 0:
-                logging.error(
-                    f'neard fork-network set-validators exited with code {exit_code}'
-                )
-                # for now just set the state to ERROR, and if this ever happens, the
-                # test operator will have to intervene manually. Probably shouldn't
-                # really happen in practice
-                self.set_state(TestState.ERROR)
-                self.save_data()
-            else:
-                cmd = [
-                    self.data['binaries'][0]['system_path'],
-                    '--home',
-                    self.target_near_home_path(),
-                    'fork-network',
-                    'finalize',
-                ]
-                logging.info(f'running {" ".join(cmd)}')
-                self.execute_neard_subcmd(cmd)
-                logging.info(
-                    f'neard fork-network finalize succeeded. Node is ready')
-                self.make_initial_backup()
+            return
+
+        if running:
+            logging.info("Waiting for set-validators to finish")
+            return
+
+        if exit_code is not None and exit_code != 0:
+            logging.error(
+                f'neard fork-network set-validators exited with code {exit_code}'
+            )
+            # for now just set the state to ERROR, and if this ever happens, the
+            # test operator will have to intervene manually. Probably shouldn't
+            # really happen in practice
+            self.set_state(TestState.ERROR)
+            self.save_data()
+            return
+
+        cmd = [
+            self.data['binaries'][0]['system_path'],
+            '--home',
+            self.target_near_home_path(),
+            'fork-network',
+            'finalize',
+        ]
+        logging.info(f'running {" ".join(cmd)}')
+        self.execute_neard_subcmd(cmd)
+        logging.info(f'neard fork-network finalize succeeded. Node is ready')
+        self.make_initial_backup()
 
     def make_backup(self):
         now = str(datetime.datetime.now())
@@ -1248,7 +1252,7 @@ class NeardRunner:
                 state = self.get_state()
                 if state == TestState.AWAITING_NETWORK_INIT:
                     self.network_init()
-                elif state == TestState.SET_VALIDATORS:
+                elif state == TestState.SETTING_VALIDATORS:
                     self.check_set_validators()
                 elif state == TestState.RUNNING:
                     self.check_upgrade_neard()
