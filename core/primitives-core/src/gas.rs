@@ -160,11 +160,11 @@ impl Gas {
         if let Some(result) = self.0.checked_div(rhs) { Some(Self(result)) } else { None }
     }
 
-        /// Saturating integer addition. Computes self + rhs, saturating at the numeric bounds instead of overflowing.
+    /// Saturating integer addition. Computes self + rhs, saturating at the numeric bounds instead of overflowing.
     ///
     /// # Examples
     /// ```
-    /// Gasuse near_primitives_core::gas::Gas;
+    /// use near_primitives_core::gas::Gas;
     /// assert_eq!(Gas::from_gas(5).saturating_add(Gas::from_gas(5)), Gas::from_gas(10));
     /// assert_eq!(Gas::from_gas(u64::MAX).saturating_add(Gas::from_gas(1)), Gas::from_gas(u64::MAX));
     /// ```
@@ -176,7 +176,7 @@ impl Gas {
     ///
     /// # Examples
     /// ```
-    /// Gasuse near_primitives_core::gas::Gas;
+    /// use near_primitives_core::gas::Gas;
     /// assert_eq!(Gas::from_gas(5).saturating_sub(Gas::from_gas(2)), Gas::from_gas(3));
     /// assert_eq!(Gas::from_gas(1).saturating_sub(Gas::from_gas(2)), Gas::from_gas(0));
     /// ```
@@ -188,7 +188,7 @@ impl Gas {
     ///
     /// # Examples
     /// ```
-    /// Gasuse near_primitives_core::gas::Gas;
+    /// use near_primitives_core::gas::Gas;
     /// use std::u64;
     /// assert_eq!(Gas::from_gas(2).saturating_mul(5), Gas::from_gas(10));
     /// assert_eq!(Gas::from_gas(u64::MAX).saturating_mul(2), Gas::from_gas(u64::MAX));
@@ -201,7 +201,7 @@ impl Gas {
     ///
     /// # Examples
     /// ```
-    /// Gasuse near_primitives_core::gas::Gas;
+    /// use near_primitives_core::gas::Gas;
     /// assert_eq!(Gas::from_gas(10).saturating_div(2), Gas::from_gas(5));
     /// assert_eq!(Gas::from_gas(10).saturating_div(0), Gas::from_gas(0))
     /// ```
