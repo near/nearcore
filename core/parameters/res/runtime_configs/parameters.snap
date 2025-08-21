@@ -197,6 +197,8 @@ max_locals_per_contract                            1_000_000
 account_id_validity_rules_version                          1
 yield_timeout_length_in_blocks                           200
 max_yield_payload_size                                 1_024
+max_tables_per_contract                                    1
+max_elements_per_contract_table                       10_000
 flat_storage_reads                      true
 implicit_account_creation               true
 fix_contract_loading_cost               false

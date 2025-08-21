@@ -9,6 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
 use std::mem::size_of;
 
+use crate::trie::NUM_CHILDREN;
 use smallvec::SmallVec;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, BorshSerialize, BorshDeserialize)]
@@ -250,7 +251,7 @@ impl MemTrieNodeId {
         let new_refcount = refcount.checked_sub(1).unwrap();
         refcount_memory.copy_from_slice(new_refcount.to_le_bytes().as_ref());
         if new_refcount == 0 {
-            let mut children_to_unref: SmallVec<[ArenaPos; 16]> = SmallVec::new();
+            let mut children_to_unref: SmallVec<[ArenaPos; NUM_CHILDREN]> = SmallVec::new();
             let node_ptr = self.as_ptr(arena.memory());
             for child in node_ptr.view().iter_children() {
                 children_to_unref.push(child.id().pos);

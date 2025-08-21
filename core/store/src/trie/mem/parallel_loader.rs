@@ -6,7 +6,7 @@ use super::node::{InputMemTrieNode, MemTrieNodeId};
 use crate::adapter::StoreAdapter;
 use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::flat::FlatStorageError;
-use crate::trie::Children;
+use crate::trie::{Children, NUM_CHILDREN};
 use crate::{DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize};
 use borsh::BorshDeserialize;
 use near_primitives::errors::StorageError;
@@ -263,7 +263,7 @@ impl TrieLoadingPlanNode {
     fn to_node(self, arena: &mut impl ArenaMut, subtree_roots: &[MemTrieNodeId]) -> MemTrieNodeId {
         match self {
             TrieLoadingPlanNode::Branch { children, value } => {
-                let mut res_children = [None; 16];
+                let mut res_children = [None; NUM_CHILDREN];
                 for (nibble, child) in children {
                     res_children[nibble as usize] = Some(child.to_node(arena, subtree_roots));
                 }
@@ -333,7 +333,7 @@ impl NibblePrefix {
     }
 
     pub fn push(&mut self, nibble: u8) {
-        debug_assert!(nibble < 16, "nibble must be less than 16");
+        debug_assert!((nibble as usize) < NUM_CHILDREN, "nibble must be less than 16");
         if self.odd {
             *self.prefix.last_mut().unwrap() |= nibble;
         } else {
