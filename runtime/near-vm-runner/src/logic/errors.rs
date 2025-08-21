@@ -41,7 +41,7 @@ pub enum VMRunnerError {
 /// See the doc comment on `VMResult` for an explanation what the difference
 /// between this and a `VMRunnerError` is. And see `PartialExecutionStatus`
 /// for what gets stored on chain.
-#[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
+#[derive(Clone, Debug, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -150,6 +150,10 @@ pub enum PrepareError {
     TooManyFunctions = 7,
     /// Contract contains too many locals.
     TooManyLocals = 8,
+    /// Contract contains too many tables.
+    TooManyTables = 9,
+    /// Contract contains too many table elements.
+    TooManyTableElements = 10,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -362,6 +366,8 @@ impl fmt::Display for PrepareError {
             Memory => "Error creating memory.",
             TooManyFunctions => "Too many functions in contract.",
             TooManyLocals => "Too many locals declared in the contract.",
+            TooManyTables => "Too many tables declared in the contract.",
+            TooManyTableElements => "Too many table elements declared in the contract.",
         })
     }
 }

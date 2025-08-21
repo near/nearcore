@@ -37,6 +37,9 @@ pub use near_primitives_core::code::ContractCode;
 pub use profile::ProfileDataV3;
 pub use runner::{Contract, PreparedContract, VM, prepare, run};
 
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+pub(crate) const MEMORY_EXPORT: &str = "\0nearcore_memory";
+
 /// This is public for internal experimentation use only, and should otherwise be considered an
 /// implementation detail of `near-vm-runner`.
 #[doc(hidden)]
@@ -53,7 +56,7 @@ pub mod internal {
 ///
 /// Instead this method will gather up a number of things before initiating a release in a thread,
 /// thus working in batches of sorts and amortizing the thread overhead.
-#[cfg(any(all(feature = "near_vm", target_arch = "x86_64"), feature = "wasmtime_vm"))]
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 pub(crate) fn lazy_drop(what: Box<dyn std::any::Any + Send>) {
     // TODO: this would benefit from a lock-free array (should be straightforward enough to
     // implement too...) But for the time being this mutex is not really contended much so…

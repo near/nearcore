@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use near_async::actix::wrapper::spawn_actix_actor;
+use near_async::ActorSystem;
 use near_chain::Provenance;
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_client::ProcessTxResponse;
@@ -547,7 +547,8 @@ fn test_cold_loop_on_gc_boundary() {
     )
     .unwrap()
     .unwrap();
-    let (_cold_store_addr, _arbiter) = spawn_actix_actor(actor);
+    let actor_system = ActorSystem::new();
+    let _cold_store_addr = actor_system.spawn_tokio_actor(actor);
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     let end_cold_head =

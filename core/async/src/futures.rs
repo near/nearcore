@@ -77,7 +77,7 @@ impl FutureSpawner for TokioRuntimeFutureSpawner {
 pub trait DelayedActionRunner<T> {
     fn run_later_boxed(
         &mut self,
-        name: &str,
+        name: &'static str,
         dur: Duration,
         f: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
     );
@@ -86,7 +86,7 @@ pub trait DelayedActionRunner<T> {
 pub trait DelayedActionRunnerExt<T> {
     fn run_later(
         &mut self,
-        name: &str,
+        name: &'static str,
         dur: Duration,
         f: impl FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static,
     );
@@ -98,7 +98,7 @@ where
 {
     fn run_later(
         &mut self,
-        name: &str,
+        name: &'static str,
         dur: Duration,
         f: impl FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static,
     ) {
@@ -109,7 +109,7 @@ where
 impl<T> DelayedActionRunnerExt<T> for dyn DelayedActionRunner<T> + '_ {
     fn run_later(
         &mut self,
-        name: &str,
+        name: &'static str,
         dur: Duration,
         f: impl FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static,
     ) {
