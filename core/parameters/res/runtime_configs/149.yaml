@@ -1,2 +1,0 @@
-reftypes_bulk_memory: { old: false, new: true }
-vm_kind: { old: "NearVm", new: "NearVm2" }

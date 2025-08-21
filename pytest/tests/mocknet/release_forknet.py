@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 import sys
 import pathlib
 import subprocess
+from enum import Enum
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
@@ -15,7 +16,15 @@ from release_scenarios import get_test_case, get_available_test_cases
 CHAIN_ID = "mainnet"
 
 
-def call_gh_workflow(action,
+class Action(Enum):
+    APPLY = "apply"
+    DESTROY = "destroy"
+
+    def __str__(self):
+        return self.value
+
+
+def call_gh_workflow(action: Action,
                      unique_id,
                      start_height,
                      hardware_config=None,
@@ -27,8 +36,9 @@ def call_gh_workflow(action,
     cmd += f"-f action={action} "
     cmd += f"-f unique_id={unique_id} "
     cmd += f"-f start_height={start_height} "
-    if regions:
+    if regions != None:
         cmd += f"-f location_set={regions} "
+
     if hardware_config != None:
         cmd += f"-f chunk_producers={hardware_config.chunk_producers_hosts()} "
         cmd += f"-f chunk_validators={hardware_config.only_chunk_validators_hosts()} "
@@ -58,15 +68,15 @@ def handle_create(args):
     has_state_dumper = test_setup.has_state_dumper
     tracing_server = test_setup.tracing_server
     hardware_config = test_setup.node_hardware_config
-    call_gh_workflow('apply', unique_id, start_height, hardware_config, regions,
-                     has_archival, has_state_dumper, tracing_server)
+    call_gh_workflow(Action.APPLY, unique_id, start_height, hardware_config,
+                     regions, has_archival, has_state_dumper, tracing_server)
 
 
 def handle_destroy(args):
     test_setup = get_test_case(args.test_case, args)
     unique_id = args.unique_id
     start_height = test_setup.start_height
-    call_gh_workflow('destroy', unique_id, start_height)
+    call_gh_workflow(Action.DESTROY, unique_id, start_height)
 
 
 def handle_start_test(args):

@@ -1,5 +1,6 @@
 use crate::utils::open_rocksdb;
 use anyhow::Context;
+use bytesize::ByteSize;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_chain::resharding::event_type::ReshardingSplitShardParams;
 use near_chain::resharding::manager::ReshardingManager;
@@ -8,8 +9,8 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_o11y::default_subscriber;
 use near_o11y::env_filter::EnvFilterBuilder;
+use near_o11y::{default_subscriber, tracing};
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -19,11 +20,13 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::db::RocksDB;
 use near_store::db::rocksdb::snapshot::Snapshot;
+use near_store::trie::find_trie_split;
 use near_store::trie::mem::node::MemTrieNodeView;
 use near_store::{DBCol, HEAD_KEY, Mode, ShardTries, ShardUId, Temperature};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::VecDeque;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -241,7 +244,7 @@ impl<'a, 'b> MemtrieSizeCalculator<'a, 'b> {
 
     /// Get RAM usage of a shard trie
     /// Does a BFS of the whole memtrie
-    fn get_shard_trie_size(&self, shard_uid: ShardUId) -> anyhow::Result<u64> {
+    fn get_shard_trie_size(&self, shard_uid: ShardUId) -> anyhow::Result<ByteSize> {
         let chunk_extra = self.chain_store.get_chunk_extra(self.block.hash(), &shard_uid)?;
         let state_root = chunk_extra.state_root();
         println!("Shard {shard_uid}: state root: {state_root}");
@@ -269,6 +272,83 @@ impl<'a, 'b> MemtrieSizeCalculator<'a, 'b> {
             }
         }
 
-        Ok(total_size)
+        Ok(ByteSize::b(total_size))
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct FindBoundaryAccountCommand {
+    #[clap(long, help = "ID of the shard to split")]
+    shard_uid: ShardUId,
+}
+
+impl FindBoundaryAccountCommand {
+    pub fn run(
+        &self,
+        home: &Path,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
+        let env_filter = EnvFilterBuilder::from_env().finish()?;
+        let _subscriber = default_subscriber(env_filter, &Default::default()).global();
+        let mut near_config = nearcore::config::load_config(&home, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        near_config.config.store.load_memtries_for_tracked_shards = true;
+        let genesis_config = &near_config.genesis.config;
+
+        let db_path =
+            near_config.config.store.path.as_ref().cloned().unwrap_or_else(|| home.join("data"));
+        let rocksdb = Arc::new(RocksDB::open(
+            &db_path,
+            &near_config.config.store,
+            Mode::ReadOnly,
+            Temperature::Hot,
+        )?);
+        let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
+        let chain_store = ChainStore::new(
+            store.clone(),
+            true,
+            near_config.genesis.config.transaction_validity_period,
+        );
+        let final_head = chain_store.final_head()?;
+        let block = chain_store.get_block(&final_head.prev_block_hash)?;
+        let block_hash = *block.hash();
+        tracing::info!("Block height: {} block hash: {block_hash}", block.header().height());
+
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
+        let runtime = NightshadeRuntime::from_config(home, store, &near_config, epoch_manager)
+            .context("could not create the transaction runtime")?;
+        let shard_tries = runtime.get_tries();
+        let shard_uid = self.shard_uid;
+        tracing::info!("Loading memtries for {shard_uid}...");
+        shard_tries.load_memtrie(&shard_uid, None, false)?;
+        tracing::info!("Memtries loaded");
+
+        runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
+        let chunk_extra = runtime.store().chain_store().get_chunk_extra(&block_hash, &shard_uid)?;
+        let state_root = chunk_extra.state_root();
+        let trie = shard_tries.get_trie_for_shard(shard_uid, *state_root);
+        let memtries = trie.lock_memtries().context("memtries not found")?;
+        let root_ptr = memtries.get_root(state_root)?;
+        tracing::info!("Searching for boundary account...");
+        let trie_split = find_trie_split(root_ptr);
+
+        let boundary_account =
+            AccountId::from_str(std::str::from_utf8(&trie_split.split_path_bytes())?)?;
+        let left_memory = ByteSize::b(trie_split.left_memory);
+        let right_memory = ByteSize::b(trie_split.right_memory);
+        tracing::info!("Boundary account found");
+        println!("{boundary_account}"); // Printing to stdout for script usage 
+        tracing::info!("Left child memory usage: {left_memory}");
+        tracing::info!("Right child memory usage: {right_memory}");
+
+        tracing::info!(
+            "WARNING: Calculated memory usages are artificial values that differ significantly\n\
+            from actual RAM allocation when the shards are loaded into memory. For a better\n\
+            approximation run the following command:\n\
+            neard database split-shard-trie --shard-uid {shard_uid} --boundary-account \"{boundary_account}\""
+        );
+
+        Ok(())
     }
 }

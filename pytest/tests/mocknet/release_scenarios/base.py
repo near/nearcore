@@ -89,6 +89,12 @@ class TestSetup:
         self.neard_upgrade_binary_url = getattr(args,
                                                 'neard_upgrade_binary_url', '')
 
+    def _needs_upgrade(self):
+        """
+        Check if the test needs to go through the upgrade process.
+        """
+        return self.neard_upgrade_binary_url is not None and self.neard_upgrade_binary_url != ''
+
     def init_env(self):
         """
         Setup the forknet environment for the test.
@@ -99,10 +105,11 @@ class TestSetup:
         init_args = copy.deepcopy(self.args)
         init_args.neard_upgrade_binary_url = ''
         init_args.yes = True
+        init_args.gcs_state_sync = self.has_state_dumper
         hard_reset_cmd(CommandContext(init_args))
 
         # Traffic node should always run the latest binary to avoid restarting it.
-        if self.neard_upgrade_binary_url is not None and self.neard_upgrade_binary_url != '':
+        if self._needs_upgrade():
             logger.info(
                 f"Amending binaries on traffic node with url: {self.neard_upgrade_binary_url}"
             )
@@ -165,9 +172,6 @@ class TestSetup:
 
         new_test_cmd(CommandContext(new_test_args))
 
-        if self.has_archival:
-            self._setup_archival()
-
     def wait_for_network_to_be_ready(self):
         """
         Wait for the network to be ready.
@@ -229,7 +233,9 @@ class TestSetup:
         pass
 
     def amend_epoch_config(self):
-        self._share_epoch_configs()
+        if self._needs_upgrade():
+            # We need to share the epoch configs before the upgrade.
+            self._share_epoch_configs()
         self._amend_epoch_config(
             f".num_chunk_validator_seats = {self.node_hardware_config.num_chunk_validator_seats}"
         )
@@ -239,7 +245,8 @@ class TestSetup:
         """
         Amend the configs for the test.
         """
-        pass
+        if self.has_archival:
+            self._setup_archival()
 
     def start_network(self):
         """
@@ -261,7 +268,7 @@ class TestSetup:
             stop_nodes_args = copy.deepcopy(self.args)
             stop_nodes_args.host_type = 'nodes'
             stop_nodes_args.select_partition = (i, 4)
-            stop_nodes_args.schedule_in = f"{(i * minutes)}m"
+            stop_nodes_args.on = ("active", f"{(i * minutes)}m")
             stop_nodes_args.schedule_id = f"up-stop-{i}"
             stop_nodes_cmd(CommandContext(stop_nodes_args))
 
@@ -271,14 +278,14 @@ class TestSetup:
             amend_binaries_args.neard_binary_url = self.neard_upgrade_binary_url
             amend_binaries_args.host_type = 'nodes'
             amend_binaries_args.select_partition = (i, 4)
-            amend_binaries_args.schedule_in = f"{(i * minutes * 60 + 20)}"
+            amend_binaries_args.on = ("active", f"{(i * minutes * 60 + 20)}")
             amend_binaries_args.schedule_id = f"up-change-{i}"
             amend_binaries_cmd(CommandContext(amend_binaries_args))
 
             start_nodes_args = copy.deepcopy(self.args)
             start_nodes_args.host_type = 'nodes'
             start_nodes_args.select_partition = (i, 4)
-            start_nodes_args.schedule_in = f"{(i*minutes + 1)}m"
+            start_nodes_args.on = ("active", f"{(i*minutes + 1)}m")
             start_nodes_args.schedule_id = f"up-start-{i}"
             start_nodes_cmd(CommandContext(start_nodes_args))
 

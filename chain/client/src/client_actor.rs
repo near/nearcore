@@ -792,11 +792,7 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_handler.sync_status.as_variant_name(),
-                    display_sync_status(
-                        &self.client.sync_handler.sync_status,
-                        &head,
-                        &self.client.config.state_sync.sync,
-                    ),
+                    display_sync_status(&self.client.sync_handler.sync_status, &head),
                 ),
                 catchup_status: self.client.get_catchup_status()?,
                 current_head_status: head.as_ref().into(),
