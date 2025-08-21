@@ -26,7 +26,7 @@ use tracing::warn;
 use wasmtime::{
     Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre, Linker, Module,
     ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store, StoreLimits,
-    StoreLimitsBuilder, Strategy,
+    StoreLimitsBuilder, Strategy, WasmBacktraceDetails,
 };
 
 type Caller = wasmtime::Caller<'static, Ctx>;
@@ -370,6 +370,9 @@ impl WasmtimeVM {
 
                 let mut pooling_config = PoolingAllocationConfig::default();
                 pooling_config
+                    .decommit_batch_size(
+                        MAX_CONCURRENCY.saturating_sub(2).try_into().unwrap_or(usize::MAX),
+                    )
                     .max_memory_size(max_memory_size)
                     .table_elements(max_elements_per_contract_table)
                     .total_component_instances(0)
@@ -377,7 +380,9 @@ impl WasmtimeVM {
                     .total_memories(MAX_CONCURRENCY)
                     .total_tables(max_tables)
                     .max_memories_per_module(1)
-                    .max_tables_per_module(max_tables_per_contract);
+                    .max_tables_per_module(max_tables_per_contract)
+                    // keep 1 / (pointer size) of maximum table element count resident
+                    .table_keep_resident(max_elements_per_contract_table);
 
                 let mut engine_config = wasmtime::Config::from(features);
                 engine_config
@@ -390,17 +395,25 @@ impl WasmtimeVM {
                     // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
                     .native_unwind_info(false)
                     .wasm_backtrace(false)
+                    .wasm_backtrace_details(WasmBacktraceDetails::Disable)
                     // Enable copy-on-write heap images.
                     .memory_init_cow(true)
-                    // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+                    // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
                     .max_wasm_stack(1024 * 1024 * 1024)
-                    // enable the Cranelift optimizing compiler.
+                    // Enable the Cranelift optimizing compiler.
                     .strategy(Strategy::Cranelift)
                     // Enable signals-based traps. This is required to elide explicit bounds-checking.
                     .signals_based_traps(true)
                     // Configure linear memories such that explicit bounds-checking can be elided.
-                    .memory_reservation(1 << 32)
-                    .memory_guard_size(1 << 32)
+                    .force_memory_init_memfd(true)
+                    .memory_guaranteed_dense_image_size(
+                        max_memory_size.try_into().unwrap_or(u64::MAX),
+                    )
+                    .guard_before_linear_memory(false)
+                    .memory_guard_size(0)
+                    .memory_may_move(false)
+                    .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
+                    .memory_reservation_for_growth(0)
                     .cranelift_nan_canonicalization(true);
 
                 let config = Arc::clone(config);
