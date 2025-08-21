@@ -4,7 +4,7 @@ use crate::action::{
     UseGlobalContractAction,
 };
 use crate::block::Block;
-use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
+use crate::block_body::{BlockBody, ChunkEndorsementSignatures, SpiceCoreStatement};
 use crate::block_header::BlockHeader;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
@@ -770,6 +770,8 @@ pub struct TestBlockBuilder {
     approvals: Vec<Option<Box<near_crypto::Signature>>>,
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
+    /// Iff `Some` spice block will be created.
+    spice_core_statements: Option<Vec<SpiceCoreStatement>>,
 }
 
 #[cfg(feature = "clock")]
@@ -793,6 +795,7 @@ impl TestBlockBuilder {
             approvals: vec![],
             block_merkle_root: tree.root(),
             chunks: prev.chunks().iter_raw().cloned().collect(),
+            spice_core_statements: None,
         }
     }
     pub fn height(mut self, height: u64) -> Self {
@@ -831,6 +834,11 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn spice_core_statements(mut self, spice_core_statements: Vec<SpiceCoreStatement>) -> Self {
+        self.spice_core_statements = Some(spice_core_statements);
+        self
+    }
+
     pub fn build(self) -> Arc<Block> {
         use crate::version::PROTOCOL_VERSION;
 
@@ -857,7 +865,7 @@ impl TestBlockBuilder {
             self.clock,
             None,
             None,
-            vec![],
+            self.spice_core_statements,
         ))
     }
 }
