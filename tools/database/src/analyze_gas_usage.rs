@@ -109,13 +109,13 @@ impl GasUsageInShard {
 
     pub fn add_used_gas(&mut self, account: AccountId, used_gas: BigGas) {
         let account_gas = self.used_gas_per_account.entry(account).or_insert(0);
-        *account_gas = account_gas.checked_add(used_gas).unwrap();
+        *account_gas = account_gas.saturating_add(used_gas);
     }
 
     pub fn used_gas_total(&self) -> BigGas {
         let mut result: BigGas = 0;
         for used_gas in self.used_gas_per_account.values() {
-            result = result.checked_add(*used_gas).unwrap();
+            result = result.saturating_add(*used_gas);
         }
         result
     }
@@ -150,8 +150,8 @@ impl GasUsageInShard {
                     Some(ShardSplit { boundary_account: account.clone(), gas_left, gas_right });
             }
 
-            gas_left = gas_left.checked_add(*used_gas).unwrap();
-            gas_right = gas_right.checked_sub(*used_gas).unwrap();
+            gas_left = gas_left.saturating_add(*used_gas);
+            gas_right = gas_right.saturating_sub(*used_gas);
         }
         best_split
     }
@@ -197,7 +197,7 @@ impl GasUsageStats {
     pub fn used_gas_total(&self) -> BigGas {
         let mut result: BigGas = 0;
         for shard_usage in self.shards.values() {
-            result = result.checked_add(shard_usage.used_gas_total()).unwrap();
+            result = result.saturating_add(shard_usage.used_gas_total());
         }
         result
     }
@@ -293,7 +293,7 @@ fn display_shard_split_stats<'a>(
 
     for (account, used_gas) in accounts {
         accounts_num += 1;
-        total_split_half_gas = total_split_half_gas.checked_add(*used_gas).unwrap();
+        total_split_half_gas = total_split_half_gas.saturating_add(*used_gas);
         top_3_finder.add_account_stats(account.clone(), *used_gas);
     }
 

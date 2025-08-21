@@ -327,7 +327,7 @@ pub(crate) fn call_burn_gas_contract(
                         1,
                         method_name,
                         args,
-                        gas_burnt_per_call.checked_add(Gas::from_tgas(10)).unwrap(),
+                        gas_burnt_per_call.saturating_add(Gas::from_tgas(10)),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(

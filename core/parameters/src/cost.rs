@@ -34,7 +34,7 @@ impl Fee {
 
     /// The minimum fee to send and execute.
     pub fn min_send_and_exec_fee(&self) -> Gas {
-        std::cmp::min(self.send_sir, self.send_not_sir).checked_add(self.execution).unwrap()
+        std::cmp::min(self.send_sir, self.send_not_sir).saturating_add(self.execution)
     }
 }
 
@@ -673,7 +673,7 @@ pub fn transfer_exec_fee(
         (true, false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
         (true, true, AccountType::EthImplicitAccount) => {
-            transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
+            transfer_fee.saturating_add(cfg.fee(ActionCosts::create_account).exec_fee())
         }
         // Extra fees for the CreateAccount and AddFullAccessKey.
         (true, _, AccountType::NearImplicitAccount) => transfer_fee

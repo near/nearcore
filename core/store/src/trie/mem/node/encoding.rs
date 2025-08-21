@@ -230,7 +230,7 @@ impl MemTrieNodeId {
         // Refcount is always encoded as the first four bytes of the node memory.
         let refcount_memory = memory.raw_slice_mut(self.pos, size_of::<u32>());
         let refcount = u32::from_le_bytes(refcount_memory.try_into().unwrap());
-        let new_refcount = refcount.checked_add(1).unwrap();
+        let new_refcount = refcount.saturating_add(1);
         refcount_memory.copy_from_slice(new_refcount.to_le_bytes().as_ref());
         new_refcount
     }
@@ -247,7 +247,7 @@ impl MemTrieNodeId {
         // cspell:words unref
         let refcount_memory = arena.memory_mut().raw_slice_mut(self.pos, size_of::<u32>());
         let refcount = u32::from_le_bytes(refcount_memory.try_into().unwrap());
-        let new_refcount = refcount.checked_sub(1).unwrap();
+        let new_refcount = refcount.saturating_sub(1);
         refcount_memory.copy_from_slice(new_refcount.to_le_bytes().as_ref());
         if new_refcount == 0 {
             let mut children_to_unref: SmallVec<[ArenaPos; 16]> = SmallVec::new();

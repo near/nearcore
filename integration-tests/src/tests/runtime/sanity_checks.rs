@@ -257,12 +257,12 @@ fn test_sanity_used_gas() {
     // that amount.
     assert_eq!(
         used_gas[1] - used_gas[0],
-        base_cost.checked_add(Gas::from_gas(op_cost)).unwrap().as_gas()
+        base_cost.saturating_add(Gas::from_gas(op_cost)).as_gas()
     );
     // Between these two observations additional arithmetics have been executed.
     assert_eq!(
         used_gas[2] - used_gas[1],
-        base_cost.checked_add(Gas::from_gas(op_cost * 8)).unwrap().as_gas()
+        base_cost.saturating_add(Gas::from_gas(op_cost * 8)).as_gas()
     );
     assert!(used_gas[3] - used_gas[2] > base_cost.as_gas());
 }

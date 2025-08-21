@@ -72,6 +72,6 @@ fn test_deploy_max_size_contract() {
     // Check total TX gas is in limit
     let tx_conversion_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt;
     let deployment_gas_burnt = transaction_result.receipts_outcome[0].outcome.gas_burnt;
-    let total_gas_burnt = tx_conversion_gas_burnt.checked_add(deployment_gas_burnt).unwrap();
+    let total_gas_burnt = tx_conversion_gas_burnt.saturating_add(deployment_gas_burnt);
     assert!(total_gas_burnt <= config.wasm_config.limit_config.max_gas_burnt,);
 }

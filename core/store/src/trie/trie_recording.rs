@@ -115,7 +115,7 @@ impl TrieRecorder {
 
         // Only do size accounting if this is the first time we see this value.
         if let Some(size) = size_from_first_insert {
-            self.upper_bound_size.fetch_add(size, Ordering::Release).checked_add(size).unwrap();
+            self.upper_bound_size.fetch_add(size, Ordering::Release).saturating_add(size);
             self.size.fetch_add(size, Ordering::Release);
         }
     }
@@ -129,7 +129,7 @@ impl TrieRecorder {
 
     pub fn record_key_removal(&self) {
         // Charge 2000 bytes for every removal
-        self.upper_bound_size.fetch_add(2000, Ordering::Release).checked_add(2000).unwrap();
+        self.upper_bound_size.fetch_add(2000, Ordering::Release).saturating_add(2000);
         // No need to check for overflows here as the `upper_bound_size` would overflow sooner than
         // this if there was an overflow.
         self.removal_counter.fetch_add(1, Ordering::Relaxed);
@@ -142,7 +142,7 @@ impl TrieRecorder {
         //
         // We hope that this is is small enough window to make it a non-concern, esp. given that
         // this overflow shouldn't be occurring in any practical situation anyway.
-        self.upper_bound_size.fetch_add(code_len, Ordering::Release).checked_add(code_len).unwrap();
+        self.upper_bound_size.fetch_add(code_len, Ordering::Release).saturating_add(code_len);
         // No need to check for overflows here as the `upper_bound_size` would overflow sooner than
         // this.
         self.code_len_counter.fetch_add(code_len, Ordering::Relaxed);

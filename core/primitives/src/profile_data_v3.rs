@@ -40,10 +40,8 @@ impl ProfileDataV3 {
             profile_data.add_ext_cost(cost, Gas::from_gas(i as u64));
         }
         for (i, cost) in ActionCosts::iter().enumerate() {
-            profile_data.add_action_cost(
-                cost,
-                Gas::from_gas(i as u64).checked_add(Gas::from_gas(1000)).unwrap(),
-            );
+            profile_data
+                .add_action_cost(cost, Gas::from_gas(i as u64).saturating_add(Gas::from_gas(1000)));
         }
         profile_data
     }
@@ -53,14 +51,14 @@ impl ProfileDataV3 {
         for ((_, gas), (_, other_gas)) in
             self.actions_profile.iter_mut().zip(other.actions_profile.iter())
         {
-            *gas = gas.checked_add(*other_gas).unwrap();
+            *gas = gas.saturating_add(*other_gas);
         }
         for ((_, gas), (_, other_gas)) in
             self.wasm_ext_profile.iter_mut().zip(other.wasm_ext_profile.iter())
         {
-            *gas = gas.checked_add(*other_gas).unwrap();
+            *gas = gas.saturating_add(*other_gas);
         }
-        self.wasm_gas = self.wasm_gas.checked_add(other.wasm_gas).unwrap();
+        self.wasm_gas = self.wasm_gas.saturating_add(other.wasm_gas);
     }
 
     #[inline]
@@ -70,7 +68,7 @@ impl ProfileDataV3 {
 
     #[inline]
     pub fn add_ext_cost(&mut self, ext: ExtCosts, value: Gas) {
-        self.wasm_ext_profile[ext] = self.wasm_ext_profile[ext].checked_add(value).unwrap();
+        self.wasm_ext_profile[ext] = self.wasm_ext_profile[ext].saturating_add(value);
     }
 
     /// WasmInstruction is the only cost we don't explicitly account for.
@@ -106,7 +104,7 @@ impl ProfileDataV3 {
             .as_slice()
             .iter()
             .copied()
-            .fold(Gas::from_gas(0), |acc: Gas, gas: Gas| acc.checked_add(gas).unwrap())
+            .fold(Gas::from_gas(0), |acc: Gas, gas: Gas| acc.saturating_add(gas))
     }
 
     pub fn action_gas(&self) -> Gas {
@@ -114,7 +112,7 @@ impl ProfileDataV3 {
             .as_slice()
             .iter()
             .copied()
-            .fold(Gas::from_gas(0), |acc: Gas, gas: Gas| acc.checked_add(gas).unwrap())
+            .fold(Gas::from_gas(0), |acc: Gas, gas: Gas| acc.saturating_add(gas))
     }
 
     /// Returns total compute usage of host calls.
@@ -236,7 +234,7 @@ impl fmt::Debug for ProfileDataV3 {
                     cost,
                     d.as_gas(),
                     Ratio::new(
-                        d.checked_mul(100).unwrap().as_gas(),
+                        d.saturating_mul(100).as_gas(),
                         core::cmp::max(host_gas.as_gas(), 1)
                     )
                     .to_integer(),
@@ -421,11 +419,11 @@ mod test {
         let mut profile_data = ProfileDataV3::default();
         profile_data.add_ext_cost(
             ExtCosts::storage_read_base,
-            ExtCosts::storage_read_base.gas(&ext_costs_config).checked_mul(2).unwrap(),
+            ExtCosts::storage_read_base.gas(&ext_costs_config).saturating_mul(2),
         );
         profile_data.add_ext_cost(
             ExtCosts::storage_write_base,
-            ExtCosts::storage_write_base.gas(&ext_costs_config).checked_mul(5).unwrap(),
+            ExtCosts::storage_write_base.gas(&ext_costs_config).saturating_mul(5),
         );
         profile_data.add_action_cost(ActionCosts::function_call_base, Gas::from_gas(100));
 

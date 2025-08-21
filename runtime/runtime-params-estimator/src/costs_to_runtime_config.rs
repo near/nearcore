@@ -52,9 +52,9 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             cost_table.get(cost).with_context(|| format!("undefined cost: {}", cost))?;
         // Split the total cost evenly between send and execution fee.
         Ok(Fee {
-            send_sir: total_gas.checked_div(2).unwrap(),
-            send_not_sir: total_gas.checked_div(2).unwrap(),
-            execution: total_gas.checked_div(2).unwrap(),
+            send_sir: total_gas.saturating_div(2),
+            send_not_sir: total_gas.saturating_div(2),
+            execution: total_gas.saturating_div(2),
         })
     };
 

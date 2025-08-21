@@ -448,7 +448,7 @@ impl GlobalContractsTestEnv {
 
     fn total_action_cost(fees: &RuntimeFeesConfig, cost: ActionCosts) -> Gas {
         let fee = &fees.action_fees[cost];
-        fee.send_fee(true).checked_add(fee.exec_fee()).unwrap()
+        fee.send_fee(true).saturating_add(fee.exec_fee())
     }
 
     fn get_account_state(&mut self, account: AccountId) -> AccountView {

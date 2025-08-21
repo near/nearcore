@@ -14,8 +14,8 @@ const TGAS: Gas = Gas::from_gas(10u64.pow(12));
 
 #[test]
 fn test_burn_all_gas() {
-    let attached_gas = TGAS.checked_mul(100).unwrap();
-    let burn_gas = attached_gas.checked_add(Gas::from_gas(1)).unwrap();
+    let attached_gas = TGAS.saturating_mul(100);
+    let burn_gas = attached_gas.saturating_add(Gas::from_gas(1));
     let deposit = 0;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -29,8 +29,8 @@ fn test_burn_all_gas() {
 
 #[test]
 fn test_deposit_refund() {
-    let attached_gas = TGAS.checked_mul(100).unwrap();
-    let burn_gas = attached_gas.checked_add(Gas::from_gas(1)).unwrap();
+    let attached_gas = TGAS.saturating_mul(100);
+    let burn_gas = attached_gas.saturating_add(Gas::from_gas(1));
     let deposit = 10;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -44,8 +44,8 @@ fn test_deposit_refund() {
 
 #[test]
 fn test_big_gas_refund() {
-    let attached_gas = TGAS.checked_mul(100).unwrap();
-    let burn_gas = TGAS.checked_mul(10).unwrap();
+    let attached_gas = TGAS.saturating_mul(100);
+    let burn_gas = TGAS.saturating_mul(10);
     let deposit = 0;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -55,8 +55,8 @@ fn test_big_gas_refund() {
 
 #[test]
 fn test_small_gas_refund() {
-    let attached_gas = TGAS.checked_mul(10).unwrap();
-    let burn_gas = attached_gas.checked_sub(TGAS.checked_div(2).unwrap()).unwrap();
+    let attached_gas = TGAS.saturating_mul(10);
+    let burn_gas = attached_gas.saturating_sub(TGAS.saturating_div(2));
     let deposit = 0;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -127,7 +127,7 @@ fn generated_refunds_after_fn_call(
         .unwrap()
         .iter()
         .map(|cost_entry| cost_entry.gas_used)
-        .fold(Gas::from_gas(0), |acc, gas| acc.checked_add(gas).unwrap());
+        .fold(Gas::from_gas(0), |acc, gas| acc.saturating_add(gas));
 
     let expected_cost = fee_helper.function_call_cost(bytes, actual_fn_call_gas_burnt.as_gas());
 

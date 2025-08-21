@@ -622,7 +622,7 @@ mod tests {
         let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
         // Each transaction is at least 1 byte in size, so the last transaction will not fit.
         let pool_size_limit =
-            transactions.iter().map(|tx| tx.get_size()).sum::<u64>().checked_sub(1).unwrap();
+            transactions.iter().map(|tx| tx.get_size()).sum::<u64>().saturating_sub(1);
         let mut pool = TransactionPool::new(TEST_SEED, Some(pool_size_limit), "");
         for (i, tx) in transactions.iter().cloned().enumerate() {
             if i + 1 < transactions.len() {

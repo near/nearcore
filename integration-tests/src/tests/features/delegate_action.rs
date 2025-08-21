@@ -262,7 +262,7 @@ fn check_meta_tx_fn_call(
     // the relayer pays all gas and tokens
     let gas_cost = meta_tx_overhead_cost
         + refund_penalty
-        + fee_helper.gas_to_balance(static_exec_gas.checked_add(static_send_gas).unwrap());
+        + fee_helper.gas_to_balance(static_exec_gas.saturating_add(static_send_gas));
     let expected_relayer_cost = (gas_cost + tokens_transferred + dyn_cost) as i128;
     assert_eq!(relayer_diff, -expected_relayer_cost, "unexpected relayer balance");
 

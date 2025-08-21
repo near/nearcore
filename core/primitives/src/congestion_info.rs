@@ -616,9 +616,9 @@ mod tests {
         assert!(diff <= Gas::from_gas(1));
 
         let diff = if config.max_tx_gas > congestion_control.process_tx_limit() {
-            config.max_tx_gas.checked_sub(congestion_control.process_tx_limit()).unwrap()
+            config.max_tx_gas.saturating_sub(congestion_control.process_tx_limit())
         } else {
-            congestion_control.process_tx_limit().checked_sub(config.max_tx_gas).unwrap()
+            congestion_control.process_tx_limit().saturating_sub(config.max_tx_gas)
         };
         assert!(diff <= Gas::from_gas(1));
         assert!(congestion_control.shard_accepts_transactions().is_yes());
@@ -704,7 +704,7 @@ mod tests {
         assert_eq!(0.8, config.reject_tx_congestion_threshold);
 
         // reduce congestion to 80%
-        info.remove_delayed_receipt_gas(config.max_congestion_incoming_gas.checked_div(5).unwrap())
+        info.remove_delayed_receipt_gas(config.max_congestion_incoming_gas.saturating_div(5))
             .unwrap();
         {
             let control = CongestionControl::new(config, info, 0);
@@ -723,7 +723,7 @@ mod tests {
 
         // reduce congestion to 10%
         info.remove_delayed_receipt_gas(
-            config.max_congestion_incoming_gas.checked_mul(7).unwrap().checked_div(10).unwrap(),
+            config.max_congestion_incoming_gas.saturating_mul(7).saturating_div(10),
         )
         .unwrap();
         {
@@ -763,7 +763,7 @@ mod tests {
         assert_eq!(0.8, config.reject_tx_congestion_threshold);
 
         // reduce congestion to 80%
-        let gas_diff = config.max_congestion_outgoing_gas.checked_div(5).unwrap();
+        let gas_diff = config.max_congestion_outgoing_gas.saturating_div(5);
         info.remove_buffered_receipt_gas(gas_diff.as_gas() as u128).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.8, control.congestion_level());
@@ -779,8 +779,7 @@ mod tests {
         assert!(control.shard_accepts_transactions().is_no());
 
         // reduce congestion to 10%
-        let gas_diff =
-            config.max_congestion_outgoing_gas.checked_mul(7).unwrap().checked_div(10).unwrap();
+        let gas_diff = config.max_congestion_outgoing_gas.saturating_mul(7).saturating_div(10);
         info.remove_buffered_receipt_gas(gas_diff.as_gas() as u128).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.1, control.congestion_level());
@@ -817,7 +816,7 @@ mod tests {
 
         // Test missed chunks congestion with outgoing congestion
         let mut info = CongestionInfo::default();
-        info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas.checked_div(2).unwrap())
+        info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas.saturating_div(2))
             .unwrap();
         let make = |count| CongestionControl::new(config, info, count);
 
@@ -849,7 +848,7 @@ mod tests {
 
         // Setup half congested congestion info.
         let mut info = CongestionInfo::default();
-        info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas.checked_div(2).unwrap())
+        info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas.saturating_div(2))
             .unwrap();
 
         let shard = ShardId::new(2);

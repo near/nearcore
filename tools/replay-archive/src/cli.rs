@@ -245,8 +245,7 @@ impl ReplayController {
             let replay_output = self
                 .replay_chunk(&block, &prev_block, shard_uid, chunk_header, prev_chunk_header)
                 .context("Failed to replay the chunk")?;
-            total_gas_burnt =
-                total_gas_burnt.checked_add(replay_output.chunk_extra.gas_used()).unwrap();
+            total_gas_burnt = total_gas_burnt.saturating_add(replay_output.chunk_extra.gas_used());
 
             // Save chunk extra and outgoing receipts for future reads.
             let mut store_update = self.chain_store.store_update();

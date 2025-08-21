@@ -546,7 +546,7 @@ impl ReceiptManager {
             };
             let to_assign =
                 (unused_gas.as_gas() as u128 * weight.0 as u128 / gas_weight_sum) as u64;
-            action.gas = action.gas.checked_add(Gas::from_gas(to_assign)).unwrap();
+            action.gas = action.gas.saturating_add(Gas::from_gas(to_assign));
             distributed = distributed
                 .checked_add(to_assign)
                 .unwrap_or_else(|| panic!("gas computation overflowed"));
@@ -555,7 +555,7 @@ impl ReceiptManager {
                 distributed = distributed
                     .checked_add(remainder)
                     .unwrap_or_else(|| panic!("gas computation overflowed"));
-                action.gas = action.gas.checked_add(Gas::from_gas(remainder)).unwrap();
+                action.gas = action.gas.saturating_add(Gas::from_gas(remainder));
             }
         }
         assert_eq!(unused_gas.as_gas(), distributed);
@@ -605,8 +605,7 @@ mod tests {
                 if let Action::FunctionCall(function_call_action) = action {
                     let reference = function_calls_iter.next().unwrap();
                     assert_eq!(function_call_action.gas, accessor(reference));
-                    function_call_gas =
-                        function_call_gas.checked_add(function_call_action.gas).unwrap();
+                    function_call_gas = function_call_gas.saturating_add(function_call_action.gas);
                 }
             }
         }

@@ -644,12 +644,11 @@ impl<'a> Chunks<'a> {
 
     pub fn compute_gas_used(&self) -> Gas {
         self.iter_new()
-            .fold(Gas::from_gas(0), |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
+            .fold(Gas::from_gas(0), |acc, chunk| acc.saturating_add(chunk.prev_gas_used()))
     }
 
     pub fn compute_gas_limit(&self) -> Gas {
-        self.iter_new()
-            .fold(Gas::from_gas(0), |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
+        self.iter_new().fold(Gas::from_gas(0), |acc, chunk| acc.saturating_add(chunk.gas_limit()))
     }
 }
 

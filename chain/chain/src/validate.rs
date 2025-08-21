@@ -177,7 +177,7 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     let gas_limit = prev_chunk_extra.gas_limit();
     let adjustment = gas_limit.checked_div(GAS_LIMIT_ADJUSTMENT_FACTOR).unwrap_or(Gas::from_gas(0));
     if chunk_header.gas_limit() < gas_limit.checked_sub(adjustment).unwrap_or(Gas::from_gas(0))
-        || chunk_header.gas_limit() > gas_limit.checked_add(adjustment).unwrap()
+        || chunk_header.gas_limit() > gas_limit.saturating_add(adjustment)
     {
         return Err(Error::InvalidGasLimit);
     }

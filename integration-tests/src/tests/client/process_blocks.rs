@@ -2473,7 +2473,7 @@ fn test_execution_metadata() {
                 .unwrap_or_default()
                 .into_iter()
                 .map(|it| it.gas_used)
-                .fold(Gas::from_gas(0), |acc, gas| acc.checked_add(gas).unwrap()),
+                .fold(Gas::from_gas(0), |acc, gas| acc.saturating_add(gas)),
         )
         .unwrap()
         .as_gas();

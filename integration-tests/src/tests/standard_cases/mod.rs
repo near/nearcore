@@ -531,7 +531,7 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
             AccountType::NearImplicitAccount => {
                 fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
                     + fee_helper
-                        .gas_to_balance(create_account_fee.checked_add(add_access_key_fee).unwrap())
+                        .gas_to_balance(create_account_fee.saturating_add(add_access_key_fee))
             }
             AccountType::EthImplicitAccount => {
                 // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
@@ -1166,8 +1166,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         .checked_sub(transaction_result.receipts_outcome[0].outcome.gas_burnt)
         .unwrap();
     let refund_penalty = fee_helper.cfg().gas_penalty_for_gas_refund(gross_gas_refund);
-    let gas_refund =
-        fee_helper.gas_to_balance(gross_gas_refund.checked_sub(refund_penalty).unwrap());
+    let gas_refund = fee_helper.gas_to_balance(gross_gas_refund.saturating_sub(refund_penalty));
 
     // Refund receipt may not be ready yet
     assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));

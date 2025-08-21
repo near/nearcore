@@ -49,7 +49,7 @@ impl FeeHelper {
             .send_fee(false)
             .checked_add(self.cfg().fee(ActionCosts::create_account).send_fee(false))
             .unwrap();
-        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
+        self.gas_to_balance(exec_gas.saturating_add(send_gas))
     }
 
     pub fn create_account_transfer_full_key_fee(&self) -> Gas {
@@ -73,7 +73,7 @@ impl FeeHelper {
             .unwrap()
             .checked_add(self.cfg().fee(ActionCosts::add_full_access_key).send_fee(false))
             .unwrap();
-        exec_gas.checked_add(send_gas).unwrap()
+        exec_gas.saturating_add(send_gas)
     }
 
     pub fn create_account_transfer_fee(&self) -> Gas {
@@ -93,7 +93,7 @@ impl FeeHelper {
             .unwrap()
             .checked_add(self.cfg().fee(ActionCosts::transfer).send_fee(false))
             .unwrap();
-        exec_gas.checked_add(send_gas).unwrap()
+        exec_gas.saturating_add(send_gas)
     }
 
     pub fn create_account_transfer_full_key_cost(&self) -> Balance {
@@ -145,7 +145,7 @@ impl FeeHelper {
             .unwrap()
             .checked_add(self.cfg().fee(ActionCosts::add_full_access_key).send_fee(false))
             .unwrap();
-        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
+        self.gas_to_balance(exec_gas.saturating_add(send_gas))
     }
 
     pub fn deploy_contract_cost(&self, num_bytes: u64) -> Balance {
@@ -177,7 +177,7 @@ impl FeeHelper {
                     .unwrap(),
             )
             .unwrap();
-        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
+        self.gas_to_balance(exec_gas.saturating_add(send_gas))
     }
 
     pub fn function_call_exec_gas(&self, num_bytes: u64) -> Gas {
@@ -234,7 +234,7 @@ impl FeeHelper {
             .send_fee(false)
             .checked_add(self.cfg().fee(ActionCosts::transfer).send_fee(false))
             .unwrap();
-        exec_gas.checked_add(send_gas).unwrap()
+        exec_gas.saturating_add(send_gas)
     }
 
     pub fn transfer_cost(&self) -> Balance {
@@ -254,7 +254,7 @@ impl FeeHelper {
             .send_fee(true)
             .checked_add(self.cfg().fee(ActionCosts::stake).send_fee(true))
             .unwrap();
-        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
+        self.gas_to_balance(exec_gas.saturating_add(send_gas))
     }
 
     pub fn add_key_cost(&self, num_bytes: u64) -> Balance {
@@ -286,7 +286,7 @@ impl FeeHelper {
                     .unwrap(),
             )
             .unwrap();
-        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
+        self.gas_to_balance(exec_gas.saturating_add(send_gas))
     }
 
     pub fn add_key_full_cost(&self) -> Balance {
@@ -302,7 +302,7 @@ impl FeeHelper {
             .send_fee(true)
             .checked_add(self.cfg().fee(ActionCosts::add_full_access_key).send_fee(true))
             .unwrap();
-        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
+        self.gas_to_balance(exec_gas.saturating_add(send_gas))
     }
 
     pub fn delete_key_cost(&self) -> Balance {
@@ -318,7 +318,7 @@ impl FeeHelper {
             .send_fee(true)
             .checked_add(self.cfg().fee(ActionCosts::delete_key).send_fee(true))
             .unwrap();
-        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
+        self.gas_to_balance(exec_gas.saturating_add(send_gas))
     }
 
     pub fn prepaid_delete_account_cost(&self) -> Balance {
@@ -335,7 +335,7 @@ impl FeeHelper {
             .checked_add(self.cfg().fee(ActionCosts::delete_account).send_fee(false))
             .unwrap();
 
-        let total_fee = exec_gas.checked_add(send_gas).unwrap();
+        let total_fee = exec_gas.saturating_add(send_gas);
 
         self.gas_to_balance(total_fee)
     }

@@ -882,8 +882,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         }),
     })];
     let total_receipt_cost =
-        Balance::from(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas())
-            * gas_price;
+        Balance::from(Gas::from_gas(gas).saturating_add(expected_gas_burnt).as_gas()) * gas_price;
     let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
         Balance::from(expected_gas_burnt.as_gas()) * GAS_PRICE
     } else {
@@ -968,8 +967,7 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         }),
     })];
     let total_receipt_cost =
-        Balance::from(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas())
-            * gas_price;
+        Balance::from(Gas::from_gas(gas).saturating_add(expected_gas_burnt).as_gas()) * gas_price;
     let expected_deficit = if apply_state.config.fees.refund_gas_price_changes {
         // Used full prepaid gas, but it still not enough to cover deficit.
         let expected_gas_burnt_amount = Balance::from(expected_gas_burnt.as_gas()) * GAS_PRICE;
@@ -1046,8 +1044,7 @@ fn test_apply_surplus_gas_for_function_call() {
         }),
     })];
     let total_receipt_cost =
-        Balance::from(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas())
-            * gas_price;
+        Balance::from(Gas::from_gas(gas).saturating_add(expected_gas_burnt).as_gas()) * gas_price;
     let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
         Balance::from(expected_gas_burnt.as_gas()) * GAS_PRICE
     } else {
@@ -2966,7 +2963,7 @@ fn test_deploy_and_call_local_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+                gas: MAX_ATTACHED_GAS.saturating_div(2),
                 deposit: 0,
             })),
             Action::DeployContract(DeployContractAction {
@@ -2975,7 +2972,7 @@ fn test_deploy_and_call_local_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+                gas: MAX_ATTACHED_GAS.saturating_div(2),
                 deposit: 0,
             })),
         ],
@@ -3041,7 +3038,7 @@ fn test_deploy_and_call_local_receipts() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+                gas: MAX_ATTACHED_GAS.saturating_div(2),
                 deposit: 0,
             })),
             Action::DeployContract(DeployContractAction {
@@ -3050,7 +3047,7 @@ fn test_deploy_and_call_local_receipts() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
+                gas: MAX_ATTACHED_GAS.saturating_div(2),
                 deposit: 0,
             })),
         ],
