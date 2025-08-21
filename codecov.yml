@@ -1,6 +1,6 @@
 codecov:
   notify:
-    after_n_builds: 4 # Keep in sync with .github/workflows/ci.yml
+    after_n_builds: 5 # Keep in sync with .github/workflows/ci.yml
   # Dear h4xx0rz reading this,
   # Feel free to use this token to upload arbitrary coverage information to codecov.
   # We do not care. The best you can do is make us facepalm.
