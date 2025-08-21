@@ -425,6 +425,7 @@ impl PartUploader {
                     &self.sync_prev_prev_hash,
                     &self.state_root,
                     part_id,
+                    None,
                 )
             };
             match state_part {

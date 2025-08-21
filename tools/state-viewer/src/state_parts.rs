@@ -519,6 +519,7 @@ async fn dump_state_parts(
                 sync_prev_prev_hash,
                 &state_root,
                 PartId::new(part_id, num_parts),
+                None,
             )
             .unwrap();
 

@@ -1298,7 +1298,7 @@ fn slow_test_process_block_after_state_sync() {
 
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
+        .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, PartId::new(0, 1), None)
         .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_block.header().height() - 1 {
@@ -3255,7 +3255,7 @@ mod contract_precompilation_tests {
         let sync_prev_prev_hash = sync_prev_header.prev_hash();
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
+            .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, PartId::new(0, 1), None)
             .unwrap();
         env.clients[1]
             .runtime_adapter

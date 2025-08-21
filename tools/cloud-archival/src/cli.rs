@@ -13,7 +13,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
-use near_primitives::types::{EpochId, StateRoot};
+use near_primitives::types::{EpochId, ProtocolVersion, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
 use near_store::{DBCol, NodeStorage, Store};
@@ -42,6 +42,8 @@ pub struct CloudArchivalCommand {
     /// Store state parts in an GCS bucket.
     #[clap(long)]
     gcs_bucket: Option<String>,
+    #[clap(long)]
+    pv: Option<ProtocolVersion>,
     /// Dump or Apply state parts.
     #[clap(subcommand)]
     command: CloudArchivalSubCommand,
@@ -69,6 +71,7 @@ impl CloudArchivalCommand {
             home_dir,
             near_config,
             store,
+            self.pv,
         );
     }
 }
@@ -124,6 +127,7 @@ impl CloudArchivalSubCommand {
         home_dir: &Path,
         near_config: NearConfig,
         store: Store,
+        pv: Option<ProtocolVersion>,
     ) {
         let epoch_manager = EpochManager::new_arc_handle(
             store.clone(),
@@ -188,6 +192,7 @@ impl CloudArchivalSubCommand {
                         max_attempts,
                         near_config.client_config.state_sync_retry_backoff,
                         near_config.client_config.state_sync_external_timeout,
+                        pv,
                     )
                     .await.unwrap()
                 }
@@ -206,7 +211,7 @@ impl CloudArchivalSubCommand {
                         credentials_file,
                         Mode::ReadWrite,
                     );
-                    dump_state_parts(
+                    upload_state_parts(
                         epoch_selection,
                         shard_id,
                         part_from,
@@ -216,6 +221,7 @@ impl CloudArchivalSubCommand {
                         chain_id,
                         store,
                         &external,
+                        pv,
                     )
                     .await
                 }
@@ -363,6 +369,7 @@ async fn download_state_parts(
     max_attempts: u32,
     retry_backoff: Duration,
     request_timeout: Duration,
+    pv: Option<ProtocolVersion>
 ) -> Result<(), Error> {
     let epoch_id = epoch_selection.to_epoch_id(store.clone(), chain);
     let (state_root, epoch_height, epoch_id, sync_hash) =
@@ -378,7 +385,7 @@ async fn download_state_parts(
             let state_header = chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash).unwrap();
             (state_header.chunk_prev_state_root(), epoch.epoch_height(), epoch_id, sync_hash)
         };
-    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+    let protocol_version = pv.unwrap_or(chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap());
 
     let directory_path = external_storage_location_directory(
         chain_id,
@@ -493,7 +500,7 @@ async fn download_state_parts(
     Ok(())
 }
 
-async fn dump_state_parts(
+async fn upload_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
     part_from: Option<u64>,
@@ -503,10 +510,11 @@ async fn dump_state_parts(
     chain_id: &str,
     store: Store,
     external: &ExternalConnection,
+    pv: Option<ProtocolVersion>,
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
-    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+    let protocol_version = pv.unwrap_or(chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap());
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
     let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
         Some(h) => h,
@@ -566,6 +574,7 @@ async fn dump_state_parts(
                 sync_prev_prev_hash,
                 &state_root,
                 PartId::new(part_id, num_parts),
+                pv,
             )
             .unwrap();
 
