@@ -87,7 +87,6 @@ async fn test_send_tx_async() {
     .await
     .unwrap();
     actor_system.stop();
-    near_store::db::RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Test sending transaction and waiting for it to be committed to a block.
@@ -186,7 +185,6 @@ async fn test_expired_tx() {
     .await
     .unwrap();
     actor_system.stop();
-    near_store::db::RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Test sending transaction based on a different fork should be rejected

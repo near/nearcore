@@ -85,7 +85,6 @@ macro_rules! test_with_client {
 
         $block.await;
         actor_system.stop();
-        near_store::db::rocksdb::RocksDB::block_until_all_instances_are_dropped();
     };
 }
 

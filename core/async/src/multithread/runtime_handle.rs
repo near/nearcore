@@ -50,6 +50,7 @@ where
     let handle = MultithreadRuntimeHandle { sender };
     let threads_clone = threads.clone();
     threads.spawn_broadcast(move |_| {
+        // When this loop exits, it drops the thread pool itself.
         let _threads = threads_clone.clone();
         let mut actor = make_actor_fn();
         loop {
@@ -60,7 +61,7 @@ where
                 }
                 recv(receiver) -> message => {
                     let Ok(message) = message else {
-                        tracing::warn!(target: "multithread_runtime", "Message queue closed, exiting event loop.");
+                        tracing::info!(target: "multithread_runtime", "Message queue closed, exiting event loop.");
                         return;
                     };
                     tracing::debug!(target: "multithread_runtime", "Executing message: {}", message.description);

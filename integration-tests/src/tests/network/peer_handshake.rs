@@ -62,7 +62,6 @@ async fn peer_handshake() {
     .await
     .unwrap();
     actor_system.stop();
-    near_store::db::RocksDB::block_until_all_instances_are_dropped();
 }
 
 #[tokio::test]
@@ -109,7 +108,6 @@ async fn peers_connect_all() {
     .await
     .unwrap();
     actor_system.stop();
-    near_store::db::RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Check network is able to recover after node restart.
@@ -191,7 +189,6 @@ async fn peer_recover() {
     .await
     .unwrap();
     actor_system.stop();
-    near_store::db::RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Create two nodes A and B and connect them.

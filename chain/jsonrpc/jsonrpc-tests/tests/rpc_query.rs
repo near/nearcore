@@ -1,10 +1,10 @@
 use std::ops::ControlFlow;
 use std::str::FromStr;
 
-use reqwest::StatusCode;
 use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::transaction::SignedTransaction;
+use reqwest::StatusCode;
 use serde_json::json;
 
 use near_crypto::{InMemorySigner, Signature};
@@ -431,7 +431,6 @@ async fn test_status_fail() {
     .await
     .unwrap();
     actor_system.stop();
-    RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Check health fails when node is absent.
@@ -467,7 +466,6 @@ async fn test_health_fail_no_blocks() {
     .await
     .unwrap();
     actor_system.stop();
-    RocksDB::block_until_all_instances_are_dropped();
 }
 
 /// Retrieve client health.
@@ -563,7 +561,8 @@ async fn test_invalid_methods() {
                 .client
                 .post(&client.server_addr)
                 .header("Content-Type", "application/json")
-                .json(&json).send()
+                .json(&json)
+                .send()
                 .await
                 .unwrap();
 
@@ -600,7 +599,8 @@ async fn test_parse_error_status_code() {
             .client
             .post(&client.server_addr)
             .header("Content-Type", "application/json")
-            .json(&json).send()
+            .json(&json)
+            .send()
             .await
             .unwrap();
 
@@ -625,7 +625,8 @@ async fn slow_test_bad_handler_error_status_code() {
             .client
             .post(&client.server_addr)
             .header("Content-Type", "application/json")
-            .json(&json).send()
+            .json(&json)
+            .send()
             .await
             .unwrap();
 
@@ -647,7 +648,8 @@ async fn test_good_handler_error_status_code() {
             .client
             .post(&client.server_addr)
             .header("Content-Type", "application/json")
-            .json(&json).send()
+            .json(&json)
+            .send()
             .await
             .unwrap();
 

@@ -12,7 +12,6 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, shutdown_all_actors};
 use near_client::ViewClientActorInner;
 use near_client::client_actor::ClientActorInner;
-use near_store::db::RocksDB;
 
 fn start_nodes(
     temp_dir: &std::path::Path,
@@ -164,7 +163,6 @@ impl NodeCluster {
             );
             f(genesis, rpc_addrs, clients).await;
             shutdown_all_actors();
-            RocksDB::block_until_all_instances_are_dropped();
         })
         .await;
     }

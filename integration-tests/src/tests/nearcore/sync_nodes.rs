@@ -111,7 +111,6 @@ async fn ultra_slow_test_sync_state_stake_change() {
         .unwrap();
 
         actor_system.stop();
-        near_store::db::RocksDB::block_until_all_instances_are_dropped();
     })
     .await;
 }

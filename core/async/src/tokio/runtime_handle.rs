@@ -6,6 +6,7 @@ use crate::ActorSystem;
 use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::messaging::Actor;
 use crate::tokio::runtime::AsyncDroppableRuntime;
+use tokio::runtime::Runtime;
 use tokio_util::sync::CancellationToken;
 
 /// TokioRuntimeMessage is a type alias for a boxed function that can be sent to the Tokio runtime.
@@ -20,7 +21,7 @@ pub struct TokioRuntimeHandle<A> {
     /// The sender is used to send messages to the actor running in the Tokio runtime.
     pub(super) sender: mpsc::UnboundedSender<TokioRuntimeMessage<A>>,
     /// The runtime is the Tokio runtime that runs the actor and processes messages.
-    pub(super) runtime: Arc<AsyncDroppableRuntime>,
+    pub(super) runtime: tokio::runtime::Handle,
     /// Cancellation token used to signal shutdown of this specific Tokio runtime.
     /// There is also a global shutdown signal in the ActorSystem. These are separate
     /// shutdown mechanisms that can both be used to shut down the actor.
@@ -103,6 +104,7 @@ pub struct TokioRuntimeBuilder<A: Actor + Send + 'static> {
     handle: TokioRuntimeHandle<A>,
     receiver: mpsc::UnboundedReceiver<TokioRuntimeMessage<A>>,
     actor_system: ActorSystem,
+    runtime: Runtime,
 }
 
 impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
@@ -116,13 +118,9 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
         let (sender, receiver) = mpsc::unbounded_channel::<TokioRuntimeMessage<A>>();
         let cancel = CancellationToken::new();
 
-        let handle = TokioRuntimeHandle {
-            sender,
-            runtime: Arc::new(AsyncDroppableRuntime::new(runtime)),
-            cancel,
-        };
+        let handle = TokioRuntimeHandle { sender, runtime: runtime.handle().clone(), cancel };
 
-        Self { handle, receiver, actor_system }
+        Self { handle, receiver, actor_system, runtime }
     }
 
     pub fn handle(&self) -> TokioRuntimeHandle<A> {
@@ -134,6 +132,9 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
         let runtime = runtime_handle.runtime.clone();
         runtime.spawn(async move {
             actor.start_actor(&mut runtime_handle);
+            // The runtime gets dropped as soon as this loop exits, cancelling all other futures on
+            // the same tokio runtime.
+            let _runtime = AsyncDroppableRuntime::new(self.runtime);
             let mut actor = CallStopWhenDropping { actor };
             loop {
                 tokio::select! {

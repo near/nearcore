@@ -116,7 +116,6 @@ async fn slow_test_sync_state_nodes() {
         drop(_dir1);
         drop(_dir2);
         actor_system_clone.stop();
-        near_store::db::RocksDB::block_until_all_instances_are_dropped();
     })
     .await;
 }
@@ -265,7 +264,6 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
         drop(_dir3);
         drop(_dir4);
         actor_system_clone.stop();
-        near_store::db::RocksDB::block_until_all_instances_are_dropped();
     })
     .await;
 }
@@ -411,7 +409,6 @@ async fn ultra_slow_test_sync_state_dump() {
         drop(_dir1);
         drop(_dir2);
         actor_system.stop();
-        near_store::db::RocksDB::block_until_all_instances_are_dropped();
     })
     .await;
 }
@@ -771,7 +768,6 @@ async fn slow_test_state_sync_headers() {
         .unwrap();
         drop(_dir1);
         actor_system.stop();
-        near_store::db::RocksDB::block_until_all_instances_are_dropped();
     })
     .await;
 }
@@ -921,7 +917,6 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
         drop(_dir1);
         drop(_dir2);
         actor_system.stop();
-        near_store::db::RocksDB::block_until_all_instances_are_dropped();
     })
     .await;
 }

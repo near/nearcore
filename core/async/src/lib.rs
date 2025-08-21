@@ -98,7 +98,7 @@ pub fn shutdown_all_actors() {
             panic!("shutdown_all_actors should not be used when there are multiple ActorSystems");
         }
         if let Some(system) = systems.first() {
-            system.tokio_cancellation_signal.cancel();
+            system.stop();
         }
     }
 }

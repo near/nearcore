@@ -23,5 +23,4 @@ async fn test_status() {
     assert_eq!(res.sync_info.latest_block_height, 0);
     assert_eq!(res.sync_info.syncing, false);
     actor_system.stop();
-    RocksDB::block_until_all_instances_are_dropped();
 }
