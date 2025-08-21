@@ -754,6 +754,16 @@ def build_parser():
     return parser
 
 
+class ScheduleModeParser(Action):
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        try:
+            mode, value = values.split(' ', 1)
+            setattr(namespace, self.dest, ScheduleMode(mode=mode, value=value))
+        except ValueError as e:
+            parser.error(str(e))
+
+
 def register_schedule_subcommands(subparsers):
     schedule_parser = subparsers.add_parser('schedule',
                                             help='Manage scheduled commands.')
@@ -765,7 +775,7 @@ def register_schedule_subcommands(subparsers):
         'cmd', help='Schedule commands to run in the future.')
     cmd_subparsers.add_argument(
         '--on',
-        type=ScheduleMode.from_str,
+        action=ScheduleModeParser,
         metavar="MODE VALUE",
         required=True,
         help=

@@ -7,15 +7,6 @@ class ScheduleMode(BaseModel):
     mode: Literal['calendar', 'active']
     value: str
 
-    @classmethod
-    def from_str(cls, arg: str) -> 'ScheduleMode':
-        try:
-            mode, value = arg.split(' ', 1)
-            return cls(mode=mode, value=value)
-        except ValueError:
-            raise ValueError(
-                f"Invalid format. Expected 'MODE VALUE', got '{arg}'")
-
     def get_systemd_time_spec(self):
         if self.mode == "calendar":
             return f'--on-calendar="{self.value}"'
