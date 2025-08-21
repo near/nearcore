@@ -7,6 +7,7 @@ import pathlib
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 
 from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
@@ -264,28 +265,38 @@ class TestSetup:
         if self.neard_upgrade_binary_url == '':
             return
 
+        def time_to_str(time):
+            return time.astimezone(
+                timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+
+        now = datetime.now()
+        ref_time = [now + timedelta(minutes=i * minutes) for i in range(1, 5)]
+
         for i in range(1, 5):
+            stop_time = ref_time[i]
             stop_nodes_args = copy.deepcopy(self.args)
             stop_nodes_args.host_type = 'nodes'
             stop_nodes_args.select_partition = (i, 4)
-            stop_nodes_args.schedule_in = f"{(i * minutes)}m"
+            stop_nodes_args.on = ("calendar", time_to_str(stop_time))
             stop_nodes_args.schedule_id = f"up-stop-{i}"
             stop_nodes_cmd(CommandContext(stop_nodes_args))
 
+            amend_time = ref_time[i] + timedelta(seconds=20)
             amend_binaries_args = copy.deepcopy(self.args)
             amend_binaries_args.binary_idx = 0
             amend_binaries_args.epoch_height = None
             amend_binaries_args.neard_binary_url = self.neard_upgrade_binary_url
             amend_binaries_args.host_type = 'nodes'
             amend_binaries_args.select_partition = (i, 4)
-            amend_binaries_args.schedule_in = f"{(i * minutes * 60 + 20)}"
+            amend_binaries_args.on = ("calendar", time_to_str(amend_time))
             amend_binaries_args.schedule_id = f"up-change-{i}"
             amend_binaries_cmd(CommandContext(amend_binaries_args))
 
+            start_time = ref_time[i] + timedelta(seconds=60)
             start_nodes_args = copy.deepcopy(self.args)
             start_nodes_args.host_type = 'nodes'
             start_nodes_args.select_partition = (i, 4)
-            start_nodes_args.schedule_in = f"{(i*minutes + 1)}m"
+            start_nodes_args.on = ("calendar", time_to_str(start_time))
             start_nodes_args.schedule_id = f"up-start-{i}"
             start_nodes_cmd(CommandContext(start_nodes_args))
 

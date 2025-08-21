@@ -11,7 +11,7 @@ from typing import Optional, Self
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
-from cmd_utils import ScheduleContext
+from utils import ScheduleContext
 
 
 class NodeHandle:
