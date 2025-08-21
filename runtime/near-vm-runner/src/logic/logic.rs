@@ -35,18 +35,18 @@ pub struct ExecutionResultState {
     /// All gas and economic parameters required during contract execution.
     pub(crate) config: Arc<Config>,
     /// Gas tracking for the current contract execution.
-    gas_counter: GasCounter,
+    pub(crate) gas_counter: GasCounter,
     /// Logs written by the runtime.
-    logs: Vec<String>,
+    pub(crate) logs: Vec<String>,
     /// Tracks the total log length. The sum of length of all logs.
-    total_log_length: u64,
+    pub(crate) total_log_length: u64,
     /// What method returns.
-    return_data: ReturnData,
+    pub(crate) return_data: ReturnData,
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
-    current_account_balance: Balance,
+    pub(crate) current_account_balance: Balance,
     /// Storage usage of the current account at the moment
-    current_storage_usage: StorageUsage,
+    pub(crate) current_storage_usage: StorageUsage,
 }
 
 impl ExecutionResultState {
@@ -78,14 +78,14 @@ impl ExecutionResultState {
     /// ### Args
     ///
     /// * `amount`: the amount to deduct from the current account balance.
-    fn deduct_balance(&mut self, amount: Balance) -> Result<()> {
+    pub(crate) fn deduct_balance(&mut self, amount: Balance) -> Result<()> {
         self.current_account_balance =
             self.current_account_balance.checked_sub(amount).ok_or(HostError::BalanceExceeded)?;
         Ok(())
     }
 
     /// Checks that the current log number didn't reach the limit yet, so we can add a new message.
-    fn check_can_add_a_log_message(&self) -> Result<()> {
+    pub(crate) fn check_can_add_a_log_message(&self) -> Result<()> {
         if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
             Err(HostError::NumberOfLogsExceeded { limit: self.config.limit_config.max_number_logs }
                 .into())
@@ -94,7 +94,7 @@ impl ExecutionResultState {
         }
     }
 
-    fn checked_push_log(&mut self, message: String) -> Result<()> {
+    pub(crate) fn checked_push_log(&mut self, message: String) -> Result<()> {
         let len = u64::try_from(message.len()).unwrap_or(u64::MAX);
         let Some(total_log_length) = self.total_log_length.checked_add(len) else {
             return self.total_log_length_exceeded(len);
@@ -107,7 +107,7 @@ impl ExecutionResultState {
         Ok(())
     }
 
-    fn total_log_length_exceeded<T>(&self, add_len: u64) -> Result<T> {
+    pub(crate) fn total_log_length_exceeded<T>(&self, add_len: u64) -> Result<T> {
         Err(HostError::TotalLogLengthExceeded {
             length: self.total_log_length.saturating_add(add_len),
             limit: self.config.limit_config.max_total_log_length,
@@ -182,7 +182,7 @@ pub struct VMLogic<'a> {
 /// * If a promise was created by merging several promises (using `promise_and`) then
 ///   it's a `NotReceipt`, but has receipts of all promises it depends on.
 #[derive(Debug)]
-enum Promise {
+pub(crate) enum Promise {
     Receipt(ReceiptIndex),
     NotReceipt(Vec<ReceiptIndex>),
 }
@@ -218,14 +218,14 @@ macro_rules! get_memory_or_register {
 /// Why not just keep the old ways without this noise? By doing deserialization
 /// immediately we’re copying the data onto the stack without having to allocate
 /// a temporary vector.
-struct PublicKeyBuffer(Result<near_crypto::PublicKey, ()>);
+pub(crate) struct PublicKeyBuffer(Result<near_crypto::PublicKey, ()>);
 
 impl PublicKeyBuffer {
-    fn new(data: &[u8]) -> Self {
+    pub(crate) fn new(data: &[u8]) -> Self {
         Self(borsh::BorshDeserialize::try_from_slice(data).map_err(|_| ()))
     }
 
-    fn decode(self) -> Result<near_crypto::PublicKey> {
+    pub(crate) fn decode(self) -> Result<near_crypto::PublicKey> {
         self.0.map_err(|_| HostError::InvalidPublicKey.into())
     }
 }
@@ -3732,7 +3732,7 @@ impl std::fmt::Debug for VMOutcome {
     }
 }
 
-enum GlobalContractIdentifierPtrData {
+pub(crate) enum GlobalContractIdentifierPtrData {
     CodeHash { code_hash_len: u64, code_hash_ptr: u64 },
     AccountId { account_id_len: u64, account_id_ptr: u64 },
 }
