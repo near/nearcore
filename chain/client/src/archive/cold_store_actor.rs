@@ -79,7 +79,7 @@ impl ColdStoreActor {
         let (cold_head_height, hot_final_head_height, hot_tail_height) = self.get_heights();
         let _span = tracing::debug_span!(target: "cold_store", "cold_store_copy", cold_head_height, hot_final_head_height, hot_tail_height).entered();
 
-        sanity_check_impl(cold_head_height, hot_final_head_height, hot_tail_height)?;
+        sanity_check(cold_head_height, hot_final_head_height, hot_tail_height)?;
 
         if cold_head_height >= hot_final_head_height {
             return Ok(ColdStoreCopyResult::NoBlockCopied);
@@ -143,7 +143,7 @@ impl ColdStoreActor {
 // Check some basic sanity conditions.
 // * cold head <= hot final head
 // * cold head >= hot tail
-fn sanity_check_impl(
+fn sanity_check(
     cold_head_height: u64,
     hot_final_head_height: u64,
     hot_tail_height: u64,
@@ -212,6 +212,7 @@ pub struct ColdStoreActor {
 impl Actor for ColdStoreActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         tracing::info!(target : "cold_store", "Starting the cold store actor");
+        // Note that we start with the cold store migration loop which later spawns the cold store loop.
         self.cold_store_migration_loop(ctx);
     }
 }
@@ -243,7 +244,7 @@ impl ColdStoreActor {
         // fast and crash the node immediately.
         let (cold_head_height, hot_final_head_height, hot_tail_height) =
             cold_store_actor.get_heights();
-        sanity_check_impl(cold_head_height, hot_final_head_height, hot_tail_height).unwrap();
+        sanity_check(cold_head_height, hot_final_head_height, hot_tail_height).unwrap();
         debug_assert!(cold_store_actor.shard_tracker.is_valid_for_archival());
 
         cold_store_actor
@@ -354,12 +355,12 @@ impl ColdStoreActor {
 
         match self.cold_store_migration() {
             Err(err) => {
-                // We can either stop the cold store thread or hope that next time migration will not fail.
+                // We can either stop the cold store actor or hope that next time migration will not fail.
                 // Here we pick the second option.
-                let dur =
+                let duration =
                     self.split_storage_config.cold_store_initial_migration_loop_sleep_duration;
-                tracing::error!(target: "cold_store", ?err, ?dur, "Migration failed. Sleeping and trying again.");
-                ctx.run_later("cold_store_migration_loop", dur, move |actor, ctx| {
+                tracing::error!(target: "cold_store", ?err, ?duration, "Migration failed. Sleeping and trying again.");
+                ctx.run_later("cold_store_migration_loop", duration, move |actor, ctx| {
                     actor.cold_store_migration_loop(ctx);
                 });
             }
@@ -394,13 +395,13 @@ impl ColdStoreActor {
 
         // A block older than the final head was copied. We should continue copying
         // until cold head reaches final head.
-        let dur = if let Ok(ColdStoreCopyResult::OtherBlockCopied) = result {
+        let duration = if let Ok(ColdStoreCopyResult::OtherBlockCopied) = result {
             Duration::ZERO
         } else {
             self.split_storage_config.cold_store_loop_sleep_duration
         };
 
-        ctx.run_later("cold_store_loop", dur, move |actor, ctx| {
+        ctx.run_later("cold_store_loop", duration, move |actor, ctx| {
             actor.cold_store_loop(ctx);
         });
     }
@@ -476,7 +477,7 @@ pub fn create_cold_store_actor(
         hot_store.chain_store().final_head().map(|tip| tip.height).unwrap_or(genesis_height);
     let hot_tail_height = hot_store.chain_store().tail().unwrap_or(genesis_height);
 
-    sanity_check_impl(cold_head_height, hot_final_head_height, hot_tail_height)?;
+    sanity_check(cold_head_height, hot_final_head_height, hot_tail_height)?;
     debug_assert!(shard_tracker.is_valid_for_archival());
 
     tracing::info!(target : "cold_store", "Creating the cold store actor");
