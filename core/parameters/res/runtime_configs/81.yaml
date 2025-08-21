@@ -9,5 +9,7 @@ wasm_touching_trie_node: {
 wasm_read_cached_trie_node: {
   old: 2_280_000_000, new: { gas: 2_280_000_000, compute: 4_000_000_000 }
 }
+reftypes_bulk_memory: { old: false, new: true }
+vm_kind: { old: "NearVm", new: "NearVm2" }
 max_tables_per_contract: { new: 1 }
 max_elements_per_contract_table: { new: 10_000 }
