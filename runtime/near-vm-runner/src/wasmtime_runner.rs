@@ -376,12 +376,7 @@ impl WasmtimeVM {
                     .total_memories(MAX_CONCURRENCY)
                     .total_tables(max_tables)
                     .max_memories_per_module(1)
-                    .max_tables_per_module(max_tables_per_contract)
-                    // Minimize page faults on Linux
-                    .linear_memory_keep_resident(max_memory_size)
-                    .table_keep_resident(
-                        max_elements_per_contract_table.saturating_mul(size_of::<*const ()>()),
-                    );
+                    .max_tables_per_module(max_tables_per_contract);
 
                 let mut engine_config = wasmtime::Config::from(features);
                 engine_config
