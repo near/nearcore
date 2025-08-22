@@ -46,12 +46,9 @@ skip = [
     { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
     { name = "wasmparser", version = "=0.228.0" },
-    { name = "wasmparser", version = "=0.235.0" },
     { name = "wasm-encoder", version = "=0.27.0" },
     { name = "wasm-encoder", version = "=0.228.0" },
-    { name = "wasm-encoder", version = "=0.235.0" },
     { name = "wasmprinter", version = "=0.2.57" },
-    { name = "wasmprinter", version = "=0.235.0" },
 
     # wasmer 0.17.x
     { name = "target-lexicon", version = "^0.12.0" },
@@ -61,15 +58,14 @@ skip = [
     { name = "heck", version = "=0.4.0" }, # paperclip
 
     # ubiquituous dependencies that are prone to duplication due to frequent "breaking" releases.
-    { name = "windows-sys", version = "<0.59" },
-    { name = "windows_x86_64_msvc", version = "<0.59" },
-    { name = "windows-targets", version = "<0.52" },
+    { name = "windows-sys", version = "<0.60" },
+    { name = "windows_x86_64_msvc", version = "<0.60" },
+    { name = "windows-targets", version = "<0.53" },
 
     # ed25519-dalek, bolero uses older versions of rand and rand_core
     { name = "rand", version = "<0.9" },
     { name = "rand_core", version = "<0.9" },
     { name = "rand_chacha", version = "<0.9" },
-    { name = "getrandom", version = "=0.1.16" },
     { name = "getrandom", version = "^0.2" },
 
     # criterion, rocksdb depend on this older version of the crate.
@@ -129,4 +125,8 @@ skip = [
     # okApi uses mostly schemars 0.8 for now, though it's not necessary
     { name = "schemars" , version = "^0.8" },
     { name = "schemars_derive", version = "^0.8" },
+
+    # Bolero depends on outdated versions of these
+    { name = "gimli", version = "=0.31.1" },
+    { name = "object", version = "=0.36.5" },
 ]
