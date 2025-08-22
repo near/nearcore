@@ -42,6 +42,7 @@ serde_with.workspace = true
 schemars = { workspace = true, optional = true }
 sha3.workspace = true
 smart-default.workspace = true
+smallvec.workspace = true
 stdx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
