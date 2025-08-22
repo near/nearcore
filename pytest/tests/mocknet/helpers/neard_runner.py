@@ -18,6 +18,7 @@ import socket
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import http
 import http.server
@@ -102,6 +103,7 @@ class RpcServer(http.server.HTTPServer):
 class TestState(Enum):
     NONE = 1
     AWAITING_NETWORK_INIT = 2
+    AWAITING_GENESIS = 3
     RUNNING = 5
     STOPPED = 6
     RESETTING = 7
@@ -226,6 +228,9 @@ class NeardRunner:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+
+    def run_id(self):
+        return self.config.get('run_id', 'default')
 
     def is_traffic_generator(self):
         return self.config.get('is_traffic_generator', False)
@@ -383,16 +388,9 @@ class NeardRunner:
         config['rpc']['addr'] = f'0.0.0.0:{rpc_port}'
         config['network']['addr'] = f'0.0.0.0:{protocol_port}'
         self.data['neard_addr'] = config['rpc']['addr']
-        if 'tracked_shards_config' in config:
-            del config['tracked_shards_config']
-        config['tracked_shards'] = [0, 1, 2, 3]
         config['log_summary_style'] = 'plain'
         config['network']['skip_sync_wait'] = False
         config['rpc']['enable_debug_rpc'] = True
-        config['consensus']['min_block_production_delay']['secs'] = 1
-        config['consensus']['min_block_production_delay']['nanos'] = 300000000
-        config['consensus']['max_block_production_delay']['secs'] = 3
-        config['consensus']['max_block_production_delay']['nanos'] = 0
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
             json.dump(config, f, indent=2)
 
@@ -539,8 +537,6 @@ class NeardRunner:
 
             self.data['backups'] = {}
             self.set_state(TestState.AWAITING_NETWORK_INIT)
-            self.save_data()
-
             self.configure_log_config()
 
             return {
@@ -665,7 +661,6 @@ class NeardRunner:
                 # TODO: restart it if we get a different batch_interval_millis than last time
                 self.start_neard(batch_interval_millis)
                 self.set_state(TestState.RUNNING)
-                self.save_data()
             elif state != TestState.RUNNING:
                 raise jsonrpc.exceptions.JSONRPCDispatchException(
                     code=-32600,
@@ -681,7 +676,6 @@ class NeardRunner:
             if state == TestState.RUNNING:
                 self.kill_neard()
                 self.set_state(TestState.STOPPED)
-                self.save_data()
 
     def do_reset(self, backup_id=None):
         with self.lock:
@@ -706,7 +700,6 @@ class NeardRunner:
                 self.kill_neard()
             self.set_state(TestState.RESETTING, data=backup_id)
             self.set_current_neard_path(path)
-            self.save_data()
 
     def do_make_backup(self, backup_id, description=None):
         with self.lock:
@@ -795,7 +788,6 @@ class NeardRunner:
                     code=-32603,
                     message=f'Internal error downloading binaries: {e}')
                 self.set_state(TestState.ERROR)
-                self.save_data()
             logging.info('update binaries finished')
 
     def do_ready(self):
@@ -1059,7 +1051,6 @@ class NeardRunner:
             return True
         if self.num_restarts >= 5:
             self.set_state(TestState.STOPPED)
-            self.save_data()
             return False
         else:
             self.num_restarts += 1
@@ -1093,6 +1084,7 @@ class NeardRunner:
     def set_state(self, state, data=None):
         self.data['state'] = state.value
         self.data['state_data'] = data
+        self.save_data()
 
     def making_backup(self, backup_id, description=None):
         backup_data = {'backup_id': backup_id, 'description': description}
@@ -1127,7 +1119,9 @@ class NeardRunner:
     def set_shard_tracking_config(self, config):
         if self.can_validate():
             config['tracked_shards_config'] = "NoShards"
-            config['store']['load_mem_tries_for_tracked_shards'] = True
+            # TEMPORARY MEASURE FOR ONE NODE TEST
+            config['store'][
+                'load_mem_tries_for_tracked_shards'] = True  # False  # True
         else:
             config['tracked_shards_config'] = "AllShards"
             config['store']['load_mem_tries_for_tracked_shards'] = False
@@ -1155,6 +1149,10 @@ class NeardRunner:
 
         # TODO(CV support): If the node has state, build the genesis and publish it.
         #                   If the node has no state, download the genesis from the setup bucket.
+        if self.config.get('role') == 'validator':
+            self.set_state(TestState.AWAITING_GENESIS)
+            return
+
         new_chain_id = n.get('new_chain_id')
 
         if n['state_source'] == 'empty':
@@ -1198,7 +1196,53 @@ class NeardRunner:
 
         self.run_neard(cmd)
         self.set_state(TestState.SETTING_VALIDATORS)
-        self.save_data()
+
+    def _bucket_path(self):
+        mocknet_id = self.config['mocknet_id']
+        run_id = self.run_id()
+        return f"gs://near-mocknet-artefact-store/{mocknet_id}/{run_id}"
+
+    def genesis_init(self):
+        """Check if folder for genesis and epoch configs exists in bucket and download them if so"""
+
+        # Check if folder for genesis and epoch configs already exists in the bucket
+        check_cmd = ['gsutil', 'ls', self._bucket_path()]
+        logging.info(
+            f"Checking if folder for genesis and epoch configs exists in bucket: {' '.join(check_cmd)}"
+        )
+
+        result = subprocess.run(check_cmd, capture_output=True, text=True)
+        if result.returncode == 1:
+            logging.info(
+                f"Folder for genesis and epoch configs not found in bucket")
+            return
+        elif result.returncode != 0:
+            logging.error(f"Error checking bucket directory: {result.stderr}")
+            self.set_state(TestState.ERROR)
+            return
+
+        # Directory exists in bucket, download it and set state to ready
+        logging.info(f"Downloading genesis and epoch configs from bucket")
+        download_cmd = [
+            'gsutil', '-m', 'rsync', '-r',
+            self._bucket_path(),
+            self.target_near_home_path()
+        ]
+        logging.info(f"Running: {' '.join(download_cmd)}")
+
+        download_result = subprocess.run(download_cmd,
+                                         capture_output=True,
+                                         text=True)
+        if download_result.returncode != 0:
+            logging.error(f"Failed to download: {download_result.stderr}")
+            self.set_state(TestState.ERROR)
+            return
+
+        logging.info(
+            f"Successfully downloaded genesis and epoch configs from {self._bucket_path()}"
+        )
+
+        self.set_state(TestState.STOPPED)
 
     def check_set_validators(self):
         path, running, exit_code = self.poll_neard()
@@ -1207,7 +1251,6 @@ class NeardRunner:
                 'state is SETTING_VALIDATORS, but no set-validators process is known'
             )
             self.set_state(TestState.AWAITING_NETWORK_INIT)
-            self.save_data()
             return
 
         if running:
@@ -1222,7 +1265,6 @@ class NeardRunner:
             # test operator will have to intervene manually. Probably shouldn't
             # really happen in practice
             self.set_state(TestState.ERROR)
-            self.save_data()
             return
 
         cmd = [
@@ -1234,7 +1276,12 @@ class NeardRunner:
         ]
         logging.info(f'running {" ".join(cmd)}')
         self.execute_neard_subcmd(cmd)
-        logging.info(f'neard fork-network finalize succeeded. Node is ready')
+        logging.info(f'neard fork-network finalize succeeded')
+
+        # Check if we are the first validator and upload genesis.json to GCP bucket
+        self._upload_genesis_if_first_validator()
+
+        logging.info(f'node is ready to start')
         self.make_initial_backup()
 
     def make_backup(self):
@@ -1284,7 +1331,6 @@ class NeardRunner:
         }
         self.data['backups'] = backups
         self.set_state(TestState.STOPPED)
-        self.save_data()
 
     def make_initial_backup(self):
         try:
@@ -1297,6 +1343,85 @@ class NeardRunner:
             description='initial test state after state root computation')
         self.save_data()
         self.make_backup()
+
+    def _is_first_validator(self):
+        """Check if this node is the first validator."""
+        if not self.can_validate():
+            return False
+
+        with open(self.home_path('validators.json'), 'r') as f:
+            validators = json.load(f)
+
+        if not validators or len(validators) == 0:
+            logging.warning("No validators found in validators.json")
+            return False
+
+        first_validator_account_id = validators[0]['account_id']
+
+        # Read our validator_key.json to get our account_id
+        with open(self.target_near_home_path('validator_key.json'), 'r') as f:
+            validator_key = json.load(f)
+
+        our_account_id = validator_key['account_id']
+
+        return our_account_id == first_validator_account_id
+
+    def _upload_genesis_if_first_validator(self):
+        """Upload genesis and epoch configs to GCP bucket if this node is the first validator."""
+        if not self._is_first_validator():
+            return
+
+        logging.info(
+            f"We are the first validator, uploading genesis.json to GCP bucket")
+
+        genesis_path = self.target_near_home_path('genesis.json')
+        if not os.path.exists(genesis_path):
+            logging.error("genesis.json not found")
+            self.set_state(TestState.ERROR)
+            return
+
+        # Copy files to a temporary directory and rsync it to the bucket
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Copy all files to temp directory with their target names
+            shutil.copy2(genesis_path, os.path.join(temp_dir, "genesis.json"))
+            logging.info(f"Copied {genesis_path} to temp as genesis.json")
+
+            epoch_configs_path = self.target_near_home_path("epoch_configs")
+            epoch_configs_temp_path = os.path.join(temp_dir, "epoch_configs")
+            shutil.copytree(epoch_configs_path, epoch_configs_temp_path)
+            logging.info(f"Copied {epoch_configs_path} to temp")
+
+            # Use gsutil rsync to upload the entire temp directory
+            cmd = ['gsutil', '-m', 'rsync', '-r', temp_dir, self._bucket_path()]
+            logging.info(f"Uploading files using rsync: {' '.join(cmd)}")
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(f"Failed to rsync to bucket: {result.stderr}")
+
+            logging.info(
+                f"Successfully uploaded files to {self._bucket_path()}")
+        finally:
+            # Clean up temporary directory
+            shutil.rmtree(temp_dir)
+            logging.info(f"Cleaned up temporary directory: {temp_dir}")
+
+    def remove_genesis_from_bucket(self):
+        """Remove the entire run directory from GCP bucket if node is the first validator."""
+        if not self._is_first_validator():
+            return
+
+        bucket_path = self._bucket_path()
+        cmd = ['gsutil', 'rm', '-r', bucket_path]
+        logging.info(f"Running: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logging.error(f"Failed to remove bucket directory: {result.stderr}")
+            self.set_state(TestState.ERROR)
+            return
+
+        logging.info(f"Successfully removed bucket directory {bucket_path}")
 
     def run_restore_from_backup_cmd(self, backup_path):
         logging.info(f'restoring data dir from backup at {backup_path}')
@@ -1313,6 +1438,12 @@ class NeardRunner:
         )
 
     def reset_near_home(self):
+        # Chunk validators don't have initial state and thus a backup.
+        if self.config.get('role') == 'validator':
+            self.remove_data_dir()
+            self.set_state(TestState.STOPPED)
+            return
+
         backup_id = self.data['state_data']
         if backup_id is None:
             backup_id = 'start'
@@ -1320,11 +1451,11 @@ class NeardRunner:
         if not os.path.exists(backup_path):
             logging.error(f'backup dir {backup_path} does not exist')
             self.set_state(TestState.ERROR)
-            self.save_data()
+
         self.remove_data_dir()
         self.run_restore_from_backup_cmd(backup_path)
+        self.remove_genesis_from_bucket()
         self.set_state(TestState.STOPPED)
-        self.save_data()
 
     # periodically check if we should update neard after a new epoch
     def main_loop(self):
@@ -1333,6 +1464,8 @@ class NeardRunner:
                 state = self.get_state()
                 if state == TestState.AWAITING_NETWORK_INIT:
                     self.network_init()
+                elif state == TestState.AWAITING_GENESIS:
+                    self.genesis_init()
                 elif state == TestState.SETTING_VALIDATORS:
                     self.check_set_validators()
                 elif state == TestState.RUNNING:

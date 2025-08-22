@@ -76,6 +76,21 @@ def handle_destroy(args):
     test_setup = get_test_case(args.test_case, args)
     unique_id = args.unique_id
     start_height = test_setup.start_height
+
+    # Remove mocknet info bucket folder when destroying cluster
+    mocknet_id = f"{CHAIN_ID}-{start_height}-{unique_id}"
+    bucket_path = f"gs://near-mocknet-artefact-store/{mocknet_id}"
+    logger.info(f"Removing mocknet bucket folder: {bucket_path}")
+
+    import subprocess
+    cmd = ['gsutil', 'rm', '-r', bucket_path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        logger.warning(
+            f"Failed to remove bucket directory {bucket_path}: {result.stderr}")
+    else:
+        logger.info(f"Successfully removed bucket directory {bucket_path}")
+
     call_gh_workflow(Action.DESTROY, unique_id, start_height)
 
 

@@ -1,8 +1,7 @@
 """
 Test case classes for release tests on forknet.
 """
-
-from .base import NodeHardware, TestSetup
+from .base import TestSetup, NodeHardware
 from mirror import CommandContext, update_config_cmd
 import copy
 

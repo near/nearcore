@@ -231,6 +231,7 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
     else:
         neard_upgrade_binary_url = None
 
+    run_id = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
     all_nodes = []
     all_configs = []
 
@@ -242,13 +243,13 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
             # epoch.
             node_binaries.append({
                 "url": neard_upgrade_binary_url,
-                "epoch_height": random.randint(1, 4)
+                "epoch_height": random.randint(1, 4),
             })
 
         node_config = {
+            "run_id": run_id,
             "is_traffic_generator": False,
             "binaries": node_binaries,
-            "role": node.role()
         }
         all_nodes.append(node)
         all_configs.append(node_config)
@@ -262,12 +263,12 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
             traffic_generator_binary = args.neard_binary_url
 
         traffic_generator_config = {
+            "run_id": run_id,
             "is_traffic_generator": True,
             "binaries": [{
                 "url": traffic_generator_binary,
                 "epoch_height": 0
-            }],
-            "role": traffic_generator.role()
+            }]
         }
 
         all_nodes.append(traffic_generator)
@@ -319,14 +320,18 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
     boot_nodes = []
     for node, response in new_test_rpc_responses:
         if len(validators) < num_validators:
-            if node.can_validate and response[
-                    'validator_account_id'] is not None:
-                # we assume here that validator_account_id is not null, validator_public_key
-                # better not be null either
+            if node.can_validate:
+                # We assume that if node validates a chain, it has account id
+                # and public key.
+                if node.role() == 'validator':
+                    amount = 10**32
+                else:
+                    amount = 10**33
+
                 validators.append({
                     'account_id': response['validator_account_id'],
                     'public_key': response['validator_public_key'],
-                    'amount': str(10**33),
+                    'amount': str(amount),
                 })
         else:
             non_validators.append(node.ip_addr())
@@ -337,6 +342,10 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
 
         if len(validators) >= num_validators and len(boot_nodes) >= 20:
             break
+
+    # Sort validators by decreasing amount (number) and then by increasing validator account id
+    validators.sort(key=lambda v: (-int(v['amount']), v['account_id']))
+
     # neither of these should happen, since we check the number of available nodes in new_test(), and
     # only the traffic generator will respond with null validator_account_id and validator_public_key
     if len(validators) == 0:
