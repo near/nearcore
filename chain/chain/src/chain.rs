@@ -3311,7 +3311,6 @@ impl Chain {
     ///         Ok(Err(BlockKnownError)) if the block is known
     ///         Ok(Ok()) otherwise
     pub fn check_block_known(&self, block_hash: &CryptoHash) -> Result<BlockKnowledge, Error> {
-        // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
         let head = self.chain_store().head()?;
         // Quick in-memory check for fast-reject any block handled recently.
         if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
@@ -3338,7 +3337,6 @@ impl Chain {
     ///         Ok(Err(BlockKnownError)) if the block header is known
     ///         Ok(Ok()) otherwise
     pub fn check_block_header_known(&self, header: &BlockHeader) -> Result<BlockKnowledge, Error> {
-        // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
         let header_head = self.chain_store().header_head()?;
         if header.hash() == &header_head.last_block_hash
             || header.hash() == &header_head.prev_block_hash
@@ -3353,7 +3351,6 @@ impl Chain {
     ///         Ok(Err(BlockKnownError)) if the block is in the store
     ///         Ok(Ok()) otherwise
     fn check_block_known_store(&self, block_hash: &CryptoHash) -> Result<BlockKnowledge, Error> {
-        // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
         if self.chain_store().block_exists(block_hash)? {
             Ok(BlockKnowledge::Known(BlockKnownError::KnownInStore))
         } else {
