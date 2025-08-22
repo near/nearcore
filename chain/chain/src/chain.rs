@@ -1419,7 +1419,7 @@ impl Chain {
 
         // Validate header and then add to the chain.
         for header in &headers {
-            match self.ensure_header_unknown(header)? {
+            match self.ensure_block_header_unknown(header)? {
                 Ok(_) => {}
                 Err(_) => continue,
             }
@@ -3331,7 +3331,7 @@ impl Chain {
     /// Returns Err(Error) if any error occurs when checking store
     ///         Ok(Err(BlockKnownError)) if the block header is known
     ///         Ok(Ok()) otherwise
-    pub fn ensure_header_unknown(
+    pub fn ensure_block_header_unknown(
         &self,
         header: &BlockHeader,
     ) -> Result<Result<(), BlockKnownError>, Error> {
