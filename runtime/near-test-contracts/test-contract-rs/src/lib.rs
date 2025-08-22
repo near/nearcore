@@ -1662,7 +1662,7 @@ pub unsafe fn generate_large_receipt() {
             gas_fixed,
             gas_weight,
         );
-        total_size_to_send = total_size_to_send.saturating_sub(args_size);
+        total_size_to_send = total_size_to_send.checked_sub(args_size).unwrap();
     }
 }
 

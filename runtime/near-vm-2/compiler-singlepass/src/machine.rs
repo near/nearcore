@@ -349,7 +349,7 @@ impl Machine {
         debug_assert!(idx <= 999_999, "this runtime can't deal with unreasonable number of locals");
         Self::LOCAL_REGISTERS.get(idx as usize).map(|r| Location::GPR(*r)).unwrap_or_else(|| {
             let local_offset =
-                idx.saturating_sub(Self::LOCAL_REGISTERS.len() as u32).wrapping_mul(8);
+                idx.checked_sub(Self::LOCAL_REGISTERS.len() as u32).unwrap().wrapping_mul(8);
             Location::Memory(
                 GPR::RBP,
                 (local_offset.wrapping_add(self.locals_offset.0 as u32) as i32).wrapping_neg(),
@@ -427,7 +427,7 @@ impl Machine {
         // so we won't skip the stack guard page here.
         self.locals_offset = MachineStackOffset(self.stack_offset.0 + 8); // + 8 because locals_offset is supposed to point to 1st local
         let params_size =
-            (n_params as usize).saturating_sub(Self::LOCAL_REGISTERS.len()).saturating_mul(8);
+            (n_params as usize).saturating_sub(Self::LOCAL_REGISTERS.len()).checked_mul(8).unwrap();
         self.decrease_rsp(a, params_size);
         for i in 0..n_params {
             // NB: the 0th parameter is used for passing around the internal VM data (vmctx).
@@ -472,7 +472,7 @@ impl Machine {
             Self::LOCAL_REGISTERS.len().saturating_sub(n_params as usize);
         let locals_to_init = (n - n_params) as usize;
         let locals_size =
-            locals_to_init.saturating_sub(registers_remaining_for_locals).saturating_mul(8);
+            locals_to_init.saturating_sub(registers_remaining_for_locals).checked_mul(8).unwrap();
 
         // Allocate the stack, without actually writing to it.
         self.decrease_rsp(a, locals_size);

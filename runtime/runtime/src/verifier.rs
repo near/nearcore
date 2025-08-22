@@ -678,7 +678,7 @@ mod tests {
                 );
                 initial_account.set_contract(AccountContract::Local(code_hash));
                 initial_account.set_storage_usage(
-                    initial_account.storage_usage().saturating_add(code.len() as u64),
+                    initial_account.storage_usage().checked_add(code.len() as u64).unwrap(),
                 );
             }
             if has_data {

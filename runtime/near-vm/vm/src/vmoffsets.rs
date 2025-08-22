@@ -169,7 +169,7 @@ impl VMOffsets {
             next_item_align: usize,
         ) -> u32 {
             align(
-                base.saturating_add(num_items.saturating_mul(prev_item_size)),
+                base.checked_add(num_items.checked_mul(prev_item_size).unwrap()).unwrap(),
                 next_item_align as u32,
             )
         }
