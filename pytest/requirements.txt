@@ -11,6 +11,7 @@ nearup
 numpy
 prometheus-client
 psutil
+pydantic
 pynacl
 python-rc==0.4.1
 requests

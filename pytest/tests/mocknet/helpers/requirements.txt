@@ -1,5 +1,6 @@
-# cspell:ignore psutil dotenv
+# cspell:ignore psutil dotenv pydantic
 json-rpc
 psutil
 requests
 python-dotenv
+pydantic

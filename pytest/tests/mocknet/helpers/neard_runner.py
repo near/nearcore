@@ -388,6 +388,7 @@ class NeardRunner:
         config['rpc']['addr'] = f'0.0.0.0:{rpc_port}'
         config['network']['addr'] = f'0.0.0.0:{protocol_port}'
         self.data['neard_addr'] = config['rpc']['addr']
+        config['tracked_shards_config'] = 'AllShards'
         config['log_summary_style'] = 'plain'
         config['network']['skip_sync_wait'] = False
         config['rpc']['enable_debug_rpc'] = True
@@ -1119,9 +1120,8 @@ class NeardRunner:
     def set_shard_tracking_config(self, config):
         if self.can_validate():
             config['tracked_shards_config'] = "NoShards"
-            # TEMPORARY MEASURE FOR ONE NODE TEST
-            config['store'][
-                'load_mem_tries_for_tracked_shards'] = True  # False  # True
+            # SET TO False AS TEMPORARY MEASURE FOR < 9 NODES TEST
+            config['store']['load_mem_tries_for_tracked_shards'] = True
         else:
             config['tracked_shards_config'] = "AllShards"
             config['store']['load_mem_tries_for_tracked_shards'] = False
