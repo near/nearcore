@@ -1,7 +1,7 @@
 use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::Chain;
-use near_chain::{ChainStoreAccess, check_known};
+use near_chain::ChainStoreAccess;
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
@@ -10,7 +10,7 @@ use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
 use rand::seq::IteratorRandom;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 /// Expect to receive the requested block in this time.
 const BLOCK_REQUEST_TIMEOUT_MS: i64 = 2_000;
@@ -171,6 +171,12 @@ impl BlockSync {
 
     /// Request recent blocks from a randomly chosen peer.
     /// pub for testing
+    #[instrument(
+        target = "sync",
+        level = "debug",
+        skip_all,
+        fields(head_last_block_hash, head_height, header_head_height, num_requests)
+    )]
     pub fn block_sync(
         &mut self,
         chain: &Chain,
@@ -182,14 +188,10 @@ impl BlockSync {
         // TODO: If this code fails we should retry ASAP. Shouldn't we?
         let chain_head = chain.head()?;
         let header_head = chain.header_head()?;
-        let _span = tracing::debug_span!(
-            target: "sync",
-            "block_sync",
-            head_last_block_hash = ?chain_head.last_block_hash,
-            head_height = chain_head.height,
-            header_head_height = header_head.height,
-        )
-        .entered();
+        let span = tracing::Span::current();
+        span.record("head_last_block_hash", tracing::field::debug(chain_head.last_block_hash));
+        span.record("head_height", chain_head.height);
+        span.record("header_head_height", header_head.height);
 
         self.last_request =
             Some(BlockSyncRequest { head: chain_head.last_block_hash, when: self.clock.now_utc() });
@@ -221,7 +223,7 @@ impl BlockSync {
                     _ => return Err(e),
                 },
             };
-            if let Err(err) = check_known(chain, &next_hash)? {
+            if let Err(err) = chain.ensure_block_unknown(&next_hash)? {
                 debug!(
                     target: "sync",
                     block_hash = ?next_hash,
@@ -270,10 +272,7 @@ impl BlockSync {
                     "no available peers to request a block from");
             }
         }
-        debug!(
-            target: "sync",
-            num_requests,
-            "requested blocks");
+        span.record("num_requests", num_requests);
         Ok(())
     }
 
