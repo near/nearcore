@@ -16,6 +16,7 @@
         "debug_scripts/Pipfile",
         "docs/images/**",
         "pytest/requirements.txt",
+        "pytest/tests/mocknet/helpers/requirements.txt",
         "pytest/tests/sandbox/patch_state.py",
         "utils/mainnet-res/res/**.json"
     ],
