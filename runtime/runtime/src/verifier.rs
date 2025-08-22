@@ -121,10 +121,8 @@ pub fn validate_transaction_batch<'a>(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), BatchValidationError> {
     for signed_tx in signed_txs {
-        if let Err(err) = validate_transaction_actions(config, signed_tx, current_protocol_version)
-        {
-            return Err(BatchValidationError::Invalid((err, signed_tx.clone())));
-        }
+        validate_transaction_actions(config, signed_tx, current_protocol_version)
+            .map_err(BatchValidationError::InvalidTx)?;
     }
     ValidatedTransaction::validate_batch(config, signed_txs.iter())
 }

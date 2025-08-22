@@ -215,7 +215,7 @@ impl BorshDeserialize for Transaction {
 }
 
 pub enum BatchValidationError {
-    Invalid((InvalidTxError, SignedTransaction)), // Individual transaction failed a non-signature check
+    InvalidTx(InvalidTxError), // Individual transaction failed a non-signature check
     UnsupportedSignatureType, // Batch includes unsupported signature type, must try individual validation
     BatchSignatureInvalid,    // Batch signature verification failed
 }
@@ -288,8 +288,7 @@ impl ValidatedTransaction {
         let mut keys = Vec::with_capacity(signed_txs.len());
 
         for tx in signed_txs {
-            Self::check_valid(config, tx, false)
-                .map_err(|e| BatchValidationError::Invalid((e, tx.clone())))?;
+            Self::check_valid(config, tx, false).map_err(BatchValidationError::InvalidTx)?;
 
             messages.push(tx.get_hash());
             match tx.signature {
