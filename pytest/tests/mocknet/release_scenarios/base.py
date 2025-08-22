@@ -142,7 +142,8 @@ class TestSetup:
         cfg_args.set = ';'.join([
             'archive=true', 'gc_num_epochs_to_keep=3', 'save_trie_changes=true',
             'split_storage.enable_split_storage_view_client=true',
-            'cold_store.path="/home/ubuntu/.near/cold"', 'tracked_shards=[0]',
+            'cold_store.path="/home/ubuntu/.near/cold"',
+            'tracked_shards_config="AllShards"',
             'store.load_mem_tries_for_tracked_shards=false'
         ])
         update_config_cmd(CommandContext(cfg_args))
