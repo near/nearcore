@@ -1685,7 +1685,7 @@ impl Client {
 
     // Produce new chunks
     #[instrument(target = "client", level = "debug", "produce_chunks", skip_all, fields(
-        height = %block.header().height() + 1,
+        height = block.header().height() + 1, // next_height, the height of produced chunk
         prev_block_hash = ?block.hash(),
         tag_block_production = true,
         validator_id = ?signer.validator_id(),
