@@ -748,13 +748,13 @@ mod fix_contract_loading_cost_protocol_upgrade {
         let loading_byte = cfg_costs.gas_cost(ExtCosts::contract_loading_bytes);
         let wasm_length = test_after.get_wasm().len();
         test_after
-            .gas(Gas::from_gas(loading_base.as_gas() + wasm_length as u64 * loading_byte.as_gas()))
+            .gas(loading_base.saturating_add(loading_byte.saturating_mul(wasm_length as u64)))
             .expect(&expect);
         #[allow(deprecated)]
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
             .only_protocol_versions(vec![FIX_CONTRACT_LOADING_COST - 1])
-            .gas(Gas::from_gas(loading_base.as_gas() + wasm_length as u64 * loading_byte.as_gas()))
+            .gas(loading_base.saturating_add(loading_byte.saturating_mul(wasm_length as u64)))
             .expect(&expect);
     }
 

@@ -339,7 +339,7 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
         .saturating_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee());
-    apply_state.gas_limit = Some(Gas::from_gas(receipt_gas_cost.as_gas() * 3));
+    apply_state.gas_limit = Some(receipt_gas_cost.saturating_mul(3));
 
     let n = 40;
     let receipts = generate_receipts(small_transfer, n);
@@ -407,8 +407,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         } else if num_receipts_per_block > 1 {
             num_receipts_per_block -= 1;
         }
-        apply_state.gas_limit =
-            Some(Gas::from_gas(num_receipts_per_block * receipt_gas_cost.as_gas()));
+        apply_state.gas_limit = Some(receipt_gas_cost.saturating_mul(num_receipts_per_block));
         let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
         num_receipts_given += prev_receipts.len() as u64;
         let apply_result = runtime

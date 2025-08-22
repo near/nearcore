@@ -8,8 +8,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::Gas;
-use near_primitives::types::{AccountId, BlockHeight, Nonce};
+use near_primitives::types::{AccountId, BlockHeight, Gas, Nonce};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;

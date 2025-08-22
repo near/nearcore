@@ -961,7 +961,7 @@ fn test_memory_copy_full_memory_out_of_gas() {
               )
             )"#,
         )
-        .gas(Gas::from_gas(300_000_000_000_000))
+        .gas(Gas::from_tgas(300))
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
         .expects(&[expect![[r#"

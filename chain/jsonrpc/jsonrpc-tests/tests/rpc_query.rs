@@ -17,9 +17,8 @@ use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::Gas;
 use near_primitives::types::{
-    AccountId, BlockId, BlockReference, EpochId, ShardId, SyncCheckpoint,
+    AccountId, BlockId, BlockReference, EpochId, Gas, ShardId, SyncCheckpoint,
 };
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use near_time::Clock;

@@ -137,8 +137,7 @@ impl FeeHelper {
                     .fee(ActionCosts::deploy_contract_byte)
                     .exec_fee()
                     .saturating_mul(num_bytes),
-            )
-            .unwrap();
+            );
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
@@ -158,7 +157,6 @@ impl FeeHelper {
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
             .saturating_add(self.cfg().fee(ActionCosts::function_call_base).exec_fee())
-            .unwrap()
             .saturating_add(
                 self.cfg()
                     .fee(ActionCosts::function_call_byte)
@@ -181,9 +179,7 @@ impl FeeHelper {
                     .saturating_mul(num_bytes),
             );
         self.gas_to_balance(
-            exec_gas
-                .saturating_add(send_gas)
-                .saturating_add(Gas::from_gas(prepaid_gas)),
+            exec_gas.saturating_add(send_gas).saturating_add(Gas::from_gas(prepaid_gas)),
         )
     }
 
@@ -210,8 +206,7 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(self.cfg().fee(ActionCosts::stake).exec_fee())
-            .unwrap();
+            .saturating_add(self.cfg().fee(ActionCosts::stake).exec_fee());
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)

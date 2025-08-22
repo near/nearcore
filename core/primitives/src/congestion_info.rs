@@ -747,7 +747,7 @@ mod tests {
 
         info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas).unwrap();
         info.add_buffered_receipt_gas(Gas::from_gas(500)).unwrap();
-        info.remove_buffered_receipt_gas(Gas::from_gas(500).as_gas() as u128).unwrap();
+        info.remove_buffered_receipt_gas(500 as u128).unwrap();
 
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(1.0, control.congestion_level());

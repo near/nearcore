@@ -245,7 +245,7 @@ fn test_sanity_used_gas() {
     let used_gas = stdx::as_chunks_exact::<{ size_of::<u64>() }, _>(&returned_bytes)
         .unwrap()
         .iter()
-        .map(|bytes| u64::from_le_bytes(*bytes))
+        .map(|bytes| Gas::from_gas(u64::from_le_bytes(*bytes)))
         .collect::<Vec<_>>();
 
     let runtime_config = node.client.read().runtime_config.clone();
@@ -256,15 +256,15 @@ fn test_sanity_used_gas() {
     // When executing `used_gas` twice within a metered block, the returned values should differ by
     // that amount.
     assert_eq!(
-        used_gas[1] - used_gas[0],
-        base_cost.saturating_add(Gas::from_gas(op_cost)).as_gas()
+        used_gas[1].saturating_sub(used_gas[0]),
+        base_cost.saturating_add(Gas::from_gas(op_cost))
     );
     // Between these two observations additional arithmetics have been executed.
     assert_eq!(
-        used_gas[2] - used_gas[1],
-        base_cost.saturating_add(Gas::from_gas(op_cost * 8)).as_gas()
+        used_gas[2].saturating_sub(used_gas[1]),
+        base_cost.saturating_add(Gas::from_gas(op_cost * 8))
     );
-    assert!(used_gas[3] - used_gas[2] > base_cost.as_gas());
+    assert!(used_gas[3].saturating_sub(used_gas[2]) > base_cost);
 }
 
 /// Returns a contract which calls host function `used_gas` multiple times, both

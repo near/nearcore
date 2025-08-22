@@ -56,20 +56,17 @@ impl ProfileDataV3 {
         {
             *gas = gas.saturating_add(*other_gas);
         }
-        self.wasm_gas =
-            self.wasm_gas.saturating_add(other.wasm_gas);
+        self.wasm_gas = self.wasm_gas.saturating_add(other.wasm_gas);
     }
 
     #[inline]
     pub fn add_action_cost(&mut self, action: ActionCosts, value: Gas) {
-        self.actions_profile[action] =
-            self.actions_profile[action].saturating_add(value);
+        self.actions_profile[action] = self.actions_profile[action].saturating_add(value);
     }
 
     #[inline]
     pub fn add_ext_cost(&mut self, ext: ExtCosts, value: Gas) {
-        self.wasm_ext_profile[ext] =
-            self.wasm_ext_profile[ext].saturating_add(value);
+        self.wasm_ext_profile[ext] = self.wasm_ext_profile[ext].saturating_add(value);
     }
 
     /// WasmInstruction is the only cost we don't explicitly account for.
@@ -416,11 +413,11 @@ mod test {
         let mut profile_data = ProfileDataV3::default();
         profile_data.add_ext_cost(
             ExtCosts::storage_read_base,
-            Gas::from_gas(2 * ExtCosts::storage_read_base.gas(&ext_costs_config).as_gas()),
+            ExtCosts::storage_read_base.gas(&ext_costs_config).saturating_mul(2),
         );
         profile_data.add_ext_cost(
             ExtCosts::storage_write_base,
-            Gas::from_gas(5 * ExtCosts::storage_write_base.gas(&ext_costs_config).as_gas()),
+            ExtCosts::storage_write_base.gas(&ext_costs_config).saturating_mul(5),
         );
         profile_data.add_action_cost(ActionCosts::function_call_base, Gas::from_gas(100));
 

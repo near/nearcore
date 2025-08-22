@@ -19,8 +19,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::Gas;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -238,16 +237,13 @@ fn check_meta_tx_fn_call(
         );
 
     // calculate contract rewards as reward("gas burnt in fn call receipt" - "static exec costs")
-    let gas_burnt_for_function_call = tx_result.receipts_outcome[1]
-        .outcome
-        .gas_burnt
-        .saturating_sub(static_exec_gas);
+    let gas_burnt_for_function_call =
+        tx_result.receipts_outcome[1].outcome.gas_burnt.saturating_sub(static_exec_gas);
     let dyn_cost = fee_helper.gas_to_balance(gas_burnt_for_function_call);
     let contract_reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
 
     // Calculate cost of gas refund
-    let gross_gas_refund =
-        prepaid_gas.saturating_sub(gas_burnt_for_function_call);
+    let gross_gas_refund = prepaid_gas.saturating_sub(gas_burnt_for_function_call);
     let refund_penalty = fee_helper.gas_refund_cost(gross_gas_refund);
 
     // the relayer pays all gas and tokens
@@ -580,7 +576,7 @@ fn meta_tx_ft_transfer() {
             "new_default_meta",
             // make the relayer (alice) owner, makes initialization easier
             br#"{"owner_id": "alice.near", "total_supply": "1000000"}"#.to_vec(),
-            Gas::from_gas(30_000_000_000_000),
+            Gas::from_tgas(30),
             0,
         )
         .expect("FT contract initialization failed")
@@ -642,7 +638,7 @@ fn log_something_fn_call() -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: TEST_METHOD.to_owned(),
         args: vec![],
-        gas: Gas::from_gas(30_000_000_000_000),
+        gas: Gas::from_tgas(30),
         deposit: 0,
     }))
 }
@@ -664,7 +660,7 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args,
-        gas: Gas::from_gas(20_000_000_000_000),
+        gas: Gas::from_tgas(20),
         deposit: 1,
     }));
 
@@ -684,7 +680,7 @@ fn ft_register_action(receiver: &str) -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "storage_deposit".to_owned(),
         args,
-        gas: Gas::from_gas(20_000_000_000_000),
+        gas: Gas::from_tgas(20),
         deposit: NEAR_BASE,
     }))
 }

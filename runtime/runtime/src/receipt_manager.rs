@@ -578,7 +578,7 @@ mod tests {
             let index = receipt_manager
                 .create_action_receipt(vec![], vec![], "rick.test".parse().unwrap())
                 .unwrap();
-            gas_limit = Gas::from_gas(gas_limit.as_gas().saturating_sub(static_gas.as_gas()));
+            gas_limit = gas_limit.saturating_sub(static_gas);
             receipt_manager
                 .append_action_function_call_weight(
                     index,

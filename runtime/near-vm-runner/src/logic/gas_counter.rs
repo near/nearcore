@@ -131,9 +131,7 @@ impl GasCounter {
             if promises_gas != Gas::from_gas(0) && !self.is_view {
                 self.fast_counter.gas_limit = min(
                     self.max_gas_burnt.as_gas(),
-                    self.prepaid_gas
-                        .saturating_sub(new_promises_gas)
-                        .as_gas(),
+                    self.prepaid_gas.saturating_sub(new_promises_gas).as_gas(),
                 );
             }
             self.fast_counter.burnt_gas = new_burnt_gas;
@@ -197,7 +195,7 @@ impl GasCounter {
         //    resulting value of `self.promises_gas` is well behaved (becomes 0.) All a potential
         //    attacker has achieved in this case is throwing some of their gas away.
         self.promises_gas =
-            Gas::from_gas(used_gas_limit.as_gas().saturating_sub(self.fast_counter.burnt_gas));
+            used_gas_limit.saturating_sub(Gas::from_gas(self.fast_counter.burnt_gas));
 
         // If we crossed both limits prefer reporting GasLimitExceeded.
         // Alternative would be to prefer reporting limit that is lower (or
@@ -349,8 +347,7 @@ impl GasCounter {
 
     /// Amount of gas used through promises and amount burned.
     pub(crate) fn used_gas(&self) -> Gas {
-        self.promises_gas
-            .saturating_add(Gas::from_gas(self.fast_counter.burnt_gas))
+        self.promises_gas.saturating_add(Gas::from_gas(self.fast_counter.burnt_gas))
     }
 
     pub(crate) fn profile_data(&self) -> ProfileDataV3 {
@@ -383,7 +380,7 @@ mod tests {
     use near_primitives_core::types::Gas;
 
     /// Max prepaid amount of gas.
-    const MAX_GAS: Gas = Gas::from_gas(300_000_000_000_000);
+    const MAX_GAS: Gas = Gas::from_tgas(300);
 
     fn make_test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
         super::GasCounter::new(ExtCostsConfig::test(), max_burnt, 1, prepaid, is_view)

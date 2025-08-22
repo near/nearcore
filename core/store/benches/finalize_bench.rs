@@ -28,8 +28,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
 };
-use near_primitives::types::Gas;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, Gas, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
@@ -98,7 +97,7 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         args: vec![42u8; 2_000_000],
         method_name: "foo".to_owned(),
-        gas: Gas::from_gas(10_000_000_000_000u64),
+        gas: Gas::from_tgas(10),
         deposit: 1,
     }));
 

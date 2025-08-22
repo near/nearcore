@@ -12,7 +12,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, Gas, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolFeature;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 

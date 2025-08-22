@@ -4197,7 +4197,7 @@
                 "$ref": "#/components/schemas/NearGas"
               }
             ],
-            "description": "Cost of getting sha256 baseGas"
+            "description": "Cost of getting sha256 base"
           },
           "keccak512_byte": {
             "allOf": [

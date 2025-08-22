@@ -252,7 +252,7 @@ fn attach_unspent_gas_but_use_all_gas() {
         context.prepaid_gas = Gas::from_tgas(100);
 
         let mut config = test_vm_config(Some(vm_kind));
-        config.limit_config.max_gas_burnt = Gas::from_gas(context.prepaid_gas.as_gas() / 3);
+        config.limit_config.max_gas_burnt = context.prepaid_gas.saturating_div(3);
         let config = Arc::new(config);
         let code = function_call_weight_contract();
         let mut external = MockedExternal::with_code(code);

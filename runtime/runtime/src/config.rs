@@ -136,7 +136,6 @@ pub fn total_send_fees(
                 let delegate_cost = fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
                 let delegate_action = &signed_delegate_action.delegate_action;
 
-
                 delegate_cost.saturating_add(
                     total_send_fees(
                         config,
@@ -144,29 +143,28 @@ pub fn total_send_fees(
                         &delegate_action.get_actions(),
                         &delegate_action.receiver_id,
                     )
+                    .unwrap(),
                 )
             }
             DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {
                 let num_bytes = code.len() as u64;
-                saturating_add(
-                    fees.fee(ActionCosts::deploy_global_contract_base).send_fee(sender_is_receiver),
-                    saturating_mul(
+                fees.fee(ActionCosts::deploy_global_contract_base)
+                    .send_fee(sender_is_receiver)
+                    .saturating_add(
                         fees.fee(ActionCosts::deploy_global_contract_byte)
-                            .send_fee(sender_is_receiver),
-                        num_bytes,
-                    ),
-                )
+                            .send_fee(sender_is_receiver)
+                            .saturating_mul(num_bytes),
+                    )
             }
             UseGlobalContract(action) => {
                 let num_bytes = action.contract_identifier.len() as u64;
-                saturating_add(
-                    fees.fee(ActionCosts::use_global_contract_base).send_fee(sender_is_receiver),
-                    saturating_mul(
+                fees.fee(ActionCosts::use_global_contract_base)
+                    .send_fee(sender_is_receiver)
+                    .saturating_add(
                         fees.fee(ActionCosts::use_global_contract_byte)
-                            .send_fee(sender_is_receiver),
-                        num_bytes,
-                    ),
-                )
+                            .send_fee(sender_is_receiver)
+                            .saturating_mul(num_bytes),
+                    )
             }
         };
         result = safe_add_gas(result, delta)?;
@@ -212,24 +210,16 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         CreateAccount(_) => fees.fee(ActionCosts::create_account).exec_fee(),
         DeployContract(DeployContractAction { code }) => {
             let num_bytes = code.len() as u64;
-            fees.fee(ActionCosts::deploy_contract_base)
-                .exec_fee()
-                .saturating_add(
-                    fees.fee(ActionCosts::deploy_contract_byte)
-                        .exec_fee()
-                        .saturating_mul(num_bytes),
-                )
+            fees.fee(ActionCosts::deploy_contract_base).exec_fee().saturating_add(
+                fees.fee(ActionCosts::deploy_contract_byte).exec_fee().saturating_mul(num_bytes),
+            )
         }
         FunctionCall(function_call_action) => {
             let num_bytes = function_call_action.method_name.as_bytes().len() as u64
                 + function_call_action.args.len() as u64;
-            fees.fee(ActionCosts::function_call_base)
-                .exec_fee()
-                .saturating_add(
-                    fees.fee(ActionCosts::function_call_byte)
-                        .exec_fee()
-                        .saturating_mul(num_bytes),
-                )
+            fees.fee(ActionCosts::function_call_base).exec_fee().saturating_add(
+                fees.fee(ActionCosts::function_call_byte).exec_fee().saturating_mul(num_bytes),
+            )
         }
         Transfer(_) => {
             // Account for implicit account creation
@@ -249,13 +239,11 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                     // Account for null-terminating characters.
                     .map(|name| name.as_bytes().len() as u64 + 1)
                     .sum::<u64>();
-                fees.fee(ActionCosts::add_function_call_key_base)
-                    .exec_fee()
-                    .saturating_add(
-                        fees.fee(ActionCosts::add_function_call_key_byte)
-                            .exec_fee()
-                            .saturating_mul(num_bytes),
-                    )
+                fees.fee(ActionCosts::add_function_call_key_base).exec_fee().saturating_add(
+                    fees.fee(ActionCosts::add_function_call_key_byte)
+                        .exec_fee()
+                        .saturating_mul(num_bytes),
+                )
             }
             AccessKeyPermission::FullAccess => {
                 fees.fee(ActionCosts::add_full_access_key).exec_fee()
@@ -266,23 +254,19 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         Delegate(_) => fees.fee(ActionCosts::delegate).exec_fee(),
         DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {
             let num_bytes = code.len() as u64;
-            fees.fee(ActionCosts::deploy_global_contract_base)
-                .exec_fee()
-                .saturating_add(
-                    fees.fee(ActionCosts::deploy_global_contract_byte)
-                        .exec_fee()
-                        .saturating_mul(num_bytes),
-                )
+            fees.fee(ActionCosts::deploy_global_contract_base).exec_fee().saturating_add(
+                fees.fee(ActionCosts::deploy_global_contract_byte)
+                    .exec_fee()
+                    .saturating_mul(num_bytes),
+            )
         }
         UseGlobalContract(action) => {
             let num_bytes = action.contract_identifier.len() as u64;
-            fees.fee(ActionCosts::use_global_contract_base)
-                .exec_fee()
-                .saturating_add(
-                    fees.fee(ActionCosts::use_global_contract_byte)
-                        .exec_fee()
-                        .saturating_mul(num_bytes),
-                )
+            fees.fee(ActionCosts::use_global_contract_base).exec_fee().saturating_add(
+                fees.fee(ActionCosts::use_global_contract_byte)
+                    .exec_fee()
+                    .saturating_mul(num_bytes),
+            )
         }
     }
 }

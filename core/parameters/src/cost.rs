@@ -483,15 +483,15 @@ impl RuntimeFeesConfig {
             },
             min_gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION)
             {
-                Gas::from_gas(1_000_000_000_000)
+                Gas::from_tgas(1)
             } else {
                 Gas::from_gas(0)
             },
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee {
-                    send_sir: Gas::from_gas(3_850_000_000_000),
-                    send_not_sir: Gas::from_gas(3_850_000_000_000),
-                    execution: Gas::from_gas(3_850_000_000_000),
+                    send_sir: Gas::from_ggas(3_850),
+                    send_not_sir: Gas::from_ggas(3_850),
+                    execution: Gas::from_ggas(3_850),
                 },
                 ActionCosts::delete_account => Fee {
                     send_sir: Gas::from_gas(147489000000),

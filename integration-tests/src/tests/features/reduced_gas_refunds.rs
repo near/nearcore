@@ -10,7 +10,7 @@ use std::sync::Arc;
 use testlib::fees_utils::FeeHelper;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
-const TGAS: Gas = Gas::from_gas(10u64.pow(12));
+const TGAS: Gas = Gas::from_tgas(1);
 
 #[test]
 fn test_burn_all_gas() {
@@ -135,8 +135,7 @@ fn generated_refunds_after_fn_call(
     // Since gas price didn't change, the only difference must be the gas refund penalty.
     let penalty = total_cost - expected_cost;
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-        let unspent_gas =
-            attached_gas.saturating_sub(actual_fn_call_gas_burnt);
+        let unspent_gas = attached_gas.saturating_sub(actual_fn_call_gas_burnt);
         let max_gas_penalty = unspent_gas.max(
             unspent_gas
                 .saturating_mul(*fee_helper.cfg().gas_refund_penalty.numer() as u64)

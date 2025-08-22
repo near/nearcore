@@ -11,8 +11,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::Gas;
-use near_primitives::types::{AccountId, AccountInfo, Balance};
+use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::ShardTries;
@@ -60,7 +59,7 @@ impl StandaloneRuntime {
         let mut runtime_config = random_config();
         let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
         // Bumping costs to avoid inflation overflows.
-        wasm_config.limit_config.max_total_prepaid_gas = Gas::from_gas(10u64.pow(15));
+        wasm_config.limit_config.max_total_prepaid_gas = Gas::from_tgas(1000);
         let fees = Arc::make_mut(&mut runtime_config.fees);
         fees.action_fees[ActionCosts::new_action_receipt].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas.saturating_div(64);

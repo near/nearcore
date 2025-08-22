@@ -15,8 +15,7 @@ use near_primitives::transaction::{
     Transaction,
 };
 use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
-use near_primitives::types::Gas;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;

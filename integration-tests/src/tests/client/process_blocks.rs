@@ -55,8 +55,7 @@ use near_primitives::transaction::{
     Transaction, TransactionV0,
 };
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::Gas;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, Gas, NumBlocks};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
@@ -2411,18 +2410,20 @@ fn test_execution_metadata() {
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
 
     // Total costs for creating a function call receipt.
-    let expected_receipt_cost =
-        Gas::from_gas(config.fees.fee(ActionCosts::new_action_receipt).execution.as_gas())
-            .saturating_add(config.fees.fee(ActionCosts::function_call_base).exec_fee())
-            .saturating_add(
-                config
-                    .fees
-                    .fee(ActionCosts::function_call_byte)
-                    .exec_fee()
-                    .checked_mul("main".len() as u64)
-                    .unwrap(),
-            )
-            .as_gas();
+    let expected_receipt_cost = config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .execution
+        .saturating_add(config.fees.fee(ActionCosts::function_call_base).exec_fee())
+        .saturating_add(
+            config
+                .fees
+                .fee(ActionCosts::function_call_byte)
+                .exec_fee()
+                .checked_mul("main".len() as u64)
+                .unwrap(),
+        )
+        .as_gas();
 
     // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
     // operand stack (8 bytes worth to hold the return value.)
@@ -3190,7 +3191,7 @@ fn test_validator_stake_host_function() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_validator_stake".to_string(),
             args: b"test0".to_vec(),
-            gas: Gas::from_gas(100_000_000_000_000),
+            gas: Gas::from_tgas(100),
             deposit: 0,
         }))],
         *genesis_block.hash(),

@@ -1,7 +1,6 @@
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
-use near_primitives::types::Gas;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 

@@ -345,7 +345,7 @@ pub struct ExtCostsConfigView {
     /// Cost of getting sha256 per byte
     pub keccak256_byte: Gas,
 
-    /// Cost of getting sha256 baseGas
+    /// Cost of getting sha256 base
     pub keccak512_base: Gas,
     /// Cost of getting sha256 per byte
     pub keccak512_byte: Gas,
@@ -825,3 +825,22 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
 
 #[cfg(feature = "schemars")]
 pub type Rational32SchemarsProvider = [i32; 2];
+
+#[cfg(test)]
+#[cfg(not(feature = "nightly"))]
+mod tests {
+    /// The JSON representation used in RPC responses must not remove or rename
+    /// fields, only adding fields is allowed or we risk breaking clients.
+    #[test]
+    fn test_runtime_config_view() {
+        use crate::RuntimeConfig;
+        use crate::RuntimeConfigStore;
+        use crate::view::RuntimeConfigView;
+        use near_primitives_core::version::PROTOCOL_VERSION;
+
+        let config_store = RuntimeConfigStore::new(None);
+        let config = config_store.get_config(PROTOCOL_VERSION);
+        let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
+        insta::assert_json_snapshot!(&view, { ".wasm_config.vm_kind" => "<REDACTED>"});
+    }
+}

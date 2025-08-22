@@ -134,8 +134,7 @@ pub(crate) fn execute_function_call(
     };
 
     if !context.view_config.is_some() {
-        let unused_gas =
-            function_call.gas.saturating_sub(outcome.used_gas);
+        let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
         let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
         outcome.used_gas = safe_add_gas(outcome.used_gas, distributed)?;
     }

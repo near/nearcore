@@ -111,7 +111,7 @@ fn yield_then_resume() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_create_return_promise".to_string(),
             args: yield_payload.clone(),
-            gas: Gas::from_gas(300_000_000_000_000),
+            gas: Gas::from_tgas(300),
             deposit: 0,
         }))],
         *genesis_block.hash(),
@@ -143,7 +143,7 @@ fn yield_then_resume() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
             args: yield_payload,
-            gas: Gas::from_gas(300_000_000_000_000),
+            gas: Gas::from_tgas(300),
             deposit: 0,
         }))],
         *genesis_block.hash(),
