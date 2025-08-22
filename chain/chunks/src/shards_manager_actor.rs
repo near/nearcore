@@ -1498,6 +1498,7 @@ impl ShardsManagerActor {
         skip_all,
         fields(
             height = partial_encoded_chunk.get_inner().height_created(),
+            height_included = partial_encoded_chunk.get_inner().height_included(),
             shard_id = %partial_encoded_chunk.get_inner().shard_id(),
             chunk_hash = ?partial_encoded_chunk.get_inner().chunk_hash(),
             part_ords = ?partial_encoded_chunk.get_inner().parts().iter().map(|p| p.part_ord).collect::<Vec<_>>(),

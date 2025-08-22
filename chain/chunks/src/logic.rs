@@ -181,7 +181,7 @@ pub fn create_partial_chunk(
 }
 
 #[instrument(target = "client", level = "debug", "persist_chunk", skip_all, fields(
-    height = %partial_chunk.height_created(),
+    height = partial_chunk.height_created(),
     shard_id = %partial_chunk.shard_id(),
     chunk_hash = ?partial_chunk.chunk_hash(),
     tag_chunk_distribution = true,
