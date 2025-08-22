@@ -676,7 +676,7 @@ class NeardRunner:
             state = self.get_state()
             if state == TestState.STOPPED:
                 self.start_neard(batch_interval_millis)
-            if state == TestState.RUNNING:
+            elif state == TestState.RUNNING:
                 if should_restart:
                     self.kill_neard()
                     self.start_neard(batch_interval_millis)
