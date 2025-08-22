@@ -6,9 +6,11 @@ use actix_web::http::header::{self, ContentType};
 use actix_web::{App, Error as HttpError, HttpResponse, HttpServer, get, http, middleware, web};
 pub use api::{RpcFrom, RpcInto, RpcRequest};
 use near_async::actix::ActixResult;
+use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{
     AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
 };
+use near_async::{ActorSystem, messaging};
 use near_chain_configs::GenesisConfig;
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig, GetExecutionOutcome,
@@ -1669,7 +1671,7 @@ async fn display_debug_html(
 /// as a tuple containing a name of the server (e.g. `"JSON RPC"`) which can be
 /// used in diagnostic messages and a [`actix_web::dev::Server`] object which
 /// can be used to control the server (most notably stop it).
-pub fn start_http(
+pub async fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
@@ -1796,6 +1798,58 @@ pub fn start_http(
     }
 
     servers
+}
+
+struct HttpServerActor {
+    servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
+}
+
+impl messaging::Actor for HttpServerActor {
+    fn stop_actor(&mut self) {
+        for (name, handle) in &self.servers {
+            info!(target:"network", "Stopping {} HTTP server", name);
+            futures::executor::block_on(handle.stop(false));
+        }
+    }
+}
+
+pub fn start_http_actor(
+    actor_system: ActorSystem,
+    config: RpcConfig,
+    genesis_config: GenesisConfig,
+    client_sender: ClientSenderForRpc,
+    view_client_sender: ViewClientSenderForRpc,
+    process_tx_sender: ProcessTxSenderForRpc,
+    peer_manager_sender: PeerManagerSenderForRpc,
+    #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
+    entity_debug_handler: Arc<dyn EntityDebugHandler>,
+) -> Result<(), std::io::Error> {
+    let builder = actor_system.new_tokio_builder();
+    let handle = builder.handle();
+    let (servers_tx, servers_rx) = tokio::sync::oneshot::channel();
+    handle.spawn("start_http", async move {
+        let servers = start_http(
+            config,
+            genesis_config,
+            client_sender,
+            view_client_sender,
+            process_tx_sender,
+            peer_manager_sender,
+            #[cfg(feature = "test_features")]
+            gc_sender,
+            entity_debug_handler,
+        )
+        .await;
+        servers_tx.send(servers).unwrap();
+    });
+    let servers = futures::executor::block_on(servers_rx).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to start HTTP server: tokio runtime was already shutdown",
+        )
+    })?;
+    builder.spawn_tokio_actor(HttpServerActor { servers });
+    Ok(())
 }
 
 /// Start an http server just for querying state via the Debug UI.

@@ -203,12 +203,12 @@ pub fn spawn_trie_metrics_loop(
     tracing::debug!(target:"metrics", "Spawning the trie metrics loop.");
     let handle = actor_system.spawn_tokio_actor(EmptyActor);
 
-    let start = tokio::time::Instant::now();
-    let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
     handle.spawn("trie metrics loop", async move {
         tracing::debug!(target:"metrics", "Starting the spawn metrics loop.");
+
+        let start = tokio::time::Instant::now();
+        let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip); 
         loop {
             interval.tick().await;
 

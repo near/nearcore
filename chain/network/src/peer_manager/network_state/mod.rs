@@ -38,6 +38,7 @@ use crate::types::{
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
+use near_async::futures::FutureSpawner;
 use near_async::messaging::{CanSend, SendAsync, Sender};
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
@@ -179,6 +180,7 @@ pub(crate) struct NetworkState {
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
+        future_spawner: &dyn FutureSpawner,
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
@@ -227,7 +229,10 @@ impl NetworkState {
             )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
-            add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            add_edges_demux: demux::Demux::new(
+                config.routing_table_update_rate_limit,
+                future_spawner,
+            ),
             #[cfg(feature = "distance_vector_routing")]
             update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),

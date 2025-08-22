@@ -687,9 +687,11 @@ impl PeerActor {
             established_time: now,
             send_accounts_data_demux: demux::Demux::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
+                &*self.handle.future_spawner(),
             ),
             send_snapshot_hosts_demux: demux::Demux::new(
                 self.network_state.config.snapshot_hosts_broadcast_rate_limit,
+                &*self.handle.future_spawner(),
             ),
         });
 

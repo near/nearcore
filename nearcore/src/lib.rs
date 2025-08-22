@@ -223,7 +223,6 @@ pub struct NearNode {
     pub rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: TokioRuntimeHandle<GeneratorActorImpl>,
-    pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to a background thread that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
@@ -265,14 +264,6 @@ pub fn start_with_config_and_synchronization(
         Some(home_dir),
     );
 
-    spawn_trie_metrics_loop(
-        actor_system.clone(),
-        config.clone(),
-        storage.get_hot_store(),
-        config.client_config.log_summary_period,
-        epoch_manager.clone(),
-    );
-
     let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
@@ -282,6 +273,15 @@ pub fn start_with_config_and_synchronization(
         &config.genesis,
         &genesis_epoch_config,
         Some(home_dir),
+    );
+
+    // Spawn this after initializing genesis, or else the metrics may fail to be exported.
+    spawn_trie_metrics_loop(
+        actor_system.clone(),
+        config.clone(),
+        storage.get_hot_store(),
+        config.client_config.log_summary_period,
+        epoch_manager.clone(),
     );
 
     let shard_tracker = ShardTracker::new(
@@ -509,7 +509,6 @@ pub fn start_with_config_and_synchronization(
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
-    let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
         actor_system.clone(),
@@ -536,7 +535,8 @@ pub fn start_with_config_and_synchronization(
             hot_store,
             cold_store,
         };
-        rpc_servers.extend(near_jsonrpc::start_http(
+        near_jsonrpc::start_http_actor(
+            actor_system.clone(),
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone().into_multi_sender(),
@@ -546,25 +546,21 @@ pub fn start_with_config_and_synchronization(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
-        ));
+        )?;
     }
 
     #[cfg(feature = "rosetta_rpc")]
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
-        rpc_servers.push((
-            "Rosetta RPC",
-            near_rosetta_rpc::start_rosetta_rpc(
-                rosetta_rpc_config,
-                config.genesis,
-                genesis_block.header().hash(),
-                client_actor.clone(),
-                view_client_addr.clone(),
-                rpc_handler.clone(),
-            ),
-        ));
+        near_rosetta_rpc::start_rosetta_rpc_actor(
+            actor_system.clone(),
+            rosetta_rpc_config,
+            config.genesis,
+            *genesis_block.header().hash(),
+            client_actor.clone(),
+            view_client_addr.clone(),
+            rpc_handler.clone(),
+        )?;
     }
-
-    rpc_servers.shrink_to_fit();
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
@@ -586,7 +582,6 @@ pub fn start_with_config_and_synchronization(
         rpc_handler,
         #[cfg(feature = "tx_generator")]
         tx_generator,
-        rpc_servers,
         cold_store_loop_handle,
         state_sync_dumper,
         resharding_handle,

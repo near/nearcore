@@ -29,6 +29,7 @@ pub struct RpcUser {
     account_id: AccountId,
     signer: Arc<Signer>,
     addr: String,
+    runtime: tokio::runtime::Runtime,
 }
 
 impl RpcUser {
@@ -37,11 +38,20 @@ impl RpcUser {
         Fut: Future<Output = R> + 'static,
         F: FnOnce(JsonRpcClient) -> Fut + 'static,
     {
-        futures::executor::block_on(f(new_client(&format!("http://{}", self.addr))))
+        self.runtime.block_on(f(new_client(&format!("http://{}", self.addr))))
     }
 
     pub fn new(addr: &str, account_id: AccountId, signer: Arc<Signer>) -> RpcUser {
-        RpcUser { account_id, addr: addr.to_owned(), signer }
+        RpcUser {
+            account_id,
+            addr: addr.to_owned(),
+            signer,
+            runtime: tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .worker_threads(1)
+                .build()
+                .expect("Failed to create Tokio runtime"),
+        }
     }
 
     pub fn get_status(&self) -> Option<StatusResponse> {

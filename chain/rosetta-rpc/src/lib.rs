@@ -12,9 +12,11 @@ use paperclip::actix::{
 use strum::IntoEnumIterator;
 
 pub use config::RosettaRpcConfig;
+use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
+use near_async::{ActorSystem, messaging};
 use near_chain_configs::Genesis;
 use near_client::client_actor::ClientActorInner;
 use near_client::{RpcHandler, ViewClientActorInner};
@@ -832,7 +834,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .max_age(3600)
 }
 
-pub fn start_rosetta_rpc(
+pub async fn start_rosetta_rpc(
     config: crate::config::RosettaRpcConfig,
     genesis: Genesis,
     genesis_block_hash: &near_primitives::hash::CryptoHash,
@@ -916,4 +918,48 @@ pub fn start_rosetta_rpc(
     tokio::spawn(server);
 
     handle
+}
+
+struct RosettaRpcActor {
+    server: actix_web::dev::ServerHandle,
+}
+
+impl messaging::Actor for RosettaRpcActor {
+    fn stop_actor(&mut self) {
+        futures::executor::block_on(self.server.stop(false));
+    }
+}
+
+pub fn start_rosetta_rpc_actor(
+    actor_system: ActorSystem,
+    config: crate::config::RosettaRpcConfig,
+    genesis: Genesis,
+    genesis_block_hash: near_primitives::hash::CryptoHash,
+    client_addr: TokioRuntimeHandle<ClientActorInner>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
+    tx_handler_addr: MultithreadRuntimeHandle<RpcHandler>,
+) -> Result<(), std::io::Error> {
+    let builder = actor_system.new_tokio_builder();
+    let handle = builder.handle();
+    let (server_tx, server_rx) = tokio::sync::oneshot::channel();
+    handle.spawn("start_http", async move {
+        let servers = start_rosetta_rpc(
+            config,
+            genesis,
+            &genesis_block_hash,
+            client_addr,
+            view_client_addr,
+            tx_handler_addr,
+        )
+        .await;
+        server_tx.send(servers).unwrap();
+    });
+    let server = futures::executor::block_on(server_rx).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to start Rosetta RPC server: tokio runtime was already shutdown",
+        )
+    })?;
+    builder.spawn_tokio_actor(RosettaRpcActor { server });
+    Ok(())
 }

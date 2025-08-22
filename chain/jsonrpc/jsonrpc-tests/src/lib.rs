@@ -7,7 +7,7 @@ use near_async::messaging::{IntoMultiSender, noop};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::GenesisConfig;
 use near_client::ViewClientActorInner;
-use near_jsonrpc::{RpcConfig, start_http};
+use near_jsonrpc::{RpcConfig, start_http_actor};
 use near_jsonrpc_primitives::{
     message::{Message, from_slice},
     types::entity_debug::DummyEntityDebugHandler,
@@ -44,7 +44,7 @@ pub fn start_all_with_validity_period(
 ) -> (MultithreadRuntimeHandle<ViewClientActorInner>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
     let actor_handles = setup_no_network_with_validity_period(
         clock,
-        actor_system,
+        actor_system.clone(),
         vec!["test1".parse().unwrap()],
         if let NodeType::Validator = node_type {
             "test1".parse().unwrap()
@@ -57,7 +57,8 @@ pub fn start_all_with_validity_period(
     );
 
     let addr = tcp::ListenerAddr::reserve_for_test();
-    start_http(
+    start_http_actor(
+        actor_system,
         RpcConfig::new(addr),
         TEST_GENESIS_CONFIG.clone(),
         actor_handles.client_actor.clone().into_multi_sender(),
@@ -67,7 +68,8 @@ pub fn start_all_with_validity_period(
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
-    );
+    )
+    .unwrap();
     // setup_no_network_with_validity_period should use runtime_tempdir together with real runtime.
     (actor_handles.view_client_actor, addr, actor_handles.runtime_tempdir.unwrap())
 }

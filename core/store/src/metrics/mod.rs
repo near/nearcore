@@ -600,15 +600,15 @@ pub fn spawn_db_metrics_loop(actor_system: ActorSystem, storage: &NodeStorage, p
     tracing::debug!(target:"metrics", "Spawning the db metrics loop.");
     let handle = actor_system.spawn_tokio_actor(EmptyActor);
 
-    let start = tokio::time::Instant::now();
-    let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
     handle.spawn("db metrics loop", async move {
         tracing::debug!(target:"metrics", "Starting the db metrics loop.");
+        let start = tokio::time::Instant::now();
+        let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
             interval.tick().await;
 
