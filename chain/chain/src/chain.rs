@@ -3332,7 +3332,7 @@ impl Chain {
         self.check_block_known_store(block_hash)
     }
 
-    /// Check if block header is known
+    /// Check if block header is known.
     /// Returns Err(Error) if any error occurs when checking store
     ///         Ok(Err(BlockKnownError)) if the block header is known
     ///         Ok(Ok()) otherwise
