@@ -102,7 +102,7 @@ impl ProfileDataV3 {
             .as_slice()
             .iter()
             .copied()
-            .fold(Gas::from_gas(0), |acc, x| acc.saturating_add(x)
+            .fold(Gas::from_gas(0), |acc, x| acc.saturating_add(x))
     }
 
     pub fn action_gas(&self) -> Gas {
@@ -110,7 +110,7 @@ impl ProfileDataV3 {
             .as_slice()
             .iter()
             .copied()
-            .fold(Gas::from_gas(0), |acc, x| acc.saturating_add(x)
+            .fold(Gas::from_gas(0), |acc, x| acc.saturating_add(x))
     }
 
     /// Returns total compute usage of host calls.

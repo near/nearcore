@@ -207,16 +207,14 @@ fn check_meta_tx_fn_call(
                 .cfg()
                 .fee(ActionCosts::function_call_base)
                 .send_fee(false)
-                .checked_mul(num_fn_calls as u64)
-                .unwrap(),
+                .saturating_mul(num_fn_calls as u64),
         )
         .saturating_add(
             fee_helper
                 .cfg()
                 .fee(ActionCosts::function_call_byte)
                 .send_fee(false)
-                .checked_mul(msg_len)
-                .unwrap(),
+                .saturating_mul(msg_len),
         );
     // static execution gas burnt in the same receipt as the function calls but
     // it doesn't contribute to the contract reward
@@ -229,16 +227,14 @@ fn check_meta_tx_fn_call(
                 .cfg()
                 .fee(ActionCosts::function_call_base)
                 .exec_fee()
-                .checked_mul(num_fn_calls as u64)
-                .unwrap(),
+                .saturating_mul(num_fn_calls as u64),
         )
         .saturating_add(
             fee_helper
                 .cfg()
                 .fee(ActionCosts::function_call_byte)
                 .exec_fee()
-                .checked_mul(msg_len)
-                .unwrap(),
+                .saturating_mul(msg_len),
         );
 
     // calculate contract rewards as reward("gas burnt in fn call receipt" - "static exec costs")

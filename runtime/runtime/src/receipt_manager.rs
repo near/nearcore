@@ -546,7 +546,7 @@ impl ReceiptManager {
             };
             let to_assign =
                 (unused_gas.as_gas() as u128 * weight.0 as u128 / gas_weight_sum) as u64;
-            action.gas = action.gas.saturating_add(Gas::from_gas(to_assign));
+            action.gas = action.gas.checked_add(Gas::from_gas(to_assign)).unwrap();
             distributed = distributed
                 .checked_add(to_assign)
                 .unwrap_or_else(|| panic!("gas computation overflowed"));

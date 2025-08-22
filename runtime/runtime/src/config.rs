@@ -136,37 +136,37 @@ pub fn total_send_fees(
                 let delegate_cost = fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
                 let delegate_action = &signed_delegate_action.delegate_action;
 
-                safe_add_gas(
-                    delegate_cost,
+
+                delegate_cost.saturating_add(
                     total_send_fees(
                         config,
                         sender_is_receiver,
                         &delegate_action.get_actions(),
                         &delegate_action.receiver_id,
-                    )?,
-                )?
+                    )
+                )
             }
             DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {
                 let num_bytes = code.len() as u64;
-                safe_add_gas(
+                saturating_add(
                     fees.fee(ActionCosts::deploy_global_contract_base).send_fee(sender_is_receiver),
-                    safe_mul_gas(
+                    saturating_mul(
                         fees.fee(ActionCosts::deploy_global_contract_byte)
                             .send_fee(sender_is_receiver),
                         num_bytes,
-                    )?,
-                )?
+                    ),
+                )
             }
             UseGlobalContract(action) => {
                 let num_bytes = action.contract_identifier.len() as u64;
-                safe_add_gas(
+                saturating_add(
                     fees.fee(ActionCosts::use_global_contract_base).send_fee(sender_is_receiver),
-                    safe_mul_gas(
+                    saturating_mul(
                         fees.fee(ActionCosts::use_global_contract_byte)
                             .send_fee(sender_is_receiver),
                         num_bytes,
-                    )?,
-                )?
+                    ),
+                )
             }
         };
         result = safe_add_gas(result, delta)?;
