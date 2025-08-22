@@ -29,6 +29,7 @@ rand_chacha.workspace = true
 dashmap.workspace = true
 
 near-crypto.workspace = true
+near-crypto-ed25519-batch.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true

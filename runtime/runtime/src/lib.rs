@@ -6,9 +6,14 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::metrics::{
+    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS, TRANSACTION_BATCH_SIGNATURE_VERIFY_TOTAL,
+};
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
-use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
+use crate::verifier::{
+    StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_batch,
+};
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
     validate_transaction, verify_and_charge_tx_ephemeral,
@@ -1523,6 +1528,16 @@ impl Runtime {
                 tx_vec
                     .par_chunks(chunk_size)
                     .map(|txs| {
+                        TRANSACTION_BATCH_SIGNATURE_VERIFY_TOTAL.inc();
+                        if validate_transaction_batch(&apply_state.config, txs, protocol_version)
+                            .is_ok()
+                        {
+                            TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS.inc();
+                            // Ok to set all bits: if there are fewer transactions than bits,
+                            // higher bits are simply unused.
+                            return !0;
+                        }
+                        // Batch verification did not succeed, fall back to individual verification
                         let mut valid_mask: ValidBitmask = 0;
                         for (idx, tx) in txs.iter().enumerate() {
                             let tx_hash = tx.hash();
