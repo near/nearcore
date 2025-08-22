@@ -5,7 +5,7 @@ use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, TieredMessageBody,
 };
 use crate::network_protocol::{RoutedMessage, testonly as data};
-use crate::peer::peer_actor::PeerActor;
+use crate::peer::peer_actor::{GetTrackerStats, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
@@ -94,6 +94,18 @@ impl PeerHandle {
             ttl,
             utc,
         )
+    }
+
+    /// Get the current tracker statistics for sent and received bytes
+    pub async fn get_tracker_stats(&self) -> (u64, u64) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        let addr = self.actix.addr.clone();
+        tokio::spawn(async move {
+            let _ = addr.send(GetTrackerStats { response: tx }).await;
+        });
+
+        rx.await.unwrap()
     }
 
     pub async fn start_endpoint(

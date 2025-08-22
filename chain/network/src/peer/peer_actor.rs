@@ -57,6 +57,7 @@ use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use tokio::sync::oneshot;
 use tracing::Instrument as _;
 
 /// How often to request peers from active peers.
@@ -1833,4 +1834,22 @@ enum PeerStatus {
     Connecting(HandshakeSignalSender, ConnectingStatus),
     /// Ready to go.
     Ready(Arc<connection::Connection>),
+}
+
+/// Message to get tracker statistics (test-only)
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub(crate) struct GetTrackerStats {
+    pub response: oneshot::Sender<(u64, u64)>,
+}
+
+impl actix::Handler<GetTrackerStats> for PeerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: GetTrackerStats, _ctx: &mut Self::Context) -> Self::Result {
+        let mut tracker = self.tracker.lock();
+        let sent_stats = tracker.sent_bytes.minute_stats(&self.clock);
+        let received_stats = tracker.received_bytes.minute_stats(&self.clock);
+        let _ = msg.response.send((sent_stats.bytes_per_min, received_stats.bytes_per_min));
+    }
 }
