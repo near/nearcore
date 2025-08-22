@@ -276,7 +276,7 @@ impl ValidatedTransaction {
     /// Validates a batch of SignedTransactions. If this fails, the caller is expected
     /// to retry verifying individual transactions.
     #[allow(clippy::result_large_err)]
-    pub fn validate_batch<'a, I, const MAX_BATCH_SIZE: usize>(
+    pub fn validate_batch<'a, I>(
         config: &RuntimeConfig,
         signed_txs: I,
     ) -> Result<(), BatchValidationError>
@@ -284,6 +284,7 @@ impl ValidatedTransaction {
         I: IntoIterator<Item = &'a SignedTransaction>,
         I: ExactSizeIterator,
     {
+        const MAX_BATCH_SIZE: usize = 32;
         let mut messages = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
         let mut signatures = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
         let mut keys = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());

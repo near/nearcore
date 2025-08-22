@@ -115,7 +115,7 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx)
 }
 
-pub fn validate_transaction_batch<'a, const MAX_BATCH_SIZE: usize>(
+pub fn validate_transaction_batch<'a>(
     config: &RuntimeConfig,
     signed_txs: &[SignedTransaction],
     current_protocol_version: ProtocolVersion,
@@ -124,7 +124,7 @@ pub fn validate_transaction_batch<'a, const MAX_BATCH_SIZE: usize>(
         validate_transaction_actions(config, signed_tx, current_protocol_version)
             .map_err(BatchValidationError::InvalidTx)?;
     }
-    ValidatedTransaction::validate_batch::<_, MAX_BATCH_SIZE>(config, signed_txs.iter())
+    ValidatedTransaction::validate_batch(config, signed_txs.iter())
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
