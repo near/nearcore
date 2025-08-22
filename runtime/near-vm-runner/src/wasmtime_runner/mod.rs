@@ -3,10 +3,10 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
     VMRunnerError, WasmTrap,
 };
-use crate::logic::{
-    Config, ExecutionResultState, External, GasCounter, MemSlice, MemoryLike, VMContext, VMLogic,
-    VMOutcome,
-};
+use crate::logic::logic::Promise;
+use crate::logic::recorded_storage_counter::RecordedStorageCounter;
+use crate::logic::vmstate::Registers;
+use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext, VMOutcome};
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
@@ -17,19 +17,17 @@ use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
-use std::borrow::Cow;
-use std::cell::RefCell;
+use near_primitives_core::types::Balance;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 use tracing::warn;
 use wasmtime::{
-    Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre, Linker, Module,
+    Engine, ExternType, Instance, InstanceAllocationStrategy, InstancePre, Linker, Module,
     ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store, StoreLimits,
     StoreLimitsBuilder, Strategy, WasmBacktraceDetails,
 };
 
-type Caller = wasmtime::Caller<'static, Ctx>;
+mod logic;
 
 /// The maximum amount of concurrent calls this engine can handle.
 /// If this limit is reached, invocations will block until an execution slot is available.
@@ -188,19 +186,51 @@ impl ConcurrencySemaphore {
 }
 
 pub struct Ctx {
-    logic: Option<Box<VMLogic<'static>>>,
-    caller: Rc<RefCell<Option<Caller>>>,
+    memory: ModuleExport,
     limits: StoreLimits,
+    /// Provides access to the components outside the Wasm runtime for operations on the trie and
+    /// receipts creation.
+    ext: &'static mut dyn External,
+    /// Part of Context API and Economics API that was extracted from the receipt.
+    context: &'static VMContext,
+
+    /// All gas and economic parameters required during contract execution.
+    config: Arc<Config>,
+    /// Fees charged for various operations that contract may execute.
+    fees_config: Arc<RuntimeFeesConfig>,
+
+    /// Current amount of locked tokens, does not automatically change when staking transaction is
+    /// issued.
+    current_account_locked_balance: Balance,
+    /// Registers can be used by the guest to store blobs of data without moving them across
+    /// host-guest boundary.
+    registers: Registers,
+    /// The DAG of promises, indexed by promise id.
+    promises: Vec<Promise>,
+
+    /// Stores the amount of stack space remaining
+    remaining_stack: u64,
+
+    /// Tracks size of the recorded trie storage proof.
+    recorded_storage_counter: RecordedStorageCounter,
+
+    result_state: ExecutionResultState,
 }
 
 impl Ctx {
-    fn new(logic: VMLogic<'static>, caller: Rc<RefCell<Option<Caller>>>) -> Self {
+    fn new(
+        ext: &'static mut dyn External,
+        context: &'static VMContext,
+        fees_config: Arc<RuntimeFeesConfig>,
+        result_state: ExecutionResultState,
+        memory: ModuleExport,
+    ) -> Self {
         let LimitConfig {
             max_memory_pages,
             max_tables_per_contract,
             max_elements_per_contract_table,
             ..
-        } = logic.result_state.config.limit_config;
+        } = result_state.config.limit_config;
         let max_tables_per_contract =
             max_tables_per_contract.unwrap_or(DEFAULT_MAX_TABLES_PER_MODULE);
         let max_elements_per_contract_table =
@@ -214,62 +244,28 @@ impl Ctx {
             .tables(max_tables_per_contract.try_into().unwrap_or(usize::MAX))
             .table_elements(max_elements_per_contract_table)
             .build();
-        Self { logic: Some(Box::new(logic)), caller, limits }
-    }
-}
 
-/// Implementation of [MemoryLike] in terms of [wasmtime::Memory]
-#[derive(Clone)]
-pub struct WasmtimeMemory {
-    memory: ModuleExport,
-    caller: Rc<RefCell<Option<Caller>>>,
-}
-
-impl WasmtimeMemory {
-    fn with<T>(
-        &self,
-        func: impl FnOnce(&mut Caller, wasmtime::Memory) -> Result<T, ()>,
-    ) -> Result<T, ()> {
-        let mut caller = self.caller.borrow_mut();
-        let caller = caller.as_mut().expect("caller missing");
-        let Some(Extern::Memory(memory)) = caller.get_module_export(&self.memory) else {
-            return Err(());
-        };
-        func(caller, memory)
-    }
-}
-
-impl MemoryLike for WasmtimeMemory {
-    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()> {
-        let end = slice.end::<usize>()?;
-        self.with(|caller, memory| if end <= memory.data_size(caller) { Ok(()) } else { Err(()) })
-    }
-
-    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
-        let range = slice.range::<usize>()?;
-        self.with(|caller, memory| {
-            memory.data(caller).get(range).map(|slice| Cow::Owned(slice.to_vec())).ok_or(())
-        })
-    }
-
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
-        let start = usize::try_from(offset).map_err(|_| ())?;
-        let end = start.checked_add(buffer.len()).ok_or(())?;
-        self.with(|caller, memory| {
-            let memory = memory.data(caller).get(start..end).ok_or(())?;
-            buffer.copy_from_slice(memory);
-            Ok(())
-        })
-    }
-
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()> {
-        let start = usize::try_from(offset).map_err(|_| ())?;
-        let end = start.checked_add(buffer.len()).ok_or(())?;
-        self.with(|caller, memory| {
-            let memory = memory.data_mut(caller).get_mut(start..end).ok_or(())?;
-            memory.copy_from_slice(buffer);
-            Ok(())
-        })
+        let current_account_locked_balance = context.account_locked_balance;
+        let config = Arc::clone(&result_state.config);
+        let recorded_storage_counter = RecordedStorageCounter::new(
+            ext.get_recorded_storage_size(),
+            result_state.config.limit_config.per_receipt_storage_proof_size_limit,
+        );
+        let remaining_stack = u64::from(result_state.config.limit_config.max_stack_height);
+        Self {
+            memory,
+            limits,
+            ext,
+            context,
+            config,
+            fees_config,
+            current_account_locked_balance,
+            recorded_storage_counter,
+            registers: Default::default(),
+            promises: vec![],
+            remaining_stack,
+            result_state,
+        }
     }
 }
 
@@ -698,22 +694,20 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             }
         };
 
-        let caller = Rc::default();
-        let mut memory = WasmtimeMemory { caller: Rc::clone(&caller), memory };
-        let logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
         // SAFETY:
-        // Although the 'static here is a lie, we are pretty confident that the `VMLogic` here
-        // only lives for the duration of the contract method call (which is covered by the original
-        // lifetime).
-        let logic = unsafe { transmute::<VMLogic<'_>, VMLogic<'static>>(logic) };
-        let ctx = Ctx::new(logic, caller);
+        // Although the 'static here is a lie, we are pretty confident that the `External` and
+        // VMContext here only live for the duration of the contract method call
+        // (which is covered by the original lifetime).
+        let ext = unsafe { transmute::<&mut dyn External, &'static mut dyn External>(ext) };
+        let context = unsafe { transmute::<&VMContext, &'static VMContext>(context) };
+        let ctx = Ctx::new(ext, context, fees_config, result_state, memory);
 
         let mut store = Store::<Ctx>::new(pre.module().engine(), ctx);
         store.limiter(|ctx| &mut ctx.limits);
         let Some(_permit) = concurrency.try_acquire(num_tables) else {
-            let logic = store.data_mut().logic.take().expect("logic missing");
+            let Ctx { result_state, .. } = store.into_data();
             return Ok(VMOutcome::abort(
-                logic.result_state,
+                result_state,
                 FunctionCallError::LinkError { msg: "failed to acquire execution slot".into() },
             ));
         };
@@ -721,19 +715,19 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             Ok(instance) => instance,
             Err(err) => {
                 let err = err.into_vm_error()?;
-                let logic = store.data_mut().logic.take().expect("logic missing");
-                return Ok(VMOutcome::abort(logic.result_state, err));
+                let Ctx { result_state, .. } = store.into_data();
+                return Ok(VMOutcome::abort(result_state, err));
             }
         };
 
         let res = call(&mut store, instance, &method);
-        let logic = store.data_mut().logic.take().expect("logic missing");
+        let Ctx { result_state, .. } = store.into_data();
         match res? {
-            RunOutcome::Ok => Ok(VMOutcome::ok(logic.result_state)),
+            RunOutcome::Ok => Ok(VMOutcome::ok(result_state)),
             RunOutcome::AbortNop(error) => {
-                Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic.result_state, error))
+                Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, error))
             }
-            RunOutcome::Abort(error) => Ok(VMOutcome::abort(logic.result_state, error)),
+            RunOutcome::Abort(error) => Ok(VMOutcome::abort(result_state, error)),
         }
     }
 }
@@ -755,45 +749,23 @@ impl std::fmt::Display for ErrorContainer {
     }
 }
 
-fn with_logic<T>(
-    mut caller: wasmtime::Caller<'_, Ctx>,
-    f: impl FnOnce(&mut VMLogic<'_>) -> T,
-) -> T {
-    let ctx = caller.data_mut();
-    let mut logic = ctx.logic.take().expect("logic missing");
-    let memory_caller = Rc::clone(&ctx.caller);
-    // SAFETY:
-    // Although the 'static here is a lie, we are pretty confident that the `Caller` here
-    // only lives for the duration of the contract method call (which is covered by the original
-    // lifetime), and we're doing `memory_caller.take()` just below, which should be safe.
-    memory_caller.replace(Some(unsafe {
-        transmute::<wasmtime::Caller<'_, Ctx>, wasmtime::Caller<'static, Ctx>>(caller)
-    }));
-    let res = f(&mut logic);
-    let mut caller = memory_caller.take().expect("caller missing");
-    caller.data_mut().logic.replace(logic);
-    res
-}
-
 fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
     macro_rules! add_import {
         (
           $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
         ) => {
             #[allow(unused_parens)]
-            fn $name(caller: wasmtime::Caller<'_, Ctx>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
+            fn $name(mut caller: wasmtime::Caller<'_, Ctx>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
                 const TRACE: bool = imports::should_trace_host_function(stringify!($name));
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
                 });
-                with_logic(caller, |logic| {
-                    match logic.$func( $( $arg_name as $arg_type, )* ) {
-                        Ok(result) => Ok(result as ($( $returns ),* ) ),
-                        Err(err) => {
-                            Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
-                        }
+                match logic::$func(&mut caller, $( $arg_name as $arg_type, )*) {
+                    Ok(result) => Ok(result as ($( $returns ),* ) ),
+                    Err(err) => {
+                        Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
                     }
-                })
+                }
             }
 
             linker.func_wrap(stringify!($mod), stringify!($name), $name).expect("cannot link external");
