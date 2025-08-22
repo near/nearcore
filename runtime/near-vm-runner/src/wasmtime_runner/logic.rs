@@ -241,13 +241,14 @@ pub fn finite_wasm_stack(
     operand_size: u64,
     frame_size: u64,
 ) -> Result<()> {
-    let Ctx { result_state, remaining_stack, .. } = caller.data_mut();
-    *remaining_stack = match remaining_stack.checked_sub(operand_size.saturating_add(frame_size)) {
-        Some(s) => s,
-        None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
-    };
-    let gas = ((frame_size + 7) / 8) * u64::from(result_state.config.regular_op_cost);
-    consume_gas(&mut result_state.gas_counter, gas)?;
+    let ctx = caller.data_mut();
+    ctx.remaining_stack =
+        match ctx.remaining_stack.checked_sub(operand_size.saturating_add(frame_size)) {
+            Some(s) => s,
+            None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
+        };
+    let gas = ((frame_size + 7) / 8) * u64::from(ctx.result_state.config.regular_op_cost);
+    consume_gas(&mut ctx.result_state.gas_counter, gas)?;
     Ok(())
 }
 
@@ -256,8 +257,9 @@ pub fn finite_wasm_unstack(
     operand_size: u64,
     frame_size: u64,
 ) -> Result<()> {
-    let Ctx { remaining_stack, .. } = caller.data_mut();
-    *remaining_stack = remaining_stack
+    let ctx = caller.data_mut();
+    ctx.remaining_stack = ctx
+        .remaining_stack
         .checked_add(operand_size.saturating_add(frame_size))
         .expect("remaining stack integer overflow");
     Ok(())
@@ -292,11 +294,11 @@ pub fn read_register(caller: &mut Caller<'_, Ctx>, register_id: u64, ptr: u64) -
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { registers, result_state, .. }) = memory.data_and_store_mut(caller);
+    let (memory, ctx) = memory.data_and_store_mut(caller);
 
-    result_state.gas_counter.pay_base(base)?;
-    let buf = registers.get(&mut result_state.gas_counter, register_id)?;
-    write_memory(&mut result_state.gas_counter, memory, ptr, buf)?;
+    ctx.result_state.gas_counter.pay_base(base)?;
+    let buf = ctx.registers.get(&mut ctx.result_state.gas_counter, register_id)?;
+    write_memory(&mut ctx.result_state.gas_counter, memory, ptr, buf)?;
     Ok(())
 }
 
@@ -312,9 +314,9 @@ pub fn read_register(caller: &mut Caller<'_, Ctx>, register_id: u64, ptr: u64) -
 ///
 /// `base`
 pub fn register_len(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<u64> {
-    let Ctx { registers, result_state, .. } = caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
-    Ok(registers.get_len(register_id).unwrap_or(u64::MAX))
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    Ok(ctx.registers.get_len(register_id).unwrap_or(u64::MAX))
 }
 
 /// Copies `data` from the guest memory into the register. If register is unused will initialize
@@ -340,12 +342,12 @@ pub fn write_register(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { registers, result_state, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    let memory = read_memory(&mut result_state.gas_counter, memory, data_ptr, data_len)?;
-    registers.set(
-        &mut result_state.gas_counter,
-        &result_state.config.limit_config,
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    let memory = read_memory(&mut ctx.result_state.gas_counter, memory, data_ptr, data_len)?;
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.result_state.config.limit_config,
         register_id,
         memory,
     )
@@ -541,13 +543,13 @@ fn get_public_key(
 ///
 /// `base + write_register_base + write_register_byte * num_bytes`
 pub fn current_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
-    let Ctx { result_state, context, registers, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
-    registers.set(
-        &mut result_state.gas_counter,
-        &result_state.config.limit_config,
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.result_state.config.limit_config,
         register_id,
-        context.current_account_id.as_bytes(),
+        ctx.context.current_account_id.as_bytes(),
     )
 }
 
@@ -565,19 +567,19 @@ pub fn current_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Res
 ///
 /// `base + write_register_base + write_register_byte * num_bytes`
 pub fn signer_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
-    let Ctx { result_state, context, registers, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
 
-    if context.is_view() {
+    if ctx.context.is_view() {
         return Err(
             HostError::ProhibitedInView { method_name: "signer_account_id".to_string() }.into()
         );
     }
-    registers.set(
-        &mut result_state.gas_counter,
-        &result_state.config.limit_config,
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.result_state.config.limit_config,
         register_id,
-        context.signer_account_id.as_bytes(),
+        ctx.context.signer_account_id.as_bytes(),
     )
 }
 
@@ -594,19 +596,19 @@ pub fn signer_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Resu
 ///
 /// `base + write_register_base + write_register_byte * num_bytes`
 pub fn signer_account_pk(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
-    let Ctx { result_state, context, registers, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
 
-    if context.is_view() {
+    if ctx.context.is_view() {
         return Err(
             HostError::ProhibitedInView { method_name: "signer_account_pk".to_string() }.into()
         );
     }
-    registers.set(
-        &mut result_state.gas_counter,
-        &result_state.config.limit_config,
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.result_state.config.limit_config,
         register_id,
-        context.signer_account_pk.as_slice(),
+        ctx.context.signer_account_pk.as_slice(),
     )
 }
 
@@ -623,20 +625,20 @@ pub fn signer_account_pk(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Resu
 ///
 /// `base + write_register_base + write_register_byte * num_bytes`
 pub fn predecessor_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
-    let Ctx { result_state, context, registers, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
 
-    if context.is_view() {
+    if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView {
             method_name: "predecessor_account_id".to_string(),
         }
         .into());
     }
-    registers.set(
-        &mut result_state.gas_counter,
-        &result_state.config.limit_config,
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.result_state.config.limit_config,
         register_id,
-        context.predecessor_account_id.as_bytes(),
+        ctx.context.predecessor_account_id.as_bytes(),
     )
 }
 
@@ -648,14 +650,14 @@ pub fn predecessor_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) ->
 ///
 /// `base + write_register_base + write_register_byte * num_bytes`
 pub fn input(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
-    let Ctx { result_state, context, registers, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
 
-    registers.set(
-        &mut result_state.gas_counter,
-        &result_state.config.limit_config,
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.result_state.config.limit_config,
         register_id,
-        context.input.as_slice(),
+        ctx.context.input.as_slice(),
     )
 }
 
@@ -668,9 +670,9 @@ pub fn input(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
 ///
 /// `base`
 pub fn block_index(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
-    let Ctx { result_state, context, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
-    Ok(context.block_height)
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    Ok(ctx.context.block_height)
 }
 
 /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
@@ -679,9 +681,9 @@ pub fn block_index(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
 ///
 /// `base`
 pub fn block_timestamp(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
-    let Ctx { result_state, context, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
-    Ok(context.block_timestamp)
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    Ok(ctx.context.block_timestamp)
 }
 
 /// Returns the current epoch height.
@@ -690,9 +692,9 @@ pub fn block_timestamp(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
 ///
 /// `base`
 pub fn epoch_height(caller: &mut Caller<'_, Ctx>) -> Result<EpochHeight> {
-    let Ctx { result_state, context, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
-    Ok(context.epoch_height)
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    Ok(ctx.context.epoch_height)
 }
 
 /// Get the stake of an account, if the account is currently a validator. Otherwise returns 0.
@@ -711,18 +713,18 @@ pub fn validator_stake(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { registers, result_state, ext, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
     let account_id = read_and_parse_account_id(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
-        registers,
+        &ctx.registers,
         account_id_ptr,
         account_id_len,
     )?;
-    result_state.gas_counter.pay_base(validator_stake_base)?;
-    let balance = ext.validator_stake(&account_id)?.unwrap_or_default();
-    set_u128(&mut result_state.gas_counter, memory, stake_ptr, balance)
+    ctx.result_state.gas_counter.pay_base(validator_stake_base)?;
+    let balance = ctx.ext.validator_stake(&account_id)?.unwrap_or_default();
+    set_u128(&mut ctx.result_state.gas_counter, memory, stake_ptr, balance)
 }
 
 /// Get the total validator stake of the current epoch.
@@ -737,11 +739,11 @@ pub fn validator_total_stake(caller: &mut Caller<'_, Ctx>, stake_ptr: u64) -> Re
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, ext, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    result_state.gas_counter.pay_base(validator_total_stake_base)?;
-    let total_stake = ext.validator_total_stake()?;
-    set_u128(&mut result_state.gas_counter, memory, stake_ptr, total_stake)
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    ctx.result_state.gas_counter.pay_base(validator_total_stake_base)?;
+    let total_stake = ctx.ext.validator_total_stake()?;
+    set_u128(&mut ctx.result_state.gas_counter, memory, stake_ptr, total_stake)
 }
 
 /// Returns the number of bytes used by the contract if it was saved to the trie as of the
@@ -755,9 +757,9 @@ pub fn validator_total_stake(caller: &mut Caller<'_, Ctx>, stake_ptr: u64) -> Re
 ///
 /// `base`
 pub fn storage_usage(caller: &mut Caller<'_, Ctx>) -> Result<StorageUsage> {
-    let Ctx { result_state, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
-    Ok(result_state.current_storage_usage)
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    Ok(ctx.result_state.current_storage_usage)
 }
 
 // #################
@@ -775,13 +777,13 @@ pub fn account_balance(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Result
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
     set_u128(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
         balance_ptr,
-        result_state.current_account_balance,
+        ctx.result_state.current_account_balance,
     )
 }
 
@@ -795,10 +797,14 @@ pub fn account_locked_balance(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) ->
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, current_account_locked_balance, .. }) =
-        memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    set_u128(&mut result_state.gas_counter, memory, balance_ptr, *current_account_locked_balance)
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    set_u128(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        balance_ptr,
+        ctx.current_account_locked_balance,
+    )
 }
 
 /// The balance that was attached to the call that will be immediately deposited before the
@@ -816,9 +822,9 @@ pub fn attached_deposit(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Resul
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, context, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    set_u128(&mut result_state.gas_counter, memory, balance_ptr, context.attached_deposit)
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    set_u128(&mut ctx.result_state.gas_counter, memory, balance_ptr, ctx.context.attached_deposit)
 }
 
 /// The amount of gas attached to the call that can be used to pay for the gas fees.
@@ -831,12 +837,12 @@ pub fn attached_deposit(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Resul
 ///
 /// `base`
 pub fn prepaid_gas(caller: &mut Caller<'_, Ctx>) -> Result<Gas> {
-    let Ctx { result_state, context, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
-    if context.is_view() {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView { method_name: "prepaid_gas".to_string() }.into());
     }
-    Ok(context.prepaid_gas)
+    Ok(ctx.context.prepaid_gas)
 }
 
 /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
@@ -849,12 +855,12 @@ pub fn prepaid_gas(caller: &mut Caller<'_, Ctx>) -> Result<Gas> {
 ///
 /// `base`
 pub fn used_gas(caller: &mut Caller<'_, Ctx>) -> Result<Gas> {
-    let Ctx { result_state, context, .. } = &mut caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
-    if context.is_view() {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView { method_name: "used_gas".to_string() }.into());
     }
-    Ok(result_state.gas_counter.used_gas())
+    Ok(ctx.result_state.gas_counter.used_gas())
 }
 
 // ############
@@ -900,24 +906,24 @@ pub fn alt_bn128_g1_multiexp(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { registers, result_state, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(alt_bn128_g1_multiexp_base)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(alt_bn128_g1_multiexp_base)?;
     let data = get_memory_or_register(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
-        registers,
+        &ctx.registers,
         value_ptr,
         value_len,
     )?;
 
     let elements = alt_bn128::split_elements(&data)?;
-    result_state.gas_counter.pay_per(alt_bn128_g1_multiexp_element, elements.len() as u64)?;
+    ctx.result_state.gas_counter.pay_per(alt_bn128_g1_multiexp_element, elements.len() as u64)?;
 
     let res = alt_bn128::g1_multiexp(elements)?;
 
-    registers.set(
-        &mut result_state.gas_counter,
-        &result_state.config.limit_config,
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.result_state.config.limit_config,
         register_id,
         res,
     )
@@ -959,24 +965,24 @@ pub fn alt_bn128_g1_sum(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { registers, result_state, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(alt_bn128_g1_sum_base)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(alt_bn128_g1_sum_base)?;
     let data = get_memory_or_register(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
-        registers,
+        &ctx.registers,
         value_ptr,
         value_len,
     )?;
 
     let elements = alt_bn128::split_elements(&data)?;
-    result_state.gas_counter.pay_per(alt_bn128_g1_sum_element, elements.len() as u64)?;
+    ctx.result_state.gas_counter.pay_per(alt_bn128_g1_sum_element, elements.len() as u64)?;
 
     let res = alt_bn128::g1_sum(elements)?;
 
-    registers.set(
-        &mut result_state.gas_counter,
-        &result_state.config.limit_config,
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.result_state.config.limit_config,
         register_id,
         res,
     )
@@ -1018,18 +1024,18 @@ pub fn alt_bn128_pairing_check(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { registers, result_state, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
     let data = get_memory_or_register(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
-        registers,
+        &ctx.registers,
         value_ptr,
         value_len,
     )?;
 
     let elements = alt_bn128::split_elements(&data)?;
-    result_state.gas_counter.pay_per(alt_bn128_pairing_check_element, elements.len() as u64)?;
+    ctx.result_state.gas_counter.pay_per(alt_bn128_pairing_check_element, elements.len() as u64)?;
 
     let res = alt_bn128::pairing_check(elements)?;
 
@@ -1341,23 +1347,23 @@ pub fn bls12381_pairing_check(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { registers, result_state, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(bls12381_pairing_base)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(bls12381_pairing_base)?;
 
     const BLS_P1_SIZE: usize = 96;
     const BLS_P2_SIZE: usize = 192;
     const ITEM_SIZE: usize = BLS_P1_SIZE + BLS_P2_SIZE;
 
     let data = get_memory_or_register(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
-        registers,
+        &ctx.registers,
         value_ptr,
         value_len,
     )?;
     let elements_count = data.len() / ITEM_SIZE;
 
-    result_state.gas_counter.pay_per(bls12381_pairing_element, elements_count as u64)?;
+    ctx.result_state.gas_counter.pay_per(bls12381_pairing_element, elements_count as u64)?;
 
     bls12381::pairing_check(&data)
 }
@@ -1803,15 +1809,15 @@ pub fn ed25519_verify(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, registers, .. }) = memory.data_and_store_mut(caller);
+    let (memory, ctx) = memory.data_and_store_mut(caller);
 
-    result_state.gas_counter.pay_base(ed25519_verify_base)?;
+    ctx.result_state.gas_counter.pay_base(ed25519_verify_base)?;
 
     let signature: ed25519_dalek::Signature = {
         let vec = get_memory_or_register(
-            &mut result_state.gas_counter,
+            &mut ctx.result_state.gas_counter,
             memory,
-            registers,
+            &ctx.registers,
             signature_ptr,
             signature_len,
         )?;
@@ -1830,19 +1836,19 @@ pub fn ed25519_verify(
     };
 
     let message = get_memory_or_register(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
-        registers,
+        &ctx.registers,
         message_ptr,
         message_len,
     )?;
-    result_state.gas_counter.pay_per(ed25519_verify_byte, message.len() as u64)?;
+    ctx.result_state.gas_counter.pay_per(ed25519_verify_byte, message.len() as u64)?;
 
     let public_key: ed25519_dalek::VerifyingKey = {
         let vec = get_memory_or_register(
-            &mut result_state.gas_counter,
+            &mut ctx.result_state.gas_counter,
             memory,
-            registers,
+            &ctx.registers,
             public_key_ptr,
             public_key_len,
         )?;
@@ -3290,35 +3296,34 @@ pub fn promise_yield_resume(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, context, registers, ext, .. }) =
-        memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    if context.is_view() {
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
         return Err(
             HostError::ProhibitedInView { method_name: "promise_submit_data".to_string() }.into()
         );
     }
-    result_state.gas_counter.pay_base(yield_resume_base)?;
-    result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+    ctx.result_state.gas_counter.pay_base(yield_resume_base)?;
+    ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;
     let data_id = get_memory_or_register(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
-        registers,
+        &ctx.registers,
         data_id_ptr,
         data_id_len,
     )?;
     let payload = get_memory_or_register(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
-        registers,
+        &ctx.registers,
         payload_ptr,
         payload_len,
     )?;
     let payload_len = payload.len() as u64;
-    if payload_len > result_state.config.limit_config.max_yield_payload_size {
+    if payload_len > ctx.result_state.config.limit_config.max_yield_payload_size {
         return Err(HostError::YieldPayloadLength {
             length: payload_len,
-            limit: result_state.config.limit_config.max_yield_payload_size,
+            limit: ctx.result_state.config.limit_config.max_yield_payload_size,
         }
         .into());
     }
@@ -3327,7 +3332,7 @@ pub fn promise_yield_resume(
         (&*data_id).try_into().map_err(|_| HostError::DataIdMalformed)?;
     let data_id = CryptoHash(data_id);
     let payload = payload.into();
-    ext.submit_promise_resume_data(data_id, payload).map(u32::from)
+    ctx.ext.submit_promise_resume_data(data_id, payload).map(u32::from)
 }
 
 /// If the current function is invoked by a callback we can access the execution results of the
@@ -3383,23 +3388,24 @@ pub fn promise_result(
     result_idx: u64,
     register_id: u64,
 ) -> Result<u64> {
-    let Ctx { result_state, registers, context, .. } = caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
-    if context.is_view() {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
         return Err(
             HostError::ProhibitedInView { method_name: "promise_result".to_string() }.into()
         );
     }
-    match context
+    match ctx
+        .context
         .promise_results
         .get(result_idx as usize)
         .ok_or(HostError::InvalidPromiseResultIndex { result_idx })?
     {
         PromiseResult::NotReady => Ok(0),
         PromiseResult::Successful(data) => {
-            registers.set(
-                &mut result_state.gas_counter,
-                &result_state.config.limit_config,
+            ctx.registers.set(
+                &mut ctx.result_state.gas_counter,
+                &ctx.result_state.config.limit_config,
                 register_id,
                 data.as_slice(),
             )?;
@@ -3421,20 +3427,21 @@ pub fn promise_result(
 ///
 /// `base + promise_return`
 pub fn promise_return(caller: &mut Caller<'_, Ctx>, promise_idx: u64) -> Result<()> {
-    let Ctx { result_state, context, promises, .. } = caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
-    result_state.gas_counter.pay_base(ExtCosts::promise_return)?;
-    if context.is_view() {
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
+    ctx.result_state.gas_counter.pay_base(ExtCosts::promise_return)?;
+    if ctx.context.is_view() {
         return Err(
             HostError::ProhibitedInView { method_name: "promise_return".to_string() }.into()
         );
     }
-    match promises
+    match ctx
+        .promises
         .get(promise_idx as usize)
         .ok_or(HostError::InvalidPromiseIndex { promise_idx })?
     {
         Promise::Receipt(receipt_idx) => {
-            result_state.return_data = ReturnData::ReceiptIndex(*receipt_idx);
+            ctx.result_state.return_data = ReturnData::ReceiptIndex(*receipt_idx);
             Ok(())
         }
         Promise::NotReceipt(_) => Err(HostError::CannotReturnJointPromise.into()),
@@ -3461,27 +3468,26 @@ pub fn value_return(caller: &mut Caller<'_, Ctx>, value_len: u64, value_ptr: u64
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, registers, fees_config, context, .. }) =
-        memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
     let return_val = get_memory_or_register(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
-        registers,
+        &ctx.registers,
         value_ptr,
         value_len,
     )?;
     let mut burn_gas: Gas = 0;
     let num_bytes = return_val.len() as u64;
-    if num_bytes > result_state.config.limit_config.max_length_returned_data {
+    if num_bytes > ctx.result_state.config.limit_config.max_length_returned_data {
         return Err(HostError::ReturnedValueLengthExceeded {
             length: num_bytes,
-            limit: result_state.config.limit_config.max_length_returned_data,
+            limit: ctx.result_state.config.limit_config.max_length_returned_data,
         }
         .into());
     }
-    for data_receiver in &context.output_data_receivers {
-        let sir = data_receiver == &context.current_account_id;
+    for data_receiver in &ctx.context.output_data_receivers {
+        let sir = data_receiver == &ctx.context.current_account_id;
         // We deduct for execution here too, because if we later have an OR combinator
         // for promises then we might have some valid data receipts that arrive too late
         // to be picked up by the execution that waits on them (because it has started
@@ -3491,22 +3497,22 @@ pub fn value_return(caller: &mut Caller<'_, Ctx>, value_len: u64, value_ptr: u64
         // The gas here is considered burnt, cause we'll prepay for it upfront.
         burn_gas = burn_gas
             .checked_add(
-                fees_config
+                ctx.fees_config
                     .fee(ActionCosts::new_data_receipt_byte)
                     .send_fee(sir)
-                    .checked_add(fees_config.fee(ActionCosts::new_data_receipt_byte).exec_fee())
+                    .checked_add(ctx.fees_config.fee(ActionCosts::new_data_receipt_byte).exec_fee())
                     .ok_or(HostError::IntegerOverflow)?
                     .checked_mul(num_bytes)
                     .ok_or(HostError::IntegerOverflow)?,
             )
             .ok_or(HostError::IntegerOverflow)?;
     }
-    result_state.gas_counter.pay_action_accumulated(
+    ctx.result_state.gas_counter.pay_action_accumulated(
         burn_gas,
         burn_gas,
         ActionCosts::new_data_receipt_byte,
     )?;
-    result_state.return_data = ReturnData::Value(return_val.into());
+    ctx.result_state.return_data = ReturnData::Value(return_val.into());
     Ok(())
 }
 
@@ -3516,8 +3522,8 @@ pub fn value_return(caller: &mut Caller<'_, Ctx>, value_len: u64, value_ptr: u64
 ///
 /// `base`
 pub fn panic(caller: &mut Caller<'_, Ctx>) -> Result<()> {
-    let Ctx { result_state, .. } = caller.data_mut();
-    result_state.gas_counter.pay_base(base)?;
+    let ctx = caller.data_mut();
+    ctx.result_state.gas_counter.pay_base(base)?;
     Err(HostError::GuestPanic { panic_msg: "explicit guest panic".to_string() }.into())
 }
 
@@ -3537,10 +3543,12 @@ pub fn panic_utf8(caller: &mut Caller<'_, Ctx>, len: u64, ptr: u64) -> Result<()
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    Err(HostError::GuestPanic { panic_msg: get_utf8_string(result_state, memory, len, ptr)? }
-        .into())
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    Err(HostError::GuestPanic {
+        panic_msg: get_utf8_string(&mut ctx.result_state, memory, len, ptr)?,
+    }
+    .into())
 }
 
 /// Logs the UTF-8 encoded string.
@@ -3563,13 +3571,13 @@ pub fn log_utf8(caller: &mut Caller<'_, Ctx>, len: u64, ptr: u64) -> Result<()> 
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    result_state.check_can_add_a_log_message()?;
-    let message = get_utf8_string(result_state, memory, len, ptr)?;
-    result_state.gas_counter.pay_base(log_base)?;
-    result_state.gas_counter.pay_per(log_byte, message.len() as u64)?;
-    result_state.checked_push_log(message)
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    ctx.result_state.check_can_add_a_log_message()?;
+    let message = get_utf8_string(&mut ctx.result_state, memory, len, ptr)?;
+    ctx.result_state.gas_counter.pay_base(log_base)?;
+    ctx.result_state.gas_counter.pay_per(log_byte, message.len() as u64)?;
+    ctx.result_state.checked_push_log(message)
 }
 
 /// Logs the UTF-16 encoded string. If `len == u64::MAX` then treats the string as
@@ -3592,14 +3600,14 @@ pub fn log_utf16(caller: &mut Caller<'_, Ctx>, len: u64, ptr: u64) -> Result<()>
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    result_state.check_can_add_a_log_message()?;
-    let message = get_utf16_string(result_state, memory, len, ptr)?;
-    result_state.gas_counter.pay_base(log_base)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    ctx.result_state.check_can_add_a_log_message()?;
+    let message = get_utf16_string(&mut ctx.result_state, memory, len, ptr)?;
+    ctx.result_state.gas_counter.pay_base(log_base)?;
     // Let's not use `encode_utf16` for gas per byte here, since it's a lot of compute.
-    result_state.gas_counter.pay_per(log_byte, message.len() as u64)?;
-    result_state.checked_push_log(message)
+    ctx.result_state.gas_counter.pay_per(log_byte, message.len() as u64)?;
+    ctx.result_state.checked_push_log(message)
 }
 
 /// Special import kept for compatibility with AssemblyScript contracts. Not called by smart
@@ -3628,25 +3636,26 @@ pub fn abort(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, .. }) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
     if msg_ptr < 4 || filename_ptr < 4 {
         return Err(HostError::BadUTF16.into());
     }
-    result_state.check_can_add_a_log_message()?;
+    ctx.result_state.check_can_add_a_log_message()?;
 
     // Underflow checked above.
-    let msg_len = get_u32(&mut result_state.gas_counter, memory, (msg_ptr - 4) as u64)?;
-    let filename_len = get_u32(&mut result_state.gas_counter, memory, (filename_ptr - 4) as u64)?;
+    let msg_len = get_u32(&mut ctx.result_state.gas_counter, memory, (msg_ptr - 4) as u64)?;
+    let filename_len =
+        get_u32(&mut ctx.result_state.gas_counter, memory, (filename_ptr - 4) as u64)?;
 
-    let msg = get_utf16_string(result_state, memory, msg_len as u64, msg_ptr as u64)?;
+    let msg = get_utf16_string(&mut ctx.result_state, memory, msg_len as u64, msg_ptr as u64)?;
     let filename =
-        get_utf16_string(result_state, memory, filename_len as u64, filename_ptr as u64)?;
+        get_utf16_string(&mut ctx.result_state, memory, filename_len as u64, filename_ptr as u64)?;
 
     let message = format!("{}, filename: \"{}\" line: {} col: {}", msg, filename, line, col);
-    result_state.gas_counter.pay_base(log_base)?;
-    result_state.gas_counter.pay_per(log_byte, message.as_bytes().len() as u64)?;
-    result_state.checked_push_log(format!("ABORT: {}", message))?;
+    ctx.result_state.gas_counter.pay_base(log_base)?;
+    ctx.result_state.gas_counter.pay_per(log_byte, message.as_bytes().len() as u64)?;
+    ctx.result_state.checked_push_log(format!("ABORT: {}", message))?;
 
     Err(HostError::GuestPanic { panic_msg: message }.into())
 }
@@ -3724,60 +3733,62 @@ pub fn storage_write(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (
-        memory,
-        Ctx {
-            result_state, context, registers, fees_config, ext, recorded_storage_counter, ..
-        },
-    ) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    if context.is_view() {
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView { method_name: "storage_write".to_string() }.into());
     }
-    result_state.gas_counter.pay_base(storage_write_base)?;
-    let key =
-        get_memory_or_register(&mut result_state.gas_counter, memory, registers, key_ptr, key_len)?;
-    if key.len() as u64 > result_state.config.limit_config.max_length_storage_key {
+    ctx.result_state.gas_counter.pay_base(storage_write_base)?;
+    let key = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        key_ptr,
+        key_len,
+    )?;
+    if key.len() as u64 > ctx.result_state.config.limit_config.max_length_storage_key {
         return Err(HostError::KeyLengthExceeded {
             length: key.len() as u64,
-            limit: result_state.config.limit_config.max_length_storage_key,
+            limit: ctx.result_state.config.limit_config.max_length_storage_key,
         }
         .into());
     }
     let value = get_memory_or_register(
-        &mut result_state.gas_counter,
+        &mut ctx.result_state.gas_counter,
         memory,
-        registers,
+        &ctx.registers,
         value_ptr,
         value_len,
     )?;
-    if value.len() as u64 > result_state.config.limit_config.max_length_storage_value {
+    if value.len() as u64 > ctx.result_state.config.limit_config.max_length_storage_value {
         return Err(HostError::ValueLengthExceeded {
             length: value.len() as u64,
-            limit: result_state.config.limit_config.max_length_storage_value,
+            limit: ctx.result_state.config.limit_config.max_length_storage_value,
         }
         .into());
     }
-    result_state.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
-    result_state.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
-    let evicted = ext.storage_set(&mut result_state.gas_counter, &key, &value)?;
-    let storage_config = &fees_config.storage_usage_config;
-    recorded_storage_counter.observe_size(ext.get_recorded_storage_size())?;
+    ctx.result_state.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
+    ctx.result_state.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
+    let evicted = ctx.ext.storage_set(&mut ctx.result_state.gas_counter, &key, &value)?;
+    let storage_config = &ctx.fees_config.storage_usage_config;
+    ctx.recorded_storage_counter.observe_size(ctx.ext.get_recorded_storage_size())?;
     match evicted {
         Some(old_value) => {
             // Inner value can't overflow, because the value length is limited.
-            result_state.current_storage_usage = result_state
+            ctx.result_state.current_storage_usage = ctx
+                .result_state
                 .current_storage_usage
                 .checked_sub(old_value.len() as u64)
                 .ok_or(InconsistentStateError::IntegerOverflow)?;
             // Inner value can't overflow, because the value length is limited.
-            result_state.current_storage_usage = result_state
+            ctx.result_state.current_storage_usage = ctx
+                .result_state
                 .current_storage_usage
                 .checked_add(value.len() as u64)
                 .ok_or(InconsistentStateError::IntegerOverflow)?;
-            registers.set(
-                &mut result_state.gas_counter,
-                &result_state.config.limit_config,
+            ctx.registers.set(
+                &mut ctx.result_state.gas_counter,
+                &ctx.result_state.config.limit_config,
                 register_id,
                 old_value,
             )?;
@@ -3785,7 +3796,8 @@ pub fn storage_write(
         }
         None => {
             // Inner value can't overflow, because the key/value length is limited.
-            result_state.current_storage_usage = result_state
+            ctx.result_state.current_storage_usage = ctx
+                .result_state
                 .current_storage_usage
                 .checked_add(
                     value.len() as u64 + key.len() as u64 + storage_config.num_extra_bytes_record,
@@ -3823,29 +3835,33 @@ pub fn storage_read(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, registers, ext, recorded_storage_counter, .. }) =
-        memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    result_state.gas_counter.pay_base(storage_read_base)?;
-    let key =
-        get_memory_or_register(&mut result_state.gas_counter, memory, registers, key_ptr, key_len)?;
-    if key.len() as u64 > result_state.config.limit_config.max_length_storage_key {
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    ctx.result_state.gas_counter.pay_base(storage_read_base)?;
+    let key = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        key_ptr,
+        key_len,
+    )?;
+    if key.len() as u64 > ctx.result_state.config.limit_config.max_length_storage_key {
         return Err(HostError::KeyLengthExceeded {
             length: key.len() as u64,
-            limit: result_state.config.limit_config.max_length_storage_key,
+            limit: ctx.result_state.config.limit_config.max_length_storage_key,
         }
         .into());
     }
-    result_state.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
-    let read = ext.storage_get(&mut result_state.gas_counter, &key);
+    ctx.result_state.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
+    let read = ctx.ext.storage_get(&mut ctx.result_state.gas_counter, &key);
     let read = match read? {
         Some(read) => {
             // Here we'll do u32 -> usize -> u64, which is always infallible
             let read_len = read.len() as usize;
-            result_state.gas_counter.pay_per(storage_read_value_byte, read_len as u64)?;
+            ctx.result_state.gas_counter.pay_per(storage_read_value_byte, read_len as u64)?;
             if read_len > INLINE_DISK_VALUE_THRESHOLD {
-                result_state.gas_counter.pay_base(storage_large_read_overhead_base)?;
-                result_state
+                ctx.result_state.gas_counter.pay_base(storage_large_read_overhead_base)?;
+                ctx.result_state
                     .gas_counter
                     .pay_per(storage_large_read_overhead_byte, read_len as u64)?;
             }
@@ -3854,12 +3870,12 @@ pub fn storage_read(
         None => None,
     };
 
-    recorded_storage_counter.observe_size(ext.get_recorded_storage_size())?;
+    ctx.recorded_storage_counter.observe_size(ctx.ext.get_recorded_storage_size())?;
     match read {
         Some(value) => {
-            registers.set(
-                &mut result_state.gas_counter,
-                &result_state.config.limit_config,
+            ctx.registers.set(
+                &mut ctx.result_state.gas_counter,
+                &ctx.result_state.config.limit_config,
                 register_id,
                 value,
             )?;
@@ -3898,44 +3914,45 @@ pub fn storage_remove(
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (
-        memory,
-        Ctx {
-            result_state, registers, ext, recorded_storage_counter, context, fees_config, ..
-        },
-    ) = memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    if context.is_view() {
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
         return Err(
             HostError::ProhibitedInView { method_name: "storage_remove".to_string() }.into()
         );
     }
-    result_state.gas_counter.pay_base(storage_remove_base)?;
-    let key =
-        get_memory_or_register(&mut result_state.gas_counter, memory, registers, key_ptr, key_len)?;
-    if key.len() as u64 > result_state.config.limit_config.max_length_storage_key {
+    ctx.result_state.gas_counter.pay_base(storage_remove_base)?;
+    let key = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        key_ptr,
+        key_len,
+    )?;
+    if key.len() as u64 > ctx.result_state.config.limit_config.max_length_storage_key {
         return Err(HostError::KeyLengthExceeded {
             length: key.len() as u64,
-            limit: result_state.config.limit_config.max_length_storage_key,
+            limit: ctx.result_state.config.limit_config.max_length_storage_key,
         }
         .into());
     }
-    result_state.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
-    let removed = ext.storage_remove(&mut result_state.gas_counter, &key)?;
-    let storage_config = &fees_config.storage_usage_config;
-    recorded_storage_counter.observe_size(ext.get_recorded_storage_size())?;
+    ctx.result_state.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
+    let removed = ctx.ext.storage_remove(&mut ctx.result_state.gas_counter, &key)?;
+    let storage_config = &ctx.fees_config.storage_usage_config;
+    ctx.recorded_storage_counter.observe_size(ctx.ext.get_recorded_storage_size())?;
     match removed {
         Some(value) => {
             // Inner value can't overflow, because the key/value length is limited.
-            result_state.current_storage_usage = result_state
+            ctx.result_state.current_storage_usage = ctx
+                .result_state
                 .current_storage_usage
                 .checked_sub(
                     value.len() as u64 + key.len() as u64 + storage_config.num_extra_bytes_record,
                 )
                 .ok_or(InconsistentStateError::IntegerOverflow)?;
-            registers.set(
-                &mut result_state.gas_counter,
-                &result_state.config.limit_config,
+            ctx.registers.set(
+                &mut ctx.result_state.gas_counter,
+                &ctx.result_state.config.limit_config,
                 register_id,
                 value,
             )?;
@@ -3962,23 +3979,27 @@ pub fn storage_has_key(caller: &mut Caller<'_, Ctx>, key_len: u64, key_ptr: u64)
     let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
         return Err(HostError::MemoryAccessViolation.into());
     };
-    let (memory, Ctx { result_state, registers, recorded_storage_counter, ext, .. }) =
-        memory.data_and_store_mut(caller);
-    result_state.gas_counter.pay_base(base)?;
-    result_state.gas_counter.pay_base(storage_has_key_base)?;
-    let key =
-        get_memory_or_register(&mut result_state.gas_counter, memory, registers, key_ptr, key_len)?;
-    if key.len() as u64 > result_state.config.limit_config.max_length_storage_key {
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    ctx.result_state.gas_counter.pay_base(storage_has_key_base)?;
+    let key = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        key_ptr,
+        key_len,
+    )?;
+    if key.len() as u64 > ctx.result_state.config.limit_config.max_length_storage_key {
         return Err(HostError::KeyLengthExceeded {
             length: key.len() as u64,
-            limit: result_state.config.limit_config.max_length_storage_key,
+            limit: ctx.result_state.config.limit_config.max_length_storage_key,
         }
         .into());
     }
-    result_state.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
-    let res = ext.storage_has_key(&mut result_state.gas_counter, &key);
+    ctx.result_state.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
+    let res = ctx.ext.storage_has_key(&mut ctx.result_state.gas_counter, &key);
 
-    recorded_storage_counter.observe_size(ext.get_recorded_storage_size())?;
+    ctx.recorded_storage_counter.observe_size(ctx.ext.get_recorded_storage_size())?;
     Ok(res? as u64)
 }
 
