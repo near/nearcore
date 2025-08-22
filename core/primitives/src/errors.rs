@@ -1122,6 +1122,10 @@ pub enum PrepareError {
     TooManyFunctions = 7,
     /// Contract contains too many locals.
     TooManyLocals = 8,
+    /// Contract contains too many tables.
+    TooManyTables = 9,
+    /// Contract contains too many table elements.
+    TooManyTableElements = 10,
 }
 
 /// A kind of a trap happened during execution of a binary

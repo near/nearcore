@@ -1,5 +1,6 @@
 use std::any::type_name;
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -10,19 +11,22 @@ use crate::messaging::{
 };
 use crate::tokio::runtime_handle::{TokioRuntimeHandle, TokioRuntimeMessage};
 
+static SEQUENCE_NUM: AtomicU64 = AtomicU64::new(0);
+
 impl<A, M> CanSend<M> for TokioRuntimeHandle<A>
 where
     A: HandlerWithContext<M> + 'static,
     M: Message + Debug + Send + 'static,
 {
     fn send(&self, message: M) {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
-        tracing::debug!(target: "tokio_runtime", "Sending sync message: {}", description);
+        let seq = SEQUENCE_NUM.fetch_add(1, Ordering::Relaxed);
+        let handler = pretty_type_name::<A>();
+        tracing::trace!(target: "tokio_runtime", seq, handler, ?message, "sending sync message");
 
         let function =
             |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| actor.handle(message, ctx);
 
-        let message = TokioRuntimeMessage { description, function: Box::new(function) };
+        let message = TokioRuntimeMessage { seq, function: Box::new(function) };
         self.sender.send(message).unwrap();
     }
 }
@@ -35,15 +39,22 @@ where
     R: Send + 'static,
 {
     fn send(&self, message: MessageWithCallback<M, R>) {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
-        tracing::debug!(target: "tokio_runtime", "Sending sync message with callback: {}", description);
+        let seq = SEQUENCE_NUM.fetch_add(1, Ordering::Relaxed);
+        let handler = pretty_type_name::<A>();
+        tracing::trace!(
+            target: "tokio_runtime",
+            seq,
+            handler,
+            ?message,
+            "sending sync message with callback"
+        );
 
         let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
             let result = actor.handle(message.message, ctx);
             (message.callback)(std::future::ready(Ok(result)).boxed());
         };
 
-        let message = TokioRuntimeMessage { description, function: Box::new(function) };
+        let message = TokioRuntimeMessage { seq, function: Box::new(function) };
         self.sender.send(message).unwrap();
     }
 }
@@ -55,17 +66,16 @@ where
     R: Debug + Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
-        tracing::debug!(target: "tokio_runtime", "Sending async message: {}", description);
-
+        let seq = SEQUENCE_NUM.fetch_add(1, Ordering::Relaxed);
+        let handler = pretty_type_name::<A>();
+        tracing::trace!(target: "tokio_runtime", seq, handler, ?message, "sending async message");
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let future = async move { receiver.await.map_err(|_| AsyncSendError::Dropped) };
         let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
             let result = actor.handle(message, ctx);
             sender.send(result).unwrap();
         };
-
-        let message = TokioRuntimeMessage { description, function: Box::new(function) };
+        let message = TokioRuntimeMessage { seq, function: Box::new(function) };
         self.sender.send(message).unwrap();
         future.boxed()
     }
@@ -73,7 +83,7 @@ where
 
 impl<A> FutureSpawner for TokioRuntimeHandle<A> {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
-        tracing::debug!(target: "tokio_runtime", "Spawning future: FutureSpawn({})", description);
+        tracing::debug!(target: "tokio_runtime", description, "spawning future");
         self.runtime.spawn(f);
     }
 }
@@ -84,18 +94,17 @@ where
 {
     fn run_later_boxed(
         &mut self,
-        name: &str,
+        name: &'static str,
         dur: near_time::Duration,
         f: Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send + 'static>,
     ) {
-        let description = format!("DelayedAction {}({:?})", pretty_type_name::<A>(), name);
-        tracing::debug!(target: "tokio_runtime", "Sending delayed action: {}", description);
-
+        let seq = SEQUENCE_NUM.fetch_add(1, Ordering::Relaxed);
+        tracing::debug!(target: "tokio_runtime", seq, name, "sending delayed action");
         let sender = self.sender.clone();
         self.runtime.spawn(async move {
             tokio::time::sleep(dur.unsigned_abs()).await;
             let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| f(actor, ctx);
-            let message = TokioRuntimeMessage { description, function: Box::new(function) };
+            let message = TokioRuntimeMessage { seq, function: Box::new(function) };
             sender.send(message).unwrap();
         });
     }

@@ -18,7 +18,7 @@
 
 use super::ops::iter::TrieTraversalItem;
 use super::trie_storage_update::{TrieStorageNode, TrieStorageNodeWithSize};
-use super::{AccessOptions, TrieRefcountDeltaMap};
+use super::{AccessOptions, NUM_CHILDREN, TrieRefcountDeltaMap};
 use crate::flat::{FlatStateChanges, FlatStateIterator};
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
@@ -349,7 +349,7 @@ impl Trie {
                     return Ok(false);
                 }
 
-                for index in 0..16 {
+                for index in 0..NUM_CHILDREN {
                     if let Some(child) = &children[index] {
                         let child = self.retrieve_storage_node(child)?;
                         if *memory_skipped + child.memory_usage > memory_threshold {
@@ -683,7 +683,7 @@ mod tests {
                             continue;
                         }
                         CrumbStatus::AtChild(mut i) => loop {
-                            if i >= 16 {
+                            if (i as usize) >= NUM_CHILDREN {
                                 stack.push((hash, node, CrumbStatus::Exiting));
                                 break;
                             }
@@ -804,7 +804,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let max_key_length = 50u64;
         let max_key_length_in_nibbles = max_key_length * 2;
-        let max_node_children = 16;
+        let max_node_children = NUM_CHILDREN as u64;
         let max_node_serialized_size = 32 * max_node_children + 100; // Full branch node overhead.
         let max_proof_overhead =
             max_key_length_in_nibbles * max_node_children * max_node_serialized_size;

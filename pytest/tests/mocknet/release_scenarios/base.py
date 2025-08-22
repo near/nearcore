@@ -268,7 +268,7 @@ class TestSetup:
             stop_nodes_args = copy.deepcopy(self.args)
             stop_nodes_args.host_type = 'nodes'
             stop_nodes_args.select_partition = (i, 4)
-            stop_nodes_args.schedule_in = f"{(i * minutes)}m"
+            stop_nodes_args.on = ("active", f"{(i * minutes)}m")
             stop_nodes_args.schedule_id = f"up-stop-{i}"
             stop_nodes_cmd(CommandContext(stop_nodes_args))
 
@@ -278,14 +278,14 @@ class TestSetup:
             amend_binaries_args.neard_binary_url = self.neard_upgrade_binary_url
             amend_binaries_args.host_type = 'nodes'
             amend_binaries_args.select_partition = (i, 4)
-            amend_binaries_args.schedule_in = f"{(i * minutes * 60 + 20)}"
+            amend_binaries_args.on = ("active", f"{(i * minutes * 60 + 20)}")
             amend_binaries_args.schedule_id = f"up-change-{i}"
             amend_binaries_cmd(CommandContext(amend_binaries_args))
 
             start_nodes_args = copy.deepcopy(self.args)
             start_nodes_args.host_type = 'nodes'
             start_nodes_args.select_partition = (i, 4)
-            start_nodes_args.schedule_in = f"{(i*minutes + 1)}m"
+            start_nodes_args.on = ("active", f"{(i*minutes + 1)}m")
             start_nodes_args.schedule_id = f"up-start-{i}"
             start_nodes_cmd(CommandContext(start_nodes_args))
 
