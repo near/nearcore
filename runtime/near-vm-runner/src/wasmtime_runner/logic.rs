@@ -61,7 +61,7 @@ macro_rules! bls12381_impl {
             if let Some(res) = res_option {
                 ctx.registers.set(
                     &mut ctx.result_state.gas_counter,
-                    &ctx.result_state.config.limit_config,
+                    &ctx.config.limit_config,
                     register_id,
                     res.as_slice(),
                 )?;
@@ -247,7 +247,7 @@ pub fn finite_wasm_stack(
             Some(s) => s,
             None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
         };
-    let gas = ((frame_size + 7) / 8) * u64::from(ctx.result_state.config.regular_op_cost);
+    let gas = ((frame_size + 7) / 8) * u64::from(ctx.config.regular_op_cost);
     consume_gas(&mut ctx.result_state.gas_counter, gas)?;
     Ok(())
 }
@@ -347,7 +347,7 @@ pub fn write_register(
     let memory = read_memory(&mut ctx.result_state.gas_counter, memory, data_ptr, data_len)?;
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         memory,
     )
@@ -506,12 +506,10 @@ fn get_nul_terminated_utf16_len(
 fn checked_push_promise(ctx: &mut Ctx, promise: Promise) -> Result<PromiseIndex> {
     let new_promise_idx = ctx.promises.len() as PromiseIndex;
     ctx.promises.push(promise);
-    if ctx.promises.len() as u64
-        > ctx.result_state.config.limit_config.max_promises_per_function_call_action
-    {
+    if ctx.promises.len() as u64 > ctx.config.limit_config.max_promises_per_function_call_action {
         Err(HostError::NumberPromisesExceeded {
             number_of_promises: ctx.promises.len() as u64,
-            limit: ctx.result_state.config.limit_config.max_promises_per_function_call_action,
+            limit: ctx.config.limit_config.max_promises_per_function_call_action,
         }
         .into())
     } else {
@@ -547,7 +545,7 @@ pub fn current_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Res
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         ctx.context.current_account_id.as_bytes(),
     )
@@ -577,7 +575,7 @@ pub fn signer_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Resu
     }
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         ctx.context.signer_account_id.as_bytes(),
     )
@@ -606,7 +604,7 @@ pub fn signer_account_pk(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Resu
     }
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         ctx.context.signer_account_pk.as_slice(),
     )
@@ -636,7 +634,7 @@ pub fn predecessor_account_id(caller: &mut Caller<'_, Ctx>, register_id: u64) ->
     }
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         ctx.context.predecessor_account_id.as_bytes(),
     )
@@ -655,7 +653,7 @@ pub fn input(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
 
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         ctx.context.input.as_slice(),
     )
@@ -921,12 +919,7 @@ pub fn alt_bn128_g1_multiexp(
 
     let res = alt_bn128::g1_multiexp(elements)?;
 
-    ctx.registers.set(
-        &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
-        register_id,
-        res,
-    )
+    ctx.registers.set(&mut ctx.result_state.gas_counter, &ctx.config.limit_config, register_id, res)
 }
 
 /// Computes sum for signed g1 group elements on alt_bn128 curve \sum_i
@@ -980,12 +973,7 @@ pub fn alt_bn128_g1_sum(
 
     let res = alt_bn128::g1_sum(elements)?;
 
-    ctx.registers.set(
-        &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
-        register_id,
-        res,
-    )
+    ctx.registers.set(&mut ctx.result_state.gas_counter, &ctx.config.limit_config, register_id, res)
 }
 
 /// Computes pairing check on alt_bn128 curve.
@@ -1474,7 +1462,7 @@ pub fn random_seed(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()>
     ctx.result_state.gas_counter.pay_base(base)?;
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         ctx.context.random_seed.as_slice(),
     )
@@ -1516,7 +1504,7 @@ pub fn sha256(
     let value_hash = sha2::Sha256::digest(&value);
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         value_hash.as_slice(),
     )
@@ -1558,7 +1546,7 @@ pub fn keccak256(
     let value_hash = sha3::Keccak256::digest(&value);
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         value_hash.as_slice(),
     )
@@ -1600,7 +1588,7 @@ pub fn keccak512(
     let value_hash = sha3::Keccak512::digest(&value);
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         value_hash.as_slice(),
     )
@@ -1649,7 +1637,7 @@ pub fn ripemd160(
     let value_hash = ripemd::Ripemd160::digest(&value);
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         value_hash.as_slice(),
     )
@@ -1760,7 +1748,7 @@ pub fn ecrecover(
     if let Ok(pk) = signature.recover(hash) {
         ctx.registers.set(
             &mut ctx.result_state.gas_counter,
-            &ctx.result_state.config.limit_config,
+            &ctx.config.limit_config,
             register_id,
             pk.as_ref(),
         )?;
@@ -2107,11 +2095,11 @@ pub fn promise_and(
         }
         // Checking this in the loop to prevent abuse of too many joined vectors.
         if receipt_dependencies.len() as u64
-            > ctx.result_state.config.limit_config.max_number_input_data_dependencies
+            > ctx.config.limit_config.max_number_input_data_dependencies
         {
             return Err(HostError::NumberInputDataDependenciesExceeded {
                 number_of_input_data_dependencies: receipt_dependencies.len() as u64,
-                limit: ctx.result_state.config.limit_config.max_number_input_data_dependencies,
+                limit: ctx.config.limit_config.max_number_input_data_dependencies,
             }
             .into());
         }
@@ -2339,7 +2327,7 @@ pub fn promise_batch_action_deploy_contract(
         code_len,
     )?;
     let code_len = code.len() as u64;
-    let limit = ctx.result_state.config.limit_config.max_contract_size;
+    let limit = ctx.config.limit_config.max_contract_size;
     if code_len > limit {
         return Err(HostError::ContractSizeExceeded { size: code_len, limit }.into());
     }
@@ -2457,7 +2445,7 @@ fn promise_batch_action_deploy_global_contract_impl(
         code_len,
     )?;
     let code_len = code.len() as u64;
-    let limit = ctx.result_state.config.limit_config.max_contract_size;
+    let limit = ctx.config.limit_config.max_contract_size;
     if code_len > limit {
         return Err(HostError::ContractSizeExceeded { size: code_len, limit }.into());
     }
@@ -2800,14 +2788,14 @@ pub fn promise_batch_action_transfer(
     let send_fee = transfer_send_fee(
         &ctx.fees_config,
         sir,
-        ctx.result_state.config.implicit_account_creation,
-        ctx.result_state.config.eth_implicit_accounts,
+        ctx.config.implicit_account_creation,
+        ctx.config.eth_implicit_accounts,
         receiver_id.get_account_type(),
     );
     let exec_fee = transfer_exec_fee(
         &ctx.fees_config,
-        ctx.result_state.config.implicit_account_creation,
-        ctx.result_state.config.eth_implicit_accounts,
+        ctx.config.implicit_account_creation,
+        ctx.config.eth_implicit_accounts,
         receiver_id.get_account_type(),
     );
     let burn_gas = send_fee;
@@ -3252,7 +3240,7 @@ pub fn promise_yield_create(
 
     ctx.registers.set(
         &mut ctx.result_state.gas_counter,
-        &ctx.result_state.config.limit_config,
+        &ctx.config.limit_config,
         register_id,
         *data_id.as_bytes(),
     )?;
@@ -3320,10 +3308,10 @@ pub fn promise_yield_resume(
         payload_len,
     )?;
     let payload_len = payload.len() as u64;
-    if payload_len > ctx.result_state.config.limit_config.max_yield_payload_size {
+    if payload_len > ctx.config.limit_config.max_yield_payload_size {
         return Err(HostError::YieldPayloadLength {
             length: payload_len,
-            limit: ctx.result_state.config.limit_config.max_yield_payload_size,
+            limit: ctx.config.limit_config.max_yield_payload_size,
         }
         .into());
     }
@@ -3405,7 +3393,7 @@ pub fn promise_result(
         PromiseResult::Successful(data) => {
             ctx.registers.set(
                 &mut ctx.result_state.gas_counter,
-                &ctx.result_state.config.limit_config,
+                &ctx.config.limit_config,
                 register_id,
                 data.as_slice(),
             )?;
@@ -3479,10 +3467,10 @@ pub fn value_return(caller: &mut Caller<'_, Ctx>, value_len: u64, value_ptr: u64
     )?;
     let mut burn_gas: Gas = 0;
     let num_bytes = return_val.len() as u64;
-    if num_bytes > ctx.result_state.config.limit_config.max_length_returned_data {
+    if num_bytes > ctx.config.limit_config.max_length_returned_data {
         return Err(HostError::ReturnedValueLengthExceeded {
             length: num_bytes,
-            limit: ctx.result_state.config.limit_config.max_length_returned_data,
+            limit: ctx.config.limit_config.max_length_returned_data,
         }
         .into());
     }
@@ -3746,10 +3734,10 @@ pub fn storage_write(
         key_ptr,
         key_len,
     )?;
-    if key.len() as u64 > ctx.result_state.config.limit_config.max_length_storage_key {
+    if key.len() as u64 > ctx.config.limit_config.max_length_storage_key {
         return Err(HostError::KeyLengthExceeded {
             length: key.len() as u64,
-            limit: ctx.result_state.config.limit_config.max_length_storage_key,
+            limit: ctx.config.limit_config.max_length_storage_key,
         }
         .into());
     }
@@ -3760,10 +3748,10 @@ pub fn storage_write(
         value_ptr,
         value_len,
     )?;
-    if value.len() as u64 > ctx.result_state.config.limit_config.max_length_storage_value {
+    if value.len() as u64 > ctx.config.limit_config.max_length_storage_value {
         return Err(HostError::ValueLengthExceeded {
             length: value.len() as u64,
-            limit: ctx.result_state.config.limit_config.max_length_storage_value,
+            limit: ctx.config.limit_config.max_length_storage_value,
         }
         .into());
     }
@@ -3788,7 +3776,7 @@ pub fn storage_write(
                 .ok_or(InconsistentStateError::IntegerOverflow)?;
             ctx.registers.set(
                 &mut ctx.result_state.gas_counter,
-                &ctx.result_state.config.limit_config,
+                &ctx.config.limit_config,
                 register_id,
                 old_value,
             )?;
@@ -3845,10 +3833,10 @@ pub fn storage_read(
         key_ptr,
         key_len,
     )?;
-    if key.len() as u64 > ctx.result_state.config.limit_config.max_length_storage_key {
+    if key.len() as u64 > ctx.config.limit_config.max_length_storage_key {
         return Err(HostError::KeyLengthExceeded {
             length: key.len() as u64,
-            limit: ctx.result_state.config.limit_config.max_length_storage_key,
+            limit: ctx.config.limit_config.max_length_storage_key,
         }
         .into());
     }
@@ -3875,7 +3863,7 @@ pub fn storage_read(
         Some(value) => {
             ctx.registers.set(
                 &mut ctx.result_state.gas_counter,
-                &ctx.result_state.config.limit_config,
+                &ctx.config.limit_config,
                 register_id,
                 value,
             )?;
@@ -3929,10 +3917,10 @@ pub fn storage_remove(
         key_ptr,
         key_len,
     )?;
-    if key.len() as u64 > ctx.result_state.config.limit_config.max_length_storage_key {
+    if key.len() as u64 > ctx.config.limit_config.max_length_storage_key {
         return Err(HostError::KeyLengthExceeded {
             length: key.len() as u64,
-            limit: ctx.result_state.config.limit_config.max_length_storage_key,
+            limit: ctx.config.limit_config.max_length_storage_key,
         }
         .into());
     }
@@ -3952,7 +3940,7 @@ pub fn storage_remove(
                 .ok_or(InconsistentStateError::IntegerOverflow)?;
             ctx.registers.set(
                 &mut ctx.result_state.gas_counter,
-                &ctx.result_state.config.limit_config,
+                &ctx.config.limit_config,
                 register_id,
                 value,
             )?;
@@ -3989,10 +3977,10 @@ pub fn storage_has_key(caller: &mut Caller<'_, Ctx>, key_len: u64, key_ptr: u64)
         key_ptr,
         key_len,
     )?;
-    if key.len() as u64 > ctx.result_state.config.limit_config.max_length_storage_key {
+    if key.len() as u64 > ctx.config.limit_config.max_length_storage_key {
         return Err(HostError::KeyLengthExceeded {
             length: key.len() as u64,
-            limit: ctx.result_state.config.limit_config.max_length_storage_key,
+            limit: ctx.config.limit_config.max_length_storage_key,
         }
         .into());
     }

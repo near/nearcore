@@ -194,6 +194,8 @@ pub struct Ctx {
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: &'static VMContext,
 
+    /// All gas and economic parameters required during contract execution.
+    config: Arc<Config>,
     /// Fees charged for various operations that contract may execute.
     fees_config: Arc<RuntimeFeesConfig>,
 
@@ -244,6 +246,7 @@ impl Ctx {
             .build();
 
         let current_account_locked_balance = context.account_locked_balance;
+        let config = Arc::clone(&result_state.config);
         let recorded_storage_counter = RecordedStorageCounter::new(
             ext.get_recorded_storage_size(),
             result_state.config.limit_config.per_receipt_storage_proof_size_limit,
@@ -254,6 +257,7 @@ impl Ctx {
             limits,
             ext,
             context,
+            config,
             fees_config,
             current_account_locked_balance,
             recorded_storage_counter,
