@@ -18,6 +18,7 @@ use near_schema_checker_lib::ProtocolSchema;
 use schemars::json_schema;
 use serde::de::Error as DecodeError;
 use serde::ser::Error as EncodeError;
+use smallvec::SmallVec;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -275,7 +276,7 @@ impl ValidatedTransaction {
     /// Validates a batch of SignedTransactions. If this fails, the caller is expected
     /// to retry verifying individual transactions.
     #[allow(clippy::result_large_err)]
-    pub fn validate_batch<'a, I>(
+    pub fn validate_batch<'a, I, const MAX_BATCH_SIZE: usize>(
         config: &RuntimeConfig,
         signed_txs: I,
     ) -> Result<(), BatchValidationError>
@@ -283,9 +284,9 @@ impl ValidatedTransaction {
         I: IntoIterator<Item = &'a SignedTransaction>,
         I: ExactSizeIterator,
     {
-        let mut messages = Vec::with_capacity(signed_txs.len());
-        let mut signatures = Vec::with_capacity(signed_txs.len());
-        let mut keys = Vec::with_capacity(signed_txs.len());
+        let mut messages = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
+        let mut signatures = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
+        let mut keys = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
 
         for tx in signed_txs {
             Self::check_valid(config, tx, false).map_err(BatchValidationError::InvalidTx)?;
@@ -304,7 +305,8 @@ impl ValidatedTransaction {
             }
         }
 
-        let messages = messages.iter().map(|msg| msg.as_ref()).collect::<Vec<_>>();
+        let messages: SmallVec<[_; MAX_BATCH_SIZE]> =
+            messages.iter().map(|msg| msg.as_ref()).collect();
         near_crypto_ed25519_batch::safe_verify_batch(&messages, &signatures, &keys)
             .map_err(|_| BatchValidationError::BatchSignatureInvalid)
     }

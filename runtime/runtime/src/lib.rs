@@ -1525,12 +1525,17 @@ impl Runtime {
         let protocol_version = processing_state.protocol_version;
         let (valid_masks, (accounts, access_keys)) = rayon::join(
             || {
+                const MAX_BATCH_SIZE: usize = ValidBitmask::BITS as _;
                 tx_vec
                     .par_chunks(chunk_size)
                     .map(|txs| {
                         TRANSACTION_BATCH_SIGNATURE_VERIFY_TOTAL.inc();
-                        if validate_transaction_batch(&apply_state.config, txs, protocol_version)
-                            .is_ok()
+                        if validate_transaction_batch::<MAX_BATCH_SIZE>(
+                            &apply_state.config,
+                            txs,
+                            protocol_version,
+                        )
+                        .is_ok()
                         {
                             TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS.inc();
                             // Ok to set all bits: if there are fewer transactions than bits,
