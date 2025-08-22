@@ -1,15 +1,14 @@
 use crate::stateless_validation::metrics::VALIDATE_CHUNK_WITH_ENCODED_MERKLE_ROOT_TIME;
 use crate::{Chain, byzantine_assert};
 use crate::{ChainStore, Error};
+use borsh::BorshSerialize;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    EncodedShardChunkBody, ShardChunk, ShardChunkHeader, TransactionReceipt,
-};
+use near_primitives::sharding::{EncodedShardChunkBody, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -126,8 +125,8 @@ pub fn validate_chunk_with_chunk_extra_and_roots(
 
         validate_chunk_with_encoded_merkle_root(
             chunk_header,
-            outgoing_receipts,
-            new_transactions.to_vec(),
+            &outgoing_receipts,
+            new_transactions,
             rs,
             chunk_header.shard_id(),
         )
@@ -190,10 +189,13 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     Ok(())
 }
 
+#[derive(BorshSerialize)]
+struct TransactionReceiptRef<'a>(&'a [SignedTransaction], &'a [Receipt]);
+
 pub fn validate_chunk_with_encoded_merkle_root(
     chunk_header: &ShardChunkHeader,
-    outgoing_receipts: Vec<Receipt>,
-    new_transactions: Vec<SignedTransaction>,
+    outgoing_receipts: &[Receipt],
+    new_transactions: &[SignedTransaction],
     rs: &ReedSolomon,
     shard_id: ShardId,
 ) -> Result<(), Error> {
@@ -202,11 +204,9 @@ pub fn validate_chunk_with_encoded_merkle_root(
         .with_label_values(&[shard_id_label.as_str()])
         .start_timer();
 
+    let receipt_ref = TransactionReceiptRef(new_transactions, outgoing_receipts);
     let (transaction_receipts_parts, encoded_length) =
-        near_primitives::reed_solomon::reed_solomon_encode(
-            rs,
-            &TransactionReceipt(new_transactions, outgoing_receipts.to_vec()),
-        );
+        near_primitives::reed_solomon::reed_solomon_encode(rs, &receipt_ref);
     let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
     let (encoded_merkle_root, _merkle_paths) = content.get_merkle_hash_and_paths();
 
