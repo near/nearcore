@@ -23,3 +23,4 @@ tqdm
 urllib3<2
 datetime
 jmespath
+pydantic
