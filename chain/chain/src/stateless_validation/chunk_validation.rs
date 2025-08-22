@@ -40,6 +40,7 @@ use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Store, Trie};
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
+use rayon::join;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -710,31 +711,45 @@ pub fn validate_chunk_state_witness_impl(
             )));
         }
     }
-    let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
-
-    if !cfg!(feature = "protocol_feature_spice") {
-        // Finally, verify that the newly proposed chunk matches everything we have computed.
-        validate_chunk_with_chunk_extra_and_receipts_root(
-            &chunk_extra,
-            &state_witness.chunk_header(),
-            &outgoing_receipts_root,
-        )?;
-
+    let outgoing_receipts_root = if !cfg!(feature = "protocol_feature_spice") {
         let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
-            let (tx_root, _) = merklize(&state_witness.new_transactions());
-            if tx_root != *state_witness.chunk_header().tx_root() {
-                return Err(Error::InvalidTxRoot);
-            }
-            validate_chunk_with_encoded_merkle_root(
-                &state_witness.chunk_header(),
-                outgoing_receipts,
-                state_witness.new_transactions().clone(),
-                rs.as_ref(),
-                shard_id,
-            )?;
-        }
-    }
+
+        // Compute receipts root + header validation in parallel with encoded-merkle-root check.
+        let (res_receipts_root, res_encoded_merkle_check) = join(
+            || -> Result<CryptoHash, Error> {
+                let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
+                validate_chunk_with_chunk_extra_and_receipts_root(
+                    &chunk_extra,
+                    &state_witness.chunk_header(),
+                    &outgoing_receipts_root,
+                )?;
+                Ok(outgoing_receipts_root)
+            },
+            || {
+                if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
+                    let (tx_root, _) = merklize(&state_witness.new_transactions());
+                    if tx_root != *state_witness.chunk_header().tx_root() {
+                        return Err(Error::InvalidTxRoot);
+                    }
+                    validate_chunk_with_encoded_merkle_root(
+                        &state_witness.chunk_header(),
+                        outgoing_receipts,
+                        state_witness.new_transactions().clone(),
+                        rs.as_ref(),
+                        shard_id,
+                    )
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        let outgoing_receipts_root = res_receipts_root?;
+        res_encoded_merkle_check?;
+        outgoing_receipts_root
+    } else {
+        let (root, _) = merklize(&outgoing_receipts_hashes);
+        root
+    };
 
     Ok(ChunkExecutionResult { chunk_extra, outgoing_receipts_root })
 }
