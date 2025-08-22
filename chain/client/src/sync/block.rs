@@ -2,6 +2,7 @@ use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::Chain;
 use near_chain::ChainStoreAccess;
+use near_chain::chain::BlockKnowledge;
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
@@ -223,7 +224,7 @@ impl BlockSync {
                     _ => return Err(e),
                 },
             };
-            if let Err(err) = chain.ensure_block_unknown(&next_hash)? {
+            if let BlockKnowledge::Known(err) = chain.check_block_known(&next_hash)? {
                 debug!(
                     target: "sync",
                     block_hash = ?next_hash,
