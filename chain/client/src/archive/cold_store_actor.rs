@@ -15,7 +15,7 @@ use near_store::archive::cold_storage::{
 use near_store::config::SplitStorageConfig;
 use near_store::db::ColdDB;
 use near_store::db::metadata::DbKind;
-use near_store::{NodeStorage, Store};
+use near_store::{NodeStorage, Store, set_genesis_height};
 
 use crate::metrics;
 
@@ -437,6 +437,11 @@ pub fn create_cold_store_actor(
 
     let keep_going = Arc::new(AtomicBool::new(true));
     let keep_going_clone = keep_going.clone();
+
+    // Save the genesis height to cold storage
+    let mut store_update = cold_db.as_store().store_update();
+    set_genesis_height(&mut store_update, &genesis_height);
+    store_update.commit()?;
 
     // Perform the sanity check before spawning the actor.
     // If the check fails when the node is starting it's better to just fail
