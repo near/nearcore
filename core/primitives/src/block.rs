@@ -136,8 +136,8 @@ impl Block {
         for chunk in &chunks {
             if chunk.height_included() == height {
                 prev_validator_proposals.extend(chunk.prev_validator_proposals());
-                gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap_or(gas_used);
-                gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap_or(gas_limit);
+                gas_used = gas_used.saturating_add(chunk.prev_gas_used());
+                gas_limit = gas_limit.saturating_add(chunk.gas_limit());
                 balance_burnt += chunk.prev_balance_burnt();
                 chunk_mask.push(true);
             } else {

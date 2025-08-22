@@ -136,13 +136,11 @@ fn generated_refunds_after_fn_call(
     let penalty = total_cost - expected_cost;
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         let unspent_gas =
-            attached_gas.checked_sub(actual_fn_call_gas_burnt).unwrap_or(Gas::from_gas(0));
+            attached_gas.saturating_sub(actual_fn_call_gas_burnt);
         let max_gas_penalty = unspent_gas.max(
             unspent_gas
-                .checked_mul(*fee_helper.cfg().gas_refund_penalty.numer() as u64)
-                .unwrap()
-                .checked_div(*fee_helper.cfg().gas_refund_penalty.denom() as u64)
-                .unwrap(),
+                .saturating_mul(*fee_helper.cfg().gas_refund_penalty.numer() as u64)
+                .saturating_div(*fee_helper.cfg().gas_refund_penalty.denom() as u64),
         );
         let min_gas_penalty = unspent_gas.min(fee_helper.cfg().min_gas_refund_penalty);
 

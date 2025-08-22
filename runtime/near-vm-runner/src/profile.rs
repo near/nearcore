@@ -49,27 +49,27 @@ impl ProfileDataV3 {
         for ((_, gas), (_, other_gas)) in
             self.actions_profile.iter_mut().zip(other.actions_profile.iter())
         {
-            *gas = gas.checked_add(*other_gas).unwrap_or(Gas::from_gas(u64::MAX));
+            *gas = gas.saturating_add(*other_gas);
         }
         for ((_, gas), (_, other_gas)) in
             self.wasm_ext_profile.iter_mut().zip(other.wasm_ext_profile.iter())
         {
-            *gas = gas.checked_add(*other_gas).unwrap_or(Gas::from_gas(u64::MAX));
+            *gas = gas.saturating_add(*other_gas);
         }
         self.wasm_gas =
-            self.wasm_gas.checked_add(other.wasm_gas).unwrap_or(Gas::from_gas(u64::MAX));
+            self.wasm_gas.saturating_add(other.wasm_gas);
     }
 
     #[inline]
     pub fn add_action_cost(&mut self, action: ActionCosts, value: Gas) {
         self.actions_profile[action] =
-            self.actions_profile[action].checked_add(value).unwrap_or(Gas::from_gas(u64::MAX));
+            self.actions_profile[action].saturating_add(value);
     }
 
     #[inline]
     pub fn add_ext_cost(&mut self, ext: ExtCosts, value: Gas) {
         self.wasm_ext_profile[ext] =
-            self.wasm_ext_profile[ext].checked_add(value).unwrap_or(Gas::from_gas(u64::MAX));
+            self.wasm_ext_profile[ext].saturating_add(value);
     }
 
     /// WasmInstruction is the only cost we don't explicitly account for.
@@ -81,10 +81,8 @@ impl ProfileDataV3 {
     /// with the help on the VM side, so we don't want to have profiling logic
     /// there both for simplicity and efficiency reasons.
     pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: Gas) {
-        self.wasm_gas = total_gas_burnt
-            .checked_sub(self.action_gas())
-            .and_then(|g| g.checked_sub(self.host_gas()))
-            .unwrap_or(Gas::from_gas(0));
+        self.wasm_gas =
+            total_gas_burnt.saturating_sub(self.action_gas()).saturating_sub(self.host_gas());
     }
 
     pub fn get_action_cost(&self, action: ActionCosts) -> Gas {
@@ -104,7 +102,7 @@ impl ProfileDataV3 {
             .as_slice()
             .iter()
             .copied()
-            .fold(Gas::from_gas(0), |acc, x| acc.checked_add(x).unwrap_or(Gas::from_gas(u64::MAX)))
+            .fold(Gas::from_gas(0), |acc, x| acc.saturating_add(x)
     }
 
     pub fn action_gas(&self) -> Gas {
@@ -112,7 +110,7 @@ impl ProfileDataV3 {
             .as_slice()
             .iter()
             .copied()
-            .fold(Gas::from_gas(0), |acc, x| acc.checked_add(x).unwrap_or(Gas::from_gas(u64::MAX)))
+            .fold(Gas::from_gas(0), |acc, x| acc.saturating_add(x)
     }
 
     /// Returns total compute usage of host calls.

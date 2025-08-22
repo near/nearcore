@@ -419,13 +419,11 @@ impl GlobalContractsTestEnv {
         let runtime_config = self.runtime_config_store.get_config(PROTOCOL_VERSION);
         let fees = &runtime_config.fees;
         let gas_fees = Self::total_action_cost(fees, ActionCosts::new_action_receipt)
-            .checked_add(Self::total_action_cost(fees, ActionCosts::deploy_global_contract_base))
-            .unwrap()
-            .checked_add(Gas::from_gas(
+            .saturating_add(Self::total_action_cost(fees, ActionCosts::deploy_global_contract_base))
+            .saturating_add(Gas::from_gas(
                 Self::total_action_cost(fees, ActionCosts::deploy_global_contract_byte).as_gas()
                     * contract_size as u64,
-            ))
-            .unwrap();
+            ));
         let storage_cost =
             runtime_config.fees.storage_usage_config.global_contract_storage_amount_per_byte
                 * contract_size as Balance;
@@ -436,13 +434,11 @@ impl GlobalContractsTestEnv {
         let runtime_config = self.runtime_config_store.get_config(PROTOCOL_VERSION);
         let fees = &runtime_config.fees;
         let gas_fees = Self::total_action_cost(fees, ActionCosts::new_action_receipt)
-            .checked_add(Self::total_action_cost(fees, ActionCosts::use_global_contract_base))
-            .unwrap()
-            .checked_add(Gas::from_gas(
+            .saturating_add(Self::total_action_cost(fees, ActionCosts::use_global_contract_base))
+            .saturating_add(Gas::from_gas(
                 Self::total_action_cost(fees, ActionCosts::use_global_contract_byte).as_gas()
                     * identifier.len() as u64,
-            ))
-            .unwrap();
+            ));
         gas_fees.as_gas() as Balance * GAS_PRICE
     }
 

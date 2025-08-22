@@ -518,12 +518,9 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
         .cfg()
         .fee(ActionCosts::transfer)
         .exec_fee()
-        .checked_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee())
-        .unwrap()
-        .checked_add(create_account_fee)
-        .unwrap()
-        .checked_add(add_access_key_fee)
-        .unwrap();
+        .saturating_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee())
+        .saturating_add(create_account_fee)
+        .saturating_add(add_access_key_fee);
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let cost = refund_cost
@@ -597,8 +594,7 @@ pub fn test_smart_contract_reward(node: impl Node) {
     let gas_burnt_for_function_call = transaction_result.receipts_outcome[0]
         .outcome
         .gas_burnt
-        .checked_sub(fee_helper.function_call_exec_gas(b"run_test".len() as u64))
-        .unwrap();
+        .saturating_sub(fee_helper.function_call_exec_gas(b"run_test".len() as u64));
     let reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
     assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + reward);
 }
@@ -757,8 +753,7 @@ pub fn test_create_account_again(node: impl Node) {
         .cfg()
         .fee(ActionCosts::transfer)
         .exec_fee()
-        .checked_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee())
-        .unwrap();
+        .saturating_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee());
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let result1 = node_user.view_account(account_id).unwrap();
@@ -811,8 +806,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         .cfg()
         .fee(ActionCosts::transfer)
         .exec_fee()
-        .checked_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee())
-        .unwrap();
+        .saturating_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee());
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let result1 = node_user.view_account(account_id).unwrap();
@@ -1161,10 +1155,8 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         FinalExecutionStatus::SuccessValue(10i32.to_le_bytes().to_vec())
     );
     let gross_gas_refund = Gas::from_gas(prepaid_gas)
-        .checked_add(exec_gas)
-        .unwrap()
-        .checked_sub(transaction_result.receipts_outcome[0].outcome.gas_burnt)
-        .unwrap();
+        .saturating_add(exec_gas)
+        .saturating_sub(transaction_result.receipts_outcome[0].outcome.gas_burnt);
     let refund_penalty = fee_helper.cfg().gas_penalty_for_gas_refund(gross_gas_refund);
     let gas_refund = fee_helper.gas_to_balance(gross_gas_refund.saturating_sub(refund_penalty));
 

@@ -80,11 +80,8 @@ impl ProfileDataV3 {
     /// with the help on the VM side, so we don't want to have profiling logic
     /// there both for simplicity and efficiency reasons.
     pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: Gas) {
-        self.wasm_gas = total_gas_burnt
-            .checked_sub(self.action_gas())
-            .unwrap()
-            .checked_sub(self.host_gas())
-            .unwrap();
+        self.wasm_gas =
+            total_gas_burnt.saturating_sub(self.action_gas()).saturating_sub(self.host_gas());
     }
 
     pub fn get_action_cost(&self, action: ActionCosts) -> Gas {
@@ -431,10 +428,8 @@ mod test {
             profile_data.total_compute_usage(&ext_costs_config),
             profile_data
                 .host_gas()
-                .checked_mul(3)
-                .unwrap()
-                .checked_add(profile_data.action_gas())
-                .unwrap()
+                .saturating_mul(3)
+                .saturating_add(profile_data.action_gas())
                 .as_gas()
         );
     }

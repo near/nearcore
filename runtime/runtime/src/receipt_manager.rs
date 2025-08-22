@@ -555,7 +555,7 @@ impl ReceiptManager {
                 distributed = distributed
                     .checked_add(remainder)
                     .unwrap_or_else(|| panic!("gas computation overflowed"));
-                action.gas = action.gas.saturating_add(Gas::from_gas(remainder));
+                action.gas = action.gas.checked_add(Gas::from_gas(remainder)).unwrap();
             }
         }
         assert_eq!(unused_gas.as_gas(), distributed);

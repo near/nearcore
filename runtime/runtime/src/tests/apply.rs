@@ -338,8 +338,7 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
         .fees
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
-        .checked_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee())
-        .unwrap();
+        .saturating_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee());
     apply_state.gas_limit = Some(Gas::from_gas(receipt_gas_cost.as_gas() * 3));
 
     let n = 40;
@@ -391,8 +390,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         .fees
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
-        .checked_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee())
-        .unwrap();
+        .saturating_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee());
 
     let n = 120;
     let receipts = generate_receipts(small_transfer, n);
@@ -821,8 +819,7 @@ fn test_apply_surplus_gas_for_transfer() {
     let exec_gas = fees
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
-        .checked_add(fees.fee(ActionCosts::transfer).exec_fee())
-        .unwrap();
+        .saturating_add(fees.fee(ActionCosts::transfer).exec_fee());
 
     let expected_burnt_amount = if fees.refund_gas_price_changes {
         Balance::from(exec_gas.as_gas()) * GAS_PRICE

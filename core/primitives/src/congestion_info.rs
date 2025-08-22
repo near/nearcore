@@ -605,13 +605,11 @@ mod tests {
             if config.max_outgoing_gas > congestion_control.outgoing_gas_limit(ShardId::new(0)) {
                 config
                     .max_outgoing_gas
-                    .checked_sub(congestion_control.outgoing_gas_limit(ShardId::new(0)))
-                    .unwrap()
+                    .saturating_sub(congestion_control.outgoing_gas_limit(ShardId::new(0)))
             } else {
                 congestion_control
                     .outgoing_gas_limit(ShardId::new(0))
-                    .checked_sub(config.max_outgoing_gas)
-                    .unwrap()
+                    .saturating_sub(config.max_outgoing_gas)
             };
         assert!(diff <= Gas::from_gas(1));
 

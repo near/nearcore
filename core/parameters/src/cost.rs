@@ -613,8 +613,7 @@ impl RuntimeFeesConfig {
     pub fn min_receipt_with_function_call_gas(&self) -> Gas {
         self.fee(ActionCosts::new_action_receipt)
             .min_send_and_exec_fee()
-            .checked_add(self.fee(ActionCosts::function_call_base).min_send_and_exec_fee())
-            .unwrap()
+            .saturating_add(self.fee(ActionCosts::function_call_base).min_send_and_exec_fee())
     }
 
     /// Given a left over gas amount to be refunded, returns how much should be
@@ -677,10 +676,8 @@ pub fn transfer_exec_fee(
         }
         // Extra fees for the CreateAccount and AddFullAccessKey.
         (true, _, AccountType::NearImplicitAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).exec_fee())
-            .unwrap()
-            .checked_add(cfg.fee(ActionCosts::add_full_access_key).exec_fee())
-            .unwrap(),
+            .saturating_add(cfg.fee(ActionCosts::create_account).exec_fee())
+            .saturating_add(cfg.fee(ActionCosts::add_full_access_key).exec_fee()),
     }
 }
 
@@ -702,13 +699,10 @@ pub fn transfer_send_fee(
         (true, false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
         (true, true, AccountType::EthImplicitAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
-            .unwrap(),
+            .saturating_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)),
         // Extra fees for the CreateAccount and AddFullAccessKey.
         (true, _, AccountType::NearImplicitAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
-            .unwrap()
-            .checked_add(cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver))
-            .unwrap(),
+            .saturating_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
+            .saturating_add(cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)),
     }
 }

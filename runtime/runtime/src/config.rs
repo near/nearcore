@@ -82,26 +82,22 @@ pub fn total_send_fees(
                 let num_bytes = code.len() as u64;
                 fees.fee(ActionCosts::deploy_contract_base)
                     .send_fee(sender_is_receiver)
-                    .checked_add(
+                    .saturating_add(
                         fees.fee(ActionCosts::deploy_contract_byte)
                             .send_fee(sender_is_receiver)
-                            .checked_mul(num_bytes)
-                            .unwrap(),
+                            .saturating_mul(num_bytes),
                     )
-                    .unwrap()
             }
             FunctionCall(function_call_action) => {
                 let num_bytes = function_call_action.method_name.as_bytes().len() as u64
                     + function_call_action.args.len() as u64;
                 fees.fee(ActionCosts::function_call_base)
                     .send_fee(sender_is_receiver)
-                    .checked_add(
+                    .saturating_add(
                         fees.fee(ActionCosts::function_call_byte)
                             .send_fee(sender_is_receiver)
-                            .checked_mul(num_bytes)
-                            .unwrap(),
+                            .saturating_mul(num_bytes),
                     )
-                    .unwrap()
             }
             Transfer(_) => {
                 // Account for implicit account creation
@@ -124,13 +120,11 @@ pub fn total_send_fees(
                         .sum::<u64>();
                     fees.fee(ActionCosts::add_function_call_key_base)
                         .send_fee(sender_is_receiver)
-                        .checked_add(
+                        .saturating_add(
                             fees.fee(ActionCosts::add_function_call_key_byte)
                                 .send_fee(sender_is_receiver)
-                                .checked_mul(num_bytes)
-                                .unwrap(),
+                                .saturating_mul(num_bytes),
                         )
-                        .unwrap()
                 }
                 AccessKeyPermission::FullAccess => {
                     fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
@@ -220,26 +214,22 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             let num_bytes = code.len() as u64;
             fees.fee(ActionCosts::deploy_contract_base)
                 .exec_fee()
-                .checked_add(
+                .saturating_add(
                     fees.fee(ActionCosts::deploy_contract_byte)
                         .exec_fee()
-                        .checked_mul(num_bytes)
-                        .unwrap(),
+                        .saturating_mul(num_bytes),
                 )
-                .unwrap()
         }
         FunctionCall(function_call_action) => {
             let num_bytes = function_call_action.method_name.as_bytes().len() as u64
                 + function_call_action.args.len() as u64;
             fees.fee(ActionCosts::function_call_base)
                 .exec_fee()
-                .checked_add(
+                .saturating_add(
                     fees.fee(ActionCosts::function_call_byte)
                         .exec_fee()
-                        .checked_mul(num_bytes)
-                        .unwrap(),
+                        .saturating_mul(num_bytes),
                 )
-                .unwrap()
         }
         Transfer(_) => {
             // Account for implicit account creation
@@ -261,13 +251,11 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                     .sum::<u64>();
                 fees.fee(ActionCosts::add_function_call_key_base)
                     .exec_fee()
-                    .checked_add(
+                    .saturating_add(
                         fees.fee(ActionCosts::add_function_call_key_byte)
                             .exec_fee()
-                            .checked_mul(num_bytes)
-                            .unwrap(),
+                            .saturating_mul(num_bytes),
                     )
-                    .unwrap()
             }
             AccessKeyPermission::FullAccess => {
                 fees.fee(ActionCosts::add_full_access_key).exec_fee()
@@ -280,25 +268,21 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             let num_bytes = code.len() as u64;
             fees.fee(ActionCosts::deploy_global_contract_base)
                 .exec_fee()
-                .checked_add(
+                .saturating_add(
                     fees.fee(ActionCosts::deploy_global_contract_byte)
                         .exec_fee()
-                        .checked_mul(num_bytes)
-                        .unwrap(),
+                        .saturating_mul(num_bytes),
                 )
-                .unwrap()
         }
         UseGlobalContract(action) => {
             let num_bytes = action.contract_identifier.len() as u64;
             fees.fee(ActionCosts::use_global_contract_base)
                 .exec_fee()
-                .checked_add(
+                .saturating_add(
                     fees.fee(ActionCosts::use_global_contract_byte)
                         .exec_fee()
-                        .checked_mul(num_bytes)
-                        .unwrap(),
+                        .saturating_mul(num_bytes),
                 )
-                .unwrap()
         }
     }
 }
