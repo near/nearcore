@@ -40,7 +40,6 @@ use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Store, Trie};
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
-use rayon::join;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -715,7 +714,7 @@ pub fn validate_chunk_state_witness_impl(
         let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         // Compute receipts root + header validation in parallel with encoded-merkle-root check.
-        let (res_receipts_root, res_encoded_merkle_check) = join(
+        let (res_receipts_root, res_encoded_merkle_check) = rayon::join(
             || -> Result<CryptoHash, Error> {
                 let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
                 validate_chunk_with_chunk_extra_and_receipts_root(
