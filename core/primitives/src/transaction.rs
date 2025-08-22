@@ -214,6 +214,12 @@ impl BorshDeserialize for Transaction {
     }
 }
 
+pub enum BatchValidationError {
+    Invalid((InvalidTxError, SignedTransaction)), // Individual transaction failed a non-signature check
+    UnsupportedSignatureType, // Batch includes unsupported signature type, must try individual validation
+    BatchSignatureInvalid,    // Batch signature verification failed
+}
+
 /// Using the new type pattern to construct a type of signed transaction that is
 /// guaranteed to have various checks performed on it.  In particular, ensure
 /// that the signature is verified and the max transaction size checks have been
@@ -227,27 +233,38 @@ impl ValidatedTransaction {
         config: &RuntimeConfig,
         signed_tx: SignedTransaction,
     ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
+        match Self::check_valid(config, &signed_tx, true) {
+            Ok(()) => Ok(Self(signed_tx)),
+            Err(err) => Err((err, signed_tx)),
+        }
+    }
+
+    fn check_valid(
+        config: &RuntimeConfig,
+        signed_tx: &SignedTransaction,
+        check_signature: bool,
+    ) -> Result<(), InvalidTxError> {
         // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
         if matches!(signed_tx.transaction, Transaction::V1(_)) {
-            return Err((InvalidTxError::InvalidTransactionVersion, signed_tx));
+            return Err(InvalidTxError::InvalidTransactionVersion);
         }
         let tx_size = signed_tx.get_size();
         let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
         if tx_size > max_tx_size {
-            return Err((
-                InvalidTxError::TransactionSizeExceeded { size: tx_size, limit: max_tx_size },
-                signed_tx,
-            ));
+            return Err(InvalidTxError::TransactionSizeExceeded {
+                size: tx_size,
+                limit: max_tx_size,
+            });
         }
 
-        if signed_tx
-            .signature
-            .verify(signed_tx.get_hash().as_ref(), signed_tx.transaction.public_key())
+        if check_signature
+            && !signed_tx
+                .signature
+                .verify(signed_tx.get_hash().as_ref(), signed_tx.transaction.public_key())
         {
-            Ok(Self(signed_tx))
-        } else {
-            Err((InvalidTxError::InvalidSignature, signed_tx))
+            return Err(InvalidTxError::InvalidSignature);
         }
+        Ok(())
     }
 
     /// This method should only be used for test purposes.
@@ -255,24 +272,42 @@ impl ValidatedTransaction {
         Self(signed_tx)
     }
 
-    /// Builds a list of ValidatedTransactions from an iterator of
-    /// SignedTransactions.
-    ///
-    /// Note that the if a subset of SignedTransactions pass validation and then
-    /// one fails, then this function will drop the validated txs.  Currently,
-    /// this is not problematic for any of the callers of this function. It is
-    /// possible to improve this function to never drop any txs if callers
-    /// require such functionality in the future.
+    /// Validates a batch of SignedTransactions. If this fails, the caller is expected
+    /// to retry verifying individual transactions.
     #[allow(clippy::result_large_err)]
-    pub fn new_list(
+    pub fn validate_batch<'a, I>(
         config: &RuntimeConfig,
-        signed_txs: impl IntoIterator<Item = SignedTransaction>,
-    ) -> Result<Vec<ValidatedTransaction>, (InvalidTxError, SignedTransaction)> {
-        let mut validated_txs = vec![];
-        for signed_tx in signed_txs {
-            validated_txs.push(ValidatedTransaction::new(&config, signed_tx)?);
+        signed_txs: I,
+    ) -> Result<(), BatchValidationError>
+    where
+        I: IntoIterator<Item = &'a SignedTransaction>,
+        I: ExactSizeIterator,
+    {
+        let mut messages = Vec::with_capacity(signed_txs.len());
+        let mut signatures = Vec::with_capacity(signed_txs.len());
+        let mut keys = Vec::with_capacity(signed_txs.len());
+
+        for tx in signed_txs {
+            Self::check_valid(config, tx, false)
+                .map_err(|e| BatchValidationError::Invalid((e, tx.clone())))?;
+
+            messages.push(tx.get_hash());
+            match tx.signature {
+                Signature::ED25519(sig) => signatures.push(sig),
+                _ => return Err(BatchValidationError::UnsupportedSignatureType),
+            }
+            match tx.transaction.public_key() {
+                PublicKey::ED25519(key) => match ed25519_dalek::VerifyingKey::from_bytes(&key.0) {
+                    Ok(public_key) => keys.push(public_key),
+                    Err(_) => Err(BatchValidationError::UnsupportedSignatureType)?,
+                },
+                _ => return Err(BatchValidationError::UnsupportedSignatureType),
+            }
         }
-        Ok(validated_txs)
+
+        let messages = messages.iter().map(|msg| msg.as_ref()).collect::<Vec<_>>();
+        near_crypto_ed25519_batch::safe_verify_batch(&messages, &signatures, &keys)
+            .map_err(|_| BatchValidationError::BatchSignatureInvalid)
     }
 
     pub fn to_signed_tx(&self) -> &SignedTransaction {

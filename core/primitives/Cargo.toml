@@ -25,6 +25,7 @@ derive_more = { workspace = true, features = [
     "into",
     "deref",
 ] }
+ed25519-dalek.workspace = true
 easy-ext.workspace = true
 hex.workspace = true
 itertools.workspace = true
@@ -49,6 +50,7 @@ enum-map.workspace = true
 
 near-time = { workspace = true }
 near-crypto.workspace = true
+near-crypto-ed25519-batch.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-parameters.workspace = true
