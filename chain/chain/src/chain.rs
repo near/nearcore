@@ -1427,8 +1427,8 @@ impl Chain {
         // Validate header and then add to the chain.
         for header in &headers {
             match self.check_block_header_known(header)? {
-                BlockKnowledge::Unknown => {},
-                BlockKnowledge::Known(_) => continue
+                BlockKnowledge::Unknown => {}
+                BlockKnowledge::Known(_) => continue,
             }
 
             self.validate_header(header, &Provenance::SYNC)?;
@@ -2191,7 +2191,7 @@ impl Chain {
 
         // Check if we have already processed this block previously.
         if let BlockKnowledge::Known(err) = self.check_block_known(header.hash())? {
-            return Err(Error::BlockKnown(err))
+            return Err(Error::BlockKnown(err));
         }
 
         // Delay hitting the db for current chain head until we know this block is not already known.
