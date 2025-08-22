@@ -262,3 +262,68 @@ fn validate_bandwidth_requests(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use borsh::to_vec;
+    use near_crypto::{InMemorySigner, Signer};
+    use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV1};
+    use near_primitives::transaction::{Action, TransferAction};
+    use near_primitives::types::{AccountId, Balance};
+
+    #[test]
+    /// Asserts that serializing `TransactionReceiptRef` produces the same output
+    /// of serializing `TransactionReceipt`.
+    fn transaction_receipt_ref_serialization() {
+        let signer: Signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
+        let receiver: AccountId = "bob.near".parse().unwrap();
+
+        // Create example tx and receipt
+        let tx = SignedTransaction::from_actions(
+            1,
+            signer.get_account_id(),
+            receiver.clone(),
+            &signer,
+            vec![Action::Transfer(TransferAction { deposit: 1 })],
+            CryptoHash::default(),
+            0,
+        );
+        let ar = ActionReceipt {
+            signer_id: signer.get_account_id(),
+            signer_public_key: signer.public_key(),
+            gas_price: 0 as Balance,
+            output_data_receivers: vec![DataReceiver {
+                data_id: CryptoHash::default(),
+                receiver_id: signer.get_account_id(),
+            }],
+            input_data_ids: vec![CryptoHash::default()],
+            actions: vec![Action::Transfer(TransferAction { deposit: 1 })],
+        };
+        let receipt = Receipt::V1(ReceiptV1 {
+            predecessor_id: signer.get_account_id(),
+            receiver_id: receiver,
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ar),
+            priority: 0,
+        });
+
+        // Cases: empty/empty, txs-only, receipts-only, both
+        let cases: Vec<(Vec<SignedTransaction>, Vec<Receipt>)> = vec![
+            (vec![], vec![]),
+            (vec![tx.clone()], vec![]),
+            (vec![], vec![receipt.clone()]),
+            (vec![tx.clone(), tx], vec![receipt.clone(), receipt]),
+        ];
+
+        for (txs, rs) in cases {
+            let owned = near_primitives::sharding::TransactionReceipt(txs.clone(), rs.clone());
+            let owned_bytes = to_vec(&owned).unwrap();
+
+            let borrowed = TransactionReceiptRef(&txs, &rs);
+            let borrowed_bytes = to_vec(&borrowed).unwrap();
+
+            assert_eq!(owned_bytes, borrowed_bytes);
+        }
+    }
+}
