@@ -677,6 +677,10 @@ pub fn transfer_exec_fee(
                 + cfg.fee(ActionCosts::create_account).exec_fee()
                 + cfg.fee(ActionCosts::add_full_access_key).exec_fee()
         }
+        // Extra fees for the implied CreateAccount action.
+        (true, _, AccountType::NearDeterministicAccount) => {
+            transfer_fee + cfg.fee(ActionCosts::create_account).exec_fee()
+        }
     }
 }
 
@@ -705,6 +709,10 @@ pub fn transfer_send_fee(
             transfer_fee
                 + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
                 + cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
+        }
+        // Extra fees for the implied  CreateAccount action.
+        (true, _, AccountType::NearDeterministicAccount) => {
+            transfer_fee + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
         }
     }
 }

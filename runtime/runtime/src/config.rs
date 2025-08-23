@@ -144,6 +144,12 @@ pub fn total_send_fees(
                     + fees.fee(ActionCosts::use_global_contract_byte).send_fee(sender_is_receiver)
                         * num_bytes
             }
+            DeterministicStateInit(_deterministic_state_init_action) => {
+                // TODO(sharded_contracts):
+                // Need to implement the rest first to identify an appropriate cost.
+                // probably something like CreateAccount + UseGlobalContract + also bytes of data and maybe number of entries + transfer cost for refund"
+                0
+            }
         };
         result = safe_add_gas(result, delta)?;
     }
@@ -234,6 +240,13 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             let num_bytes = action.contract_identifier.len() as u64;
             fees.fee(ActionCosts::use_global_contract_base).exec_fee()
                 + fees.fee(ActionCosts::use_global_contract_byte).exec_fee() * num_bytes
+        }
+        DeterministicStateInit(_deterministic_state_init_action) => {
+            // Need to implement the rest first to identify an appropriate cost
+            // TODO(sharded_contracts):
+            // Need to implement the rest first to identify an appropriate cost.
+            // probably something like CreateAccount + UseGlobalContract + also bytes of data and maybe number of entries + transfer cost for refund"
+            0
         }
     }
 }
