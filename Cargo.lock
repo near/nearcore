@@ -4629,12 +4629,11 @@ dependencies = [
 
 [[package]]
 name = "near-gas"
-version = "0.3.1"
-source = "git+https://github.com/polyprogrammist/near-gas-rs?branch=openapi#c727687e79157650fda1a0e2358d40e6c856c0a5"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41ca4044222f2f392ab61d27d0aefc5106b1ece4dcd22c5c987e3c75371d2a37"
 dependencies = [
  "borsh",
- "schemars 0.8.22",
- "schemars 1.0.3",
  "serde",
 ]
 
