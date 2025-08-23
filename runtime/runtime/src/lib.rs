@@ -1503,11 +1503,11 @@ impl Runtime {
     ) -> Result<(), RuntimeError> {
         /// We track the transaction validity in a bit vector of this size. This type informs the
         /// maximum size of the transactions' chunk processed with each rayon job.
-        type ValidBitmask = u32;
+        type ValidBitmask = u128;
         /// Avoid the overhead of inter-thread scheduling by processing at least this many
         /// transactions for each instance of this overhead. This can reduce the number of
         /// transaction chunks for smaller lists of transactions, however.
-        const MIN_CHUNK_SIZE: usize = 8;
+        const MIN_CHUNK_SIZE: usize = 128;
         /// Avoid splitting transactions into just $NUM_THREADS chunks, as that can result in an
         /// increased tail latency when one of the threads is slower at processing its chunk
         /// compared to others (whatever reason may be for that.) Splitting into smaller chunks
