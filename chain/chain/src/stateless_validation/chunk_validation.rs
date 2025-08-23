@@ -728,8 +728,8 @@ pub fn validate_chunk_state_witness_impl(
             }
             validate_chunk_with_encoded_merkle_root(
                 &state_witness.chunk_header(),
-                outgoing_receipts,
-                state_witness.new_transactions().clone(),
+                &outgoing_receipts,
+                state_witness.new_transactions(),
                 rs.as_ref(),
                 shard_id,
             )?;
