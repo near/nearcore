@@ -77,7 +77,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
-use tracing::{debug, debug_span, error, info, warn};
+use tracing::{debug, debug_span, error, info, instrument, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -1684,15 +1684,16 @@ impl Client {
     }
 
     // Produce new chunks
+    #[instrument(target = "client", level = "debug", "produce_chunks", skip_all, fields(
+        height = block.header().height() + 1, // next_height, the height of produced chunk
+        prev_block_hash = ?block.hash(),
+        tag_block_production = true,
+        validator_id = ?signer.validator_id(),
+        tag_block_production = true,
+        tag_chunk_distribution = true,
+    ))]
     fn produce_chunks(&mut self, block: &Block, signer: &Arc<ValidatorSigner>) {
         let validator_id = signer.validator_id().clone();
-        let _span = debug_span!(
-            target: "client",
-            "produce_chunks",
-            ?validator_id,
-            block_height = block.header().height())
-        .entered();
-
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
@@ -1757,6 +1758,13 @@ impl Client {
         }
     }
 
+    #[instrument(target = "client", level = "debug", "persist_and_distribute_encoded_chunk", skip_all, fields(
+        height = %chunk.to_shard_chunk().height_created(),
+        shard_id = %chunk.to_shard_chunk().shard_id(),
+        chunk_hash = ?chunk.to_shard_chunk().chunk_hash(),
+        tag_block_production = true,
+        tag_chunk_distribution = true,
+    ))]
     pub fn persist_and_distribute_encoded_chunk(
         &mut self,
         chunk: ShardChunkWithEncoding,

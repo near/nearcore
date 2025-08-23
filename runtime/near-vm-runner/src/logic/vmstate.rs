@@ -113,7 +113,7 @@ impl<'a> Memory<'a> {
 ///
 /// See documentation of [`Memory`] for more motivation for this struct.
 #[derive(Default, Clone)]
-pub(super) struct Registers {
+pub(crate) struct Registers {
     /// Values of each existing register.
     registers: std::collections::HashMap<u64, Box<[u8]>>,
 
@@ -131,7 +131,7 @@ impl Registers {
     ///
     /// Returns an error if (i) there’s not enough gas to perform the register
     /// read or (ii) register with given index doesn’t exist.
-    pub(super) fn get<'s>(
+    pub(crate) fn get<'s>(
         &'s self,
         gas_counter: &mut GasCounter,
         register_id: u64,
@@ -152,7 +152,7 @@ impl Registers {
     }
 
     /// Returns length of register with given index or None if no such register.
-    pub(super) fn get_len(&self, register_id: u64) -> Option<u64> {
+    pub(crate) fn get_len(&self, register_id: u64) -> Option<u64> {
         self.registers.get(&register_id).map(|data| data.len() as u64)
     }
 
@@ -160,7 +160,7 @@ impl Registers {
     ///
     /// Returns an error if (i) there’s not enough gas to perform the register
     /// write or (ii) if setting the register would violate configured limits.
-    pub(super) fn set<T>(
+    pub(crate) fn set<T>(
         &mut self,
         gas_counter: &mut GasCounter,
         config: &LimitConfig,

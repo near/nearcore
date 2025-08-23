@@ -223,7 +223,8 @@ impl ChunkProducer {
         prev_block_hash = ?prev_block.header().hash(),
         chunk_hash = tracing::field::Empty,
         transactions_num = tracing::field::Empty,
-        tag_block_production = true
+        tag_block_production = true,
+        tag_chunk_distribution = true,
     ))]
     fn produce_chunk_internal(
         &mut self,
