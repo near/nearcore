@@ -284,7 +284,7 @@ impl ValidatedTransaction {
         I: IntoIterator<Item = &'a SignedTransaction>,
         I: ExactSizeIterator,
     {
-        const MAX_BATCH_SIZE: usize = 32;
+        const MAX_BATCH_SIZE: usize = 128;
         let mut messages = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
         let mut signatures = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
         let mut keys = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
