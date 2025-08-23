@@ -1,6 +1,8 @@
 pub mod delegate;
 
-use crate::trie_key::GlobalContractCodeIdentifier;
+use crate::{
+    deterministic_account_id::DeterministicAccountStateInit, trie_key::GlobalContractCodeIdentifier,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
@@ -273,6 +275,24 @@ pub struct UseGlobalContractAction {
     Eq,
     Clone,
     ProtocolSchema,
+    Debug,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DeterministicStateInitAction {
+    pub state_init: DeterministicAccountStateInit,
+    pub deposit: Balance,
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct FunctionCallAction {
@@ -362,6 +382,7 @@ pub enum Action {
     Delegate(Box<delegate::SignedDelegateAction>) = 8,
     DeployGlobalContract(DeployGlobalContractAction) = 9,
     UseGlobalContract(Box<UseGlobalContractAction>) = 10,
+    DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
 }
 
 const _: () = assert!(
@@ -383,6 +404,7 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
+            Action::DeterministicStateInit(a) => a.deposit,
             _ => Balance::ZERO,
         }
     }

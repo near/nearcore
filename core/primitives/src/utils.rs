@@ -1,5 +1,6 @@
 #[cfg(feature = "clock")]
 use crate::block::BlockHeader;
+use crate::deterministic_account_id::DeterministicAccountStateInit;
 use crate::hash::{CryptoHash, hash};
 use crate::types::{NumSeats, NumShards, ShardId};
 use chrono;
@@ -467,6 +468,17 @@ pub fn derive_eth_implicit_account_id(public_key: &Secp256K1PublicKey) -> Accoun
     use sha3::Digest;
     let pk_hash = sha3::Keccak256::digest(&public_key);
     format!("0x{}", hex::encode(&pk_hash[12..32])).parse().unwrap()
+}
+
+/// Returns a NEP-616 compliant deterministic account id.
+/// This is a NEAR-implicit account ID which is fully defined by its initial state.
+pub fn derive_near_deterministic_account_id(
+    state_init: &DeterministicAccountStateInit,
+) -> AccountId {
+    use sha3::Digest;
+    let data = borsh::to_vec(&state_init).expect("borsh must not fail");
+    let hash = sha3::Keccak256::digest(&data);
+    format!("0s{}", hex::encode(&hash[12..32])).parse().unwrap()
 }
 
 /// Returns the block metadata used to create an optimistic block.

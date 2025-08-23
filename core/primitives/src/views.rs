@@ -6,14 +6,17 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
-    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    UseGlobalContractAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
+    GlobalContractIdentifier, UseGlobalContractAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
 use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
+use crate::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+};
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
@@ -54,7 +57,7 @@ use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
@@ -1340,6 +1343,18 @@ pub enum ActionView {
     UseGlobalContractByAccountId {
         account_id: AccountId,
     } = 12,
+    DeterministicStateInit {
+        code_hash: CryptoHash,
+        data: BTreeMap<Base64Data, Base64Data>,
+        deposit: Balance,
+        version: u32,
+    } = 13,
+    DeterministicStateInitByAccountId {
+        account_id: AccountId,
+        data: BTreeMap<Base64Data, Base64Data>,
+        deposit: Balance,
+        version: u32,
+    } = 14,
 }
 
 impl From<Action> for ActionView {
@@ -1389,6 +1404,29 @@ impl From<Action> for ActionView {
                     ActionView::UseGlobalContractByAccountId { account_id }
                 }
             },
+            Action::DeterministicStateInit(action) => {
+                let version = action.state_init.version();
+                let (code, data) = action.state_init.take();
+                let data = data.into_iter().map(|(k, v)| (Base64Data(k), Base64Data(v))).collect();
+                match code {
+                    GlobalContractIdentifier::CodeHash(code_hash) => {
+                        ActionView::DeterministicStateInit {
+                            code_hash,
+                            data,
+                            deposit: action.deposit,
+                            version,
+                        }
+                    }
+                    GlobalContractIdentifier::AccountId(account_id) => {
+                        ActionView::DeterministicStateInitByAccountId {
+                            account_id,
+                            data,
+                            deposit: action.deposit,
+                            version,
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1448,9 +1486,73 @@ impl TryFrom<ActionView> for Action {
                     contract_identifier: GlobalContractIdentifier::AccountId(account_id),
                 }))
             }
+            ActionView::DeterministicStateInit { code_hash, data, deposit, version } => {
+                if version != 1 {
+                    return Err(
+                        format!("Unsupported deterministic account id version {version}").into()
+                    );
+                }
+                Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                    state_init: DeterministicAccountStateInit::V1(
+                        DeterministicAccountStateInitV1 {
+                            code: GlobalContractIdentifier::CodeHash(code_hash),
+                            data: data
+                                .into_iter()
+                                .map(|(Base64Data(k), Base64Data(v))| (k, v))
+                                .collect(),
+                        },
+                    ),
+                    deposit,
+                }))
+            }
+            ActionView::DeterministicStateInitByAccountId {
+                account_id,
+                data,
+                deposit,
+                version,
+            } => {
+                if version == 1 {
+                    Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                        state_init: DeterministicAccountStateInit::V1(
+                            DeterministicAccountStateInitV1 {
+                                code: GlobalContractIdentifier::AccountId(account_id),
+                                data: data
+                                    .into_iter()
+                                    .map(|(Base64Data(k), Base64Data(v))| (k, v))
+                                    .collect(),
+                            },
+                        ),
+                        deposit,
+                    }))
+                } else {
+                    return Err(
+                        format!("Unsupported deterministic account id version {version}").into()
+                    );
+                }
+            }
         })
     }
 }
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct Base64Data(
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(schema_with = "crate::serialize::base64_schema"))]
+    pub Vec<u8>,
+);
 
 #[derive(
     BorshSerialize,

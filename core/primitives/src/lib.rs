@@ -17,6 +17,7 @@ pub mod block_header;
 pub mod challenge;
 pub mod chunk_apply_stats;
 pub mod congestion_info;
+pub mod deterministic_account_id;
 pub mod epoch_block_info;
 pub mod epoch_info;
 pub mod epoch_manager;

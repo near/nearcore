@@ -4,8 +4,8 @@ use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
-use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::action::delegate::SignedDelegateAction;
+use near_primitives::action::{DeployGlobalContractAction, DeterministicStateInitAction};
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
@@ -19,6 +19,7 @@ use near_primitives::transaction::{
 use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, StorageUsage};
+use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
@@ -101,6 +102,7 @@ fn validate_transaction_actions(
     validate_actions(
         &config.wasm_config.limit_config,
         signed_tx.transaction.actions(),
+        signed_tx.transaction.receiver_id(),
         current_protocol_version,
     )
     .map_err(InvalidTxError::ActionsValidation)
@@ -306,9 +308,12 @@ pub(crate) fn validate_receipt(
 
     match receipt.versioned_receipt() {
         VersionedReceiptEnum::Action(action_receipt)
-        | VersionedReceiptEnum::PromiseYield(action_receipt) => {
-            validate_action_receipt(limit_config, action_receipt.into(), current_protocol_version)
-        }
+        | VersionedReceiptEnum::PromiseYield(action_receipt) => validate_action_receipt(
+            limit_config,
+            action_receipt,
+            receipt.receiver_id(),
+            current_protocol_version,
+        ),
         VersionedReceiptEnum::Data(data_receipt)
         | VersionedReceiptEnum::PromiseResume(data_receipt) => {
             validate_data_receipt(limit_config, &data_receipt)
@@ -336,6 +341,7 @@ pub enum ValidateReceiptMode {
 fn validate_action_receipt(
     limit_config: &LimitConfig,
     receipt: VersionedActionReceipt,
+    receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ReceiptValidationError> {
     if receipt.input_data_ids().len() as u64 > limit_config.max_number_input_data_dependencies {
@@ -344,7 +350,7 @@ fn validate_action_receipt(
             limit: limit_config.max_number_input_data_dependencies,
         });
     }
-    validate_actions(limit_config, receipt.actions(), current_protocol_version)
+    validate_actions(limit_config, receipt.actions(), receiver, current_protocol_version)
         .map_err(ReceiptValidationError::ActionsValidation)
 }
 
@@ -373,6 +379,7 @@ fn validate_data_receipt(
 pub(crate) fn validate_actions(
     limit_config: &LimitConfig,
     actions: &[Action],
+    receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     if actions.len() as u64 > limit_config.max_actions_per_receipt {
@@ -397,7 +404,7 @@ pub(crate) fn validate_actions(
                 found_delegate_action = true;
             }
         }
-        validate_action(limit_config, action, current_protocol_version)?;
+        validate_action(limit_config, action, receiver, current_protocol_version)?;
     }
 
     let total_prepaid_gas =
@@ -416,6 +423,7 @@ pub(crate) fn validate_actions(
 pub fn validate_action(
     limit_config: &LimitConfig,
     action: &Action,
+    receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     match action {
@@ -433,17 +441,23 @@ pub fn validate_action(
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_action(a),
-        Action::Delegate(a) => validate_delegate_action(limit_config, a, current_protocol_version),
+        Action::Delegate(a) => {
+            validate_delegate_action(limit_config, a, receiver, current_protocol_version)
+        }
+        Action::DeterministicStateInit(a) => {
+            validate_deterministic_state_init(a, receiver, current_protocol_version)
+        }
     }
 }
 
 fn validate_delegate_action(
     limit_config: &LimitConfig,
     signed_delegate_action: &SignedDelegateAction,
+    receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     let actions = signed_delegate_action.delegate_action.get_actions();
-    validate_actions(limit_config, &actions, current_protocol_version)?;
+    validate_actions(limit_config, &actions, receiver, current_protocol_version)?;
     Ok(())
 }
 
@@ -583,6 +597,33 @@ fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsVal
     Ok(())
 }
 
+fn validate_deterministic_state_init(
+    action: &DeterministicStateInitAction,
+    receiver_id: &AccountId,
+    current_protocol_version: u32,
+) -> Result<(), ActionsValidationError> {
+    if !ProtocolFeature::DeterministicAccountIds.enabled(current_protocol_version) {
+        return Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: "DeterministicAccountIds".to_owned(),
+            version: current_protocol_version,
+        });
+    }
+
+    let derived_id = derive_near_deterministic_account_id(&action.state_init);
+
+    if derived_id != *receiver_id {
+        return Err(ActionsValidationError::InvalidDeterministicStateInit {
+            derived_id,
+            receiver_id: receiver_id.clone(),
+        });
+    }
+
+    // TODO: Do we miss additional checks?
+    // Total size is already limited by gas and existing size limits.
+    // Anything else?
+    Ok(())
+}
+
 fn truncate_string(s: &str, limit: usize) -> String {
     for i in (0..=limit).rev() {
         if let Some(s) = s.get(..i) {
@@ -612,7 +653,11 @@ mod tests {
     use crate::near_primitives::trie_key::TrieKey;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
+    use near_primitives::action::GlobalContractIdentifier;
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
+    use near_primitives::deterministic_account_id::{
+        DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+    };
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::receipt::{ActionReceipt, ReceiptPriority};
     use near_primitives::test_utils::account_new;
@@ -1631,6 +1676,7 @@ mod tests {
     fn test_validate_action_receipt_too_many_input_deps() {
         let mut limit_config = test_limit_config();
         limit_config.max_number_input_data_dependencies = 1;
+        let receiver = "alice.near".parse().unwrap();
         assert_eq!(
             validate_action_receipt(
                 &limit_config,
@@ -1643,6 +1689,7 @@ mod tests {
                     actions: vec![]
                 }
                 .into(),
+                &receiver,
                 PROTOCOL_VERSION
             )
             .expect_err("expected an error"),
@@ -1694,7 +1741,8 @@ mod tests {
     #[test]
     fn test_validate_actions_empty() {
         let limit_config = test_limit_config();
-        validate_actions(&limit_config, &[], PROTOCOL_VERSION).expect("empty actions");
+        let receiver = "alice.near".parse().unwrap();
+        validate_actions(&limit_config, &[], &receiver, PROTOCOL_VERSION).expect("empty actions");
     }
 
     #[test]
@@ -1708,6 +1756,7 @@ mod tests {
                 gas: Gas::from_gas(100),
                 deposit: Balance::ZERO,
             }))],
+            &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
         .expect("valid function call action");
@@ -1734,6 +1783,7 @@ mod tests {
                         deposit: Balance::ZERO,
                     }))
                 ],
+                &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1765,6 +1815,7 @@ mod tests {
                         deposit: Balance::ZERO,
                     }))
                 ],
+                &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
             )
             .expect_err("Expected an error"),
@@ -1783,6 +1834,7 @@ mod tests {
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::CreateAccount(CreateAccountAction {}),
                 ],
+                &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
             )
             .expect_err("Expected an error"),
@@ -1806,6 +1858,7 @@ mod tests {
                     }),
                     Action::CreateAccount(CreateAccountAction {}),
                 ],
+                &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
             )
             .expect_err("Expected an error"),
@@ -1826,6 +1879,7 @@ mod tests {
                         beneficiary_id: "bob".parse().unwrap()
                     }),
                 ],
+                &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
             ),
             Ok(()),
@@ -1839,6 +1893,7 @@ mod tests {
         validate_action(
             &test_limit_config(),
             &Action::CreateAccount(CreateAccountAction {}),
+            &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1854,6 +1909,7 @@ mod tests {
                 gas: Gas::from_gas(100),
                 deposit: Balance::ZERO,
             })),
+            &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1870,6 +1926,7 @@ mod tests {
                     gas: Gas::ZERO,
                     deposit: Balance::ZERO,
                 })),
+                &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1882,6 +1939,7 @@ mod tests {
         validate_action(
             &test_limit_config(),
             &Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(10) }),
+            &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1895,6 +1953,7 @@ mod tests {
                 stake: Balance::from_yoctonear(100),
                 public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7".parse().unwrap(),
             })),
+            &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1909,6 +1968,7 @@ mod tests {
                     stake: Balance::from_yoctonear(100),
                     public_key: PublicKey::empty(KeyType::ED25519),
                 })),
+                &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,
             )
             .expect_err("Expected an error"),
@@ -1926,6 +1986,7 @@ mod tests {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 access_key: AccessKey::full_access(),
             })),
+            &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1946,6 +2007,7 @@ mod tests {
                     }),
                 },
             })),
+            &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1958,6 +2020,7 @@ mod tests {
             &Action::DeleteKey(Box::new(DeleteKeyAction {
                 public_key: PublicKey::empty(KeyType::ED25519),
             })),
+            &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1968,6 +2031,7 @@ mod tests {
         validate_action(
             &test_limit_config(),
             &Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
+            &"alice.near".parse().unwrap(),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1975,6 +2039,7 @@ mod tests {
 
     #[test]
     fn test_delegate_action_must_be_only_one() {
+        let receiver = "alice.near".parse().unwrap();
         let signed_delegate_action = SignedDelegateAction {
             delegate_action: DelegateAction {
                 sender_id: "bob.test.near".parse().unwrap(),
@@ -1996,6 +2061,7 @@ mod tests {
                     Action::Delegate(Box::new(signed_delegate_action.clone())),
                     Action::Delegate(Box::new(signed_delegate_action.clone())),
                 ],
+                &receiver,
                 PROTOCOL_VERSION,
             ),
             Err(ActionsValidationError::DelegateActionMustBeOnlyOne),
@@ -2004,6 +2070,7 @@ mod tests {
             validate_actions(
                 &&test_limit_config(),
                 &[Action::Delegate(Box::new(signed_delegate_action.clone())),],
+                &receiver,
                 PROTOCOL_VERSION,
             ),
             Ok(()),
@@ -2015,10 +2082,123 @@ mod tests {
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::Delegate(Box::new(signed_delegate_action)),
                 ],
+                &receiver,
                 PROTOCOL_VERSION,
             ),
             Ok(()),
         );
+    }
+
+    #[test]
+    fn test_validate_deterministic_state_init() {
+        use expect_test::{Expect, expect};
+        fn check_validate_state_init(
+            receiver: &str,
+            protocol_version: ProtocolVersion,
+            want: Expect,
+        ) {
+            let validation_result = validate_actions(
+                &test_limit_config(),
+                &[Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                    state_init: DeterministicAccountStateInit::V1(
+                        DeterministicAccountStateInitV1 {
+                            code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
+                            data: Default::default(),
+                        },
+                    ),
+                    deposit: 0,
+                }))],
+                &receiver.parse().unwrap(),
+                protocol_version,
+            );
+
+            want.assert_debug_eq(&validation_result);
+        }
+
+        // correct receiver
+        check_validate_state_init(
+            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Ok(
+                    (),
+                )
+            "#]],
+        );
+
+        // deterministic id but incorrect receiver
+        check_validate_state_init(
+            "0s1234567890123456789012345678901234567890",
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Err(
+                    InvalidDeterministicStateInit {
+                        receiver_id: AccountId(
+                            "0s1234567890123456789012345678901234567890",
+                        ),
+                        derived_id: AccountId(
+                            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
+                        ),
+                    },
+                )
+            "#]],
+        );
+
+        // named receiver (invalid)
+        check_validate_state_init(
+            "alice.near",
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Err(
+                    InvalidDeterministicStateInit {
+                        receiver_id: AccountId(
+                            "alice.near",
+                        ),
+                        derived_id: AccountId(
+                            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
+                        ),
+                    },
+                )
+            "#]],
+        );
+        // NEAR implicit receiver (invalid)
+        check_validate_state_init(
+            "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
+            ProtocolFeature::DeterministicAccountIds.protocol_version(),
+            expect![[r#"
+                Err(
+                    InvalidDeterministicStateInit {
+                        receiver_id: AccountId(
+                            "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
+                        ),
+                        derived_id: AccountId(
+                            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
+                        ),
+                    },
+                )
+            "#]],
+        );
+
+        // Without protocol features enabled, again with all receiver variations
+        for receiver in [
+            "alice.near",
+            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
+            "0s1234567890123456789012345678901234567890",
+            "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
+        ] {
+            check_validate_state_init(
+                receiver,
+                ProtocolFeature::DeterministicAccountIds.protocol_version() - 1,
+                expect![[r#"
+                Err(
+                    UnsupportedProtocolFeature {
+                        protocol_feature: "DeterministicAccountIds",
+                        version: 149,
+                    },
+                )
+            "#]],
+            );
+        }
     }
 
     #[test]

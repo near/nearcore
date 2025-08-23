@@ -244,6 +244,8 @@ impl ReceiptPreparationPipeline {
                 | Action::AddKey(_)
                 | Action::DeleteKey(_)
                 | Action::DeleteAccount(_)
+                // TODO: verify we don't need to handle these
+                | Action::DeterministicStateInit(_)
                 | Action::DeployGlobalContract(_) => {}
             }
         }
