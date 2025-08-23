@@ -117,7 +117,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::receipt::Receipt;
-use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_encode};
+use near_primitives::reed_solomon::{raptorq_decode, raptorq_encode};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunk,
     PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunk, ShardChunkHeader,
@@ -1073,7 +1073,7 @@ impl ShardsManagerActor {
         // Construct EncodedShardChunk.  If we earlier determined that we will
         // need parity parts, instruct the constructor to calculate them as
         // well.  Otherwise we won’t bother.
-        let (parts, encoded_length) = reed_solomon_encode(
+        let (parts, encoded_length) = raptorq_encode(
             &self.rs,
             &TransactionReceipt(chunk.to_transactions().to_vec(), outgoing_receipts.to_vec()),
         );
@@ -1135,14 +1135,14 @@ impl ShardsManagerActor {
         }
 
         let encoded_length = chunk.encoded_length();
-        if let Err(err) = reed_solomon_decode::<TransactionReceipt>(
+        if let Err(err) = raptorq_decode::<TransactionReceipt>(
             &self.rs,
-            chunk.content_mut().parts.as_mut_slice(),
+            &mut chunk.content_mut().parts,
             encoded_length as usize,
         ) {
             debug!(target: "chunks", ?err, "Invalid: Failed to decode");
             return ChunkStatus::Invalid;
-        }
+        };
 
         let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
         if &merkle_root != chunk.encoded_merkle_root() {
@@ -1186,7 +1186,8 @@ impl ShardsManagerActor {
         match self.check_chunk_complete(&mut encoded_chunk) {
             ChunkStatus::Complete(merkle_paths) => {
                 self.requested_partial_encoded_chunks.remove(&encoded_chunk.chunk_hash());
-                let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)?;
+                let chunk =
+                    ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk, &self.rs)?;
                 if !validate_chunk_proofs(chunk.to_shard_chunk(), self.epoch_manager.as_ref())? {
                     return Err(Error::InvalidChunk);
                 }
@@ -2927,7 +2928,12 @@ mod test {
         );
 
         let mut update = fixture.chain_store.store_update();
-        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
+
+        let total_parts = fixture.epoch_manager.num_total_parts();
+        let data_parts = fixture.epoch_manager.num_data_parts();
+        let parity_parts = total_parts - data_parts;
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk(&rs).unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
 
@@ -3016,7 +3022,12 @@ mod test {
             .unwrap();
 
         let mut update = fixture.chain_store.store_update();
-        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
+
+        let total_parts = fixture.epoch_manager.num_total_parts();
+        let data_parts = fixture.epoch_manager.num_data_parts();
+        let parity_parts = total_parts - data_parts;
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk(&rs).unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
 
@@ -3145,7 +3156,11 @@ mod test {
             Duration::hours(1),
         );
         let mut update = fixture.chain_store.store_update();
-        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
+        let total_parts = fixture.epoch_manager.num_total_parts();
+        let data_parts = fixture.epoch_manager.num_data_parts();
+        let parity_parts = total_parts - data_parts;
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk(&rs).unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
 
@@ -3178,7 +3193,12 @@ mod test {
             Duration::hours(1),
         );
         let mut update = fixture.chain_store.store_update();
-        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
+
+        let total_parts = fixture.epoch_manager.num_total_parts();
+        let data_parts = fixture.epoch_manager.num_data_parts();
+        let parity_parts = total_parts - data_parts;
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk(&rs).unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
 

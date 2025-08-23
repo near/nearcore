@@ -181,14 +181,14 @@ pub fn create_chunk(
         .collect::<Vec<_>>();
     let tx_root = merklize(&signed_txs).0;
 
+    let total_parts = client.chain.epoch_manager.num_total_parts();
+    let data_parts = client.chain.epoch_manager.num_data_parts();
+    let parity_parts = total_parts - data_parts;
+    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
     // reconstruct the chunk with changes
     {
         // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
-        let total_parts = client.chain.epoch_manager.num_total_parts();
-        let data_parts = client.chain.epoch_manager.num_data_parts();
-        let decoded_chunk = encoded_chunk.decode_chunk().unwrap();
-        let parity_parts = total_parts - data_parts;
-        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+        let decoded_chunk = encoded_chunk.decode_chunk(&rs).unwrap();
 
         let header = encoded_chunk.cloned_header();
         let (new_chunk, mut new_merkle_paths) = ShardChunkWithEncoding::new(
@@ -253,7 +253,7 @@ pub fn create_chunk(
         None,
         None,
     ));
-    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
+    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk, &rs).unwrap();
     (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
 
