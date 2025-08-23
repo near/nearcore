@@ -1,11 +1,33 @@
 #![doc = include_str!("../README.md")]
 
-use actix_cors::Cors;
-use actix_web::HttpRequest;
-use actix_web::http::header::{self, ContentType};
-use actix_web::{App, Error as HttpError, HttpResponse, HttpServer, get, http, middleware, web};
+use axum::extract::{Path, Query as AxumQuery, State};
+use axum::http::header::{AUTHORIZATION, ACCEPT, CONTENT_TYPE};
+use axum::http::{Method, StatusCode};
+use axum::response::{Html, IntoResponse, Json, Response};
+use axum::routing::{get, post};
+use axum::Router;
+use std::net::SocketAddr;
+use tower_http::cors::CorsLayer;
+use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::trace::TraceLayer;
 pub use api::{RpcFrom, RpcInto, RpcRequest};
-use near_async::actix::ActixResult;
+use near_client_primitives::debug::{DebugStatusResponse};
+use near_client_primitives::types::{
+    StatusError, StatusResponse, NetworkInfoResponse, GetBlockError, GetBlockProofError, 
+    GetBlockProofResponse, GetChunkError, GetExecutionOutcomeError, GetExecutionOutcomeResponse,
+    GetGasPriceError, GetMaintenanceWindowsError, GetNextLightClientBlockError, 
+    GetProtocolConfigError, GetReceiptError, GetSplitStorageInfoError, GetStateChangesError,
+    GetValidatorInfoError, GetClientConfigError, QueryError, TxStatusError
+};
+use near_primitives::views::{
+    BlockView, ChunkView, GasPriceView, MaintenanceWindowsView, LightClientBlockView, 
+    ReceiptView, SplitStorageInfoView, StateChangesView, 
+    StateChangesKindsView, EpochValidatorInfo, QueryResponse, TxStatusView
+};
+use near_client::{ProcessTxResponse};
+use near_chain_configs::{ClientConfig, ProtocolConfigView};
+use std::sync::Arc;
+use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{
     AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
@@ -16,7 +38,7 @@ use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig, GetExecutionOutcome,
     GetGasPrice, GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig,
     GetReceipt, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-    ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus,
+    ProcessTxRequest, Query as ClientQuery, Status, TxStatus,
 };
 use near_client_primitives::debug::{DebugBlockStatusQuery, DebugBlocksStartingMode};
 use near_client_primitives::types::GetSplitStorageInfo;
@@ -45,7 +67,6 @@ use near_primitives::views::{QueryRequest, TxExecutionStatus};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
 use tracing::{error, info};
@@ -139,13 +160,13 @@ fn serialize_response(value: impl serde::ser::Serialize) -> Result<Value, RpcErr
 /// serialization.
 fn process_method_call<'a, R, V, E, F>(
     request: Request,
-    callback: impl FnOnce(R) -> F + 'a,
-) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + 'a>>
+    callback: impl FnOnce(R) -> F + Send + 'a,
+) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send + 'a>>
 where
-    R: RpcRequest,
+    R: RpcRequest + Send,
     V: serde::ser::Serialize,
     RpcError: From<E>,
-    F: Future<Output = Result<V, E>>,
+    F: Future<Output = Result<V, E>> + Send,
 {
     Box::pin(async move { serialize_response(callback(R::parse(request.params)?).await?) })
 }
@@ -228,47 +249,47 @@ fn process_query_response(
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ProcessTxSenderForRpc(
-    AsyncSender<ProcessTxRequest, ActixResult<ProcessTxRequest>>,
+    AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     Sender<ProcessTxRequest>,
 );
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ClientSenderForRpc(
-    AsyncSender<DebugStatus, ActixResult<DebugStatus>>,
-    AsyncSender<SpanWrapped<GetClientConfig>, ActixResult<GetClientConfig>>,
-    AsyncSender<SpanWrapped<GetNetworkInfo>, ActixResult<GetNetworkInfo>>,
-    AsyncSender<SpanWrapped<Status>, ActixResult<Status>>,
+    AsyncSender<DebugStatus, Result<DebugStatusResponse, StatusError>>,
+    AsyncSender<SpanWrapped<GetClientConfig>, Result<ClientConfig, GetClientConfigError>>,
+    AsyncSender<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>,
+    AsyncSender<SpanWrapped<Status>, Result<StatusResponse, StatusError>>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
     #[cfg(feature = "test_features")]
     AsyncSender<
         near_client::NetworkAdversarialMessage,
-        ActixResult<near_client::NetworkAdversarialMessage>,
+        Option<u64>,
     >,
     #[cfg(feature = "sandbox")]
     AsyncSender<
         near_client_primitives::types::SandboxMessage,
-        ActixResult<near_client_primitives::types::SandboxMessage>,
+        near_client_primitives::types::SandboxResponse,
     >,
 );
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ViewClientSenderForRpc(
-    AsyncSender<GetBlock, ActixResult<GetBlock>>,
-    AsyncSender<GetBlockProof, ActixResult<GetBlockProof>>,
-    AsyncSender<GetChunk, ActixResult<GetChunk>>,
-    AsyncSender<GetExecutionOutcome, ActixResult<GetExecutionOutcome>>,
-    AsyncSender<GetGasPrice, ActixResult<GetGasPrice>>,
-    AsyncSender<GetMaintenanceWindows, ActixResult<GetMaintenanceWindows>>,
-    AsyncSender<GetNextLightClientBlock, ActixResult<GetNextLightClientBlock>>,
-    AsyncSender<GetProtocolConfig, ActixResult<GetProtocolConfig>>,
-    AsyncSender<GetReceipt, ActixResult<GetReceipt>>,
-    AsyncSender<GetSplitStorageInfo, ActixResult<GetSplitStorageInfo>>,
-    AsyncSender<GetStateChanges, ActixResult<GetStateChanges>>,
-    AsyncSender<GetStateChangesInBlock, ActixResult<GetStateChangesInBlock>>,
-    AsyncSender<GetValidatorInfo, ActixResult<GetValidatorInfo>>,
-    AsyncSender<GetValidatorOrdered, ActixResult<GetValidatorOrdered>>,
-    AsyncSender<Query, ActixResult<Query>>,
-    AsyncSender<TxStatus, ActixResult<TxStatus>>,
+    AsyncSender<GetBlock, Result<BlockView, GetBlockError>>,
+    AsyncSender<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>>,
+    AsyncSender<GetChunk, Result<ChunkView, GetChunkError>>,
+    AsyncSender<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>,
+    AsyncSender<GetGasPrice, Result<GasPriceView, GetGasPriceError>>,
+    AsyncSender<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanceWindowsError>>,
+    AsyncSender<GetNextLightClientBlock, Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>>,
+    AsyncSender<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>,
+    AsyncSender<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>>,
+    AsyncSender<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>,
+    AsyncSender<GetStateChanges, Result<StateChangesView, GetStateChangesError>>,
+    AsyncSender<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChangesError>>,
+    AsyncSender<GetValidatorInfo, Result<EpochValidatorInfo, GetValidatorInfoError>>,
+    AsyncSender<GetValidatorOrdered, Result<Vec<ValidatorStakeView>, GetValidatorInfoError>>,
+    AsyncSender<ClientQuery, Result<QueryResponse, QueryError>>,
+    AsyncSender<TxStatus, Result<TxStatusView, TxStatusError>>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
 );
 
@@ -277,12 +298,12 @@ pub struct ViewClientSenderForRpc(
 pub struct GCSenderForRpc(
     AsyncSender<
         near_client::gc_actor::NetworkAdversarialMessage,
-        ActixResult<near_client::gc_actor::NetworkAdversarialMessage>,
+        (),
     >,
 );
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
-pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, ActixResult<GetDebugStatus>>);
+pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, near_network::debug::DebugStatus>);
 
 struct JsonRpcHandler {
     client_sender: ClientSenderForRpc,
@@ -914,7 +935,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::query::RpcQueryError,
     > {
         let query_response = self
-            .view_client_send(Query::new(request_data.block_reference, request_data.request))
+            .view_client_send(ClientQuery::new(request_data.block_reference, request_data.request))
             .await?;
         Ok(query_response.rpc_into())
     }
@@ -1402,137 +1423,138 @@ impl JsonRpcHandler {
 
 async fn handle_unknown_block(
     request: Message,
-    handler: web::Data<JsonRpcHandler>,
-) -> actix_web::HttpResponseBuilder {
+    State(handler): State<Arc<JsonRpcHandler>>,
+) -> StatusCode {
     let Message::Request(request) = request else {
-        return HttpResponse::Ok();
+        return StatusCode::OK;
     };
 
     let Some(block_id) = request.params.get("block_id") else {
-        return HttpResponse::Ok();
+        return StatusCode::OK;
     };
 
     let Some(block_height) = block_id.as_u64() else {
-        return HttpResponse::Ok();
+        return StatusCode::OK;
     };
 
     let Ok(latest_block) =
         handler.block(RpcBlockRequest { block_reference: BlockReference::latest() }).await
     else {
-        return HttpResponse::Ok();
+        return StatusCode::OK;
     };
 
     if block_height < latest_block.block_view.header.height {
-        return HttpResponse::UnprocessableEntity();
+        return StatusCode::UNPROCESSABLE_ENTITY;
     }
 
-    HttpResponse::Ok()
+    StatusCode::OK
 }
 
 async fn rpc_handler(
-    request: web::Json<Message>,
-    handler: web::Data<JsonRpcHandler>,
-) -> HttpResponse {
-    let message = handler.process(request.0.clone()).await;
+    State(handler): State<Arc<JsonRpcHandler>>,
+    Json(message): Json<Message>,
+) -> impl IntoResponse {
+    let response_message = handler.process(message.clone()).await;
 
-    let mut response = if let Message::Response(response) = &message {
+    let status_code = if let Message::Response(response) = &response_message {
         match &response.result {
-            Ok(_) => HttpResponse::Ok(),
+            Ok(_) => StatusCode::OK,
             Err(err) => match &err.error_struct {
-                Some(RpcErrorKind::RequestValidationError(_)) => HttpResponse::BadRequest(),
+                Some(RpcErrorKind::RequestValidationError(_)) => StatusCode::BAD_REQUEST,
                 Some(RpcErrorKind::HandlerError(error_struct)) => {
                     match error_struct.get("name").and_then(|name| name.as_str()) {
-                        Some("UNKNOWN_BLOCK") => handle_unknown_block(request.0, handler).await,
-                        Some("TIMEOUT_ERROR") => HttpResponse::RequestTimeout(),
-                        _ => HttpResponse::Ok(),
+                        Some("UNKNOWN_BLOCK") => handle_unknown_block(message, State(handler.clone())).await,
+                        Some("TIMEOUT_ERROR") => StatusCode::REQUEST_TIMEOUT,
+                        _ => StatusCode::OK,
                     }
                 }
-                Some(RpcErrorKind::InternalError(_)) => HttpResponse::InternalServerError(),
-                None => HttpResponse::Ok(),
+                Some(RpcErrorKind::InternalError(_)) => StatusCode::INTERNAL_SERVER_ERROR,
+                None => StatusCode::OK,
             },
         }
     } else {
-        HttpResponse::InternalServerError()
+        StatusCode::INTERNAL_SERVER_ERROR
     };
 
-    response.json(message)
+    (status_code, Json(response_message)).into_response()
 }
 
-async fn status_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
+async fn status_handler(State(handler): State<Arc<JsonRpcHandler>>) -> Response {
     metrics::HTTP_STATUS_REQUEST_COUNT.inc();
 
     match handler.status().await {
-        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(value) => Json(value).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
 async fn debug_handler(
-    req: HttpRequest,
-    handler: web::Data<JsonRpcHandler>,
-) -> Result<HttpResponse, HttpError> {
-    if req.path() == "/debug/api/status" {
+    Path(api): Path<String>,
+    State(handler): State<Arc<JsonRpcHandler>>,
+) -> Response {
+    let path = format!("/debug/api/{}", api);
+    if api == "status" {
         // This is a temporary workaround - as we migrate the debug information to the separate class below.
         return match handler.old_debug().await {
-            Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
-            Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
-            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+            Ok(Some(value)) => Json(value).into_response(),
+            Ok(None) => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         };
     }
-    match handler.debug(req.path()).await {
-        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
-        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    match handler.debug(&path).await {
+        Ok(Some(value)) => Json(value).into_response(),
+        Ok(None) => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
 async fn handle_entity_debug(
-    req: web::Json<EntityQueryWithParams>,
-    handler: web::Data<JsonRpcHandler>,
-) -> Result<HttpResponse, HttpError> {
-    match handler.entity_debug_handler.query(req.0) {
-        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-        Err(err) => Ok(HttpResponse::ServiceUnavailable().body(format!("{:?}", err))),
+    State(handler): State<Arc<JsonRpcHandler>>,
+    Json(req): Json<EntityQueryWithParams>,
+) -> Response {
+    match handler.entity_debug_handler.query(req) {
+        Ok(value) => Json(value).into_response(),
+        Err(err) => (StatusCode::SERVICE_UNAVAILABLE, format!("{:?}", err)).into_response(),
     }
 }
 
 async fn handle_entity_debug_readonly(
-    req: web::Json<EntityQueryWithParams>,
-    handler: web::Data<Arc<dyn EntityDebugHandler>>,
-) -> Result<HttpResponse, HttpError> {
-    match handler.query(req.0) {
-        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-        Err(err) => Ok(HttpResponse::ServiceUnavailable().body(format!("{:?}", err))),
+    State(handler): State<Arc<dyn EntityDebugHandler>>,
+    Json(req): Json<EntityQueryWithParams>,
+) -> Response {
+    match handler.query(req) {
+        Ok(value) => Json(value).into_response(),
+        Err(err) => (StatusCode::SERVICE_UNAVAILABLE, format!("{:?}", err)).into_response(),
     }
 }
 
 async fn debug_block_status_handler(
-    query: web::Query<DebugBlockStatusQuery>,
-    handler: web::Data<JsonRpcHandler>,
-) -> Result<HttpResponse, HttpError> {
-    match handler.debug_block_status(query.0).await {
-        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
-        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    AxumQuery(query): AxumQuery<DebugBlockStatusQuery>,
+    State(handler): State<Arc<JsonRpcHandler>>,
+) -> Response {
+    match handler.debug_block_status(query).await {
+        Ok(Some(value)) => Json(value).into_response(),
+        Ok(None) => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
 #[deprecated(since = "2.6.0", note = "Use debug_block_status_handler instead")]
 async fn deprecated_debug_block_status_handler(
-    path: web::Path<u64>,
-    handler: web::Data<JsonRpcHandler>,
-) -> Result<HttpResponse, HttpError> {
+    Path(path): Path<u64>,
+    State(handler): State<Arc<JsonRpcHandler>>,
+) -> Response {
     match handler
         .debug_block_status(DebugBlockStatusQuery {
-            starting_height: Some(*path),
+            starting_height: Some(path),
             mode: DebugBlocksStartingMode::All,
             num_blocks: 50,
         })
         .await
     {
-        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
-        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(Some(value)) => Json(value).into_response(),
+        Ok(None) => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
@@ -1543,34 +1565,34 @@ pub struct DebugRpcEpochInfoRequest {
 }
 
 async fn debug_epoch_info_handler(
-    path: web::Path<String>,
-    handler: web::Data<JsonRpcHandler>,
-) -> Result<HttpResponse, HttpError> {
-    let epoch_id: near_primitives::types::EpochId = path.into_inner().parse().unwrap();
+    Path(path): Path<String>,
+    State(handler): State<Arc<JsonRpcHandler>>,
+) -> Response {
+    let epoch_id: near_primitives::types::EpochId = path.parse().unwrap();
     match handler.debug_epoch_info(Some(epoch_id)).await {
-        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
-        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(Some(value)) => Json(value).into_response(),
+        Ok(None) => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
-async fn health_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
+async fn health_handler(State(handler): State<Arc<JsonRpcHandler>>) -> Response {
     match handler.health().await {
-        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(value) => Json(value).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
 async fn network_info_handler(
-    handler: web::Data<JsonRpcHandler>,
-) -> Result<HttpResponse, HttpError> {
+    State(handler): State<Arc<JsonRpcHandler>>,
+) -> Response {
     match handler.network_info().await {
-        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(value) => Json(value).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
-pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
+pub async fn prometheus_handler() -> Response {
     metrics::PROMETHEUS_REQUEST_COUNT.inc();
 
     let mut buffer = vec![];
@@ -1578,33 +1600,31 @@ pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
     encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
 
     match String::from_utf8(buffer) {
-        Ok(text) => Ok(HttpResponse::Ok()
-            .content_type(ContentType("text/plain".parse().unwrap()))
-            .body(text)),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(text) => (StatusCode::OK, [(CONTENT_TYPE, "text/plain")], text).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
 async fn client_config_handler(
-    handler: web::Data<JsonRpcHandler>,
-) -> Result<HttpResponse, HttpError> {
+    State(handler): State<Arc<JsonRpcHandler>>,
+) -> Response {
     match handler.client_config().await {
-        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(value) => Json(value).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
-fn get_cors(cors_allowed_origins: &[String]) -> Cors {
-    let mut cors = Cors::permissive();
-    if cors_allowed_origins != ["*".to_string()] {
-        for origin in cors_allowed_origins {
-            cors = cors.allowed_origin(origin);
-        }
-    }
-    cors.allowed_methods(vec!["GET", "POST"])
-        .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
-        .allowed_header(http::header::CONTENT_TYPE)
-        .max_age(3600)
+fn get_cors(cors_allowed_origins: &[String]) -> CorsLayer {
+    let cors = if cors_allowed_origins == ["*".to_string()] {
+        CorsLayer::permissive()
+    } else {
+        CorsLayer::new()
+            .allow_origin(cors_allowed_origins.iter().map(|s| s.parse().unwrap()).collect::<Vec<_>>())
+            .allow_methods([Method::GET, Method::POST])
+            .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])
+            .max_age(std::time::Duration::from_secs(3600))
+    };
+    cors
 }
 
 macro_rules! debug_page_string {
@@ -1615,20 +1635,16 @@ macro_rules! debug_page_string {
     };
 }
 
-#[get("/debug")]
 async fn debug_html(
-    handler: web::Data<JsonRpcHandler>,
-) -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(debug_page_string!("debug.html", handler)))
+    State(handler): State<Arc<JsonRpcHandler>>,
+) -> Html<String> {
+    Html(debug_page_string!("debug.html", handler))
 }
 
-#[get("/debug/pages/{page}")]
 async fn display_debug_html(
-    path: web::Path<(String,)>,
-    handler: web::Data<JsonRpcHandler>,
-) -> actix_web::Result<impl actix_web::Responder> {
-    let page_name = path.into_inner().0;
-
+    Path(page_name): Path<String>,
+    State(handler): State<Arc<JsonRpcHandler>>,
+) -> Response {
     let content = match page_name.as_str() {
         "last_blocks" => Some(debug_page_string!("last_blocks.html", handler)),
         "last_blocks.css" => Some(debug_page_string!("last_blocks.css", handler)),
@@ -1653,10 +1669,8 @@ async fn display_debug_html(
     };
 
     match content {
-        Some(content) => {
-            Ok(HttpResponse::Ok().insert_header(header::ContentType::html()).body(content))
-        }
-        None => Ok(HttpResponse::NotFound().finish()),
+        Some(content) => Html(content).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
@@ -1669,8 +1683,8 @@ async fn display_debug_html(
 ///
 /// Returns a vector of servers that have been started.  Each server is returned
 /// as a tuple containing a name of the server (e.g. `"JSON RPC"`) which can be
-/// used in diagnostic messages and a [`actix_web::dev::Server`] object which
-/// can be used to control the server (most notably stop it).
+/// used in diagnostic messages and a task handle which can be used to control 
+/// the server (most notably stop it).
 pub async fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
@@ -1680,7 +1694,7 @@ pub async fn start_http(
     peer_manager_sender: PeerManagerSenderForRpc,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
-) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
+) -> Vec<(&'static str, tokio::task::JoinHandle<()>)> {
     let RpcConfig {
         addr,
         prometheus_addr,
@@ -1694,121 +1708,97 @@ pub async fn start_http(
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
     let mut servers = Vec::new();
-    let listener = HttpServer::new(move || {
-        let mut app = App::new()
-            .wrap(get_cors(&cors_allowed_origins))
-            .app_data(web::Data::new(JsonRpcHandler {
-                client_sender: client_sender.clone(),
-                view_client_sender: view_client_sender.clone(),
-                process_tx_sender: process_tx_sender.clone(),
-                peer_manager_sender: peer_manager_sender.clone(),
-                polling_config,
-                genesis_config: genesis_config.clone(),
-                enable_debug_rpc,
-                debug_pages_src_path: debug_pages_src_path.clone().map(Into::into),
-                entity_debug_handler: entity_debug_handler.clone(),
-                #[cfg(feature = "test_features")]
-                gc_sender: gc_sender.clone(),
-            }))
-            .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
-            .wrap(middleware::Logger::default())
-            .service(web::resource("/").route(web::post().to(rpc_handler)))
-            .service(
-                web::resource("/status")
-                    .route(web::get().to(status_handler))
-                    .route(web::head().to(status_handler)),
-            )
-            .service(
-                web::resource("/health")
-                    .route(web::get().to(health_handler))
-                    .route(web::head().to(health_handler)),
-            )
-            .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
-            .service(web::resource("/metrics").route(web::get().to(prometheus_handler)));
-
-        if enable_debug_rpc {
-            app = app
-                .service(
-                    web::resource("/debug/api/entity").route(web::post().to(handle_entity_debug)),
-                )
-                .service(web::resource("/debug/api/block_status/{starting_height}").route(
-                    web::get().to(
-                        #[allow(deprecated)]
-                        deprecated_debug_block_status_handler,
-                    ),
-                ))
-                .service(
-                    web::resource("/debug/api/block_status")
-                        .route(web::get().to(debug_block_status_handler)),
-                )
-                .service(
-                    web::resource("/debug/api/epoch_info/{epoch_id}")
-                        .route(web::get().to(debug_epoch_info_handler)),
-                )
-                .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
-                .service(
-                    web::resource("/debug/client_config")
-                        .route(web::get().to(client_config_handler)),
-                )
-                .service(debug_html)
-                .service(display_debug_html);
-        }
-
-        app
+    
+    // Create shared handler state
+    let handler_state = Arc::new(JsonRpcHandler {
+        client_sender: client_sender.clone(),
+        view_client_sender: view_client_sender.clone(),
+        process_tx_sender: process_tx_sender.clone(),
+        peer_manager_sender: peer_manager_sender.clone(),
+        polling_config,
+        genesis_config: genesis_config.clone(),
+        enable_debug_rpc,
+        debug_pages_src_path: debug_pages_src_path.clone().map(Into::into),
+        entity_debug_handler: entity_debug_handler.clone(),
+        #[cfg(feature = "test_features")]
+        gc_sender: gc_sender.clone(),
     });
 
-    match listener.listen(addr.std_listener().unwrap()) {
-        std::result::Result::Ok(s) => {
-            let server = s.workers(4).shutdown_timeout(5).disable_signals().run();
-            servers.push(("JSON RPC", server.handle()));
-            tokio::spawn(server);
-        }
-        std::result::Result::Err(e) => {
-            error!(
-                target:"network",
-                "Could not start http server at {} due to {:?}", &addr, e,
+    // Build the main router
+    let mut app = Router::new()
+        .route("/", post(rpc_handler))
+        .route("/status", get(status_handler).head(status_handler))
+        .route("/health", get(health_handler).head(health_handler))
+        .route("/network_info", get(network_info_handler))
+        .route("/metrics", get(prometheus_handler));
+
+    if enable_debug_rpc {
+        app = app
+            .route("/debug/api/entity", post(handle_entity_debug))
+            .route("/debug/api/block_status/:starting_height", 
+                get(
+                    #[allow(deprecated)]
+                    deprecated_debug_block_status_handler
+                )
             )
+            .route("/debug/api/block_status", get(debug_block_status_handler))
+            .route("/debug/api/epoch_info/:epoch_id", get(debug_epoch_info_handler))
+            .route("/debug/api/:api", get(debug_handler))
+            .route("/debug/client_config", get(client_config_handler))
+            .route("/debug", get(debug_html))
+            .route("/debug/pages/:page", get(display_debug_html));
+    }
+
+    // Apply middleware and state
+    let app = app
+        .with_state(handler_state)
+        .layer(get_cors(&cors_allowed_origins))
+        .layer(RequestBodyLimitLayer::new(limits_config.json_payload_max_size))
+        .layer(TraceLayer::new_for_http());
+
+    // Start the main server
+    let socket_addr: SocketAddr = addr.to_string().parse().unwrap();
+    let handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
+        if let Err(e) = axum::serve(listener, app).await
+        {
+            error!(target:"network", "HTTP server error: {:?}", e);
         }
-    };
+    });
+    servers.push(("JSON RPC", handle));
 
     if let Some(prometheus_addr) = prometheus_addr {
         info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
         // Export only the /metrics service. It's a read-only service and can have very relaxed
         // access restrictions.
-        let listener = HttpServer::new(move || {
-            App::new()
-                .wrap(get_cors(&cors_allowed_origins_clone))
-                .wrap(middleware::Logger::default())
-                .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-        });
+        let prometheus_app = Router::new()
+            .route("/metrics", get(prometheus_handler))
+            .layer(get_cors(&cors_allowed_origins_clone))
+            .layer(TraceLayer::new_for_http());
 
-        match listener.bind(&prometheus_addr) {
-            std::result::Result::Ok(s) => {
-                let server = s.workers(2).shutdown_timeout(5).disable_signals().run();
-                servers.push(("Prometheus Metrics", server.handle()));
-                tokio::spawn(server);
+        let prometheus_socket_addr: SocketAddr = prometheus_addr.parse().unwrap();
+        let handle = tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind(&prometheus_socket_addr).await.unwrap();
+            if let Err(e) = axum::serve(listener, prometheus_app).await
+            {
+                error!(target:"network", "Prometheus server error: {:?}", e);
             }
-            std::result::Result::Err(e) => {
-                error!(
-                    target:"network",
-                    "Can't export Prometheus metrics at {} due to {:?}", &prometheus_addr, e,
-                )
-            }
-        };
+        });
+        servers.push(("Prometheus Metrics", handle));
     }
 
     servers
 }
 
 struct HttpServerActor {
-    servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
+    servers: Vec<(&'static str, tokio::task::JoinHandle<()>)>,
 }
 
 impl messaging::Actor for HttpServerActor {
     fn stop_actor(&mut self) {
-        for (name, handle) in &self.servers {
+        for (name, handle) in &mut self.servers {
             info!(target:"network", "Stopping {} HTTP server", name);
-            futures::executor::block_on(handle.stop(false));
+            handle.abort();
         }
     }
 }
@@ -1861,19 +1851,18 @@ pub async fn start_http_for_readonly_debug_querying(
     info!(
         "Use tools/debug-ui, use localhost as the node, and go to the Entity Debug tab to start querying."
     );
-    let listener = HttpServer::new(move || {
-        App::new()
-            .app_data(web::Data::new(entity_debug_handler.clone()))
-            .wrap(get_cors(&["*".to_string()]))
-            .wrap(middleware::Logger::default())
-            .service(
-                web::resource("/debug/api/entity")
-                    .route(web::post().to(handle_entity_debug_readonly)),
-            )
-    });
+    
+    let app = Router::new()
+        .route("/debug/api/entity", post(handle_entity_debug_readonly))
+        .with_state(entity_debug_handler)
+        .layer(get_cors(&["*".to_string()]))
+        .layer(TraceLayer::new_for_http());
 
-    let server = listener.listen(addr.std_listener().unwrap())?;
-    server.workers(4).shutdown_timeout(5).disable_signals().run().await?;
+    let socket_addr: SocketAddr = addr.to_string().parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(&socket_addr).await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    axum::serve(listener, app).await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     Ok(())
 }
 

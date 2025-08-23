@@ -1,5 +1,6 @@
-use actix_web::{App, HttpServer, web};
+use actix_web::{App, HttpServer, HttpResponse, web};
 use anyhow::anyhow;
+use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use borsh::BorshDeserialize;
 use near_client::sync::external::{
     ExternalConnection, StateFileType, create_bucket_readonly, external_storage_location,
@@ -396,11 +397,24 @@ fn run_loop_all_shards(
             let gcs_bucket = gcs_bucket.clone();
             let old_status = status.as_ref().ok().cloned();
             let new_status = tokio_runtime.block_on(async move {
+                // Actix-compatible prometheus handler (mirrors near_jsonrpc::prometheus_handler)
+                async fn actix_prometheus_handler() -> HttpResponse {
+                    let mut buffer = vec![];
+                    let encoder = TextEncoder::new();
+                    match encoder.encode(&prometheus::gather(), &mut buffer) {
+                        Ok(_) => match String::from_utf8(buffer) {
+                            Ok(text) => HttpResponse::Ok().content_type("text/plain").body(text),
+                            Err(_) => HttpResponse::ServiceUnavailable().finish(),
+                        },
+                        Err(_) => HttpResponse::ServiceUnavailable().finish(),
+                    }
+                }
+
                 if !is_prometheus_server_up {
                     let server = HttpServer::new(move || {
                         App::new().service(
                             web::resource("/metrics")
-                                .route(web::get().to(near_jsonrpc::prometheus_handler)),
+                                .route(web::get().to(actix_prometheus_handler)),
                         )
                     })
                     .bind(prometheus_addr)?

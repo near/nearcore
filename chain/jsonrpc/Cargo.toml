@@ -12,8 +12,9 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-cors.workspace = true
-actix-web.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
 bs58.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
