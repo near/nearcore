@@ -138,7 +138,7 @@ use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::{debug, debug_span, error, warn};
+use tracing::{debug, debug_span, error, instrument, warn};
 
 pub const CHUNK_REQUEST_RETRY: time::Duration = time::Duration::milliseconds(100);
 pub const CHUNK_REQUEST_SWITCH_TO_OTHERS: time::Duration = time::Duration::milliseconds(400);
@@ -1491,6 +1491,19 @@ impl ShardsManagerActor {
     ///  ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts: if all parts and
     ///    receipts in the chunk are received and the chunk has been processed.
     ///  ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped: process request is received earlier than Block for the same height and the chunk has been dropped without processing any part of it.
+    #[instrument(
+        target = "chunks",
+        level = "debug",
+        "process_partial_encoded_chunk",
+        skip_all,
+        fields(
+            height = partial_encoded_chunk.get_inner().height_created(),
+            height_included = partial_encoded_chunk.get_inner().height_included(),
+            shard_id = %partial_encoded_chunk.get_inner().shard_id(),
+            chunk_hash = ?partial_encoded_chunk.get_inner().chunk_hash(),
+            part_ords = ?partial_encoded_chunk.get_inner().parts().iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+            tag_chunk_distribution = true)
+    )]
     fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
@@ -1499,14 +1512,6 @@ impl ShardsManagerActor {
         let partial_encoded_chunk =
             partial_encoded_chunk.map(|chunk| PartialEncodedChunkV2::from(chunk));
         let chunk_hash = partial_encoded_chunk.header.chunk_hash();
-        let _span = debug_span!(
-            target: "chunks",
-            "process_partial_encoded_chunk",
-            ?chunk_hash,
-            shard_id = %partial_encoded_chunk.header.shard_id(),
-            height_created = partial_encoded_chunk.header.height_created(),
-            height_included = partial_encoded_chunk.header.height_included())
-        .entered();
         debug!(
             target: "chunks",
             parts = ?partial_encoded_chunk.get_inner().parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
@@ -1517,9 +1522,9 @@ impl ShardsManagerActor {
             if entry.complete {
                 return Ok(ProcessPartialEncodedChunkResult::Known);
             }
-            debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = self.epoch_manager.num_data_parts());
+            debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = self.epoch_manager.num_data_parts(), tag_chunk_distribution = true);
         } else {
-            debug!(target: "chunks", num_parts_in_cache = 0, total_needed = self.epoch_manager.num_data_parts());
+            debug!(target: "chunks", num_parts_in_cache = 0, total_needed = self.epoch_manager.num_data_parts(), tag_chunk_distribution = true);
         }
 
         // 1.b Checking chunk height
@@ -1994,6 +1999,12 @@ impl ShardsManagerActor {
         Ok(true)
     }
 
+    #[instrument(target = "client", level = "debug", "distribute_encoded_chunk", skip_all, fields(
+        height = %partial_chunk.height_created(),
+        shard_id = %partial_chunk.shard_id(),
+        chunk_hash = ?partial_chunk.chunk_hash(),
+        tag_chunk_distribution = true
+    ))]
     fn distribute_encoded_chunk(
         &mut self,
         partial_chunk: PartialEncodedChunk,
@@ -2011,12 +2022,6 @@ impl ShardsManagerActor {
         #[cfg(not(feature = "test_features"))]
         debug_assert_eq!(chunk_header, partial_chunk.cloned_header());
         let prev_block_hash = chunk_header.prev_block_hash();
-        let _span = tracing::debug_span!(
-            target: "client",
-            "distribute_encoded_chunk",
-            ?prev_block_hash,
-            %shard_id)
-        .entered();
 
         let mut block_producer_mapping = HashMap::new();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
