@@ -4,7 +4,7 @@ use crate::broadcast;
 use crate::client::ClientSenderForNetworkInput;
 use crate::client::ClientSenderForNetworkMessage;
 use crate::client::StateRequestPart;
-use crate::client::StateResponse;
+use crate::client::StateRequestResult;
 use crate::config;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::StateResponseInfo;
@@ -623,10 +623,13 @@ pub(crate) async fn start(
                                     header: None,
                                     part,
                                 });
-                            let result =
-                                Some(StateResponse(Box::new(StateResponseInfo::V2(Box::new(
-                                    StateResponseInfoV2 { shard_id, sync_hash, state_response },
-                                )))));
+                            let result = Some(StateRequestResult(Box::new(StateResponseInfo::V2(
+                                Box::new(StateResponseInfoV2 {
+                                    shard_id,
+                                    sync_hash,
+                                    state_response,
+                                }),
+                            ))));
                             (msg.callback)(std::future::ready(Ok(result)).boxed());
                             send.send(Event::StateRequestSender(
                                 StateRequestSenderForNetworkInput::_state_request_part(msg.message),
