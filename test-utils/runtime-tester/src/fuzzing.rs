@@ -1,6 +1,7 @@
 use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
 use near_chain_configs::{NEAR_BASE, test_utils::TESTING_INIT_BALANCE};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+use near_primitives::types::Gas;
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
     transaction::{
@@ -35,8 +36,10 @@ impl Arbitrary<'_> for Scenario {
 
         let network_config = NetworkConfig { seeds };
         let runtime_config = RuntimeConfig {
-            max_total_prepaid_gas: GAS_1 * 100,
-            gas_limit: (GAS_1 as f64 * *u.choose(&[0.01, 0.1, 1., 10., 100.])?) as u64,
+            max_total_prepaid_gas: Gas::from_gas(GAS_1 * 100),
+            gas_limit: Gas::from_gas(
+                (GAS_1 as f64 * *u.choose(&[0.01, 0.1, 1., 10., 100.])?) as u64,
+            ),
             epoch_length: *u.choose(&[5, 10, 100, 500])? as u64,
         };
 
@@ -729,7 +732,7 @@ impl Function {
         Ok(FunctionCallAction {
             method_name: method_name.to_string(),
             args: args,
-            gas: GAS_1,
+            gas: Gas::from_gas(GAS_1),
             deposit: 0,
         })
     }

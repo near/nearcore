@@ -10,6 +10,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives::types::Gas;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_store::archive::cold_storage::{
@@ -90,7 +91,7 @@ fn create_tx_function_call(
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "write_random_value".to_string(),
         args: vec![],
-        gas: 100_000_000_000_000,
+        gas: Gas::from_tgas(100),
         deposit: 0,
     }));
     SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash, 0)

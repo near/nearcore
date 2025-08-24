@@ -822,7 +822,7 @@ pub(crate) fn apply_delegate_action(
     result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
     result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
     // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-    result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees)?;
+    result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees.as_gas())?;
     result.new_receipts.push(new_receipt);
 
     Ok(())
@@ -849,7 +849,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
         }
         ReceiptEnum::GlobalContractDistribution(_)
         | ReceiptEnum::Data(_)
-        | ReceiptEnum::PromiseResume(_) => 0,
+        | ReceiptEnum::PromiseResume(_) => Gas::from_gas(0),
     })
 }
 
@@ -1124,6 +1124,7 @@ mod tests {
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::transaction::CreateAccountAction;
+    use near_primitives::types::Gas;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::set_account;
@@ -1342,7 +1343,7 @@ mod tests {
                             Box::new(FunctionCallAction {
                                  method_name: "ft_transfer".parse().unwrap(),
                                  args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
-                                 gas: 30000000000000,
+                                 gas: Gas::from_tgas(30),
                                  deposit: 1,
                             })
                         )
@@ -1746,7 +1747,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
@@ -1797,14 +1798,14 @@ mod tests {
             non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             }))),
             non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
                 method_name: "test_method".parse().unwrap(),
+                gas: Gas::from_gas(300),
             }))),
         ];
 
@@ -1836,7 +1837,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 1,
-                gas: 300,
+                gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
 
@@ -1868,7 +1869,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
 
@@ -1903,7 +1904,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
 

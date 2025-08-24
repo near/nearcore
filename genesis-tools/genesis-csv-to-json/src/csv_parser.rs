@@ -24,7 +24,7 @@ const PRIVILEGED_METHOD_NAMES: &[&str] = &["add_access_key", "remove_access_key"
 const FOUNDATION_METHOD_NAMES: &[&str] =
     &["add_access_key", "remove_access_key", "permanently_unstake", "terminate", "init"];
 /// Amount of gas that we pass to run the contract initialization function.
-const INIT_GAS: Gas = 1_000_000;
+const INIT_GAS: Gas = Gas::from_gas(1_000_000);
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 

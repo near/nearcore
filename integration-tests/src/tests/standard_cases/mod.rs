@@ -34,6 +34,7 @@ use near_primitives::test_utils;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives::types::Gas;
 use testlib::fees_utils::FeeHelper;
 use testlib::runtime_utils::{
     alice_account, bob_account, eve_dot_alice_account, x_dot_y_dot_alice_account,
@@ -70,7 +71,7 @@ pub fn test_smart_contract_simple(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(alice_account(), bob_account(), "run_test", vec![], Gas::from_tgas(100), 0)
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -90,7 +91,7 @@ pub fn test_smart_contract_panic(node: impl Node) {
             alice_account(),
             "panic_with_message",
             vec![],
-            10u64.pow(14),
+            Gas::from_tgas(100),
             0,
         )
         .unwrap();
@@ -114,7 +115,14 @@ pub fn test_smart_contract_self_call(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), account_id.clone(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(
+            account_id.clone(),
+            account_id.clone(),
+            "run_test",
+            vec![],
+            Gas::from_tgas(100),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -131,7 +139,14 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "_run_test", vec![], 10u64.pow(14), 0)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            "_run_test",
+            vec![],
+            Gas::from_tgas(100),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -156,7 +171,7 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "", vec![], 10u64.pow(14), 0)
+        .function_call(account_id.clone(), bob_account(), "", vec![], Gas::from_tgas(100), 0)
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -181,7 +196,7 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "", vec![], 10u64.pow(14), 10)
+        .function_call(account_id.clone(), bob_account(), "", vec![], Gas::from_tgas(100), 10)
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -210,7 +225,7 @@ pub fn test_smart_contract_with_args(node: impl Node) {
             bob_account(),
             "sum_with_input",
             (2u64..4).flat_map(|x| x.to_le_bytes().to_vec()).collect(),
-            10u64.pow(14),
+            Gas::from_tgas(100),
             0,
         )
         .unwrap();
@@ -229,7 +244,14 @@ pub fn test_async_call_with_logs(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "log_something", vec![], 10u64.pow(14), 0)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            "log_something",
+            vec![],
+            Gas::from_tgas(100),
+            0,
+        )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
@@ -471,17 +493,21 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
 
     let create_account_fee = fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false);
     let add_access_key_fee = fee_helper.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
-    let gas_refund = fee_helper.cfg().fee(ActionCosts::transfer).exec_fee()
-        + fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee()
-        + create_account_fee
-        + add_access_key_fee;
+    let gas_refund = fee_helper
+        .cfg()
+        .fee(ActionCosts::transfer)
+        .exec_fee()
+        .saturating_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee())
+        .saturating_add(create_account_fee)
+        .saturating_add(add_access_key_fee);
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let cost = refund_cost
         + match receiver_id.get_account_type() {
             AccountType::NearImplicitAccount => {
                 fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
-                    + fee_helper.gas_to_balance(create_account_fee + add_access_key_fee)
+                    + fee_helper
+                        .gas_to_balance(create_account_fee.saturating_add(add_access_key_fee))
             }
             AccountType::EthImplicitAccount => {
                 // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
@@ -525,7 +551,7 @@ pub fn test_smart_contract_reward(node: impl Node) {
     let bob = node_user.view_account(&bob_account()).unwrap();
     assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(alice_account(), bob_account(), "run_test", vec![], Gas::from_tgas(100), 0)
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -537,8 +563,10 @@ pub fn test_smart_contract_reward(node: impl Node) {
 
     let fee_helper = fee_helper(&node);
     let bob = node_user.view_account(&bob_account()).unwrap();
-    let gas_burnt_for_function_call = transaction_result.receipts_outcome[0].outcome.gas_burnt
-        - fee_helper.function_call_exec_gas(b"run_test".len() as u64);
+    let gas_burnt_for_function_call = transaction_result.receipts_outcome[0]
+        .outcome
+        .gas_burnt
+        .saturating_sub(fee_helper.function_call_exec_gas(b"run_test".len() as u64));
     let reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
     assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + reward);
 }
@@ -693,8 +721,11 @@ pub fn test_create_account_again(node: impl Node) {
     // the first action.
     let additional_cost = fee_helper.create_account_transfer_full_key_cost_fail_on_create_account();
     // Refund penalty also applies to refunds after failing.
-    let gas_refund = fee_helper.cfg().fee(ActionCosts::transfer).exec_fee()
-        + fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee();
+    let gas_refund = fee_helper
+        .cfg()
+        .fee(ActionCosts::transfer)
+        .exec_fee()
+        .saturating_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee());
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let result1 = node_user.view_account(account_id).unwrap();
@@ -743,8 +774,11 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
 
     // Refund penalty also applies to refunds after failing.
-    let gas_refund = fee_helper.cfg().fee(ActionCosts::transfer).exec_fee()
-        + fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee();
+    let gas_refund = fee_helper
+        .cfg()
+        .fee(ActionCosts::transfer)
+        .exec_fee()
+        .saturating_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee());
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let result1 = node_user.view_account(account_id).unwrap();
@@ -1079,16 +1113,24 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     let exec_gas = fee_helper.function_call_exec_gas(method_name.as_bytes().len() as u64);
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), method_name, vec![], prepaid_gas, 0)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            method_name,
+            vec![],
+            Gas::from_gas(prepaid_gas),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::SuccessValue(10i32.to_le_bytes().to_vec())
     );
-    let gross_gas_refund =
-        prepaid_gas + exec_gas - transaction_result.receipts_outcome[0].outcome.gas_burnt;
+    let gross_gas_refund = Gas::from_gas(prepaid_gas)
+        .saturating_add(exec_gas)
+        .saturating_sub(transaction_result.receipts_outcome[0].outcome.gas_burnt);
     let refund_penalty = fee_helper.cfg().gas_penalty_for_gas_refund(gross_gas_refund);
-    let gas_refund = fee_helper.gas_to_balance(gross_gas_refund - refund_penalty);
+    let gas_refund = fee_helper.gas_to_balance(gross_gas_refund.saturating_sub(refund_penalty));
 
     // Refund receipt may not be ready yet
     assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
@@ -1126,7 +1168,14 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     node_user.set_signer(Arc::new(signer2));
 
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            "run_test",
+            vec![],
+            Gas::from_tgas(100),
+            0,
+        )
         .unwrap_err();
     assert_eq!(transaction_result, CommitError::OutcomeNotFound);
 }
@@ -1152,7 +1201,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
             eve_dot_alice_account(),
             "run_test",
             vec![],
-            10u64.pow(14),
+            Gas::from_tgas(100),
             0,
         )
         .unwrap_err();
@@ -1397,7 +1446,7 @@ pub fn test_smart_contract_free(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], 10u64.pow(13), 0)
+        .function_call(alice_account(), bob_account(), "run_test", vec![], Gas::from_tgas(10), 0)
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -1411,8 +1460,12 @@ pub fn test_smart_contract_free(node: impl Node) {
         transaction_result.receipts_outcome
     );
 
-    let total_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt
-        + transaction_result.receipts_outcome.iter().map(|t| t.outcome.gas_burnt).sum::<u64>();
+    let total_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt.as_gas()
+        + transaction_result
+            .receipts_outcome
+            .iter()
+            .map(|t| t.outcome.gas_burnt.as_gas())
+            .sum::<u64>();
     assert_eq!(total_gas_burnt, 0);
 
     let new_root = node_user.get_state_root();
@@ -1428,15 +1481,20 @@ fn get_trie_nodes_count(
     for cost in &metadata.gas_profile.clone().unwrap_or_default() {
         match cost.cost.as_str() {
             "TOUCHING_TRIE_NODE" => {
-                count.db_reads += cost.gas_used
-                    / runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::touching_trie_node);
-            }
-            "READ_CACHED_TRIE_NODE" => {
-                count.mem_reads += cost.gas_used
+                count.db_reads += cost.gas_used.as_gas()
                     / runtime_config
                         .wasm_config
                         .ext_costs
-                        .gas_cost(ExtCosts::read_cached_trie_node);
+                        .gas_cost(ExtCosts::touching_trie_node)
+                        .as_gas();
+            }
+            "READ_CACHED_TRIE_NODE" => {
+                count.mem_reads += cost.gas_used.as_gas()
+                    / runtime_config
+                        .wasm_config
+                        .ext_costs
+                        .gas_cost(ExtCosts::read_cached_trie_node)
+                        .as_gas();
             }
             _ => {}
         };
@@ -1460,7 +1518,7 @@ pub fn test_contract_write_key_value_cost(node: impl Node) {
                 bob_account(),
                 "write_key_value",
                 test_utils::encode(&[10u64, 20u64]),
-                10u64.pow(14),
+                Gas::from_tgas(100),
                 0,
             )
             .unwrap();
@@ -1480,7 +1538,7 @@ fn make_write_key_value_action(key: Vec<u64>, value: Vec<u64>) -> Action {
     FunctionCallAction {
         method_name: "write_key_value".to_string(),
         args: test_utils::encode(&args),
-        gas: 10u64.pow(14),
+        gas: Gas::from_tgas(100),
         deposit: 0,
     }
     .into()
@@ -1641,7 +1699,7 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
                 FunctionCallAction {
                     args: test_utils::encode(&[1]),
                     method_name: "read_value".to_string(),
-                    gas: 10u64.pow(14),
+                    gas: Gas::from_tgas(100),
                     deposit: 0,
                 }
                 .into(),

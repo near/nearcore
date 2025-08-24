@@ -9,6 +9,7 @@ use near_primitives_core::{
     types::{AccountId, Balance, Gas},
 };
 use near_schema_checker_lib::ProtocolSchema;
+
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
@@ -117,7 +118,6 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -173,7 +173,6 @@ impl fmt::Debug for DeployGlobalContractAction {
     }
 }
 
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -217,7 +216,6 @@ impl GlobalContractIdentifier {
 }
 
 /// Use global contract action
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -353,7 +351,7 @@ impl Action {
     pub fn get_prepaid_gas(&self) -> Gas {
         match self {
             Action::FunctionCall(a) => a.gas,
-            _ => 0,
+            _ => Gas::from_gas(0),
         }
     }
     pub fn get_deposit_balance(&self) -> Balance {

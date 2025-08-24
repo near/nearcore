@@ -19,7 +19,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -197,30 +197,59 @@ fn check_meta_tx_fn_call(
     // dynamic cost. The contract reward can be inferred from that.
 
     // static send gas is paid and burnt upfront
-    let static_send_gas = fee_helper.cfg().fee(ActionCosts::new_action_receipt).send_fee(false)
-        + num_fn_calls as u64
-            * fee_helper.cfg().fee(ActionCosts::function_call_base).send_fee(false)
-        + msg_len * fee_helper.cfg().fee(ActionCosts::function_call_byte).send_fee(false);
+    let static_send_gas = fee_helper
+        .cfg()
+        .fee(ActionCosts::new_action_receipt)
+        .send_fee(false)
+        .saturating_add(
+            fee_helper
+                .cfg()
+                .fee(ActionCosts::function_call_base)
+                .send_fee(false)
+                .saturating_mul(num_fn_calls as u64),
+        )
+        .saturating_add(
+            fee_helper
+                .cfg()
+                .fee(ActionCosts::function_call_byte)
+                .send_fee(false)
+                .saturating_mul(msg_len),
+        );
     // static execution gas burnt in the same receipt as the function calls but
     // it doesn't contribute to the contract reward
-    let static_exec_gas = fee_helper.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
-        + num_fn_calls as u64 * fee_helper.cfg().fee(ActionCosts::function_call_base).exec_fee()
-        + msg_len * fee_helper.cfg().fee(ActionCosts::function_call_byte).exec_fee();
+    let static_exec_gas = fee_helper
+        .cfg()
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .saturating_add(
+            fee_helper
+                .cfg()
+                .fee(ActionCosts::function_call_base)
+                .exec_fee()
+                .saturating_mul(num_fn_calls as u64),
+        )
+        .saturating_add(
+            fee_helper
+                .cfg()
+                .fee(ActionCosts::function_call_byte)
+                .exec_fee()
+                .saturating_mul(msg_len),
+        );
 
     // calculate contract rewards as reward("gas burnt in fn call receipt" - "static exec costs")
     let gas_burnt_for_function_call =
-        tx_result.receipts_outcome[1].outcome.gas_burnt - static_exec_gas;
+        tx_result.receipts_outcome[1].outcome.gas_burnt.saturating_sub(static_exec_gas);
     let dyn_cost = fee_helper.gas_to_balance(gas_burnt_for_function_call);
     let contract_reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
 
     // Calculate cost of gas refund
-    let gross_gas_refund = prepaid_gas - gas_burnt_for_function_call;
+    let gross_gas_refund = prepaid_gas.saturating_sub(gas_burnt_for_function_call);
     let refund_penalty = fee_helper.gas_refund_cost(gross_gas_refund);
 
     // the relayer pays all gas and tokens
     let gas_cost = meta_tx_overhead_cost
         + refund_penalty
-        + fee_helper.gas_to_balance(static_exec_gas + static_send_gas);
+        + fee_helper.gas_to_balance(static_exec_gas.saturating_add(static_send_gas));
     let expected_relayer_cost = (gas_cost + tokens_transferred + dyn_cost) as i128;
     assert_eq!(relayer_diff, -expected_relayer_cost, "unexpected relayer balance");
 
@@ -547,7 +576,7 @@ fn meta_tx_ft_transfer() {
             "new_default_meta",
             // make the relayer (alice) owner, makes initialization easier
             br#"{"owner_id": "alice.near", "total_supply": "1000000"}"#.to_vec(),
-            30_000_000_000_000,
+            Gas::from_tgas(30),
             0,
         )
         .expect("FT contract initialization failed")
@@ -609,7 +638,7 @@ fn log_something_fn_call() -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: TEST_METHOD.to_owned(),
         args: vec![],
-        gas: 30_000_000_000_000,
+        gas: Gas::from_tgas(30),
         deposit: 0,
     }))
 }
@@ -631,7 +660,7 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args,
-        gas: 20_000_000_000_000,
+        gas: Gas::from_tgas(20),
         deposit: 1,
     }));
 
@@ -651,7 +680,7 @@ fn ft_register_action(receiver: &str) -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "storage_deposit".to_owned(),
         args,
-        gas: 20_000_000_000_000,
+        gas: Gas::from_tgas(20),
         deposit: NEAR_BASE,
     }))
 }

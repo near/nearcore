@@ -60,7 +60,7 @@ async fn test_insufficient_gas() -> anyhow::Result<()> {
             "target": target,
             "tx_bytes_b64": codec::encode_b64(&codec::rlp_encode(&signed_transaction))
         }))
-        .gas(near_gas::NearGas::from_tgas(7))
+        .gas(near_primitives::Gas::from_tgas(7))
         .transact()
         .await
         .unwrap()

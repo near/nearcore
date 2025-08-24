@@ -336,7 +336,7 @@ pub(super) struct InitCmd {
     /// Customize max_gas_burnt_view runtime limit.  If not specified, value
     /// from genesis configuration will be taken.
     #[clap(long)]
-    max_gas_burnt_view: Option<Gas>,
+    max_gas_burnt_view: Option<u64>,
 }
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
@@ -406,7 +406,7 @@ impl InitCmd {
             download_config_type,
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
-            self.max_gas_burnt_view,
+            self.max_gas_burnt_view.map(Gas::from_gas),
         )
         .context("Failed to initialize configs")
     }
@@ -454,10 +454,10 @@ pub(super) struct RunCmd {
     #[clap(long)]
     telemetry_url: Option<String>,
     /// Customize max_gas_burnt_view runtime limit.  If not specified, either
-    /// value given at ‘init’ (i.e. present in config.json) or one from genesis
+    /// value given at 'init' (i.e. present in config.json) or one from genesis
     /// configuration will be taken.
     #[clap(long)]
-    max_gas_burnt_view: Option<Gas>,
+    max_gas_burnt_view: Option<u64>,
 }
 
 impl RunCmd {
@@ -524,7 +524,8 @@ impl RunCmd {
             near_config.client_config.archive = true;
         }
         if self.max_gas_burnt_view.is_some() {
-            near_config.client_config.max_gas_burnt_view = self.max_gas_burnt_view;
+            near_config.client_config.max_gas_burnt_view =
+                self.max_gas_burnt_view.map(Gas::from_gas);
         }
 
         #[cfg(feature = "sandbox")]

@@ -86,10 +86,14 @@ impl CongestionControl {
             if sender_shard == ShardId::from(self.info.allowed_shard()) {
                 self.config.allowed_shard_outgoing_gas
             } else {
-                0
+                Gas::from_gas(0)
             }
         } else {
-            mix(self.config.max_outgoing_gas, self.config.min_outgoing_gas, congestion)
+            Gas::from_gas(mix(
+                self.config.max_outgoing_gas.as_gas(),
+                self.config.min_outgoing_gas.as_gas(),
+                congestion,
+            ))
         }
     }
 
@@ -104,17 +108,21 @@ impl CongestionControl {
     pub fn outgoing_size_limit(&self, sender_shard: ShardId) -> Gas {
         if sender_shard == ShardId::from(self.info.allowed_shard()) {
             // The allowed shard is allowed to send more data to us.
-            self.config.outgoing_receipts_big_size_limit
+            Gas::from_gas(self.config.outgoing_receipts_big_size_limit)
         } else {
             // Other shards have a low standard limit.
-            self.config.outgoing_receipts_usual_size_limit
+            Gas::from_gas(self.config.outgoing_receipts_usual_size_limit)
         }
     }
 
     /// How much gas we accept for executing new transactions going to any
     /// uncongested shards.
     pub fn process_tx_limit(&self) -> Gas {
-        mix(self.config.max_tx_gas, self.config.min_tx_gas, self.incoming_congestion())
+        Gas::from_gas(mix(
+            self.config.max_tx_gas.as_gas(),
+            self.config.min_tx_gas.as_gas(),
+            self.incoming_congestion(),
+        ))
     }
 
     /// Whether we can accept new transaction with the receiver set to this shard.
@@ -268,8 +276,10 @@ impl CongestionInfo {
     pub fn add_delayed_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.delayed_receipts_gas =
-                    inner.delayed_receipts_gas.checked_add(gas as u128).ok_or_else(|| {
+                inner.delayed_receipts_gas = inner
+                    .delayed_receipts_gas
+                    .checked_add(gas.as_gas() as u128)
+                    .ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("add_delayed_receipt_gas".into())
                     })?;
             }
@@ -280,8 +290,10 @@ impl CongestionInfo {
     pub fn remove_delayed_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.delayed_receipts_gas =
-                    inner.delayed_receipts_gas.checked_sub(gas as u128).ok_or_else(|| {
+                inner.delayed_receipts_gas = inner
+                    .delayed_receipts_gas
+                    .checked_sub(gas.as_gas() as u128)
+                    .ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("remove_delayed_receipt_gas".into())
                     })?;
             }
@@ -292,8 +304,10 @@ impl CongestionInfo {
     pub fn add_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.buffered_receipts_gas =
-                    inner.buffered_receipts_gas.checked_add(gas as u128).ok_or_else(|| {
+                inner.buffered_receipts_gas = inner
+                    .buffered_receipts_gas
+                    .checked_add(gas.as_gas() as u128)
+                    .ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("add_buffered_receipt_gas".into())
                     })?;
             }
@@ -324,11 +338,17 @@ impl CongestionInfo {
     }
 
     pub fn incoming_congestion(&self, config: &CongestionControlConfig) -> f64 {
-        clamped_f64_fraction(self.delayed_receipts_gas(), config.max_congestion_incoming_gas)
+        clamped_f64_fraction(
+            self.delayed_receipts_gas(),
+            config.max_congestion_incoming_gas.as_gas(),
+        )
     }
 
     pub fn outgoing_congestion(&self, config: &CongestionControlConfig) -> f64 {
-        clamped_f64_fraction(self.buffered_receipts_gas(), config.max_congestion_outgoing_gas)
+        clamped_f64_fraction(
+            self.buffered_receipts_gas(),
+            config.max_congestion_outgoing_gas.as_gas(),
+        )
     }
 
     pub fn memory_congestion(&self, config: &CongestionControlConfig) -> f64 {
@@ -581,14 +601,24 @@ mod tests {
         assert_eq!(0.0, congestion_control.outgoing_congestion());
         assert_eq!(0.0, congestion_control.congestion_level());
 
-        assert!(
-            config
-                .max_outgoing_gas
-                .abs_diff(congestion_control.outgoing_gas_limit(ShardId::new(0)))
-                <= 1
-        );
+        let diff =
+            if config.max_outgoing_gas > congestion_control.outgoing_gas_limit(ShardId::new(0)) {
+                config
+                    .max_outgoing_gas
+                    .saturating_sub(congestion_control.outgoing_gas_limit(ShardId::new(0)))
+            } else {
+                congestion_control
+                    .outgoing_gas_limit(ShardId::new(0))
+                    .saturating_sub(config.max_outgoing_gas)
+            };
+        assert!(diff <= Gas::from_gas(1));
 
-        assert!(config.max_tx_gas.abs_diff(congestion_control.process_tx_limit()) <= 1);
+        let diff = if config.max_tx_gas > congestion_control.process_tx_limit() {
+            config.max_tx_gas.saturating_sub(congestion_control.process_tx_limit())
+        } else {
+            congestion_control.process_tx_limit().saturating_sub(config.max_tx_gas)
+        };
+        assert!(diff <= Gas::from_gas(1));
         assert!(congestion_control.shard_accepts_transactions().is_yes());
     }
 
@@ -605,7 +635,7 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(1.0, control.congestion_level());
             // fully congested, no more forwarding allowed
-            assert_eq!(0, control.outgoing_gas_limit(ShardId::new(1)));
+            assert_eq!(Gas::from_gas(0), control.outgoing_gas_limit(ShardId::new(1)));
             assert!(control.shard_accepts_transactions().is_no());
             // processing to other shards is not restricted by memory congestion
             assert_eq!(config.max_tx_gas, control.process_tx_limit());
@@ -620,7 +650,11 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(0.8, control.congestion_level());
             assert_eq!(
-                mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.8),
+                Gas::from_gas(mix(
+                    config.max_outgoing_gas.as_gas(),
+                    config.min_outgoing_gas.as_gas(),
+                    0.8
+                )),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 80%, still no new transactions are allowed
@@ -633,7 +667,11 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(0.1, control.congestion_level());
             assert_eq!(
-                mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.1),
+                Gas::from_gas(mix(
+                    config.max_outgoing_gas.as_gas(),
+                    config.min_outgoing_gas.as_gas(),
+                    0.1
+                )),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 12.5%, new transactions are allowed (threshold is 0.25)
@@ -647,14 +685,14 @@ mod tests {
         let mut info = CongestionInfo::default();
 
         info.add_delayed_receipt_gas(config.max_congestion_incoming_gas).unwrap();
-        info.add_delayed_receipt_gas(500).unwrap();
-        info.remove_delayed_receipt_gas(500).unwrap();
+        info.add_delayed_receipt_gas(Gas::from_gas(500)).unwrap();
+        info.remove_delayed_receipt_gas(Gas::from_gas(500)).unwrap();
 
         {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(1.0, control.congestion_level());
             // fully congested, no more forwarding allowed
-            assert_eq!(0, control.outgoing_gas_limit(ShardId::new(1)));
+            assert_eq!(Gas::from_gas(0), control.outgoing_gas_limit(ShardId::new(1)));
             assert!(control.shard_accepts_transactions().is_no());
             // processing to other shards is restricted by own incoming congestion
             assert_eq!(config.min_tx_gas, control.process_tx_limit());
@@ -664,12 +702,17 @@ mod tests {
         assert_eq!(0.8, config.reject_tx_congestion_threshold);
 
         // reduce congestion to 80%
-        info.remove_delayed_receipt_gas(config.max_congestion_incoming_gas / 5).unwrap();
+        info.remove_delayed_receipt_gas(config.max_congestion_incoming_gas.saturating_div(5))
+            .unwrap();
         {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(0.8, control.congestion_level());
             assert_eq!(
-                mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.8),
+                Gas::from_gas(mix(
+                    config.max_outgoing_gas.as_gas(),
+                    config.min_outgoing_gas.as_gas(),
+                    0.8
+                )),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 80%, still no new transactions are allowed
@@ -677,12 +720,19 @@ mod tests {
         }
 
         // reduce congestion to 10%
-        info.remove_delayed_receipt_gas(7 * config.max_congestion_incoming_gas / 10).unwrap();
+        info.remove_delayed_receipt_gas(
+            config.max_congestion_incoming_gas.saturating_mul(7).saturating_div(10),
+        )
+        .unwrap();
         {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(0.1, control.congestion_level());
             assert_eq!(
-                mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.1),
+                Gas::from_gas(mix(
+                    config.max_outgoing_gas.as_gas(),
+                    config.min_outgoing_gas.as_gas(),
+                    0.1
+                )),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 10%, new transactions are allowed (threshold is 80%)
@@ -696,13 +746,13 @@ mod tests {
         let mut info = CongestionInfo::default();
 
         info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas).unwrap();
-        info.add_buffered_receipt_gas(500).unwrap();
-        info.remove_buffered_receipt_gas(500).unwrap();
+        info.add_buffered_receipt_gas(Gas::from_gas(500)).unwrap();
+        info.remove_buffered_receipt_gas(500 as u128).unwrap();
 
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(1.0, control.congestion_level());
         // fully congested, no more forwarding allowed
-        assert_eq!(0, control.outgoing_gas_limit(ShardId::new(1)));
+        assert_eq!(Gas::from_gas(0), control.outgoing_gas_limit(ShardId::new(1)));
         assert!(control.shard_accepts_transactions().is_no());
         // processing to other shards is not restricted by own outgoing congestion
         assert_eq!(config.max_tx_gas, control.process_tx_limit());
@@ -711,24 +761,32 @@ mod tests {
         assert_eq!(0.8, config.reject_tx_congestion_threshold);
 
         // reduce congestion to 80%
-        let gas_diff = config.max_congestion_outgoing_gas / 5;
-        info.remove_buffered_receipt_gas(gas_diff.into()).unwrap();
+        let gas_diff = config.max_congestion_outgoing_gas.saturating_div(5);
+        info.remove_buffered_receipt_gas(gas_diff.as_gas() as u128).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.8, control.congestion_level());
         assert_eq!(
-            mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.8),
+            Gas::from_gas(mix(
+                config.max_outgoing_gas.as_gas(),
+                config.min_outgoing_gas.as_gas(),
+                0.8
+            )),
             control.outgoing_gas_limit(ShardId::new(1))
         );
         // at 80%, still no new transactions to us are allowed
         assert!(control.shard_accepts_transactions().is_no());
 
         // reduce congestion to 10%
-        let gas_diff = 7 * config.max_congestion_outgoing_gas / 10;
-        info.remove_buffered_receipt_gas(gas_diff.into()).unwrap();
+        let gas_diff = config.max_congestion_outgoing_gas.saturating_mul(7).saturating_div(10);
+        info.remove_buffered_receipt_gas(gas_diff.as_gas() as u128).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.1, control.congestion_level());
         assert_eq!(
-            mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.1),
+            Gas::from_gas(mix(
+                config.max_outgoing_gas.as_gas(),
+                config.min_outgoing_gas.as_gas(),
+                0.1
+            )),
             control.outgoing_gas_limit(ShardId::new(1))
         );
         // at 10%, new transactions are allowed
@@ -756,7 +814,8 @@ mod tests {
 
         // Test missed chunks congestion with outgoing congestion
         let mut info = CongestionInfo::default();
-        info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas / 2).unwrap();
+        info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas.saturating_div(2))
+            .unwrap();
         let make = |count| CongestionControl::new(config, info, count);
 
         // include missing chunks congestion
@@ -787,7 +846,8 @@ mod tests {
 
         // Setup half congested congestion info.
         let mut info = CongestionInfo::default();
-        info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas / 2).unwrap();
+        info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas.saturating_div(2))
+            .unwrap();
 
         let shard = ShardId::new(2);
         let all_shards = [0, 1, 2, 3, 4].into_iter().map(ShardId::new).collect_vec();
@@ -798,10 +858,13 @@ mod tests {
         let mut control = CongestionControl::new(config, info, missed_chunks_count);
         control.info.finalize_allowed_shard(shard, &all_shards, 3);
 
-        let expected_outgoing_limit =
-            0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64;
+        let expected_outgoing_limit = 0.5 * config.min_outgoing_gas.as_gas() as f64
+            + 0.5 * config.max_outgoing_gas.as_gas() as f64;
         for &shard in &all_shards {
-            assert_eq!(control.outgoing_gas_limit(shard), expected_outgoing_limit as u64);
+            assert_eq!(
+                control.outgoing_gas_limit(shard),
+                Gas::from_gas(expected_outgoing_limit as u64)
+            );
         }
 
         // Test with some missed chunks congestion.
@@ -811,9 +874,12 @@ mod tests {
         control.info.finalize_allowed_shard(shard, &all_shards, 3);
 
         let expected_outgoing_limit =
-            mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.8) as f64;
+            mix(config.max_outgoing_gas.as_gas(), config.min_outgoing_gas.as_gas(), 0.8) as f64;
         for &shard in &all_shards {
-            assert_eq!(control.outgoing_gas_limit(shard), expected_outgoing_limit as u64);
+            assert_eq!(
+                control.outgoing_gas_limit(shard),
+                Gas::from_gas(expected_outgoing_limit as u64)
+            );
         }
 
         // Test with full missed chunks congestion.
@@ -827,7 +893,7 @@ mod tests {
             if shard == ShardId::from(control.info.allowed_shard()) {
                 assert_eq!(control.outgoing_gas_limit(shard), config.allowed_shard_outgoing_gas);
             } else {
-                assert_eq!(control.outgoing_gas_limit(shard), 0);
+                assert_eq!(control.outgoing_gas_limit(shard), Gas::from_gas(0));
             }
         }
     }

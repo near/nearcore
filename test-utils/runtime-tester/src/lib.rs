@@ -12,7 +12,7 @@ pub use crate::scenario_builder::ScenarioBuilder;
 fn scenario_smoke_test() {
     use near_crypto::InMemorySigner;
     use near_primitives::transaction::{Action, TransferAction};
-    use near_primitives::types::AccountId;
+    use near_primitives::types::{AccountId, Gas};
 
     let num_accounts = 5;
 
@@ -22,8 +22,8 @@ fn scenario_smoke_test() {
     let mut scenario = Scenario {
         network_config: NetworkConfig { seeds },
         runtime_config: RuntimeConfig {
-            max_total_prepaid_gas: 300 * 10u64.pow(12),
-            gas_limit: 1_000_000_000_000_000,
+            max_total_prepaid_gas: Gas::from_tgas(300),
+            gas_limit: Gas::from_tgas(1000),
             epoch_length: 500,
         },
         blocks: Vec::new(),

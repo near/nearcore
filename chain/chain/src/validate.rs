@@ -174,8 +174,9 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     }
 
     let gas_limit = prev_chunk_extra.gas_limit();
-    if chunk_header.gas_limit() < gas_limit - gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
-        || chunk_header.gas_limit() > gas_limit + gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+    let adjustment = gas_limit.saturating_div(GAS_LIMIT_ADJUSTMENT_FACTOR);
+    if chunk_header.gas_limit() < gas_limit.saturating_sub(adjustment)
+        || chunk_header.gas_limit() > gas_limit.saturating_add(adjustment)
     {
         return Err(Error::InvalidGasLimit);
     }

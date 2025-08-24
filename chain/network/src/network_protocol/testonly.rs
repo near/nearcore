@@ -17,7 +17,7 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunkBody, PartialEncodedChunkPart, ShardChunk,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, Gas, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version;
 use rand::Rng;
@@ -198,7 +198,7 @@ impl ChunkSet {
             vec![StateRoot::new()],
             vec![Default::default(); shard_ids.len()],
             &shard_ids,
-            1000,
+            Gas::from_gas(1000),
             0,
             version::PROTOCOL_VERSION,
         );
