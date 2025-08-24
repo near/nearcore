@@ -535,8 +535,9 @@ pub fn start_with_config_and_synchronization(
             hot_store,
             cold_store,
         };
-        near_jsonrpc::start_http_actor(
-            actor_system.clone(),
+        let http_handle = actor_system.spawn_tokio_actor(EmptyActor);
+        near_jsonrpc::start_http(
+            &*http_handle.future_spawner(),
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone().into_multi_sender(),
@@ -546,20 +547,21 @@ pub fn start_with_config_and_synchronization(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
-        )?;
+        );
     }
 
     #[cfg(feature = "rosetta_rpc")]
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
-        near_rosetta_rpc::start_rosetta_rpc_actor(
-            actor_system.clone(),
+        let handle = actor_system.spawn_tokio_actor(EmptyActor);
+        near_rosetta_rpc::start_rosetta_rpc(
+            &*handle.future_spawner(),
             rosetta_rpc_config,
             config.genesis,
-            *genesis_block.header().hash(),
+            genesis_block.header().hash(),
             client_actor.clone(),
             view_client_addr.clone(),
             rpc_handler.clone(),
-        )?;
+        );
     }
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");

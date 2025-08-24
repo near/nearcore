@@ -18,11 +18,10 @@ use tower_http::cors::CorsLayer;
 use utoipa::OpenApi;
 
 pub use config::RosettaRpcConfig;
-use near_async::futures::FutureSpawnerExt;
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
-use near_async::{ActorSystem, messaging};
 use near_chain_configs::Genesis;
 use near_client::client_actor::ClientActorInner;
 use near_client::{RpcHandler, ViewClientActorInner};
@@ -384,16 +383,21 @@ async fn account_balance(
     let account_id_for_access_key = account_identifier.address.clone();
     let account_identifier_for_ft = account_identifier.clone();
     let account_id = account_identifier.address.into();
-    let (block_hash, block_height, account_info) =
-        match crate::utils::query_account(block_id, account_id, &state.view_client_addr).await {
-            Ok(account_info_response) => account_info_response,
-            Err(crate::errors::ErrorKind::NotFound(_)) => (
-                block.header.hash,
-                block.header.height,
-                near_primitives::account::Account::new(0, 0, AccountContract::None, 0).into(),
-            ),
-            Err(err) => return Err(err.into()),
-        };
+    let (block_hash, block_height, account_info) = match crate::utils::query_account(
+        block_id,
+        account_id,
+        state.view_client_addr.as_ref().clone(),
+    )
+    .await
+    {
+        Ok(account_info_response) => account_info_response,
+        Err(crate::errors::ErrorKind::NotFound(_)) => (
+            block.header.hash,
+            block.header.height,
+            near_primitives::account::Account::new(0, 0, AccountContract::None, 0).into(),
+        ),
+        Err(err) => return Err(err.into()),
+    };
 
     let account_balances =
         crate::utils::RosettaAccountBalances::from_account(account_info, &runtime_config);
@@ -843,14 +847,15 @@ fn get_cors_layer(cors_allowed_origins: &[String]) -> CorsLayer {
         .max_age(std::time::Duration::from_secs(3600))
 }
 
-pub async fn start_rosetta_rpc(
+pub fn start_rosetta_rpc(
+    future_spawner: &dyn FutureSpawner,
     config: crate::config::RosettaRpcConfig,
     genesis: Genesis,
     genesis_block_hash: &near_primitives::hash::CryptoHash,
     client_addr: TokioRuntimeHandle<ClientActorInner>,
     view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
     tx_handler_addr: MultithreadRuntimeHandle<RpcHandler>,
-) -> tokio::task::JoinHandle<()> {
+) {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits: _, currencies } =
         config;
     let block_id = models::BlockIdentifier::new(genesis.config.genesis_height, genesis_block_hash);
@@ -889,53 +894,8 @@ pub async fn start_rosetta_rpc(
         .layer(get_cors_layer(&cors_allowed_origins))
         .with_state(app_state);
 
-    let listener = TcpListener::bind(addr).await.unwrap();
-
-    tokio::spawn(async move {
+    future_spawner.spawn("rosetta rpc listener", async move {
+        let listener = TcpListener::bind(addr).await.unwrap();
         axum::serve(listener, app).await.unwrap();
-    })
-}
-
-struct RosettaRpcActor {
-    server: tokio::task::JoinHandle<()>,
-}
-
-impl messaging::Actor for RosettaRpcActor {
-    fn stop_actor(&mut self) {
-        self.server.abort();
-    }
-}
-
-pub fn start_rosetta_rpc_actor(
-    actor_system: ActorSystem,
-    config: crate::config::RosettaRpcConfig,
-    genesis: Genesis,
-    genesis_block_hash: near_primitives::hash::CryptoHash,
-    client_addr: TokioRuntimeHandle<ClientActorInner>,
-    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
-    tx_handler_addr: MultithreadRuntimeHandle<RpcHandler>,
-) -> Result<(), std::io::Error> {
-    let builder = actor_system.new_tokio_builder();
-    let handle = builder.handle();
-    let (server_tx, server_rx) = tokio::sync::oneshot::channel();
-    handle.spawn("start_http", async move {
-        let server_handle = start_rosetta_rpc(
-            config,
-            genesis,
-            &genesis_block_hash,
-            client_addr,
-            view_client_addr,
-            tx_handler_addr,
-        )
-        .await;
-        server_tx.send(server_handle).unwrap();
     });
-    let server = futures::executor::block_on(server_rx).map_err(|_| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Failed to start Rosetta RPC server: tokio runtime was already shutdown",
-        )
-    })?;
-    builder.spawn_tokio_actor(RosettaRpcActor { server });
-    Ok(())
 }

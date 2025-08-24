@@ -24,7 +24,9 @@ where
         };
 
         let message = TokioRuntimeMessage { description, function: Box::new(function) };
-        self.sender.send(message).unwrap();
+        if let Err(e) = self.sender.send(message) {
+            tracing::info!(target: "tokio_runtime", "Ignoring sync message {}, receiving actor is being shut down", e);
+        }
     }
 }
 
@@ -45,7 +47,9 @@ where
         };
 
         let message = TokioRuntimeMessage { description, function: Box::new(function) };
-        self.sender.send(message).unwrap();
+        if let Err(e) = self.sender.send(message) {
+            tracing::info!(target: "tokio_runtime", "Ignoring sync message {}, receiving actor is being shut down", e);
+        }
     }
 }
 
@@ -67,8 +71,12 @@ where
         };
 
         let message = TokioRuntimeMessage { description, function: Box::new(function) };
-        self.sender.send(message).unwrap();
-        future.boxed()
+        if let Err(e) = self.sender.send(message) {
+            tracing::info!(target: "tokio_runtime", "Ignoring sync message {}, receiving actor is being shut down", e);
+            async { Err(AsyncSendError::Dropped) }.boxed()
+        } else {
+            future.boxed()
+        }
     }
 }
 

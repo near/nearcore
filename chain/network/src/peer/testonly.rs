@@ -22,6 +22,7 @@ use crate::types::{
     StateRequestSenderForNetworkInput, StateRequestSenderForNetworkMessage,
 };
 use near_async::messaging::{CanSendAsync, IntoMultiSender, Sender};
+use near_async::tokio::EmptyActor;
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
@@ -145,8 +146,10 @@ impl PeerHandle {
                 send.send(Event::PartialWitness(event.into_input()));
             }
         });
+        let handle = actor_system.spawn_tokio_actor(EmptyActor);
         let network_state = Arc::new(NetworkState::new(
             &clock,
+            &*handle.future_spawner(),
             store,
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),

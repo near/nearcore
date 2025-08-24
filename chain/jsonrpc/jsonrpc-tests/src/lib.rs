@@ -5,9 +5,10 @@ use integration_tests::env::setup::setup_no_network_with_validity_period;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::tokio::EmptyActor;
 use near_chain_configs::GenesisConfig;
 use near_client::ViewClientActorInner;
-use near_jsonrpc::{RpcConfig, start_http_actor};
+use near_jsonrpc::{RpcConfig, start_http};
 use near_jsonrpc_primitives::{
     message::{Message, from_slice},
     types::entity_debug::DummyEntityDebugHandler,
@@ -57,8 +58,9 @@ pub fn start_all_with_validity_period(
     );
 
     let addr = tcp::ListenerAddr::reserve_for_test();
-    start_http_actor(
-        actor_system,
+    let handle = actor_system.spawn_tokio_actor(EmptyActor);
+    start_http(
+        &*handle.future_spawner(),
         RpcConfig::new(addr),
         TEST_GENESIS_CONFIG.clone(),
         actor_handles.client_actor.clone().into_multi_sender(),
@@ -68,8 +70,7 @@ pub fn start_all_with_validity_period(
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
-    )
-    .unwrap();
+    );
     // setup_no_network_with_validity_period should use runtime_tempdir together with real runtime.
     (actor_handles.view_client_actor, addr, actor_handles.runtime_tempdir.unwrap())
 }

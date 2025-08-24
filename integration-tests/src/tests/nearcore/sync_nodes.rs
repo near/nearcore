@@ -11,6 +11,7 @@ use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
+use near_store::db::RocksDB;
 use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::Arc;
@@ -111,6 +112,7 @@ async fn ultra_slow_test_sync_state_stake_change() {
         .unwrap();
 
         actor_system.stop();
+        RocksDB::block_until_all_instances_are_dropped();
     })
     .await;
 }

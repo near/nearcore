@@ -3,7 +3,6 @@ use near_o11y::testonly::init_test_logger;
 use near_time::Clock;
 
 use near_jsonrpc_tests as test_utils;
-use near_store::db::RocksDB;
 
 /// Retrieve client status via HTTP GET.
 #[tokio::test]

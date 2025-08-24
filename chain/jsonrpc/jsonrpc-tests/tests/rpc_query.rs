@@ -23,7 +23,6 @@ use near_time::Clock;
 
 use near_async::ActorSystem;
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
-use near_store::db::RocksDB;
 
 /// Retrieve blocks via json rpc
 #[tokio::test]

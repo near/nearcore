@@ -1,47 +1,35 @@
 #![doc = include_str!("../README.md")]
 
+pub use api::{RpcFrom, RpcInto, RpcRequest};
+use axum::Router;
 use axum::extract::{Path, Query as AxumQuery, State};
-use axum::http::header::{AUTHORIZATION, ACCEPT, CONTENT_TYPE};
+use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use axum::http::{Method, StatusCode};
 use axum::response::{Html, IntoResponse, Json, Response};
 use axum::routing::{get, post};
-use axum::Router;
-use std::net::SocketAddr;
-use tower_http::cors::CorsLayer;
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::trace::TraceLayer;
-pub use api::{RpcFrom, RpcInto, RpcRequest};
-use near_client_primitives::debug::{DebugStatusResponse};
-use near_client_primitives::types::{
-    StatusError, StatusResponse, NetworkInfoResponse, GetBlockError, GetBlockProofError, 
-    GetBlockProofResponse, GetChunkError, GetExecutionOutcomeError, GetExecutionOutcomeResponse,
-    GetGasPriceError, GetMaintenanceWindowsError, GetNextLightClientBlockError, 
-    GetProtocolConfigError, GetReceiptError, GetSplitStorageInfoError, GetStateChangesError,
-    GetValidatorInfoError, GetClientConfigError, QueryError, TxStatusError
-};
-use near_primitives::views::{
-    BlockView, ChunkView, GasPriceView, MaintenanceWindowsView, LightClientBlockView, 
-    ReceiptView, SplitStorageInfoView, StateChangesView, 
-    StateChangesKindsView, EpochValidatorInfo, QueryResponse, TxStatusView
-};
-use near_client::{ProcessTxResponse};
-use near_chain_configs::{ClientConfig, ProtocolConfigView};
-use std::sync::Arc;
-use near_primitives::views::validator_stake_view::ValidatorStakeView;
-use near_async::futures::FutureSpawnerExt;
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
     AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
 };
-use near_async::{ActorSystem, messaging};
 use near_chain_configs::GenesisConfig;
+use near_chain_configs::{ClientConfig, ProtocolConfigView};
+use near_client::ProcessTxResponse;
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig, GetExecutionOutcome,
     GetGasPrice, GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig,
     GetReceipt, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
     ProcessTxRequest, Query as ClientQuery, Status, TxStatus,
 };
+use near_client_primitives::debug::DebugStatusResponse;
 use near_client_primitives::debug::{DebugBlockStatusQuery, DebugBlocksStartingMode};
 use near_client_primitives::types::GetSplitStorageInfo;
+use near_client_primitives::types::{
+    GetBlockError, GetBlockProofError, GetBlockProofResponse, GetChunkError, GetClientConfigError,
+    GetExecutionOutcomeError, GetExecutionOutcomeResponse, GetGasPriceError,
+    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfigError,
+    GetReceiptError, GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError,
+    NetworkInfoResponse, QueryError, StatusError, StatusResponse, TxStatusError,
+};
 pub use near_jsonrpc_client_internal as client;
 pub use near_jsonrpc_primitives as primitives;
 use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
@@ -63,12 +51,23 @@ use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference};
+use near_primitives::views::validator_stake_view::ValidatorStakeView;
+use near_primitives::views::{
+    BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
+    MaintenanceWindowsView, QueryResponse, ReceiptView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesView, TxStatusView,
+};
 use near_primitives::views::{QueryRequest, TxExecutionStatus};
 use serde_json::{Value, json};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
+use tower_http::cors::CorsLayer;
+use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
 mod api;
@@ -261,10 +260,7 @@ pub struct ClientSenderForRpc(
     AsyncSender<SpanWrapped<Status>, Result<StatusResponse, StatusError>>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
     #[cfg(feature = "test_features")]
-    AsyncSender<
-        near_client::NetworkAdversarialMessage,
-        Option<u64>,
-    >,
+    AsyncSender<near_client::NetworkAdversarialMessage, Option<u64>>,
     #[cfg(feature = "sandbox")]
     AsyncSender<
         near_client_primitives::types::SandboxMessage,
@@ -280,7 +276,10 @@ pub struct ViewClientSenderForRpc(
     AsyncSender<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>,
     AsyncSender<GetGasPrice, Result<GasPriceView, GetGasPriceError>>,
     AsyncSender<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanceWindowsError>>,
-    AsyncSender<GetNextLightClientBlock, Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>>,
+    AsyncSender<
+        GetNextLightClientBlock,
+        Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>,
+    >,
     AsyncSender<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>,
     AsyncSender<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>>,
     AsyncSender<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>,
@@ -295,12 +294,7 @@ pub struct ViewClientSenderForRpc(
 
 #[cfg(feature = "test_features")]
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
-pub struct GCSenderForRpc(
-    AsyncSender<
-        near_client::gc_actor::NetworkAdversarialMessage,
-        (),
-    >,
-);
+pub struct GCSenderForRpc(AsyncSender<near_client::gc_actor::NetworkAdversarialMessage, ()>);
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, near_network::debug::DebugStatus>);
@@ -1463,7 +1457,9 @@ async fn rpc_handler(
                 Some(RpcErrorKind::RequestValidationError(_)) => StatusCode::BAD_REQUEST,
                 Some(RpcErrorKind::HandlerError(error_struct)) => {
                     match error_struct.get("name").and_then(|name| name.as_str()) {
-                        Some("UNKNOWN_BLOCK") => handle_unknown_block(message, State(handler.clone())).await,
+                        Some("UNKNOWN_BLOCK") => {
+                            handle_unknown_block(message, State(handler.clone())).await
+                        }
                         Some("TIMEOUT_ERROR") => StatusCode::REQUEST_TIMEOUT,
                         _ => StatusCode::OK,
                     }
@@ -1583,9 +1579,7 @@ async fn health_handler(State(handler): State<Arc<JsonRpcHandler>>) -> Response 
     }
 }
 
-async fn network_info_handler(
-    State(handler): State<Arc<JsonRpcHandler>>,
-) -> Response {
+async fn network_info_handler(State(handler): State<Arc<JsonRpcHandler>>) -> Response {
     match handler.network_info().await {
         Ok(value) => Json(value).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -1605,9 +1599,7 @@ pub async fn prometheus_handler() -> Response {
     }
 }
 
-async fn client_config_handler(
-    State(handler): State<Arc<JsonRpcHandler>>,
-) -> Response {
+async fn client_config_handler(State(handler): State<Arc<JsonRpcHandler>>) -> Response {
     match handler.client_config().await {
         Ok(value) => Json(value).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -1619,7 +1611,9 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsLayer {
         CorsLayer::permissive()
     } else {
         CorsLayer::new()
-            .allow_origin(cors_allowed_origins.iter().map(|s| s.parse().unwrap()).collect::<Vec<_>>())
+            .allow_origin(
+                cors_allowed_origins.iter().map(|s| s.parse().unwrap()).collect::<Vec<_>>(),
+            )
             .allow_methods([Method::GET, Method::POST])
             .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])
             .max_age(std::time::Duration::from_secs(3600))
@@ -1635,9 +1629,7 @@ macro_rules! debug_page_string {
     };
 }
 
-async fn debug_html(
-    State(handler): State<Arc<JsonRpcHandler>>,
-) -> Html<String> {
+async fn debug_html(State(handler): State<Arc<JsonRpcHandler>>) -> Html<String> {
     Html(debug_page_string!("debug.html", handler))
 }
 
@@ -1683,9 +1675,10 @@ async fn display_debug_html(
 ///
 /// Returns a vector of servers that have been started.  Each server is returned
 /// as a tuple containing a name of the server (e.g. `"JSON RPC"`) which can be
-/// used in diagnostic messages and a task handle which can be used to control 
+/// used in diagnostic messages and a task handle which can be used to control
 /// the server (most notably stop it).
-pub async fn start_http(
+pub fn start_http(
+    future_spawner: &dyn FutureSpawner,
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
@@ -1694,7 +1687,7 @@ pub async fn start_http(
     peer_manager_sender: PeerManagerSenderForRpc,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
-) -> Vec<(&'static str, tokio::task::JoinHandle<()>)> {
+) {
     let RpcConfig {
         addr,
         prometheus_addr,
@@ -1705,23 +1698,21 @@ pub async fn start_http(
         experimental_debug_pages_src_path: debug_pages_src_path,
     } = config;
     let prometheus_addr = prometheus_addr.filter(|it| it != &addr.to_string());
-    let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
-    let mut servers = Vec::new();
-    
+
     // Create shared handler state
     let handler_state = Arc::new(JsonRpcHandler {
-        client_sender: client_sender.clone(),
-        view_client_sender: view_client_sender.clone(),
-        process_tx_sender: process_tx_sender.clone(),
-        peer_manager_sender: peer_manager_sender.clone(),
+        client_sender,
+        view_client_sender,
+        process_tx_sender,
+        peer_manager_sender,
         polling_config,
-        genesis_config: genesis_config.clone(),
+        genesis_config,
         enable_debug_rpc,
-        debug_pages_src_path: debug_pages_src_path.clone().map(Into::into),
-        entity_debug_handler: entity_debug_handler.clone(),
+        debug_pages_src_path: debug_pages_src_path.map(Into::into),
+        entity_debug_handler,
         #[cfg(feature = "test_features")]
-        gc_sender: gc_sender.clone(),
+        gc_sender,
     });
 
     // Build the main router
@@ -1735,11 +1726,12 @@ pub async fn start_http(
     if enable_debug_rpc {
         app = app
             .route("/debug/api/entity", post(handle_entity_debug))
-            .route("/debug/api/block_status/:starting_height", 
+            .route(
+                "/debug/api/block_status/:starting_height",
                 get(
                     #[allow(deprecated)]
-                    deprecated_debug_block_status_handler
-                )
+                    deprecated_debug_block_status_handler,
+                ),
             )
             .route("/debug/api/block_status", get(debug_block_status_handler))
             .route("/debug/api/epoch_info/:epoch_id", get(debug_epoch_info_handler))
@@ -1758,14 +1750,12 @@ pub async fn start_http(
 
     // Start the main server
     let socket_addr: SocketAddr = addr.to_string().parse().unwrap();
-    let handle = tokio::spawn(async move {
+    future_spawner.spawn("http server listener", async move {
         let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
-        if let Err(e) = axum::serve(listener, app).await
-        {
+        if let Err(e) = axum::serve(listener, app).await {
             error!(target:"network", "HTTP server error: {:?}", e);
         }
     });
-    servers.push(("JSON RPC", handle));
 
     if let Some(prometheus_addr) = prometheus_addr {
         info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
@@ -1773,73 +1763,17 @@ pub async fn start_http(
         // access restrictions.
         let prometheus_app = Router::new()
             .route("/metrics", get(prometheus_handler))
-            .layer(get_cors(&cors_allowed_origins_clone))
+            .layer(get_cors(&cors_allowed_origins))
             .layer(TraceLayer::new_for_http());
 
         let prometheus_socket_addr: SocketAddr = prometheus_addr.parse().unwrap();
-        let handle = tokio::spawn(async move {
+        future_spawner.spawn("prometheus server listener", async move {
             let listener = tokio::net::TcpListener::bind(&prometheus_socket_addr).await.unwrap();
-            if let Err(e) = axum::serve(listener, prometheus_app).await
-            {
+            if let Err(e) = axum::serve(listener, prometheus_app).await {
                 error!(target:"network", "Prometheus server error: {:?}", e);
             }
         });
-        servers.push(("Prometheus Metrics", handle));
     }
-
-    servers
-}
-
-struct HttpServerActor {
-    servers: Vec<(&'static str, tokio::task::JoinHandle<()>)>,
-}
-
-impl messaging::Actor for HttpServerActor {
-    fn stop_actor(&mut self) {
-        for (name, handle) in &mut self.servers {
-            info!(target:"network", "Stopping {} HTTP server", name);
-            handle.abort();
-        }
-    }
-}
-
-pub fn start_http_actor(
-    actor_system: ActorSystem,
-    config: RpcConfig,
-    genesis_config: GenesisConfig,
-    client_sender: ClientSenderForRpc,
-    view_client_sender: ViewClientSenderForRpc,
-    process_tx_sender: ProcessTxSenderForRpc,
-    peer_manager_sender: PeerManagerSenderForRpc,
-    #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
-    entity_debug_handler: Arc<dyn EntityDebugHandler>,
-) -> Result<(), std::io::Error> {
-    let builder = actor_system.new_tokio_builder();
-    let handle = builder.handle();
-    let (servers_tx, servers_rx) = tokio::sync::oneshot::channel();
-    handle.spawn("start_http", async move {
-        let servers = start_http(
-            config,
-            genesis_config,
-            client_sender,
-            view_client_sender,
-            process_tx_sender,
-            peer_manager_sender,
-            #[cfg(feature = "test_features")]
-            gc_sender,
-            entity_debug_handler,
-        )
-        .await;
-        servers_tx.send(servers).unwrap();
-    });
-    let servers = futures::executor::block_on(servers_rx).map_err(|_| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Failed to start HTTP server: tokio runtime was already shutdown",
-        )
-    })?;
-    builder.spawn_tokio_actor(HttpServerActor { servers });
-    Ok(())
 }
 
 /// Start an http server just for querying state via the Debug UI.
@@ -1851,7 +1785,7 @@ pub async fn start_http_for_readonly_debug_querying(
     info!(
         "Use tools/debug-ui, use localhost as the node, and go to the Entity Debug tab to start querying."
     );
-    
+
     let app = Router::new()
         .route("/debug/api/entity", post(handle_entity_debug_readonly))
         .with_state(entity_debug_handler)
@@ -1859,9 +1793,11 @@ pub async fn start_http_for_readonly_debug_querying(
         .layer(TraceLayer::new_for_http());
 
     let socket_addr: SocketAddr = addr.to_string().parse().unwrap();
-    let listener = tokio::net::TcpListener::bind(&socket_addr).await
+    let listener = tokio::net::TcpListener::bind(&socket_addr)
+        .await
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-    axum::serve(listener, app).await
+    axum::serve(listener, app)
+        .await
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     Ok(())
 }

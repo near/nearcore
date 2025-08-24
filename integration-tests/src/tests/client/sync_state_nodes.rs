@@ -30,6 +30,7 @@ use crate::env::test_env::TestEnv;
 use crate::utils::test_helpers::heavy_test_async;
 use near_async::ActorSystem;
 use near_async::messaging::CanSendAsync;
+use near_store::db::RocksDB;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[tokio::test]
@@ -116,6 +117,7 @@ async fn slow_test_sync_state_nodes() {
         drop(_dir1);
         drop(_dir2);
         actor_system_clone.stop();
+        RocksDB::block_until_all_instances_are_dropped();
     })
     .await;
 }
@@ -264,6 +266,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
         drop(_dir3);
         drop(_dir4);
         actor_system_clone.stop();
+        RocksDB::block_until_all_instances_are_dropped();
     })
     .await;
 }
@@ -409,6 +412,7 @@ async fn ultra_slow_test_sync_state_dump() {
         drop(_dir1);
         drop(_dir2);
         actor_system.stop();
+        RocksDB::block_until_all_instances_are_dropped();
     })
     .await;
 }
