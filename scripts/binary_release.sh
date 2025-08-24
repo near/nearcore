@@ -33,6 +33,7 @@ function tar_binary {
   tar -C $1 -czvf $1.tar.gz ${os_and_arch}
 }
 
+sudo apt install -y llvm clang libclang-dev
 make $release
 
 function upload_binary {

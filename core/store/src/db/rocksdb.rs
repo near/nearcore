@@ -38,10 +38,10 @@ static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
             properties::CUR_SIZE_ACTIVE_MEM_TABLE,
             properties::SIZE_ALL_MEM_TABLES,
         ]
-        .map(std::ffi::CStr::to_owned),
+        .map(|arg0: &properties::PropName| std::ffi::CStr::to_owned(arg0.as_c_str())),
     );
     for level in 0..=6 {
-        ret.push(properties::num_files_at_level(level));
+        ret.push(properties::num_files_at_level(level).as_c_str().to_owned());
     }
     ret
 });
