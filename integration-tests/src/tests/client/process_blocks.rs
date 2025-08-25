@@ -16,7 +16,9 @@ use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE};
+use near_chain_configs::{
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE, ProtocolVersionCheckConfig,
+};
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
@@ -3018,25 +3020,79 @@ fn test_not_broadcast_block_on_accept() {
 }
 
 #[test]
-#[should_panic(
-    expected = "The client protocol version is older than the protocol version of the network"
-)]
 fn test_node_shutdown_with_old_protocol_version() {
     let epoch_length = 5;
+    // These should not panic
+    run_with_version_upgrade_scheduled_in_next_next_epoch(
+        epoch_length,
+        epoch_length - 1,
+        ProtocolVersionCheckConfig::NextNext,
+    );
+    run_with_version_upgrade_scheduled_in_next_next_epoch(
+        epoch_length,
+        epoch_length * 2 - 1,
+        ProtocolVersionCheckConfig::Next,
+    );
+
+    // These should panic
+    let expected_msg =
+        "The client protocol version is older than the protocol version of the network";
+    must_panic(
+        || {
+            run_with_version_upgrade_scheduled_in_next_next_epoch(
+                epoch_length,
+                epoch_length,
+                ProtocolVersionCheckConfig::NextNext,
+            );
+        },
+        expected_msg,
+    );
+    must_panic(
+        || {
+            run_with_version_upgrade_scheduled_in_next_next_epoch(
+                epoch_length,
+                epoch_length * 2,
+                ProtocolVersionCheckConfig::Next,
+            );
+        },
+        expected_msg,
+    );
+}
+
+fn must_panic<F: FnOnce() + std::panic::UnwindSafe>(f: F, expected_msg: &str) {
+    let result = std::panic::catch_unwind(f);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let msg = err
+        .downcast_ref::<&'static str>()
+        .map(|s| *s)
+        .or_else(|| err.downcast_ref::<String>().map(|s| &**s))
+        .unwrap();
+
+    assert!(msg.contains(expected_msg));
+}
+
+fn run_with_version_upgrade_scheduled_in_next_next_epoch(
+    epoch_length: u64,
+    num_blocks: u64,
+    epoch_to_check: ProtocolVersionCheckConfig,
+) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
+    let mut env = TestEnv::builder(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .protocol_version_check(epoch_to_check)
+        .build();
     let validator_signer = create_test_signer("test0");
-    for i in 1..=5 {
+    for i in 1..=epoch_length.min(num_blocks) {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         Arc::make_mut(&mut block).mut_header().set_latest_protocol_version(PROTOCOL_VERSION + 1);
         Arc::make_mut(&mut block).mut_header().resign(&validator_signer);
         env.process_block(0, block, Provenance::NONE);
     }
-    for i in 6..=10 {
+    for i in epoch_length + 1..=num_blocks {
         env.produce_block(0, i);
     }
-    env.produce_block(0, 11);
 }
 
 #[test]

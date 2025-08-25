@@ -70,7 +70,6 @@ use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
@@ -280,6 +279,7 @@ impl Client {
             save_tx_outcomes: config.save_tx_outcomes,
             background_migration_threads: config.client_background_migration_threads,
             resharding_config: config.resharding_config.clone(),
+            protocol_version_check: config.protocol_version_check,
         };
         let chain = Chain::new(
             clock.clone(),
@@ -564,17 +564,6 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(&prev_header.hash()).unwrap();
         let next_block_proposer = self.epoch_manager.get_block_producer(&epoch_id, height)?;
 
-        let protocol_version = self
-            .epoch_manager
-            .get_epoch_protocol_version(&epoch_id)
-            .expect("Epoch info should be ready at this point");
-        if protocol_version > PROTOCOL_VERSION {
-            panic!(
-                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
-                PROTOCOL_VERSION, protocol_version
-            );
-        }
-
         if !self.can_produce_block(
             &prev_header,
             height,
@@ -811,16 +800,6 @@ impl Client {
             .epoch_manager
             .get_epoch_id_from_prev_block(&prev_hash)
             .expect("Epoch hash should exist at this point");
-        let protocol_version = self
-            .epoch_manager
-            .get_epoch_protocol_version(&epoch_id)
-            .expect("Epoch info should be ready at this point");
-        if protocol_version > PROTOCOL_VERSION {
-            panic!(
-                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
-                PROTOCOL_VERSION, protocol_version
-            );
-        }
 
         let approvals = self
             .epoch_manager
