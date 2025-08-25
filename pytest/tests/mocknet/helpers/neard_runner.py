@@ -1352,7 +1352,8 @@ class NeardRunner:
                 elif state == TestState.SET_VALIDATORS:
                     self.check_set_validators()
                 elif state == TestState.RUNNING:
-                    self.check_upgrade_neard()
+                    # self.check_upgrade_neard()
+                    pass
                 elif state == TestState.RESETTING:
                     self.reset_near_home()
                 elif state == TestState.MAKING_BACKUP:
