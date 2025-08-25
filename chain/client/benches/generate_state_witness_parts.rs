@@ -3,8 +3,7 @@
 //!
 //! Run with `cargo bench --bench generate_state_witness_parts`
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
-
+use criterion::{Criterion, criterion_group, criterion_main};
 use near_client::stateless_validation::partial_witness::partial_witness_actor::{
     WITNESS_RATIO_DATA_PARTS, compress_witness, generate_state_witness_parts,
 };
@@ -14,6 +13,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::state_witness::EncodedChunkStateWitness;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use std::hint::black_box;
 use testlib::state_witness_test_data;
 
 const VALIDATOR_COUNT: usize = 20;

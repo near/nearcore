@@ -4,7 +4,7 @@ use crate::action::{
     UseGlobalContractAction,
 };
 use crate::block::Block;
-use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
+use crate::block_body::{BlockBody, ChunkEndorsementSignatures, SpiceCoreStatement};
 use crate::block_header::BlockHeader;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
@@ -769,6 +769,9 @@ pub struct TestBlockBuilder {
     next_bp_hash: CryptoHash,
     approvals: Vec<Option<Box<near_crypto::Signature>>>,
     block_merkle_root: CryptoHash,
+    chunks: Vec<ShardChunkHeader>,
+    /// Iff `Some` spice block will be created.
+    spice_core_statements: Option<Vec<SpiceCoreStatement>>,
 }
 
 #[cfg(feature = "clock")]
@@ -791,6 +794,8 @@ impl TestBlockBuilder {
             next_bp_hash: *prev.header().next_bp_hash(),
             approvals: vec![],
             block_merkle_root: tree.root(),
+            chunks: prev.chunks().iter_raw().cloned().collect(),
+            spice_core_statements: None,
         }
     }
     pub fn height(mut self, height: u64) -> Self {
@@ -824,17 +829,28 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn chunks(mut self, chunks: Vec<ShardChunkHeader>) -> Self {
+        self.chunks = chunks;
+        self
+    }
+
+    pub fn spice_core_statements(mut self, spice_core_statements: Vec<SpiceCoreStatement>) -> Self {
+        self.spice_core_statements = Some(spice_core_statements);
+        self
+    }
+
     pub fn build(self) -> Arc<Block> {
         use crate::version::PROTOCOL_VERSION;
 
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
+        let chunks_len = self.chunks.len();
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
             self.prev.header(),
             self.height,
             self.prev.header().block_ordinal() + 1,
-            self.prev.chunks().iter_raw().cloned().collect(),
-            vec![vec![]; self.prev.chunks().len()],
+            self.chunks,
+            vec![vec![]; chunks_len],
             self.epoch_id,
             self.next_epoch_id,
             None,
@@ -849,7 +865,7 @@ impl TestBlockBuilder {
             self.clock,
             None,
             None,
-            vec![],
+            self.spice_core_statements,
         ))
     }
 }

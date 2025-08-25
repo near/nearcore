@@ -15,7 +15,7 @@ use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::sharding::{
     ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::{
     ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
     StateHeaderKey, StatePartKey, get_num_state_parts,
@@ -279,7 +279,7 @@ impl ChainStateSyncAdapter {
         shard_id: ShardId,
         part_id: u64,
         sync_hash: CryptoHash,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "sync",
             "get_state_response_part",
@@ -287,20 +287,22 @@ impl ChainStateSyncAdapter {
             part_id,
             ?sync_hash)
         .entered();
-        // Check cache
-        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-        if let Ok(Some(state_part)) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
-            metrics::STATE_PART_CACHE_HIT.inc();
-            return Ok(state_part.into());
-        }
-        metrics::STATE_PART_CACHE_MISS.inc();
-
         let block = self
             .chain_store
             .get_block(&sync_hash)
             .log_storage_error("block has already been checked for existence")?;
         let header = block.header();
         let epoch_id = block.header().epoch_id();
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        // Check cache
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
+        if let Ok(Some(bytes)) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
+            metrics::STATE_PART_CACHE_HIT.inc();
+            let state_part = StatePart::from_bytes(bytes.to_vec(), protocol_version)?;
+            return Ok(state_part);
+        }
+        metrics::STATE_PART_CACHE_MISS.inc();
+
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         let shard_ids = self.epoch_manager.shard_ids(epoch_id)?;
         if !shard_ids.contains(&shard_id) {
@@ -342,7 +344,8 @@ impl ChainStateSyncAdapter {
 
         // Saving the part data
         let mut store_update = self.chain_store.store().store_update();
-        store_update.set(DBCol::StateParts, &key, &state_part);
+        let bytes = state_part.to_bytes(protocol_version);
+        store_update.set(DBCol::StateParts, &key, &bytes);
         store_update.commit()?;
 
         Ok(state_part)
@@ -524,23 +527,26 @@ impl ChainStateSyncAdapter {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: PartId,
-        data: &[u8],
+        part: &StatePart,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();
-        if !self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, data) {
+        if !self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, part) {
             byzantine_assert!(false);
             return Err(Error::Other(format!(
                 "set_state_part failed: validate_state_part failed. state_root={:?}",
                 state_root
             )));
         }
+        let epoch_id = self.epoch_manager.get_epoch_id(&sync_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         // Saving the part data.
         let mut store_update = self.chain_store.store().store_update();
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
-        store_update.set(DBCol::StateParts, &key, data);
+        let bytes = part.to_bytes(protocol_version);
+        store_update.set(DBCol::StateParts, &key, &bytes);
         store_update.commit()?;
         Ok(())
     }
