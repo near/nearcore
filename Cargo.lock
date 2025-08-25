@@ -444,7 +444,7 @@ dependencies = [
  "ark-std",
  "derivative",
  "hashbrown 0.13.2",
- "itertools 0.10.3",
+ "itertools 0.10.5",
  "num-traits",
  "zeroize",
 ]
@@ -461,7 +461,7 @@ dependencies = [
  "ark-std",
  "derivative",
  "digest 0.10.7",
- "itertools 0.10.3",
+ "itertools 0.10.5",
  "num-bigint 0.4.3",
  "num-traits",
  "paste",
@@ -1679,7 +1679,7 @@ dependencies = [
  "clap",
  "criterion-plot",
  "is-terminal",
- "itertools 0.10.3",
+ "itertools 0.10.5",
  "num-traits",
  "once_cell",
  "oorandom",
@@ -1698,7 +1698,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b50826342786a51a89e2da3a28f1c32b06e387201bc2d19791f622c673706b1"
 dependencies = [
  "cast",
- "itertools 0.10.3",
+ "itertools 0.10.5",
 ]
 
 [[package]]
@@ -3570,9 +3570,9 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
 name = "itertools"
-version = "0.10.3"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9a9d19fa1e79b6215ff29b9d6880b706147f16e9b1dbb1e4e5947b5b02bc5e3"
+checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
 dependencies = [
  "either",
 ]
@@ -6244,7 +6244,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0a5f716236005663601c6a37562df63c1ff26d8d5ed24297b60fb8c64ffae237"
 dependencies = [
  "anyhow",
- "itertools 0.10.3",
+ "itertools 0.10.5",
  "once_cell",
  "paperclip-actix",
  "paperclip-core",
