@@ -24,7 +24,9 @@ where
         };
 
         let message = TokioRuntimeMessage { description, function: Box::new(function) };
-        self.sender.send(message).unwrap();
+        if let Err(e) = self.sender.send(message) {
+            tracing::info!(target: "tokio_runtime", "Ignoring sync message {}, receiving actor is being shut down", e);
+        }
     }
 }
 
@@ -45,7 +47,9 @@ where
         };
 
         let message = TokioRuntimeMessage { description, function: Box::new(function) };
-        self.sender.send(message).unwrap();
+        if let Err(e) = self.sender.send(message) {
+            tracing::info!(target: "tokio_runtime", "Ignoring sync message {}, receiving actor is being shut down", e);
+        }
     }
 }
 
@@ -67,8 +71,12 @@ where
         };
 
         let message = TokioRuntimeMessage { description, function: Box::new(function) };
-        self.sender.send(message).unwrap();
-        future.boxed()
+        if let Err(e) = self.sender.send(message) {
+            tracing::info!(target: "tokio_runtime", "Ignoring sync message {}, receiving actor is being shut down", e);
+            async { Err(AsyncSendError::Dropped) }.boxed()
+        } else {
+            future.boxed()
+        }
     }
 }
 
@@ -90,14 +98,15 @@ where
         f: Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send + 'static>,
     ) {
         let description = format!("DelayedAction {}({:?})", pretty_type_name::<A>(), name);
-        tracing::debug!(target: "tokio_runtime", "Sending delayed action: {}", description);
+        tracing::debug!(target: "tokio_runtime", "Sending delayed action in {}: {}", dur, description);
 
         let sender = self.sender.clone();
         self.runtime.spawn(async move {
             tokio::time::sleep(dur.unsigned_abs()).await;
             let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| f(actor, ctx);
             let message = TokioRuntimeMessage { description, function: Box::new(function) };
-            sender.send(message).unwrap();
+            // It's ok for this to fail; it means the runtime is shutting down already.
+            sender.send(message).ok();
         });
     }
 }

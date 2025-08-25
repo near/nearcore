@@ -1,4 +1,3 @@
-use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Arc;
@@ -17,7 +16,6 @@ use crate::node::Node;
 use crate::user::User;
 use crate::user::rpc_user::RpcUser;
 use near_jsonrpc_client_internal::new_client;
-use near_network::test_utils::wait_or_timeout;
 
 pub enum ProcessNodeState {
     Stopped,
@@ -52,17 +50,15 @@ impl Node for ProcessNode {
                 self.state = ProcessNodeState::Running(child);
                 let client_addr = format!("http://{}", self.config.rpc_addr().unwrap());
                 thread::sleep(Duration::from_secs(3));
-                near_actix_test_utils::run_actix(async move {
-                    wait_or_timeout(1000, 30000, || async {
+                futures::executor::block_on(async move {
+                    for _ in 0..30 {
                         let res = new_client(&client_addr).status().await;
-                        if res.is_err() {
-                            return ControlFlow::Continue(());
+                        if res.is_ok() {
+                            return;
                         }
-                        ControlFlow::Break(())
-                    })
-                    .await
-                    .unwrap();
-                    near_async::shutdown_all_actors();
+                        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                    }
+                    panic!("Node did not start");
                 });
             }
             ProcessNodeState::Running(_) => panic!("Node is already running"),

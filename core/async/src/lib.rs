@@ -12,7 +12,7 @@ pub mod tokio;
 // FIXME: near_time re-export is not optimal solution, but it would require to change time in many places
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, spawn_multithread_actor};
 use crate::tokio::TokioRuntimeHandle;
-use crate::tokio::runtime_handle::spawn_tokio_actor;
+use crate::tokio::runtime_handle::{TokioRuntimeBuilder, spawn_tokio_actor};
 pub use near_time as time;
 use parking_lot::Mutex;
 use std::any::type_name;
@@ -68,6 +68,12 @@ impl ActorSystem {
         spawn_tokio_actor(self.clone(), actor)
     }
 
+    pub fn new_tokio_builder<A: messaging::Actor + Send + 'static>(
+        &self,
+    ) -> TokioRuntimeBuilder<A> {
+        TokioRuntimeBuilder::new(self.clone())
+    }
+
     /// Spawns a multi-threaded actor which handles messages in a synchronous thread pool.
     pub fn spawn_multithread_actor<A: messaging::Actor + Send + 'static>(
         &self,
@@ -83,18 +89,16 @@ impl ActorSystem {
 /// the shutdown of each ActorSystem individually.
 static ACTOR_SYSTEMS: Mutex<Vec<ActorSystem>> = Mutex::new(Vec::new());
 
-/// Shutdown all actors in all supported actor runtimes, assuming there is only up to one actix::System
-/// and only up to one ActorSystem.
+/// Shutdown all actors, assuming at most one ActorSystem.
 /// TODO(#14005): Ideally, shutting down actors should not be done by calling a global function.
 pub fn shutdown_all_actors() {
-    ::actix::System::current().stop();
     {
         let systems = ACTOR_SYSTEMS.lock();
         if systems.len() > 1 {
             panic!("shutdown_all_actors should not be used when there are multiple ActorSystems");
         }
         if let Some(system) = systems.first() {
-            system.tokio_cancellation_signal.cancel();
+            system.stop();
         }
     }
 }

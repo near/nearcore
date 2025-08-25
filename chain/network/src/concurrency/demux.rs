@@ -20,6 +20,7 @@
 use crate::concurrency::rate;
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::time;
 use std::future::Future;
 use tokio::sync::mpsc;
@@ -104,13 +105,13 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
 
     // Spawns a subroutine performing the demultiplexing.
     // Panics if rl is not valid.
-    pub fn new(rl: rate::Limit) -> Demux<Arg, Res> {
+    pub fn new(rl: rate::Limit, future_spawner: &dyn FutureSpawner) -> Demux<Arg, Res> {
         rl.validate().unwrap();
         let (send, mut recv): (Stream<Arg, Res>, _) = mpsc::unbounded_channel();
         // TODO(gprusak): this task should be running as long as Demux object exists.
         // "Current" runtime can have a totally different lifespan, so we shouldn't spawn on it.
         // Find a way to express "runtime lifetime > Demux lifetime".
-        tokio::spawn(async move {
+        future_spawner.spawn("demux", async move {
             let mut calls = vec![];
             let mut closed = false;
             let mut tokens = rl.burst;

@@ -13,12 +13,13 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
-awc.workspace = true
+reqwest.workspace = true
 futures.workspace = true
 borsh.workspace = true
 parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
 
 integration-tests.workspace = true
 near-time.workspace = true
@@ -35,7 +36,6 @@ near-jsonrpc-primitives.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
-near-actix-test-utils.workspace = true
 near-primitives-core.workspace = true
 near-test-contracts.workspace = true
 
@@ -43,7 +43,6 @@ near-test-contracts.workspace = true
 test_features = ["near-jsonrpc/test_features"]
 nightly = [
     "integration-tests/nightly",
-    "near-actix-test-utils/nightly",
     "near-async/nightly",
     "near-chain-configs/nightly",
     "near-client/nightly",

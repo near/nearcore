@@ -40,7 +40,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 /// NEAR Protocol Node
 #[derive(clap::Parser)]
@@ -542,9 +542,13 @@ impl RunCmd {
         let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
         let (tx_config_update, rx_config_update) =
             broadcast::channel::<Result<UpdatableConfigs, Arc<UpdatableConfigLoaderError>>>(16);
-        let sys = actix::System::new();
+        let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .worker_threads(1)
+            .build()
+            .expect("Failed to create tokio runtime");
 
-        sys.block_on(async move {
+        tokio_runtime.block_on(async move {
             // Initialize the subscriber that takes care of both logging and tracing.
             let _subscriber_guard = default_subscriber_with_opentelemetry(
                 make_env_filter(verbose_target).unwrap(),
@@ -563,7 +567,6 @@ impl RunCmd {
             let config_updater = ConfigUpdater::new(rx_config_update);
 
             let nearcore::NearNode {
-                rpc_servers,
                 cold_store_loop_handle,
                 mut state_sync_dumper,
                 resharding_handle,
@@ -593,16 +596,10 @@ impl RunCmd {
             }
             state_sync_dumper.stop_and_await();
             resharding_handle.stop();
-            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
-                server.stop(true).await;
-                debug!(target: "neard", "{} server stopped", name);
-            }))
-            .await;
             near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
         });
-        sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }

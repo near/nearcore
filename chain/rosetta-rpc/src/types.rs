@@ -24,9 +24,4 @@ impl fmt::Debug for AccountId {
     }
 }
 
-use paperclip::v2::{models::DataType, schema::TypedData};
-impl TypedData for AccountId {
-    fn data_type() -> DataType {
-        DataType::String
-    }
-}
+// Removed paperclip TypedData implementation - using utoipa ToSchema derives in models instead

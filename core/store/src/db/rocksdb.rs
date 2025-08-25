@@ -669,6 +669,7 @@ fn set_compression_options(opts: &mut Options) {
 impl RocksDB {
     /// Blocks until all RocksDB instances (usually 0 or 1) gracefully shutdown.
     pub fn block_until_all_instances_are_dropped() {
+        tracing::info!("Waiting for RocksDB::block_until_all_instances_are_dropped...");
         instance_tracker::block_until_all_instances_are_closed();
     }
 

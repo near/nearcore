@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use futures::{FutureExt, TryFutureExt, future, future::LocalBoxFuture};
+use futures::{FutureExt, future::LocalBoxFuture};
 use integration_tests::env::setup::setup_no_network_with_validity_period;
+use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::tokio::EmptyActor;
 use near_chain_configs::GenesisConfig;
 use near_client::ViewClientActorInner;
 use near_jsonrpc::{RpcConfig, start_http};
@@ -28,19 +30,22 @@ pub enum NodeType {
 
 pub fn start_all(
     clock: Clock,
+    actor_system: ActorSystem,
     node_type: NodeType,
 ) -> (MultithreadRuntimeHandle<ViewClientActorInner>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
-    start_all_with_validity_period(clock, node_type, 100, false)
+    start_all_with_validity_period(clock, actor_system, node_type, 100, false)
 }
 
 pub fn start_all_with_validity_period(
     clock: Clock,
+    actor_system: ActorSystem,
     node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> (MultithreadRuntimeHandle<ViewClientActorInner>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
     let actor_handles = setup_no_network_with_validity_period(
         clock,
+        actor_system.clone(),
         vec!["test1".parse().unwrap()],
         if let NodeType::Validator = node_type {
             "test1".parse().unwrap()
@@ -53,7 +58,9 @@ pub fn start_all_with_validity_period(
     );
 
     let addr = tcp::ListenerAddr::reserve_for_test();
+    let handle = actor_system.spawn_tokio_actor(EmptyActor);
     start_http(
+        &*handle.future_spawner(),
         RpcConfig::new(addr),
         TEST_GENESIS_CONFIG.clone(),
         actor_handles.client_actor.clone().into_multi_sender(),
@@ -73,19 +80,14 @@ macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
-        near_actix_test_utils::run_actix(async {
-            let (_view_client_addr, addr, _runtime_tempdir) =
-                test_utils::start_all(near_time::Clock::real(), $node_type);
+        let actor_system = near_async::ActorSystem::new();
+        let (_view_client_addr, addr, _runtime_tempdir) =
+            test_utils::start_all(near_time::Clock::real(), actor_system.clone(), $node_type);
 
-            let $client = new_client(&format!("http://{}", addr));
+        let $client = new_client(&format!("http://{}", addr));
 
-            actix::spawn(async move {
-                // If runtime tempdir is dropped some parts of the runtime would stop working.
-                let _runtime_tempdir = _runtime_tempdir;
-                $block.await;
-                near_async::shutdown_all_actors();
-            });
-        });
+        $block.await;
+        actor_system.stop();
     };
 }
 
@@ -93,7 +95,7 @@ type RpcRequest<T> = LocalBoxFuture<'static, Result<T, near_jsonrpc_primitives::
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 pub fn call_method<R>(
-    client: &awc::Client,
+    client: &reqwest::Client,
     server_addr: &str,
     method: &str,
     params: serde_json::Value,
@@ -107,45 +109,51 @@ where
         "id": "dontcare",
         "params": params,
     });
-    // TODO: simplify this.
-    client
-        .post(server_addr)
-        .insert_header(("Content-Type", "application/json"))
-        .send_json(&request)
-        .map_err(|err| {
-            near_jsonrpc_primitives::errors::RpcError::new_internal_error(
-                None,
-                format!("{:?}", err),
-            )
-        })
-        .and_then(|mut response| {
-            response.body().map(|body| match body {
-                Ok(bytes) => from_slice(&bytes).map_err(|err| {
+
+    let client = client.clone();
+    let server_addr = server_addr.to_string();
+
+    async move {
+        let response = client
+            .post(&server_addr)
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|err| {
+                near_jsonrpc_primitives::errors::RpcError::new_internal_error(
+                    None,
+                    format!("{:?}", err),
+                )
+            })?;
+
+        let bytes = response.bytes().await.map_err(|err| {
+            near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
+                "Failed to retrieve payload: {:?}",
+                err
+            ))
+        })?;
+
+        let message = from_slice(&bytes).map_err(|err| {
+            near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
+                "Error {:?} in {:?}",
+                err, bytes
+            ))
+        })?;
+
+        match message {
+            Message::Response(resp) => resp.result.and_then(|x| {
+                serde_json::from_value(x).map_err(|err| {
                     near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                        "Error {:?} in {:?}",
-                        err, bytes
+                        "Failed to parse: {:?}",
+                        err
                     ))
-                }),
-                Err(err) => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                    "Failed to retrieve payload: {:?}",
-                    err
-                ))),
-            })
-        })
-        .and_then(|message| {
-            future::ready(match message {
-                Message::Response(resp) => resp.result.and_then(|x| {
-                    serde_json::from_value(x).map_err(|err| {
-                        near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                            "Failed to parse: {:?}",
-                            err
-                        ))
-                    })
-                }),
-                _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(
-                    "Failed to parse JSON RPC response".to_string(),
-                )),
-            })
-        })
-        .boxed_local()
+                })
+            }),
+            _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(
+                "Failed to parse JSON RPC response".to_string(),
+            )),
+        }
+    }
+    .boxed_local()
 }

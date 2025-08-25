@@ -21,14 +21,7 @@ pub(crate) enum ErrorKind {
 
 pub(crate) type Result<T> = std::result::Result<T, ErrorKind>;
 
-impl From<actix::MailboxError> for ErrorKind {
-    fn from(err: actix::MailboxError) -> Self {
-        Self::InternalError(format!(
-            "Server seems to be under a heavy load thus reaching a limit of Actix queue: {}",
-            err
-        ))
-    }
-}
+// Removed actix::MailboxError handling - using near_async messaging instead
 
 impl From<AsyncSendError> for ErrorKind {
     fn from(err: AsyncSendError) -> Self {

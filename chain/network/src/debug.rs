@@ -5,6 +5,7 @@ use near_primitives::views::{
 };
 
 // Different debug requests that can be sent by HTML pages, via GET.
+#[derive(Debug)]
 pub enum GetDebugStatus {
     PeerStore,
     Graph,

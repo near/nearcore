@@ -1,6 +1,7 @@
 use actix_web::cookie::time::ext::InstantExt as _;
-use actix_web::{App, HttpServer, web};
+use actix_web::{App, HttpServer, HttpResponse, web};
 use anyhow::Context;
+use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 pub use cli::PingCommand;
 use near_network::raw::{ConnectError, Connection, DirectMessage, Message, RoutedMessage};
 use near_network::types::HandshakeFailureReason;
@@ -437,9 +438,22 @@ async fn ping_via_node(
     let next_timeout = tokio::time::sleep(std::time::Duration::ZERO);
     tokio::pin!(next_timeout);
 
+    // Actix-compatible prometheus handler (mirrors near_jsonrpc::prometheus_handler)
+    async fn actix_prometheus_handler() -> HttpResponse {
+        let mut buffer = vec![];
+        let encoder = TextEncoder::new();
+        match encoder.encode(&prometheus::gather(), &mut buffer) {
+            Ok(_) => match String::from_utf8(buffer) {
+                Ok(text) => HttpResponse::Ok().content_type("text/plain").body(text),
+                Err(_) => HttpResponse::ServiceUnavailable().finish(),
+            },
+            Err(_) => HttpResponse::ServiceUnavailable().finish(),
+        }
+    }
+
     let server = HttpServer::new(move || {
         App::new().service(
-            web::resource("/metrics").route(web::get().to(near_jsonrpc::prometheus_handler)),
+            web::resource("/metrics").route(web::get().to(actix_prometheus_handler)),
         )
     })
     .bind(prometheus_addr)

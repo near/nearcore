@@ -49,7 +49,8 @@ macro_rules! run_testnet_test {
         heavy_test(|| {
             let mut nodes = create_thread_nodes_rpc();
             let node = nodes.remove(0);
-            $f(node)
+            $f(node);
+            near_store::db::RocksDB::block_until_all_instances_are_dropped();
         });
     };
 }

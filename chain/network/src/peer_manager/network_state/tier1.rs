@@ -8,7 +8,7 @@ use crate::peer_manager::connection;
 use crate::stun;
 use crate::tcp;
 use crate::types::PeerType;
-use near_async::time;
+use near_async::{ActorSystem, time};
 use near_crypto::PublicKey;
 use near_o11y::log_assert;
 use near_primitives::network::PeerId;
@@ -38,6 +38,7 @@ impl super::NetworkState {
     async fn tier1_connect_to_my_proxies(
         self: &Arc<Self>,
         clock: &time::Clock,
+        actor_system: ActorSystem,
         proxies: &[PeerAddr],
     ) {
         let tier1 = self.tier1.load();
@@ -48,6 +49,7 @@ impl super::NetworkState {
             if tier1.ready.contains_key(&proxy.peer_id) {
                 continue;
             }
+            let actor_system = actor_system.clone();
             handles.push(async move {
                 let res = async {
                     let stream = tcp::Stream::connect(
@@ -60,7 +62,7 @@ impl super::NetworkState {
                         &self.config.socket_options,
                     )
                     .await?;
-                    anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone()).await?)
+                    anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, None, self.clone()).await?)
                 }.await;
                 if let Err(err) = res {
                     tracing::warn!(target:"network", ?err, "failed to establish connection to TIER1 proxy {:?}",proxy);
@@ -87,6 +89,7 @@ impl super::NetworkState {
     pub async fn tier1_advertise_proxies(
         self: &Arc<Self>,
         clock: &time::Clock,
+        actor_system: ActorSystem,
     ) -> Option<Arc<SignedAccountData>> {
         // Tier1 advertise proxies calls should be disjoint,
         // to avoid a race condition while connecting to the proxies.
@@ -142,7 +145,7 @@ impl super::NetworkState {
                 }
             }
         };
-        self.tier1_connect_to_my_proxies(clock, &proxies).await;
+        self.tier1_connect_to_my_proxies(clock, actor_system, &proxies).await;
 
         // Snapshot tier1 connections again before broadcasting.
         let tier1 = self.tier1.load();
@@ -212,7 +215,7 @@ impl super::NetworkState {
 
     /// Closes TIER1 connections from nodes which are not TIER1 any more.
     /// If this node is TIER1, it additionally connects to proxies of other TIER1 nodes.
-    pub async fn tier1_connect(self: &Arc<Self>, clock: &time::Clock) {
+    pub async fn tier1_connect(self: &Arc<Self>, clock: &time::Clock, actor_system: ActorSystem) {
         if !self.config.tier1.enable_outbound {
             return;
         }
@@ -323,6 +326,7 @@ impl super::NetworkState {
                 let proxy = proxies.iter().choose(&mut rand::thread_rng());
                 if let Some(proxy) = proxy {
                     let proxy = (*proxy).clone();
+                    let actor_system = actor_system.clone();
                     handles.push(async move {
                         let stream = tcp::Stream::connect(
                             &PeerInfo {
@@ -334,8 +338,14 @@ impl super::NetworkState {
                             &self.config.socket_options,
                         )
                         .await?;
-                        PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
-                            .await
+                        PeerActor::spawn_and_handshake(
+                            clock.clone(),
+                            actor_system,
+                            stream,
+                            None,
+                            self.clone(),
+                        )
+                        .await
                     });
                 }
             }
