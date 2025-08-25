@@ -21,7 +21,7 @@ jobs:
         include:
           - name: Intel Mac OS
             id: intel-macos
-            os: macos-latest-large
+            os: macos-14-large
           - name: ARM Mac OS
             os: warp-macos-15-arm64-6x
     environment: deploy
