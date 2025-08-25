@@ -432,7 +432,7 @@ wasm-encoder = "0.236"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.236"
 wasm-smith = "0.236"
-wasmtime = { version = "35", default-features = false, features = [
+wasmtime = { version = "36", default-features = false, features = [
     "cranelift",
 ] }
 wast = "40.0"
