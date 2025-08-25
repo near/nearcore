@@ -51,7 +51,7 @@ use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain_configs::{EpochToCheck, MutableValidatorSigner};
+use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;
 use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
@@ -344,7 +344,7 @@ pub struct Chain {
     pub spice_core_processor: CoreStatementsProcessor,
     /// Determines whether client should exit if the protocol version is not supported
     /// in the next or next next epoch.
-    protocol_version_epoch_to_check: EpochToCheck,
+    protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 impl Drop for Chain {
@@ -451,7 +451,7 @@ impl Chain {
             resharding_manager,
             validator_signer,
             spice_core_processor,
-            protocol_version_epoch_to_check: Default::default(),
+            protocol_version_check: Default::default(),
         })
     }
 
@@ -616,7 +616,7 @@ impl Chain {
             resharding_manager,
             validator_signer,
             spice_core_processor,
-            protocol_version_epoch_to_check: chain_config.protocol_version_epoch_to_check,
+            protocol_version_check: chain_config.protocol_version_check,
         })
     }
 
@@ -1784,7 +1784,7 @@ impl Chain {
         // for generating a state witness. Storage space optimization.
         let should_save_state_transition_data =
             self.should_produce_state_witness_for_this_or_next_epoch(block.header())?;
-        let epoch_to_check = self.protocol_version_epoch_to_check;
+        let epoch_to_check = self.protocol_version_check;
         let mut chain_update = self.chain_update();
         let block_hash = *block.hash();
         let new_head = chain_update.postprocess_block(
@@ -1793,7 +1793,7 @@ impl Chain {
             apply_results,
             should_save_state_transition_data,
         )?;
-        if let Some(_new_head) = &new_head {
+        if new_head.is_some() {
             chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
         }
         chain_update.commit()?;

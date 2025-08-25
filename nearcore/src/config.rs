@@ -11,25 +11,26 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, EpochToCheck, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
     GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
     GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ReshardingConfig, StateSyncConfig,
-    TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig, default_chunk_validation_threads,
-    default_chunk_wait_mult, default_enable_multiline_logging, default_epoch_sync,
-    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
-    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_request_server_threads, default_state_request_throttle_period,
-    default_state_requests_per_throttle_period, default_state_sync_enabled,
-    default_state_sync_external_backoff, default_state_sync_external_timeout,
-    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
-    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
-    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
+    StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
+    default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,
+    default_epoch_sync, default_header_sync_expected_height_per_second,
+    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
+    default_header_sync_stall_ban_timeout, default_log_summary_period,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit, default_state_request_server_threads,
+    default_state_request_throttle_period, default_state_requests_per_throttle_period,
+    default_state_sync_enabled, default_state_sync_external_backoff,
+    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
+    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
+    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -395,15 +396,12 @@ pub struct Config {
     /// This option can cause extra load on the database and is not recommended for production use.
     pub save_invalid_witnesses: bool,
     pub transaction_request_handler_threads: usize,
-    /// If set to true, node will exit if the next next epoch's protocol version is not supported.
-    /// If set to false, node will exit if the next epoch's protocol version is not supported.
-    /// If set to `None`, the value will be treated as true if either
-    /// - `archive` is true, or
-    /// - All shards are tracked (i.e. node is an RPC node).
-    /// This avoids persisting a potentially incorrect EpochInfo, which can complicate node recovery
-    /// if the node misses the protocol upgrade.
+    /// If set to NextNext, node will exit if the next next epoch's protocol version is not supported.
+    /// This is the default and is a stricter check, which avoids persisting a potentially incorrect
+    /// EpochInfo, which can complicate node recovery if the node misses the protocol upgrade.
+    /// If set to Next, node will exit only if the next epoch's protocol version is not supported.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub protocol_version_check_next_next_epoch: Option<bool>,
+    pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -470,7 +468,7 @@ impl Default for Config {
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
-            protocol_version_check_next_next_epoch: None,
+            protocol_version_check_config_override: None,
         }
     }
 }
@@ -629,8 +627,7 @@ impl NearConfig {
         network_key_pair: KeyFile,
         validator_signer: MutableValidatorSigner,
     ) -> anyhow::Result<Self> {
-        let is_archive_or_rpc =
-            config.archive || config.tracked_shards_config() == TrackedShardsConfig::AllShards;
+        let is_archive_or_rpc = config.archive || config.tracked_shards_config().is_rpc();
         Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
@@ -710,14 +707,9 @@ impl NearConfig {
                 save_latest_witnesses: config.save_latest_witnesses,
                 save_invalid_witnesses: config.save_invalid_witnesses,
                 transaction_request_handler_threads: config.transaction_request_handler_threads,
-                protocol_version_epoch_to_check: if config
-                    .protocol_version_check_next_next_epoch
-                    .unwrap_or(is_archive_or_rpc)
-                {
-                    EpochToCheck::NextNext
-                } else {
-                    EpochToCheck::Next
-                },
+                protocol_version_check: config
+                    .protocol_version_check_config_override
+                    .unwrap_or(ProtocolVersionCheckConfig::NextNext),
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,

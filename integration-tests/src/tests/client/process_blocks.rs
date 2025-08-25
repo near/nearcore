@@ -16,7 +16,7 @@ use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, EpochToCheck, Genesis, NEAR_BASE};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, ProtocolVersionCheckConfig, Genesis, NEAR_BASE};
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
@@ -3021,12 +3021,12 @@ fn test_node_shutdown_with_old_protocol_version() {
     run_with_version_upgrade_scheduled_in_next_next_epoch(
         epoch_length,
         epoch_length - 1,
-        EpochToCheck::NextNext,
+        ProtocolVersionCheckConfig::NextNext,
     );
     run_with_version_upgrade_scheduled_in_next_next_epoch(
         epoch_length,
         epoch_length * 2 - 1,
-        EpochToCheck::Next,
+        ProtocolVersionCheckConfig::Next,
     );
 
     // These should panic
@@ -3037,7 +3037,7 @@ fn test_node_shutdown_with_old_protocol_version() {
             run_with_version_upgrade_scheduled_in_next_next_epoch(
                 epoch_length,
                 epoch_length,
-                EpochToCheck::NextNext,
+                ProtocolVersionCheckConfig::NextNext,
             );
         },
         expected_msg,
@@ -3047,7 +3047,7 @@ fn test_node_shutdown_with_old_protocol_version() {
             run_with_version_upgrade_scheduled_in_next_next_epoch(
                 epoch_length,
                 epoch_length * 2,
-                EpochToCheck::Next,
+                ProtocolVersionCheckConfig::Next,
             );
         },
         expected_msg,
@@ -3070,13 +3070,13 @@ fn must_panic<F: FnOnce() + std::panic::UnwindSafe>(f: F, expected_msg: &str) {
 fn run_with_version_upgrade_scheduled_in_next_next_epoch(
     epoch_length: u64,
     num_blocks: u64,
-    epoch_to_check: EpochToCheck,
+    epoch_to_check: ProtocolVersionCheckConfig,
 ) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .protocol_version_epoch_to_check(epoch_to_check)
+        .protocol_version_check(epoch_to_check)
         .build();
     let validator_signer = create_test_signer("test0");
     for i in 1..=epoch_length.min(num_blocks) {

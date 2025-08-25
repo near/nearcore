@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
-use near_chain_configs::EpochToCheck;
+use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ProtocolConfig;
@@ -207,7 +207,7 @@ pub struct ChainConfig {
     /// The resharding configuration.
     pub resharding_config: MutableConfigValue<ReshardingConfig>,
     /// The epoch to check for protocol version compatibility.
-    pub protocol_version_epoch_to_check: EpochToCheck,
+    pub protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 impl ChainConfig {
@@ -220,7 +220,7 @@ impl ChainConfig {
                 ReshardingConfig::test(),
                 "resharding_config",
             ),
-            protocol_version_epoch_to_check: Default::default(),
+            protocol_version_check: Default::default(),
         }
     }
 }

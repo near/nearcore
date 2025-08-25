@@ -3850,13 +3850,6 @@
         ],
         "type": "object"
       },
-      "EpochToCheck": {
-        "enum": [
-          "Next",
-          "NextNext"
-        ],
-        "type": "string"
-      },
       "ExecutionMetadataView": {
         "properties": {
           "gas_profile": {
@@ -8922,6 +8915,14 @@
           }
         ]
       },
+      "ProtocolVersionCheckConfig": {
+        "description": "Configures whether the node checks the next or the next next epoch for network version compatibility.",
+        "enum": [
+          "Next",
+          "NextNext"
+        ],
+        "type": "string"
+      },
       "PublicKey": {
         "type": "string"
       },
@@ -9689,10 +9690,10 @@
             "description": "Produce empty blocks, use `false` for testing.",
             "type": "boolean"
           },
-          "protocol_version_epoch_to_check": {
+          "protocol_version_check": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/EpochToCheck"
+                "$ref": "#/components/schemas/ProtocolVersionCheckConfig"
               }
             ],
             "description": "Determines whether client should exit if the protocol version is not supported\nfor the next or next next epoch."
@@ -9950,7 +9951,7 @@
           "save_latest_witnesses",
           "save_invalid_witnesses",
           "transaction_request_handler_threads",
-          "protocol_version_epoch_to_check"
+          "protocol_version_check"
         ],
         "type": "object"
       },

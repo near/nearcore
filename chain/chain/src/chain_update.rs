@@ -12,7 +12,7 @@ use crate::types::{
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
 use crate::{Chain, Doomslug};
 use crate::{DoomslugThresholdMode, metrics};
-use near_chain_configs::EpochToCheck;
+use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -81,20 +81,23 @@ impl<'a> ChainUpdate<'a> {
     pub fn check_protocol_version(
         &self,
         block_hash: &CryptoHash,
-        epoch_to_check: EpochToCheck,
+        epoch_to_check: ProtocolVersionCheckConfig,
     ) -> Result<(), Error> {
-        if self.epoch_manager.is_next_block_epoch_start(block_hash)? {
-            let epoch_id = match epoch_to_check {
-                EpochToCheck::Next => self.epoch_manager.get_next_epoch_id(block_hash)?,
-                EpochToCheck::NextNext => EpochId(*block_hash),
-            };
-            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-            if protocol_version > PROTOCOL_VERSION {
-                panic!(
-                    "The client protocol version is older than the protocol version of the network: {} > {}",
-                    protocol_version, PROTOCOL_VERSION
-                );
-            }
+        if !self.epoch_manager.is_next_block_epoch_start(block_hash)? {
+            return Ok(());
+        }
+        let epoch_id = match epoch_to_check {
+            ProtocolVersionCheckConfig::Next => self.epoch_manager.get_next_epoch_id(block_hash)?,
+            ProtocolVersionCheckConfig::NextNext => EpochId(*block_hash),
+        };
+        // Note: this lookup comes from the epoch_manager's cache in case of the next next epoch,
+        // as it is not persisted to disk yet.
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if protocol_version > PROTOCOL_VERSION {
+            panic!(
+                "The client protocol version is older than the protocol version of the network: {} > {}",
+                protocol_version, PROTOCOL_VERSION
+            );
         }
         Ok(())
     }
