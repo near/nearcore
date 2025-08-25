@@ -1,10 +1,7 @@
-use std::fmt;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
-use strum::AsRefStr;
 
 use crate::state::PartialState;
 
@@ -29,12 +26,12 @@ impl PartId {
 pub struct StatePartV0(pub(crate) Vec<u8>);
 
 /// Similar to `StatePartV0`, but uses zstd compression.
-#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct StatePartV1 {
     bytes_compressed: Vec<u8>,
 }
 
-#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema, AsRefStr)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum StatePart {
@@ -42,12 +39,6 @@ pub enum StatePart {
     V0(StatePartV0) = 0,
     /// zstd-compressed borsh-serialized trie nodes
     V1(StatePartV1) = 1,
-}
-
-impl fmt::Debug for StatePart {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_ref())
-    }
 }
 
 impl StatePartV0 {

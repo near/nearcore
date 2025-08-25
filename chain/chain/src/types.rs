@@ -486,6 +486,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
+    /// TODO(cloud_archival) #14124 newtype for validated state parts
     fn validate_state_part(
         &self,
         shard_id: ShardId,

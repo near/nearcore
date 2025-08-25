@@ -96,7 +96,7 @@ fn setup_initial_blockchain(
     chunks_produced: HashMap<ShardId, Vec<bool>>,
     skip_block_sync_height_delta: Option<isize>,
     extra_node_shard_schedule: &Option<Vec<Vec<ShardId>>>,
-    genesis_protocol_version: ProtocolVersion,
+    initial_protocol_version: ProtocolVersion,
 ) -> TestState {
     let mut builder = TestLoopBuilder::new();
 
@@ -139,7 +139,7 @@ fn setup_initial_blockchain(
 
     let mut genesis_builder = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
-        .protocol_version(genesis_protocol_version)
+        .protocol_version(initial_protocol_version)
         .genesis_height(GENESIS_HEIGHT)
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout.clone())
@@ -165,7 +165,7 @@ fn setup_initial_blockchain(
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build();
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from([(
-        genesis_protocol_version,
+        initial_protocol_version,
         Arc::new(epoch_config),
     )]));
 
@@ -514,7 +514,7 @@ struct StateSyncTest {
     // and a value of 1 will have us skip the one after that.
     skip_block_sync_height_delta: Option<isize>,
     extra_node_shard_schedule: Option<Vec<Vec<ShardId>>>,
-    genesis_protocol_version: ProtocolVersion,
+    initial_protocol_version: ProtocolVersion,
 }
 
 fn run_state_sync_test_case(t: StateSyncTest) {
@@ -531,9 +531,9 @@ fn run_state_sync_test_case(t: StateSyncTest) {
             .collect(),
         t.skip_block_sync_height_delta,
         &t.extra_node_shard_schedule,
-        t.genesis_protocol_version,
+        t.initial_protocol_version,
     );
-    assert_eq!(get_network_protocol_version(&state.env), t.genesis_protocol_version);
+    assert_eq!(get_network_protocol_version(&state.env), t.initial_protocol_version);
     run_test(state);
 
     tracing::info!("run test with added node: {:?}", t);
@@ -549,7 +549,7 @@ fn run_state_sync_test_case(t: StateSyncTest) {
             .collect(),
         t.skip_block_sync_height_delta,
         &t.extra_node_shard_schedule,
-        t.genesis_protocol_version,
+        t.initial_protocol_version,
     );
     run_test_with_added_node(state);
 }
@@ -567,7 +567,7 @@ fn slow_test_state_sync_simple_two_node() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -585,7 +585,7 @@ fn slow_test_state_sync_simple_five_node() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -605,7 +605,7 @@ fn slow_test_state_sync_empty_shard() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -629,7 +629,7 @@ fn slow_test_state_sync_miss_chunks_first_block() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -650,7 +650,7 @@ fn slow_test_state_sync_miss_chunks_second_block() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -673,7 +673,7 @@ fn slow_test_state_sync_miss_chunks_third_block() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -695,7 +695,7 @@ fn slow_test_state_sync_miss_chunks_sync_block() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -719,7 +719,7 @@ fn slow_test_state_sync_miss_chunks_sync_prev_block() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -744,7 +744,7 @@ fn slow_test_state_sync_miss_chunks_before_last_chunk_included() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -772,7 +772,7 @@ fn slow_test_state_sync_miss_chunks_multiple() {
         chunks_produced,
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(t);
 }
@@ -798,7 +798,7 @@ fn slow_test_state_sync_untrack_then_track() {
             vec![ShardId::new(1), ShardId::new(2)],
             vec![ShardId::new(0), ShardId::new(3)],
         ]),
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(params);
 }
@@ -824,7 +824,7 @@ fn slow_test_state_sync_from_fork() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: Some(0),
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(params);
 }
@@ -849,7 +849,7 @@ fn slow_test_state_sync_to_fork() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: Some(0),
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(params);
 }
@@ -871,7 +871,7 @@ fn slow_test_state_sync_fork_after_sync() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: Some(1),
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(params);
 }
@@ -890,7 +890,7 @@ fn slow_test_state_sync_fork_before_sync() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: Some(-1),
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION,
+        initial_protocol_version: PROTOCOL_VERSION,
     };
     run_state_sync_test_case(params);
 }
@@ -985,7 +985,7 @@ fn slow_test_state_sync_protocol_upgrade() {
         chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-        genesis_protocol_version: PROTOCOL_VERSION - 1,
+        initial_protocol_version: PROTOCOL_VERSION - 1,
     };
     run_state_sync_test_case(t);
 }
