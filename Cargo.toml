@@ -366,7 +366,7 @@ redis = "0.23.0"
 reed-solomon-erasure = { version = "6.0.0", features = ["simd-accel"] }
 regex = "1.7.1"
 region = "3.0"
-reqwest = { version = "0.12.0", features = ["blocking"] }
+reqwest = { version = "0.12.0", features = ["blocking", "native-tls-vendored"] }
 ripemd = "0.1.1"
 rkyv = "0.8.0"
 rlimit = "0.7"
