@@ -2,6 +2,7 @@ use crate::config::{
     safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
 };
+use crate::deterministic_account_id::create_deterministic_account;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
@@ -13,7 +14,8 @@ use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+    ActionReceipt, ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+    VersionedActionReceipt,
 };
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
@@ -47,7 +49,7 @@ pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
     predecessor_id: &AccountId,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     promise_results: Arc<[near_vm_runner::logic::types::PromiseResult]>,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
@@ -59,7 +61,7 @@ pub(crate) fn execute_function_call(
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
-        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
+        action_receipt.output_data_receivers().iter().map(|r| r.receiver_id.clone()).collect()
     } else {
         vec![]
     };
@@ -67,8 +69,8 @@ pub(crate) fn execute_function_call(
         near_primitives::utils::create_random_seed(*action_hash, apply_state.random_seed);
     let context = VMContext {
         current_account_id: runtime_ext.account_id().clone(),
-        signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
+        signer_account_id: action_receipt.signer_id().clone(),
+        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key())
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
         input: function_call.args.clone(),
@@ -147,7 +149,7 @@ pub(crate) fn action_function_call(
     apply_state: &ApplyState,
     account: &mut Account,
     receipt: &Receipt,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     promise_results: Arc<[near_vm_runner::logic::types::PromiseResult]>,
     result: &mut ActionResult,
     account_id: &AccountId,
@@ -281,13 +283,37 @@ pub(crate) fn action_function_call(
                     );
                 }
 
-                let new_action_receipt = ActionReceipt {
-                    signer_id: action_receipt.signer_id.clone(),
-                    signer_public_key: action_receipt.signer_public_key.clone(),
-                    gas_price: action_receipt.gas_price,
-                    output_data_receivers: receipt.output_data_receivers,
-                    input_data_ids: receipt.input_data_ids,
-                    actions: receipt.actions,
+                let new_receipt = if ProtocolFeature::DeterministicAccountIds
+                    .enabled(apply_state.current_protocol_version)
+                {
+                    let new_action_receipt = ActionReceiptV2 {
+                        signer_id: action_receipt.signer_id().clone(),
+                        signer_public_key: action_receipt.signer_public_key().clone(),
+                        refund_to: receipt.refund_to,
+                        gas_price: action_receipt.gas_price(),
+                        output_data_receivers: receipt.output_data_receivers,
+                        input_data_ids: receipt.input_data_ids,
+                        actions: receipt.actions,
+                    };
+                    if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYieldV2(new_action_receipt)
+                    } else {
+                        ReceiptEnum::ActionV2(new_action_receipt)
+                    }
+                } else {
+                    let new_action_receipt = ActionReceipt {
+                        signer_id: action_receipt.signer_id().clone(),
+                        signer_public_key: action_receipt.signer_public_key().clone(),
+                        gas_price: action_receipt.gas_price(),
+                        output_data_receivers: receipt.output_data_receivers,
+                        input_data_ids: receipt.input_data_ids,
+                        actions: receipt.actions,
+                    };
+                    if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYield(new_action_receipt)
+                    } else {
+                        ReceiptEnum::Action(new_action_receipt)
+                    }
                 };
 
                 Receipt::V0(ReceiptV0 {
@@ -296,11 +322,7 @@ pub(crate) fn action_function_call(
                     // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                     // "Generating receipt IDs" section
                     receipt_id: CryptoHash::default(),
-                    receipt: if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYield(new_action_receipt)
-                    } else {
-                        ReceiptEnum::Action(new_action_receipt)
-                    },
+                    receipt: new_receipt,
                 })
             })
             .collect();
@@ -538,6 +560,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
             )
             .ok();
         }
+        AccountType::NearDeterministicAccount => {
+            create_deterministic_account(account, &apply_state.config.fees.storage_usage_config);
+        }
         // This panic is unreachable as this is an implicit account creation transfer.
         // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
         AccountType::NamedAccount => panic!("must be implicit"),
@@ -759,7 +784,7 @@ pub(crate) fn action_add_key(
 pub(crate) fn apply_delegate_action(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     sender_id: &AccountId,
     signed_delegate_action: &SignedDelegateAction,
     result: &mut ActionResult,
@@ -798,9 +823,9 @@ pub(crate) fn apply_delegate_action(
         receipt_id: CryptoHash::default(),
 
         receipt: ReceiptEnum::Action(ActionReceipt {
-            signer_id: action_receipt.signer_id.clone(),
-            signer_public_key: action_receipt.signer_public_key.clone(),
-            gas_price: action_receipt.gas_price,
+            signer_id: action_receipt.signer_id().clone(),
+            signer_public_key: action_receipt.signer_public_key().clone(),
+            gas_price: action_receipt.gas_price(),
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: delegate_action.get_actions(),
@@ -813,7 +838,7 @@ pub(crate) fn apply_delegate_action(
     // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
-    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, &action_receipt.actions)?;
+    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, action_receipt.actions())?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt,
     result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
@@ -832,25 +857,35 @@ pub(crate) fn apply_delegate_action(
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-            let mut required_gas = safe_add_gas(
-                total_prepaid_exec_fees(
-                    &apply_state.config,
-                    &action_receipt.actions,
-                    receipt.receiver_id(),
-                )?,
-                total_prepaid_gas(&action_receipt.actions)?,
-            )?;
-            required_gas = safe_add_gas(
-                required_gas,
-                apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-            )?;
-
-            required_gas
+            action_receipt_required_gas(apply_state, receipt, action_receipt.into())?
+        }
+        ReceiptEnum::ActionV2(action_receipt) | ReceiptEnum::PromiseYieldV2(action_receipt) => {
+            action_receipt_required_gas(apply_state, receipt, action_receipt.into())?
         }
         ReceiptEnum::GlobalContractDistribution(_)
         | ReceiptEnum::Data(_)
         | ReceiptEnum::PromiseResume(_) => 0,
     })
+}
+
+fn action_receipt_required_gas(
+    apply_state: &ApplyState,
+    receipt: &Receipt,
+    action_receipt: VersionedActionReceipt,
+) -> Result<u64, RuntimeError> {
+    let mut required_gas = safe_add_gas(
+        total_prepaid_exec_fees(
+            &apply_state.config,
+            action_receipt.actions(),
+            receipt.receiver_id(),
+        )?,
+        total_prepaid_gas(&action_receipt.actions())?,
+    )?;
+    required_gas = safe_add_gas(
+        required_gas,
+        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
+    )?;
+    Ok(required_gas)
 }
 
 /// Validate access key which was used for signing DelegateAction:
@@ -1007,6 +1042,7 @@ pub(crate) fn check_actor_permissions(
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
+        Action::DeterministicStateInit(_) => (),
     };
     Ok(())
 }
@@ -1054,6 +1090,12 @@ pub(crate) fn check_account_existence(
                     implicit_account_creation_eligible,
                 );
             }
+        }
+        Action::DeterministicStateInit(_) => {
+            // Existing and non existing is valid for DeterministicStateInit.
+            // Does not exist => The account will be created by the action.
+            // Does exist => Nothing happens but the receipt is not aborted to
+            // allow optional init before other actions.
         }
         Action::DeployContract(_)
         | Action::FunctionCall(_)
@@ -1429,7 +1471,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(&action_receipt),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1474,7 +1516,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(action_receipt),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1501,7 +1543,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(action_receipt),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1528,7 +1570,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(action_receipt),
             &"www.test.near".parse().unwrap(),
             &signed_delegate_action,
             &mut result,

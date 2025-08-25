@@ -44,7 +44,7 @@
 use borsh::BorshSerialize as _;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
-use near_primitives::receipt::{Receipt, ReceiptEnum};
+use near_primitives::receipt::{Receipt, ReceiptEnum, VersionedActionReceipt};
 use near_primitives::transaction::Action;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
@@ -90,10 +90,12 @@ impl TriePrefetcher {
     pub(crate) fn prefetch_receipts_data(&self, receipts: &[Receipt]) -> Result<(), PrefetchError> {
         for receipt in receipts {
             let is_refund = receipt.predecessor_id().is_system();
-            let action_receipt = match receipt.receipt() {
+            let action_receipt: VersionedActionReceipt = match receipt.receipt() {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                    action_receipt
+                    action_receipt.into()
                 }
+                ReceiptEnum::ActionV2(action_receipt)
+                | ReceiptEnum::PromiseYieldV2(action_receipt) => action_receipt.into(),
                 ReceiptEnum::GlobalContractDistribution(_)
                 | ReceiptEnum::Data(_)
                 | ReceiptEnum::PromiseResume(_) => {
@@ -109,11 +111,11 @@ impl TriePrefetcher {
                 if is_refund {
                     let trie_key = TrieKey::AccessKey {
                         account_id: account_id.clone(),
-                        public_key: action_receipt.signer_public_key.clone(),
+                        public_key: action_receipt.signer_public_key().clone(),
                     };
                     self.prefetch_trie_key(trie_key)?;
                 }
-                for action in &action_receipt.actions {
+                for action in action_receipt.actions() {
                     match action {
                         Action::Delegate(delegate_action) => {
                             let trie_key = TrieKey::AccessKey {
@@ -142,7 +144,7 @@ impl TriePrefetcher {
             }
 
             let mut code_prefetch_requested = false;
-            for action in &action_receipt.actions {
+            for action in action_receipt.actions() {
                 let Action::FunctionCall(fn_call) = action else {
                     continue;
                 };

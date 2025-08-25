@@ -104,6 +104,9 @@ fn check_meta_tx_execution(
         AccountType::EthImplicitAccount => {
             panic!("ETH-implicit accounts must not have access key");
         }
+        AccountType::NearDeterministicAccount => {
+            panic!("NEAR deterministic accounts usually have no access key");
+        }
         AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
     };
     let user_nonce_before = node_user.get_access_key(&sender, &user_pub_key).unwrap().nonce;
@@ -853,6 +856,8 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
     let fee_helper = fee_helper(&node);
     let initial_amount = match new_account.get_account_type() {
         AccountType::NearImplicitAccount => NEAR_BASE,
+        // NEAR deterministic accounts fit within zero-balance account limit.
+        AccountType::NearDeterministicAccount => 0,
         // ETH-implicit accounts fit within zero-balance account limit.
         AccountType::EthImplicitAccount => 0u128,
         AccountType::NamedAccount => panic!("must be implicit"),
@@ -861,6 +866,7 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
 
     let tx_cost = match new_account.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
+        AccountType::NearDeterministicAccount => fee_helper.create_account_transfer_cost(),
         AccountType::EthImplicitAccount => fee_helper.create_account_transfer_cost(),
         AccountType::NamedAccount => panic!("must be implicit"),
     };
@@ -879,7 +885,7 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
     let balance = node.view_balance(&new_account).expect("failed looking up balance");
     assert_eq!(balance, initial_amount);
 
-    if new_account.get_account_type() == AccountType::EthImplicitAccount {
+    if new_account.get_account_type() == AccountType::EthImplicitAccount || new_account.get_account_type() == AccountType::NearDeterministicAccount {
         // ETH-implicit account must not have access key added.
         assert!(node.user().is_locked(&new_account).unwrap());
         // We will not attempt to make a transfer from this account.

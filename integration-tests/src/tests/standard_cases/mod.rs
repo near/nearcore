@@ -391,6 +391,7 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
 
     let transfer_cost = match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
+        AccountType::NearDeterministicAccount => fee_helper.create_account_transfer_cost(),
         AccountType::EthImplicitAccount => fee_helper.create_account_transfer_cost(),
         AccountType::NamedAccount => std::panic!("must be implicit"),
     };
@@ -421,6 +422,10 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             assert_eq!(view_access_key.unwrap(), AccessKey::full_access().into());
+        }
+        AccountType::NearDeterministicAccount => {
+            // A transfer to NEAR deterministic address does not create access key.
+            view_access_key.unwrap_err();
         }
         AccountType::EthImplicitAccount => {
             // A transfer to ETH-implicit address does not create access key.
@@ -482,6 +487,12 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
             AccountType::NearImplicitAccount => {
                 fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
                     + fee_helper.gas_to_balance(create_account_fee + add_access_key_fee)
+            }
+            AccountType::NearDeterministicAccount => {
+                // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
+                fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
+                // We add this fee analogously to the NEAR-implicit match arm above (without `add_access_key_fee`).
+                + fee_helper.gas_to_balance(create_account_fee)
             }
             AccountType::EthImplicitAccount => {
                 // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.

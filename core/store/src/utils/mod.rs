@@ -99,7 +99,7 @@ pub fn has_received_data(
 }
 
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    assert!(matches!(receipt.receipt(), ReceiptEnum::Action(_)));
+    assert!(matches!(receipt.receipt(), ReceiptEnum::Action(_) | ReceiptEnum::ActionV2(_)));
     let key = TrieKey::PostponedReceipt {
         receiver_id: receipt.receiver_id().clone(),
         receipt_id: *receipt.receipt_id(),
@@ -181,6 +181,14 @@ pub fn enqueue_promise_yield_timeout(
 pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
     match receipt.receipt() {
         ReceiptEnum::PromiseYield(action_receipt) => {
+            assert!(action_receipt.input_data_ids.len() == 1);
+            let key = TrieKey::PromiseYieldReceipt {
+                receiver_id: receipt.receiver_id().clone(),
+                data_id: action_receipt.input_data_ids[0],
+            };
+            set(state_update, key, receipt);
+        }
+        ReceiptEnum::PromiseYieldV2(action_receipt) => {
             assert!(action_receipt.input_data_ids.len() == 1);
             let key = TrieKey::PromiseYieldReceipt {
                 receiver_id: receipt.receiver_id().clone(),

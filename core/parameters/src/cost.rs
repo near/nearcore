@@ -309,6 +309,8 @@ pub enum ActionCosts {
     deploy_global_contract_byte = 17,
     use_global_contract_base = 18,
     use_global_contract_byte = 19,
+    deterministic_state_init_base = 20,
+    deterministic_state_init_byte = 21,
 }
 
 impl ExtCosts {
@@ -588,6 +590,17 @@ impl RuntimeFeesConfig {
                     send_not_sir: 47_683_715,
                     execution: 64_572_944,
                 },
+                // TODO
+                ActionCosts::deterministic_state_init_base => Fee {
+                    send_sir: 0,
+                    send_not_sir: 0,
+                    execution: 0,
+                },
+                ActionCosts::deterministic_state_init_byte => Fee {
+                    send_sir: 0,
+                    send_not_sir: 0,
+                    execution: 0,
+                },
             },
         }
     }
@@ -677,6 +690,10 @@ pub fn transfer_exec_fee(
                 + cfg.fee(ActionCosts::create_account).exec_fee()
                 + cfg.fee(ActionCosts::add_full_access_key).exec_fee()
         }
+        // Extra fees for the implied CreateAccount action.
+        (true, _, AccountType::NearDeterministicAccount) => {
+            transfer_fee + cfg.fee(ActionCosts::create_account).exec_fee()
+        }
     }
 }
 
@@ -705,6 +722,10 @@ pub fn transfer_send_fee(
             transfer_fee
                 + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
                 + cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
+        }
+        // Extra fees for the implied  CreateAccount action.
+        (true, _, AccountType::NearDeterministicAccount) => {
+            transfer_fee + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
         }
     }
 }

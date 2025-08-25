@@ -138,6 +138,7 @@ pub(crate) enum ActionType {
     Delegate,
     DeployGlobalContract,
     UseGlobalContract,
+    DeterministicStateInit,
 }
 
 impl ContractAccount {
@@ -333,21 +334,17 @@ fn try_find_actions_spawned_by_receipt(
                         ReceiptEnum::Action(action_receipt)
                         | ReceiptEnum::PromiseYield(action_receipt) => {
                             for action in &action_receipt.actions {
-                                let action_type = match action {
-                                    Action::CreateAccount(_) => ActionType::CreateAccount,
-                                    Action::DeployContract(_) => ActionType::DeployContract,
-                                    Action::FunctionCall(_) => ActionType::FunctionCall,
-                                    Action::Transfer(_) => ActionType::Transfer,
-                                    Action::Stake(_) => ActionType::Stake,
-                                    Action::AddKey(_) => ActionType::AddKey,
-                                    Action::DeleteKey(_) => ActionType::DeleteKey,
-                                    Action::DeleteAccount(_) => ActionType::DeleteAccount,
-                                    Action::Delegate(_) => ActionType::Delegate,
-                                    Action::DeployGlobalContract(_) => {
-                                        ActionType::DeployGlobalContract
-                                    }
-                                    Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
-                                };
+                                let action_type = map_action(action);
+                                entry
+                                    .actions
+                                    .get_or_insert_with(Default::default)
+                                    .insert(action_type);
+                            }
+                        }
+                        ReceiptEnum::ActionV2(action_receipt)
+                        | ReceiptEnum::PromiseYieldV2(action_receipt) => {
+                            for action in &action_receipt.actions {
+                                let action_type = map_action(action);
                                 entry
                                     .actions
                                     .get_or_insert_with(Default::default)
@@ -367,6 +364,23 @@ fn try_find_actions_spawned_by_receipt(
         }
     }
     Ok(())
+}
+
+fn map_action(action: &Action) -> ActionType {
+    match action {
+        Action::CreateAccount(_) => ActionType::CreateAccount,
+        Action::DeployContract(_) => ActionType::DeployContract,
+        Action::FunctionCall(_) => ActionType::FunctionCall,
+        Action::Transfer(_) => ActionType::Transfer,
+        Action::Stake(_) => ActionType::Stake,
+        Action::AddKey(_) => ActionType::AddKey,
+        Action::DeleteKey(_) => ActionType::DeleteKey,
+        Action::DeleteAccount(_) => ActionType::DeleteAccount,
+        Action::Delegate(_) => ActionType::Delegate,
+        Action::DeployGlobalContract(_) => ActionType::DeployGlobalContract,
+        Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
+        Action::DeterministicStateInit(_) => ActionType::DeterministicStateInit,
+    }
 }
 
 impl Iterator for ContractAccountIterator {
