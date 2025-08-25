@@ -332,11 +332,6 @@ fn get_genesis_congestion_info(
     shard_id: ShardId,
     state_root: StateRoot,
 ) -> Result<CongestionInfo, Error> {
-    // HACK. May fail if delayed receipts, etc., exist, and congestion info underflows or something.
-    if protocol_version != PROD_GENESIS_PROTOCOL_VERSION {
-        return Ok(CongestionInfo::default());
-    }
-
     // Get the view trie because it's possible that the chain is ahead of
     // genesis and doesn't have this block in flat state and memtrie.
     let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
