@@ -2089,10 +2089,10 @@ impl ShardsManagerActor {
     }
 
     #[tracing::instrument(
-        target="chunks",
+        target = "chunks",
         "shards_manager_request_from_client",
         skip_all,
-        fields(r#type=<&'static str>::from(&request))
+        fields(r#type = <&'static str>::from(&request))
     )]
     pub fn handle_client_request(&mut self, request: ShardsManagerRequestFromClient) {
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
@@ -2182,7 +2182,7 @@ impl ShardsManagerActor {
         target = "chunks",
         "shards_manager_request_from_network",
         skip_all,
-        fields(r#type=<&'static str>::from(&request))
+        fields(r#type = <&'static str>::from(&request))
     )]
     pub fn handle_network_request(
         &mut self,
