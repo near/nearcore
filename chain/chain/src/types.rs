@@ -1,9 +1,9 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
-use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ProtocolConfig;
+use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_configs::ReshardingConfig;
 use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;

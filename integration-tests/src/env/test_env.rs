@@ -7,7 +7,7 @@ use near_chain::stateless_validation::processing_tracker::{
 };
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
-use near_chain_configs::{ProtocolVersionCheckConfig, Genesis, GenesisConfig};
+use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandler};

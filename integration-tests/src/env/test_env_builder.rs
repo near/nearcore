@@ -6,7 +6,7 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
 use near_chain_configs::{
-    ProtocolVersionCheckConfig, Genesis, GenesisConfig, MutableConfigValue, TrackedShardsConfig,
+    Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client::{ChunkValidationActorInner, Client};
@@ -440,7 +440,10 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn protocol_version_check(mut self, protocol_version_check: ProtocolVersionCheckConfig) -> Self {
+    pub fn protocol_version_check(
+        mut self,
+        protocol_version_check: ProtocolVersionCheckConfig,
+    ) -> Self {
         self.protocol_version_check = protocol_version_check;
         self
     }

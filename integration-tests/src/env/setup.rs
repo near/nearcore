@@ -21,8 +21,9 @@ use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_async::ActorSystem;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::{
-    ChunkDistributionNetworkConfig, ClientConfig, ProtocolVersionCheckConfig, Genesis, MutableConfigValue,
-    MutableValidatorSigner, ReshardingConfig, ReshardingHandle, TrackedShardsConfig,
+    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
+    MutableValidatorSigner, ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle,
+    TrackedShardsConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
