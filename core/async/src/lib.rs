@@ -17,7 +17,15 @@ pub use near_time as time;
 use parking_lot::Mutex;
 use std::any::type_name;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use tokio_util::sync::CancellationToken;
+
+/// Sequence number to be shared for all messages, to distinguish messages when logging.
+static MESSAGE_SEQUENCE_NUM: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn next_message_sequence_num() -> u64 {
+    MESSAGE_SEQUENCE_NUM.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 // Quick and dirty way of getting the type name without the module path.
 // Does not work for more complex types like std::sync::Arc<std::sync::atomic::AtomicBool<...>>
@@ -59,22 +67,48 @@ impl ActorSystem {
         self.multithread_cancellation_signal.lock().take();
     }
 
-    /// Spawns a tokio-based actor which handles messages in a single-threaded asynchronous runtime,
-    /// and can support futures and timers.
+    /// Spawns an actor in a single threaded Tokio runtime and returns a handle to it.
+    /// The handle can be used to get the sender and future spawner for the actor.
+    ///
+    /// ```rust, ignore
+    ///
+    /// struct MyActor;
+    ///
+    /// impl Actor for MyActor {}
+    ///
+    /// impl Handler<MyMessage> for MyActor {
+    ///     fn handle(&mut self, msg: MyMessage) {}
+    /// }
+    ///
+    /// // We can use the actor_handle to create senders and future spawners.
+    /// let actor_handle = actor_system.spawn_tokio_actor(MyActor);
+    ///
+    /// let sender: MyAdapter = actor_handle.sender();
+    /// let future_spawner = actor_handle.future_spawner();
+    /// ```
+    ///
+    /// The sender and future spawner can then be passed onto other components that need to send messages
+    /// to the actor or spawn futures in the runtime of the actor.
     pub fn spawn_tokio_actor<A: messaging::Actor + Send + 'static>(
         &self,
         actor: A,
     ) -> TokioRuntimeHandle<A> {
-        spawn_tokio_actor(self.clone(), actor)
+        spawn_tokio_actor(actor, self.tokio_cancellation_signal.clone())
     }
 
     /// Spawns a multi-threaded actor which handles messages in a synchronous thread pool.
+    /// Used similarly to `spawn_tokio_actor`, but this actor is intended for CPU-bound tasks,
+    /// can run multiple threads, and does not support futures, timers, or delayed messages.
     pub fn spawn_multithread_actor<A: messaging::Actor + Send + 'static>(
         &self,
         num_threads: usize,
         make_actor_fn: impl Fn() -> A + Sync + Send + 'static,
     ) -> MultithreadRuntimeHandle<A> {
-        spawn_multithread_actor(self.clone(), num_threads, make_actor_fn)
+        spawn_multithread_actor(
+            num_threads,
+            make_actor_fn,
+            self.multithread_cancellation_receiver.clone(),
+        )
     }
 }
 

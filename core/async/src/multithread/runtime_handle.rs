@@ -1,11 +1,10 @@
-use crate::ActorSystem;
 use crate::messaging::Actor;
 use std::sync::Arc;
 
 /// MultithreadRuntimeMessage is a type alias for a boxed function that can be sent to the multithread runtime,
 /// as well as a description for debugging purposes.
 pub(super) struct MultithreadRuntimeMessage<A> {
-    pub(super) description: String,
+    pub(super) seq: u64,
     pub(super) function: Box<dyn FnOnce(&mut A) + Send>,
 }
 
@@ -30,10 +29,11 @@ where
     }
 }
 
-pub fn spawn_multithread_actor<A>(
-    actor_system: ActorSystem,
+/// See ActorSystem::spawn_multithread_actor.
+pub(crate) fn spawn_multithread_actor<A>(
     num_threads: usize,
     make_actor_fn: impl Fn() -> A + Sync + Send + 'static,
+    system_cancellation_signal: crossbeam_channel::Receiver<()>,
 ) -> MultithreadRuntimeHandle<A>
 where
     A: Actor + Send + 'static,
@@ -46,7 +46,6 @@ where
     let threads =
         Arc::new(rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap());
     let (sender, receiver) = crossbeam_channel::unbounded::<MultithreadRuntimeMessage<A>>();
-    let cancellation_receiver = actor_system.multithread_cancellation_receiver;
     let handle = MultithreadRuntimeHandle { sender };
     let threads_clone = threads.clone();
     threads.spawn_broadcast(move |_| {
@@ -54,16 +53,17 @@ where
         let mut actor = make_actor_fn();
         loop {
             crossbeam_channel::select! {
-                recv(cancellation_receiver) -> _ => {
-                    tracing::info!(target: "multithread_runtime", "Cancellation received, exiting loop.");
+                recv(system_cancellation_signal) -> _ => {
+                    tracing::info!(target: "multithread_runtime", "cancellation received, exiting loop.");
                     return;
                 }
                 recv(receiver) -> message => {
                     let Ok(message) = message else {
-                        tracing::warn!(target: "multithread_runtime", "Message queue closed, exiting event loop.");
+                        tracing::warn!(target: "multithread_runtime", "message queue closed, exiting event loop.");
                         return;
                     };
-                    tracing::debug!(target: "multithread_runtime", "Executing message: {}", message.description);
+                    let seq = message.seq;
+                    tracing::debug!(target: "multithread_runtime", seq, "Executing message");
                     (message.function)(&mut actor);
                 }
             }

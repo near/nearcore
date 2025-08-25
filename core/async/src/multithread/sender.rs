@@ -7,7 +7,7 @@ use crate::messaging::{
     AsyncSendError, CanSend, CanSendAsync, Handler, Message, MessageWithCallback,
 };
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, MultithreadRuntimeMessage};
-use crate::pretty_type_name;
+use crate::{next_message_sequence_num, pretty_type_name};
 
 impl<A, M> CanSend<M> for MultithreadRuntimeHandle<A>
 where
@@ -15,14 +15,15 @@ where
     M: Message + Debug + Send + 'static,
 {
     fn send(&self, message: M) {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
-        tracing::debug!(target: "multithread_runtime", "Sending sync message: {}", description);
+        let seq = next_message_sequence_num();
+        let message_type = pretty_type_name::<A>();
+        tracing::trace!(target: "multithread_runtime", seq, message_type, "sending sync message");
 
         let function = |actor: &mut A| {
             actor.handle(message);
         };
 
-        let message = MultithreadRuntimeMessage { description, function: Box::new(function) };
+        let message = MultithreadRuntimeMessage { seq, function: Box::new(function) };
         self.sender.send(message).unwrap();
     }
 }
@@ -35,15 +36,16 @@ where
     R: Send + 'static,
 {
     fn send(&self, message: MessageWithCallback<M, R>) {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
-        tracing::debug!(target: "multithread_runtime", "Sending sync message with callback: {}", description);
+        let seq = next_message_sequence_num();
+        let message_type = pretty_type_name::<A>();
+        tracing::trace!(target: "multithread_runtime", seq, message_type, "sending sync message with callback");
 
         let function = move |actor: &mut A| {
             let result = actor.handle(message.message);
             (message.callback)(std::future::ready(Ok(result)).boxed());
         };
 
-        let message = MultithreadRuntimeMessage { description, function: Box::new(function) };
+        let message = MultithreadRuntimeMessage { seq, function: Box::new(function) };
         self.sender.send(message).unwrap();
     }
 }
@@ -55,8 +57,9 @@ where
     R: Debug + Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
-        tracing::debug!(target: "multithread_runtime", "Sending async message: {}", description);
+        let seq = next_message_sequence_num();
+        let message_type = pretty_type_name::<A>();
+        tracing::trace!(target: "multithread_runtime", seq, message_type, ?message, "sending async message");
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let future = async move { receiver.await.map_err(|_| AsyncSendError::Dropped) };
@@ -65,7 +68,7 @@ where
             sender.send(result).unwrap();
         };
 
-        let message = MultithreadRuntimeMessage { description, function: Box::new(function) };
+        let message = MultithreadRuntimeMessage { seq, function: Box::new(function) };
         self.sender.send(message).unwrap();
         future.boxed()
     }
