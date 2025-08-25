@@ -309,6 +309,8 @@ pub enum ActionCosts {
     deploy_global_contract_byte = 17,
     use_global_contract_base = 18,
     use_global_contract_byte = 19,
+    deterministic_state_init_base = 20,
+    deterministic_state_init_byte = 21,
 }
 
 impl ExtCosts {
@@ -587,6 +589,17 @@ impl RuntimeFeesConfig {
                     send_sir: 6_812_999,
                     send_not_sir: 47_683_715,
                     execution: 64_572_944,
+                },
+                // TODO
+                ActionCosts::deterministic_state_init_base => Fee {
+                    send_sir: 0,
+                    send_not_sir: 0,
+                    execution: 0,
+                },
+                ActionCosts::deterministic_state_init_byte => Fee {
+                    send_sir: 0,
+                    send_not_sir: 0,
+                    execution: 0,
                 },
             },
         }

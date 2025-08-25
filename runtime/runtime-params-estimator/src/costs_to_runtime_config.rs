@@ -77,6 +77,8 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::deploy_global_contract_byte => fee(Cost::ActionDeployGlobalContractPerByte)?,
             ActionCosts::use_global_contract_base => fee(Cost::ActionUseGlobalContractBase)?,
             ActionCosts::use_global_contract_byte => fee(Cost::ActionUseGlobalContractPerIdentifierByte)?,
+            ActionCosts::deterministic_state_init_base => fee(Cost::ActionDeterministicStateInitBase)?,
+            ActionCosts::deterministic_state_init_byte => fee(Cost::ActionDeterministicStateInitPerByte)?,
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };
