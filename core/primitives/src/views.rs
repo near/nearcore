@@ -2192,7 +2192,7 @@ fn default_is_promise() -> bool {
 
 impl From<Receipt> for ReceiptView {
     fn from(receipt: Receipt) -> Self {
-        let is_promise_yield = matches!(receipt.receipt(), ReceiptEnum::PromiseYield(_));
+        let is_promise_yield = matches!(receipt.receipt(), ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_));
         let is_promise_resume = matches!(receipt.receipt(), ReceiptEnum::PromiseResume(_));
         let priority = receipt.priority().value();
 

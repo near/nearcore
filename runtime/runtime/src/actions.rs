@@ -48,7 +48,7 @@ pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
     predecessor_id: &AccountId,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     promise_results: Arc<[near_vm_runner::logic::types::PromiseResult]>,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
@@ -60,7 +60,7 @@ pub(crate) fn execute_function_call(
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
-        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
+        action_receipt.output_data_receivers().iter().map(|r| r.receiver_id.clone()).collect()
     } else {
         vec![]
     };
@@ -68,8 +68,8 @@ pub(crate) fn execute_function_call(
         near_primitives::utils::create_random_seed(*action_hash, apply_state.random_seed);
     let context = VMContext {
         current_account_id: runtime_ext.account_id().clone(),
-        signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
+        signer_account_id: action_receipt.signer_id().clone(),
+        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key())
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
         input: function_call.args.clone(),
@@ -148,7 +148,7 @@ pub(crate) fn action_function_call(
     apply_state: &ApplyState,
     account: &mut Account,
     receipt: &Receipt,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     promise_results: Arc<[near_vm_runner::logic::types::PromiseResult]>,
     result: &mut ActionResult,
     account_id: &AccountId,
@@ -286,10 +286,10 @@ pub(crate) fn action_function_call(
                     .enabled(apply_state.current_protocol_version)
                 {
                     let new_action_receipt = ActionReceiptV2 {
-                        signer_id: action_receipt.signer_id.clone(),
-                        signer_public_key: action_receipt.signer_public_key.clone(),
+                        signer_id: action_receipt.signer_id().clone(),
+                        signer_public_key: action_receipt.signer_public_key().clone(),
                         refund_to: receipt.refund_to,
-                        gas_price: action_receipt.gas_price,
+                        gas_price: action_receipt.gas_price(),
                         output_data_receivers: receipt.output_data_receivers,
                         input_data_ids: receipt.input_data_ids,
                         actions: receipt.actions,
@@ -301,9 +301,9 @@ pub(crate) fn action_function_call(
                     }
                 } else {
                     let new_action_receipt = ActionReceipt {
-                        signer_id: action_receipt.signer_id.clone(),
-                        signer_public_key: action_receipt.signer_public_key.clone(),
-                        gas_price: action_receipt.gas_price,
+                        signer_id: action_receipt.signer_id().clone(),
+                        signer_public_key: action_receipt.signer_public_key().clone(),
+                        gas_price: action_receipt.gas_price(),
                         output_data_receivers: receipt.output_data_receivers,
                         input_data_ids: receipt.input_data_ids,
                         actions: receipt.actions,
@@ -780,7 +780,7 @@ pub(crate) fn action_add_key(
 pub(crate) fn apply_delegate_action(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     sender_id: &AccountId,
     signed_delegate_action: &SignedDelegateAction,
     result: &mut ActionResult,
@@ -819,9 +819,9 @@ pub(crate) fn apply_delegate_action(
         receipt_id: CryptoHash::default(),
 
         receipt: ReceiptEnum::Action(ActionReceipt {
-            signer_id: action_receipt.signer_id.clone(),
-            signer_public_key: action_receipt.signer_public_key.clone(),
-            gas_price: action_receipt.gas_price,
+            signer_id: action_receipt.signer_id().clone(),
+            signer_public_key: action_receipt.signer_public_key().clone(),
+            gas_price: action_receipt.gas_price(),
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: delegate_action.get_actions(),
@@ -834,7 +834,7 @@ pub(crate) fn apply_delegate_action(
     // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
-    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, &action_receipt.actions)?;
+    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, action_receipt.actions())?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt,
     result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
@@ -1460,7 +1460,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(&action_receipt),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1505,7 +1505,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(action_receipt),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1532,7 +1532,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(action_receipt),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1559,7 +1559,7 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &action_receipt,
+            &VersionedActionReceipt::from(action_receipt),
             &"www.test.near".parse().unwrap(),
             &signed_delegate_action,
             &mut result,

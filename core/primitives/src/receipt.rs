@@ -719,6 +719,7 @@ pub struct ActionReceiptV2 {
 
 /// Convenience wrapper for common logic accessing fields on action receipts of
 /// different versions.
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum VersionedActionReceipt<'a> {
     V1(Cow<'a, ActionReceipt>),
     V2(Cow<'a, ActionReceiptV2>),
@@ -750,10 +751,10 @@ impl VersionedActionReceipt<'_> {
     }
 
     /// A gas_price which has been used to buy gas in the original transaction
-    pub fn gas_price(&self) -> &Balance {
+    pub fn gas_price(&self) -> Balance {
         match self {
-            VersionedActionReceipt::V1(action_receipt) => &action_receipt.gas_price,
-            VersionedActionReceipt::V2(action_receipt) => &action_receipt.gas_price,
+            VersionedActionReceipt::V1(action_receipt) => action_receipt.gas_price,
+            VersionedActionReceipt::V2(action_receipt) => action_receipt.gas_price,
         }
     }
 
