@@ -9,7 +9,6 @@ pub mod multithread;
 pub mod test_loop;
 pub mod tokio;
 
-// FIXME: near_time re-export is not optimal solution, but it would require to change time in many places
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, spawn_multithread_actor};
 use crate::tokio::TokioRuntimeHandle;
 use crate::tokio::runtime_handle::spawn_tokio_actor;
