@@ -453,7 +453,7 @@ dependencies = [
  "ark-std",
  "derivative",
  "hashbrown 0.13.2",
- "itertools 0.10.3",
+ "itertools 0.10.5",
  "num-traits",
  "zeroize",
 ]
@@ -470,7 +470,7 @@ dependencies = [
  "ark-std",
  "derivative",
  "digest 0.10.7",
- "itertools 0.10.3",
+ "itertools 0.10.5",
  "num-bigint 0.4.3",
  "num-traits",
  "paste",
@@ -1679,23 +1679,20 @@ dependencies = [
 
 [[package]]
 name = "criterion"
-version = "0.5.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2b12d017a929603d80db1831cd3a24082f8137ce19c69e6447f54f5fc8d692f"
+checksum = "e1c047a62b0cc3e145fa84415a3191f628e980b194c2755aa12300a4e6cbd928"
 dependencies = [
  "anes",
  "cast",
  "ciborium",
  "clap",
  "criterion-plot",
- "is-terminal",
- "itertools 0.10.3",
+ "itertools 0.13.0",
  "num-traits",
- "once_cell",
  "oorandom",
  "regex",
  "serde",
- "serde_derive",
  "serde_json",
  "tinytemplate",
  "walkdir",
@@ -1703,12 +1700,12 @@ dependencies = [
 
 [[package]]
 name = "criterion-plot"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b50826342786a51a89e2da3a28f1c32b06e387201bc2d19791f622c673706b1"
+checksum = "9b1bcc0dc7dfae599d84ad0b1a55f80cde8af3725da8313b528da95ef783e338"
 dependencies = [
  "cast",
- "itertools 0.10.3",
+ "itertools 0.13.0",
 ]
 
 [[package]]
@@ -2917,12 +2914,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hermit-abi"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbf6a919d6cf397374f7dfeeea91d974c7c0a7221d0d0f4f20d859d329e53fcc"
-
-[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3506,7 +3497,7 @@ dependencies = [
  "futures",
  "hex",
  "insta",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "near-actix-test-utils",
  "near-async",
  "near-chain",
@@ -3568,17 +3559,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "469fb0b9cefa57e3ef31275ee7cacb78f2fdca44e4765491884a2b119d4eb130"
 
 [[package]]
-name = "is-terminal"
-version = "0.4.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "261f68e344040fbd0edea105bef17c66edf46f984ddb1115b775ce31be948f4b"
-dependencies = [
- "hermit-abi 0.4.0",
- "libc",
- "windows-sys 0.52.0",
-]
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3586,18 +3566,18 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
 name = "itertools"
-version = "0.10.3"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9a9d19fa1e79b6215ff29b9d6880b706147f16e9b1dbb1e4e5947b5b02bc5e3"
+checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
 dependencies = [
  "either",
 ]
 
 [[package]]
 name = "itertools"
-version = "0.12.1"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
 dependencies = [
  "either",
 ]
@@ -4272,7 +4252,7 @@ dependencies = [
  "easy-ext",
  "enum-map",
  "insta",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "lru 0.12.3",
  "near-async",
  "near-cache",
@@ -4355,7 +4335,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "assert_matches",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "lru 0.12.3",
  "near-async",
  "near-chain",
@@ -4398,7 +4378,7 @@ dependencies = [
  "bytesize",
  "criterion",
  "futures",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "lru 0.12.3",
  "near-actix-test-utils",
  "near-async",
@@ -4572,7 +4552,7 @@ name = "near-epoch-manager"
 version = "0.0.0"
 dependencies = [
  "borsh",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "near-cache",
  "near-chain-configs",
  "near-chain-primitives",
@@ -4743,7 +4723,7 @@ dependencies = [
 name = "near-jsonrpc-openapi-spec"
 version = "0.0.0"
 dependencies = [
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "near-chain-configs",
  "near-jsonrpc-primitives",
  "near-primitives",
@@ -4871,7 +4851,7 @@ dependencies = [
  "futures",
  "futures-util",
  "im",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "lru 0.12.3",
  "near-async",
  "near-chain-configs",
@@ -5027,7 +5007,7 @@ dependencies = [
  "expect-test",
  "hex",
  "insta",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "near-crypto",
  "near-fmt",
  "near-parameters",
@@ -5086,7 +5066,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "near-chain",
  "near-chain-configs",
  "near-chunks",
@@ -5224,7 +5204,7 @@ dependencies = [
  "enum-map",
  "hex",
  "insta",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "itoa",
  "lru 0.12.3",
  "near-async",
@@ -5723,7 +5703,7 @@ dependencies = [
  "hyper 0.14.28",
  "hyper-tls 0.5.0",
  "indicatif",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "near-actix-test-utils",
  "near-async",
  "near-chain",
@@ -5850,7 +5830,7 @@ dependencies = [
  "dashmap",
  "enum-map",
  "hex",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "near-chain-configs",
  "near-crypto",
  "near-o11y",
@@ -6016,7 +5996,7 @@ version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19e64526ebdee182341572e50e9ad03965aa510cd94427a4549448f285e957a1"
 dependencies = [
- "hermit-abi 0.1.19",
+ "hermit-abi",
  "libc",
 ]
 
@@ -6264,12 +6244,12 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "paperclip"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a5f716236005663601c6a37562df63c1ff26d8d5ed24297b60fb8c64ffae237"
+checksum = "fa5b33308ca3f5902ccef8aa51f72dd71d6ee9f1c3cd04ac2e77eec33fe1da4f"
 dependencies = [
  "anyhow",
- "itertools 0.10.3",
+ "itertools 0.10.5",
  "once_cell",
  "paperclip-actix",
  "paperclip-core",
@@ -6285,9 +6265,9 @@ dependencies = [
 
 [[package]]
 name = "paperclip-actix"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d657a5d373b74ab8c2331593c36784fb9b3b0a83484d7b4a898adbed303bbaf2"
+checksum = "8940953bde66d4de5c8d53269d2d5967b111baa711ba6c05d41897e7cbfd5119"
 dependencies = [
  "actix-service",
  "actix-web",
@@ -6301,9 +6281,9 @@ dependencies = [
 
 [[package]]
 name = "paperclip-core"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a6842cfd9f8603f9d8ece3feb8b6995306b87f3e38d9251b86f503b61390183"
+checksum = "a12a4febf76a64f14e03c19b000d9c2b333543e4485a47624d59afd7c6980536"
 dependencies = [
  "actix-web",
  "mime",
@@ -6731,7 +6711,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19de2de2a00075bf566bee3bd4db014b11587e84184d3f7a791bc17f1a8e9e48"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.87",
@@ -8138,7 +8118,7 @@ dependencies = [
  "clap",
  "indicatif",
  "insta",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -8409,7 +8389,7 @@ dependencies = [
  "borsh",
  "bytesize",
  "derive_builder",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "near-async",
  "near-chain",
  "near-chain-configs",
