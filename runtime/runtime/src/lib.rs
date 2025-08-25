@@ -311,7 +311,7 @@ impl Runtime {
         account: &mut Option<Account>,
         actor_id: &mut AccountId,
         receipt: &Receipt,
-        action_receipt: &ActionReceipt,
+        action_receipt: &VersionedActionReceipt,
         promise_results: Arc<[PromiseResult]>,
         action_hash: &CryptoHash,
         action_index: usize,
@@ -509,16 +509,19 @@ impl Runtime {
             "apply_action_receipt",
         )
         .entered();
-        let action_receipt = match receipt.receipt() {
+        let action_receipt: VersionedActionReceipt = match receipt.receipt() {
             ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                action_receipt
+                action_receipt.into()
+            }
+            ReceiptEnum::ActionV2(action_receipt) | ReceiptEnum::PromiseYieldV2(action_receipt) => {
+                action_receipt.into()
             }
             _ => unreachable!("given receipt should be an action receipt"),
         };
         let account_id = receipt.receiver_id();
         // Collecting input data and removing it from the state
         let promise_results = action_receipt
-            .input_data_ids
+            .input_data_ids()
             .iter()
             .map(|data_id| {
                 let ReceivedData { data } = get_received_data(state_update, account_id, *data_id)?
@@ -554,7 +557,7 @@ impl Runtime {
         result.compute_usage = exec_fees.as_gas();
 
         // Executing actions one by one
-        for (action_index, action) in action_receipt.actions.iter().enumerate() {
+        for (action_index, action) in action_receipt.actions().iter().enumerate() {
             let action_hash = create_action_hash_from_receipt_id(
                 receipt.receipt_id(),
                 apply_state.block_height,
@@ -568,11 +571,11 @@ impl Runtime {
                 &mut account,
                 &mut actor_id,
                 receipt,
-                action_receipt,
+                &action_receipt,
                 Arc::clone(&promise_results),
                 &action_hash,
                 action_index,
-                &action_receipt.actions,
+                &action_receipt.actions(),
                 epoch_info_provider,
                 stats,
             )?;
@@ -629,7 +632,7 @@ impl Runtime {
             if result.result.is_err() {
                 stats.balance.other_burnt_amount = safe_add_balance(
                     stats.balance.other_burnt_amount,
-                    total_deposit(&action_receipt.actions)?,
+                    total_deposit(&action_receipt.actions())?,
                 )?
             }
             GasRefundResult::default()
@@ -638,7 +641,7 @@ impl Runtime {
             self.generate_refund_receipts(
                 apply_state.gas_price,
                 receipt,
-                action_receipt,
+                &action_receipt,
                 &mut result,
                 &apply_state.config,
             )?
@@ -697,7 +700,7 @@ impl Runtime {
             full_reward.saturating_sub(gas_refund_result.price_deficit)
         } else {
             // Use receipt gas price for reward calculation
-            safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?
+            safe_gas_to_balance(action_receipt.gas_price(), receiver_gas_reward)?
             // Post NEP-536:
             // No shenanigans here. We are not refunding gas price differences,
             // we just use the receipt gas price and call it the correct price.
@@ -727,7 +730,7 @@ impl Runtime {
 
         // A {
         // B(); 42}
-        if !action_receipt.output_data_receivers.is_empty() {
+        if !action_receipt.output_data_receivers().is_empty() {
             if let Ok(ReturnData::ReceiptIndex(receipt_index)) = result.result {
                 // Modifying a new receipt instead of sending data
                 match result
@@ -739,7 +742,11 @@ impl Runtime {
                     ReceiptEnum::Action(new_action_receipt)
                     | ReceiptEnum::PromiseYield(new_action_receipt) => new_action_receipt
                         .output_data_receivers
-                        .extend_from_slice(&action_receipt.output_data_receivers),
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
+                    ReceiptEnum::ActionV2(new_action_receipt)
+                    | ReceiptEnum::PromiseYieldV2(new_action_receipt) => new_action_receipt
+                        .output_data_receivers
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
                     _ => unreachable!("the receipt should be an action receipt"),
                 }
             } else {
@@ -748,7 +755,7 @@ impl Runtime {
                     Ok(_) => Some(vec![]),
                     Err(_) => None,
                 };
-                result.new_receipts.extend(action_receipt.output_data_receivers.iter().map(
+                result.new_receipts.extend(action_receipt.output_data_receivers().iter().map(
                     |data_receiver| {
                         Receipt::V0(ReceiptV0 {
                             predecessor_id: account_id.clone(),
@@ -774,7 +781,10 @@ impl Runtime {
                 new_receipt.set_receipt_id(receipt_id);
                 let is_action = matches!(
                     new_receipt.receipt(),
-                    ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
+                    ReceiptEnum::Action(_)
+                        | ReceiptEnum::PromiseYield(_)
+                        | ReceiptEnum::ActionV2(_)
+                        | ReceiptEnum::PromiseYieldV2(_)
                 );
 
                 let res =
@@ -821,7 +831,7 @@ impl Runtime {
         &self,
         current_gas_price: Balance,
         receipt: &Receipt,
-        action_receipt: &ActionReceipt,
+        action_receipt: &VersionedActionReceipt,
         result: &mut ActionResult,
         config: &RuntimeConfig,
     ) -> Result<GasRefundResult, RuntimeError> {
@@ -868,16 +878,16 @@ impl Runtime {
         &self,
         current_gas_price: Balance,
         receipt: &Receipt,
-        action_receipt: &ActionReceipt,
+        action_receipt: &VersionedActionReceipt,
         result: &mut ActionResult,
         config: &RuntimeConfig,
     ) -> Result<Balance, RuntimeError> {
-        let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?
-            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions)?)
+        let total_deposit = total_deposit(&action_receipt.actions())?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?)
             .ok_or(IntegerOverflowError)?;
         let prepaid_exec_gas =
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+            total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
                 .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
                 .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
@@ -896,15 +906,15 @@ impl Runtime {
         };
 
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
-        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
+        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price(), gas_refund)?;
         let mut gas_deficit_amount = 0;
-        if current_gas_price > action_receipt.gas_price {
+        if current_gas_price > action_receipt.gas_price() {
             // In a rare scenario, when the current gas price is higher than the purchased gas
             // price, the difference is subtracted from the refund. If the refund doesn't have
             // enough balance to cover the difference, then the remaining balance is considered
             // the deficit and it's reported in the stats for the balance checker.
             gas_deficit_amount = safe_gas_to_balance(
-                current_gas_price - action_receipt.gas_price,
+                current_gas_price - action_receipt.gas_price(),
                 result.gas_burnt,
             )?;
             if gas_balance_refund >= gas_deficit_amount {
@@ -919,7 +929,7 @@ impl Runtime {
             gas_balance_refund = safe_add_balance(
                 gas_balance_refund,
                 safe_gas_to_balance(
-                    action_receipt.gas_price - current_gas_price,
+                    action_receipt.gas_price() - current_gas_price,
                     result.gas_burnt,
                 )?,
             )?;
@@ -936,9 +946,9 @@ impl Runtime {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
             result.new_receipts.push(Receipt::new_gas_refund(
-                &action_receipt.signer_id,
+                &action_receipt.signer_id(),
                 gas_balance_refund,
-                action_receipt.signer_public_key.clone(),
+                action_receipt.signer_public_key().clone(),
                 receipt.priority(),
             ));
         }
@@ -957,16 +967,16 @@ impl Runtime {
         &self,
         current_gas_price: Balance,
         receipt: &Receipt,
-        action_receipt: &ActionReceipt,
+        action_receipt: &VersionedActionReceipt,
         result: &mut ActionResult,
         config: &RuntimeConfig,
     ) -> Result<GasRefundResult, RuntimeError> {
-        let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?
-            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions)?)
+        let total_deposit = total_deposit(&action_receipt.actions())?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?)
             .ok_or(IntegerOverflowError)?;
         let prepaid_exec_gas =
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+            total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
                 .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
                 .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
@@ -992,24 +1002,24 @@ impl Runtime {
         };
 
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
-        let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, net_gas_refund)?;
+        let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price(), net_gas_refund)?;
 
         let mut gas_refund_result = GasRefundResult {
             price_deficit: 0,
             price_surplus: 0,
-            refund_penalty: safe_gas_to_balance(action_receipt.gas_price, refund_penalty)?,
+            refund_penalty: safe_gas_to_balance(action_receipt.gas_price(), refund_penalty)?,
         };
 
-        if current_gas_price > action_receipt.gas_price {
+        if current_gas_price > action_receipt.gas_price() {
             // price increased, burning resulted in a deficit
             gas_refund_result.price_deficit = safe_gas_to_balance(
-                current_gas_price - action_receipt.gas_price,
+                current_gas_price - action_receipt.gas_price(),
                 result.gas_burnt,
             )?;
         } else {
             // price decreased, burning resulted in a surplus
             gas_refund_result.price_surplus = safe_gas_to_balance(
-                action_receipt.gas_price - current_gas_price,
+                action_receipt.gas_price() - current_gas_price,
                 result.gas_burnt,
             )?;
         };
@@ -1025,9 +1035,9 @@ impl Runtime {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
             result.new_receipts.push(Receipt::new_gas_refund(
-                &action_receipt.signer_id,
+                &action_receipt.signer_id(),
                 gas_balance_refund,
-                action_receipt.signer_public_key.clone(),
+                action_receipt.signer_public_key().clone(),
                 receipt.priority(),
             ));
         }
@@ -2430,7 +2440,7 @@ fn action_transfer_or_implicit_account_creation(
     account: &mut Option<Account>,
     deposit: u128,
     is_refund: bool,
-    action_receipt: &ActionReceipt,
+    action_receipt: &VersionedActionReceipt,
     receipt: &Receipt,
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
@@ -2440,11 +2450,11 @@ fn action_transfer_or_implicit_account_creation(
     Ok(if let Some(account) = account.as_mut() {
         action_transfer(account, deposit)?;
         // Check if this is a gas refund, then try to refund the access key allowance.
-        if is_refund && &action_receipt.signer_id == receipt.receiver_id() {
+        if is_refund && action_receipt.signer_id() == receipt.receiver_id() {
             try_refund_allowance(
                 state_update,
                 receipt.receiver_id(),
-                &action_receipt.signer_public_key,
+                &action_receipt.signer_public_key(),
                 deposit,
             )?;
         }
