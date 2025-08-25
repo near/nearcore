@@ -156,69 +156,9 @@ impl Debug for BlockMissingChunks {
     }
 }
 
-/// Check if block header is known
-/// Returns Err(Error) if any error occurs when checking store
-///         Ok(Err(BlockKnownError)) if the block header is known
-///         Ok(Ok()) otherwise
-pub fn check_header_known(
-    chain: &Chain,
-    header: &BlockHeader,
-) -> Result<Result<(), BlockKnownError>, Error> {
-    // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
-    let header_head = chain.chain_store().header_head()?;
-    if header.hash() == &header_head.last_block_hash
-        || header.hash() == &header_head.prev_block_hash
-    {
-        return Ok(Err(BlockKnownError::KnownInHeader));
-    }
-    check_known_store(chain, header.hash())
-}
-
-/// Check if this block is in the store already.
-/// Returns Err(Error) if any error occurs when checking store
-///         Ok(Err(BlockKnownError)) if the block is in the store
-///         Ok(Ok()) otherwise
-fn check_known_store(
-    chain: &Chain,
-    block_hash: &CryptoHash,
-) -> Result<Result<(), BlockKnownError>, Error> {
-    // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
-    if chain.chain_store().block_exists(block_hash)? {
-        Ok(Err(BlockKnownError::KnownInStore))
-    } else {
-        // Not yet processed this block, we can proceed.
-        Ok(Ok(()))
-    }
-}
-
-/// Check if block is known: head, orphan, in processing or in store.
-/// Returns Err(Error) if any error occurs when checking store
-///         Ok(Err(BlockKnownError)) if the block is known
-///         Ok(Ok()) otherwise
-pub fn check_known(
-    chain: &Chain,
-    block_hash: &CryptoHash,
-) -> Result<Result<(), BlockKnownError>, Error> {
-    // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
-    let head = chain.chain_store().head()?;
-    // Quick in-memory check for fast-reject any block handled recently.
-    if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
-        return Ok(Err(BlockKnownError::KnownInHead));
-    }
-    if chain.blocks_in_processing.contains(&BlockToApply::Normal(*block_hash)) {
-        return Ok(Err(BlockKnownError::KnownInProcessing));
-    }
-    // Check if this block is in the set of known orphans.
-    if chain.orphans.contains(block_hash) {
-        return Ok(Err(BlockKnownError::KnownInOrphan));
-    }
-    if chain.blocks_with_missing_chunks.contains(block_hash) {
-        return Ok(Err(BlockKnownError::KnownInMissingChunks));
-    }
-    if chain.is_block_invalid(block_hash) {
-        return Ok(Err(BlockKnownError::KnownAsInvalid));
-    }
-    check_known_store(chain, block_hash)
+pub enum BlockKnowledge {
+    Unknown,
+    Known(BlockKnownError),
 }
 
 pub struct ApplyChunksResultCache {
@@ -977,7 +917,9 @@ impl Chain {
     pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
         debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header");
 
-        check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
+        if let BlockKnowledge::Known(err) = self.check_block_known(header.hash())? {
+            return Err(Error::BlockKnown(err));
+        }
         self.validate_header(header, &Provenance::NONE)?;
         Ok(())
     }
@@ -1484,9 +1426,9 @@ impl Chain {
 
         // Validate header and then add to the chain.
         for header in &headers {
-            match check_header_known(self, header)? {
-                Ok(_) => {}
-                Err(_) => continue,
+            match self.check_block_header_known(header)? {
+                BlockKnowledge::Unknown => {}
+                BlockKnowledge::Known(_) => continue,
             }
 
             self.validate_header(header, &Provenance::SYNC)?;
@@ -2248,7 +2190,9 @@ impl Chain {
         }
 
         // Check if we have already processed this block previously.
-        check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
+        if let BlockKnowledge::Known(err) = self.check_block_known(header.hash())? {
+            return Err(Error::BlockKnown(err));
+        }
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.head()?;
@@ -3360,6 +3304,59 @@ impl Chain {
 
     pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
         self.chain_store.transaction_validity_period = to;
+    }
+
+    /// Check if block is known: head, orphan, in processing or in store.
+    /// Returns Err(Error) if any error occurs when checking store
+    ///         Ok(Err(BlockKnownError)) if the block is known
+    ///         Ok(Ok()) otherwise
+    pub fn check_block_known(&self, block_hash: &CryptoHash) -> Result<BlockKnowledge, Error> {
+        let head = self.chain_store().head()?;
+        // Quick in-memory check for fast-reject any block handled recently.
+        if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
+            return Ok(BlockKnowledge::Known(BlockKnownError::KnownInHead));
+        }
+        if self.blocks_in_processing.contains(&BlockToApply::Normal(*block_hash)) {
+            return Ok(BlockKnowledge::Known(BlockKnownError::KnownInProcessing));
+        }
+        // Check if this block is in the set of known orphans.
+        if self.orphans.contains(block_hash) {
+            return Ok(BlockKnowledge::Known(BlockKnownError::KnownInOrphan));
+        }
+        if self.blocks_with_missing_chunks.contains(block_hash) {
+            return Ok(BlockKnowledge::Known(BlockKnownError::KnownInMissingChunks));
+        }
+        if self.is_block_invalid(block_hash) {
+            return Ok(BlockKnowledge::Known(BlockKnownError::KnownAsInvalid));
+        }
+        self.check_block_known_store(block_hash)
+    }
+
+    /// Check if block header is known.
+    /// Returns Err(Error) if any error occurs when checking store
+    ///         Ok(Err(BlockKnownError)) if the block header is known
+    ///         Ok(Ok()) otherwise
+    pub fn check_block_header_known(&self, header: &BlockHeader) -> Result<BlockKnowledge, Error> {
+        let header_head = self.chain_store().header_head()?;
+        if header.hash() == &header_head.last_block_hash
+            || header.hash() == &header_head.prev_block_hash
+        {
+            return Ok(BlockKnowledge::Known(BlockKnownError::KnownInHeader));
+        }
+        self.check_block_known_store(header.hash())
+    }
+
+    /// Check if this block is in the store already.
+    /// Returns Err(Error) if any error occurs when checking store
+    ///         Ok(Err(BlockKnownError)) if the block is in the store
+    ///         Ok(Ok()) otherwise
+    fn check_block_known_store(&self, block_hash: &CryptoHash) -> Result<BlockKnowledge, Error> {
+        if self.chain_store().block_exists(block_hash)? {
+            Ok(BlockKnowledge::Known(BlockKnownError::KnownInStore))
+        } else {
+            // Not yet processed this block, we can proceed.
+            Ok(BlockKnowledge::Unknown)
+        }
     }
 }
 

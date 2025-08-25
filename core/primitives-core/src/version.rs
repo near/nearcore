@@ -324,6 +324,7 @@ pub enum ProtocolFeature {
     RefTypesBulkMemory,
     SaturatingFloatToInt,
     ChunkPartChecks,
+    StatePartsCompression,
 }
 
 impl ProtocolFeature {
@@ -429,6 +430,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::StatePartsCompression => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -448,7 +450,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 81;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =
