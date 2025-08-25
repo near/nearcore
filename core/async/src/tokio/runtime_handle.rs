@@ -8,7 +8,7 @@ use crate::messaging::Actor;
 
 /// TokioRuntimeMessage is a type alias for a boxed function that can be sent to the Tokio runtime.
 pub(super) struct TokioRuntimeMessage<A> {
-    pub(super) description: String,
+    pub(super) seq: u64,
     pub(super) function: Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send>,
 }
 
@@ -83,15 +83,16 @@ where
         loop {
             tokio::select! {
                 _ = actor_system.tokio_cancellation_signal.cancelled() => {
-                    tracing::info!(target: "tokio_runtime", "Shutting down Tokio runtime");
+                    tracing::info!(target: "tokio_runtime", "shutting down Tokio runtime");
                     break;
                 }
                 message = receiver.recv() => {
                     let Some(message) = message else {
-                        tracing::warn!(target: "tokio_runtime", "Exiting event loop");
+                        tracing::warn!(target: "tokio_runtime", "exiting event loop");
                         break;
                     };
-                    tracing::debug!(target: "tokio_runtime", "Executing message: {}", message.description);
+                    let seq = message.seq;
+                    tracing::debug!(target: "tokio_runtime", seq, "executing message");
                     (message.function)(&mut actor, &mut runtime_handle_clone);
                 }
             }

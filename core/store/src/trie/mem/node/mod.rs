@@ -1,7 +1,7 @@
 use super::arena::{ArenaMemory, ArenaMut, ArenaPos, ArenaPtr};
 use super::flexible_data::children::ChildrenView;
 use super::flexible_data::value::ValueView;
-use crate::trie::{Children, TRIE_COSTS};
+use crate::trie::{Children, NUM_CHILDREN, TRIE_COSTS};
 use crate::{RawTrieNode, RawTrieNodeWithSize};
 use derive_where::derive_where;
 use near_primitives::hash::CryptoHash;
@@ -86,8 +86,8 @@ impl<'a, M: ArenaMemory> MemTrieNodePtr<'a, M> {
 pub enum InputMemTrieNode<'a> {
     Leaf { value: &'a FlatStateValue, extension: &'a [u8] },
     Extension { extension: &'a [u8], child: MemTrieNodeId },
-    Branch { children: [Option<MemTrieNodeId>; 16] },
-    BranchWithValue { children: [Option<MemTrieNodeId>; 16], value: &'a FlatStateValue },
+    Branch { children: [Option<MemTrieNodeId>; NUM_CHILDREN] },
+    BranchWithValue { children: [Option<MemTrieNodeId>; NUM_CHILDREN], value: &'a FlatStateValue },
 }
 
 /// A view of the encoded data of `MemTrieNode`, obtainable via
@@ -140,7 +140,7 @@ impl<'a> InputMemTrieNode<'a> {
             }
             Self::Branch { children, .. } => {
                 let mut memory_usage = TRIE_COSTS.node_cost;
-                let mut hashes = [None; 16];
+                let mut hashes = [None; NUM_CHILDREN];
                 for (i, child) in children.iter().enumerate() {
                     if let Some(child) = child {
                         let view = child.as_ptr(arena).view();
@@ -159,7 +159,7 @@ impl<'a> InputMemTrieNode<'a> {
                 let mut memory_usage = TRIE_COSTS.node_cost
                     + value_len as u64 * TRIE_COSTS.byte_of_value
                     + TRIE_COSTS.node_cost;
-                let mut hashes = [None; 16];
+                let mut hashes = [None; NUM_CHILDREN];
                 for (i, child) in children.iter().enumerate() {
                     if let Some(child) = child {
                         let view = child.as_ptr(arena).view();

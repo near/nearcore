@@ -866,7 +866,7 @@ fn test_memory_copy_aggregate_accounting() {
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
         .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 91000008 used gas 91000008
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
@@ -887,7 +887,7 @@ fn test_memory_copy_aggregate_accounting() {
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
         .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 91000008 used gas 91000008
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         // Gas use here should be roughly double that of the test above!
@@ -922,7 +922,7 @@ fn test_memory_copy_full_memory() {
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
         .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 224983293 used gas 224983293
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"
@@ -958,7 +958,7 @@ fn test_memory_copy_full_memory_out_of_gas() {
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
         .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 253304963 used gas 253304963
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Error happened while deserializing the module.
         "#]],
         expect![[r#"

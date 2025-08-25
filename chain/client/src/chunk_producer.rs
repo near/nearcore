@@ -222,7 +222,9 @@ impl ChunkProducer {
         ?epoch_id,
         prev_block_hash = ?prev_block.header().hash(),
         chunk_hash = tracing::field::Empty,
-        tag_block_production = true
+        transactions_num = tracing::field::Empty,
+        tag_block_production = true,
+        tag_chunk_distribution = true,
     ))]
     fn produce_chunk_internal(
         &mut self,
@@ -335,6 +337,7 @@ impl ChunkProducer {
 
         let encoded_chunk = chunk.to_encoded_shard_chunk();
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
+        span.record("transactions_num", tracing::field::display(num_filtered_transactions));
         debug!(
             target: "client",
             num_filtered_transactions,
