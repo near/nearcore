@@ -100,16 +100,28 @@ class RpcServer(http.server.HTTPServer):
         super().__init__(addr, JSONHandler)
 
 
+# Intermediate states of the node within a mocknet test.
+# Required to determine common protocol configuration (genesis and epoch
+# configs) and write it to disk.
 class TestState(Enum):
+    # Node was just created.
     NONE = 1
+    # Waiting to receive other validators' info to write the protocol
+    # configuration.
     AWAITING_NETWORK_INIT = 2
-    AWAITING_GENESIS = 3
-    RUNNING = 5
+    # For chunk validators, waiting to receive the protocol configuration
+    # from the setup bucket.
+    AWAITING_SETUP_BUCKET = 3
+    # Node writes the protocol configuration to its target home folder.
+    SETTING_UP_PROTOCOL = 10
+    # Node is stopped.
     STOPPED = 6
-    RESETTING = 7
+    # Node is running.
+    RUNNING = 5
+    # Node is in error state.
     ERROR = 8
+    RESETTING = 7
     MAKING_BACKUP = 9
-    SETTING_VALIDATORS = 10
 
 
 backup_id_pattern = re.compile(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$')
@@ -1147,10 +1159,10 @@ class NeardRunner:
         with open(self.target_near_home_path('config.json'), 'w') as f:
             config = json.dump(config, f, indent=2)
 
-        # TODO(CV support): If the node has state, build the genesis and publish it.
-        #                   If the node has no state, download the genesis from the setup bucket.
+        # Validator nodes don't have state originally.
+        # They need to download it from the setup bucket, once it appears.
         if self.config.get('role') == 'validator':
-            self.set_state(TestState.AWAITING_GENESIS)
+            self.set_state(TestState.AWAITING_SETUP_BUCKET)
             return
 
         new_chain_id = n.get('new_chain_id')
@@ -1195,34 +1207,32 @@ class NeardRunner:
             cmd.append(str(n['protocol_version']))
 
         self.run_neard(cmd)
-        self.set_state(TestState.SETTING_VALIDATORS)
+        self.set_state(TestState.SETTING_UP_PROTOCOL)
 
     def _bucket_path(self):
         mocknet_id = self.config['mocknet_id']
         run_id = self.run_id()
         return f"gs://near-mocknet-artefact-store/{mocknet_id}/{run_id}"
 
-    def genesis_init(self):
-        """Check if folder for genesis and epoch configs exists in bucket and download them if so"""
+    def check_setup_bucket(self):
+        """Check if setup bucket exists and download the contents into the
+        target home folder if so."""
 
-        # Check if folder for genesis and epoch configs already exists in the bucket
+        # Check if setup bucket exists.
         check_cmd = ['gsutil', 'ls', self._bucket_path()]
-        logging.info(
-            f"Checking if folder for genesis and epoch configs exists in bucket: {' '.join(check_cmd)}"
-        )
+        logging.info(f"Checking if setup bucket exists: {' '.join(check_cmd)}")
 
         result = subprocess.run(check_cmd, capture_output=True, text=True)
         if result.returncode == 1:
-            logging.info(
-                f"Folder for genesis and epoch configs not found in bucket")
+            logging.info(f"Setup bucket not found")
             return
         elif result.returncode != 0:
-            logging.error(f"Error checking bucket directory: {result.stderr}")
+            logging.error(f"Error checking setup bucket: {result.stderr}")
             self.set_state(TestState.ERROR)
             return
 
-        # Directory exists in bucket, download it and set state to ready
-        logging.info(f"Downloading genesis and epoch configs from bucket")
+        # Setup bucket exists, download it.
+        logging.info(f"Downloading setup bucket")
         download_cmd = [
             'gsutil', '-m', 'rsync', '-r',
             self._bucket_path(),
@@ -1239,16 +1249,15 @@ class NeardRunner:
             return
 
         logging.info(
-            f"Successfully downloaded genesis and epoch configs from {self._bucket_path()}"
-        )
+            f"Successfully downloaded setup bucket from {self._bucket_path()}")
 
         self.set_state(TestState.STOPPED)
 
-    def check_set_validators(self):
+    def check_setup_protocol(self):
         path, running, exit_code = self.poll_neard()
         if path is None:
             logging.error(
-                'state is SETTING_VALIDATORS, but no set-validators process is known'
+                'state is SETTING_UP_PROTOCOL, but no set-validators process is known'
             )
             self.set_state(TestState.AWAITING_NETWORK_INIT)
             return
@@ -1278,8 +1287,9 @@ class NeardRunner:
         self.execute_neard_subcmd(cmd)
         logging.info(f'neard fork-network finalize succeeded')
 
-        # Check if we are the first validator and upload genesis.json to GCP bucket
-        self._upload_genesis_if_first_validator()
+        # Check if we are the first validator and upload protocol configuration
+        # to GCP bucket.
+        self._upload_protocol_configuration()
 
         logging.info(f'node is ready to start')
         self.make_initial_backup()
@@ -1345,7 +1355,7 @@ class NeardRunner:
         self.make_backup()
 
     def _is_first_validator(self):
-        """Check if this node is the first validator."""
+        """Check if this node is the first validator in the list of validators."""
         if not self.can_validate():
             return False
 
@@ -1366,13 +1376,14 @@ class NeardRunner:
 
         return our_account_id == first_validator_account_id
 
-    def _upload_genesis_if_first_validator(self):
-        """Upload genesis and epoch configs to GCP bucket if this node is the first validator."""
+    def _upload_protocol_configuration(self):
+        """Upload protocol configuration to GCP bucket if this node is the first validator."""
         if not self._is_first_validator():
             return
 
         logging.info(
-            f"We are the first validator, uploading genesis.json to GCP bucket")
+            f"We are the first validator, uploading protocol configuration to GCP bucket"
+        )
 
         genesis_path = self.target_near_home_path('genesis.json')
         if not os.path.exists(genesis_path):
@@ -1380,10 +1391,10 @@ class NeardRunner:
             self.set_state(TestState.ERROR)
             return
 
-        # Copy files to a temporary directory and rsync it to the bucket
+        # Copy and rsync the protocol configuration to the bucket, using a
+        # temporary directory.
         temp_dir = tempfile.mkdtemp()
         try:
-            # Copy all files to temp directory with their target names
             shutil.copy2(genesis_path, os.path.join(temp_dir, "genesis.json"))
             logging.info(f"Copied {genesis_path} to temp as genesis.json")
 
@@ -1392,7 +1403,6 @@ class NeardRunner:
             shutil.copytree(epoch_configs_path, epoch_configs_temp_path)
             logging.info(f"Copied {epoch_configs_path} to temp")
 
-            # Use gsutil rsync to upload the entire temp directory
             cmd = ['gsutil', '-m', 'rsync', '-r', temp_dir, self._bucket_path()]
             logging.info(f"Uploading files using rsync: {' '.join(cmd)}")
 
@@ -1403,7 +1413,6 @@ class NeardRunner:
             logging.info(
                 f"Successfully uploaded files to {self._bucket_path()}")
         finally:
-            # Clean up temporary directory
             shutil.rmtree(temp_dir)
             logging.info(f"Cleaned up temporary directory: {temp_dir}")
 
@@ -1464,10 +1473,10 @@ class NeardRunner:
                 state = self.get_state()
                 if state == TestState.AWAITING_NETWORK_INIT:
                     self.network_init()
-                elif state == TestState.AWAITING_GENESIS:
-                    self.genesis_init()
-                elif state == TestState.SETTING_VALIDATORS:
-                    self.check_set_validators()
+                elif state == TestState.AWAITING_SETUP_BUCKET:
+                    self.check_setup_bucket()
+                elif state == TestState.SETTING_UP_PROTOCOL:
+                    self.check_setup_protocol()
                 elif state == TestState.RUNNING:
                     self.check_upgrade_neard()
                 elif state == TestState.RESETTING:
