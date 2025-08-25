@@ -2119,7 +2119,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
-                method_name: "promise_batch_then".to_string(),
+                method_name: "promise_set_refund_to".to_string(),
             }
             .into());
         }
