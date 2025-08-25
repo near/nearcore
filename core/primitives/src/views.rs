@@ -2294,7 +2294,10 @@ fn default_is_promise() -> bool {
 
 impl From<Receipt> for ReceiptView {
     fn from(receipt: Receipt) -> Self {
-        let is_promise_yield = matches!(receipt.receipt(), ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_));
+        let is_promise_yield = matches!(
+            receipt.receipt(),
+            ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_)
+        );
         let is_promise_resume = matches!(receipt.receipt(), ReceiptEnum::PromiseResume(_));
         let priority = receipt.priority().value();
 
@@ -2339,7 +2342,7 @@ impl ReceiptEnumView {
         ReceiptEnumView::Action {
             signer_id: action_receipt.signer_id().clone(),
             signer_public_key: action_receipt.signer_public_key().clone(),
-            gas_price: action_receipt.gas_price().clone(),
+            gas_price: action_receipt.gas_price(),
             output_data_receivers: action_receipt
                 .output_data_receivers()
                 .iter()
