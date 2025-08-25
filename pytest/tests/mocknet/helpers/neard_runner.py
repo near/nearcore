@@ -404,6 +404,10 @@ class NeardRunner:
         config['log_summary_style'] = 'plain'
         config['network']['skip_sync_wait'] = False
         config['rpc']['enable_debug_rpc'] = True
+        config['consensus']['min_block_production_delay']['secs'] = 1
+        config['consensus']['min_block_production_delay']['nanos'] = 300000000
+        config['consensus']['max_block_production_delay']['secs'] = 3
+        config['consensus']['max_block_production_delay']['nanos'] = 0
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
             json.dump(config, f, indent=2)
 
@@ -1132,7 +1136,6 @@ class NeardRunner:
     def set_shard_tracking_config(self, config):
         if self.can_validate():
             config['tracked_shards_config'] = "NoShards"
-            # SET TO False AS TEMPORARY MEASURE FOR < 9 NODES TEST
             config['store']['load_mem_tries_for_tracked_shards'] = True
         else:
             config['tracked_shards_config'] = "AllShards"
@@ -1159,7 +1162,7 @@ class NeardRunner:
         with open(self.target_near_home_path('config.json'), 'w') as f:
             config = json.dump(config, f, indent=2)
 
-        # Validator nodes don't have state originally.
+        # Chunk validator nodes don't have state originally.
         # They need to download it from the setup bucket, once it appears.
         if self.config.get('role') == 'validator':
             self.set_state(TestState.AWAITING_SETUP_BUCKET)
@@ -1209,7 +1212,7 @@ class NeardRunner:
         self.run_neard(cmd)
         self.set_state(TestState.SETTING_UP_PROTOCOL)
 
-    def _bucket_path(self):
+    def _setup_bucket_path(self):
         mocknet_id = self.config['mocknet_id']
         run_id = self.run_id()
         return f"gs://near-mocknet-artefact-store/{mocknet_id}/{run_id}"
@@ -1219,7 +1222,7 @@ class NeardRunner:
         target home folder if so."""
 
         # Check if setup bucket exists.
-        check_cmd = ['gsutil', 'ls', self._bucket_path()]
+        check_cmd = ['gsutil', 'ls', self._setup_bucket_path()]
         logging.info(f"Checking if setup bucket exists: {' '.join(check_cmd)}")
 
         result = subprocess.run(check_cmd, capture_output=True, text=True)
@@ -1235,7 +1238,7 @@ class NeardRunner:
         logging.info(f"Downloading setup bucket")
         download_cmd = [
             'gsutil', '-m', 'rsync', '-r',
-            self._bucket_path(),
+            self._setup_bucket_path(),
             self.target_near_home_path()
         ]
         logging.info(f"Running: {' '.join(download_cmd)}")
@@ -1249,7 +1252,8 @@ class NeardRunner:
             return
 
         logging.info(
-            f"Successfully downloaded setup bucket from {self._bucket_path()}")
+            f"Successfully downloaded setup bucket from {self._setup_bucket_path()}"
+        )
 
         self.set_state(TestState.STOPPED)
 
@@ -1403,7 +1407,10 @@ class NeardRunner:
             shutil.copytree(epoch_configs_path, epoch_configs_temp_path)
             logging.info(f"Copied {epoch_configs_path} to temp")
 
-            cmd = ['gsutil', '-m', 'rsync', '-r', temp_dir, self._bucket_path()]
+            cmd = [
+                'gsutil', '-m', 'rsync', '-r', temp_dir,
+                self._setup_bucket_path()
+            ]
             logging.info(f"Uploading files using rsync: {' '.join(cmd)}")
 
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1411,17 +1418,17 @@ class NeardRunner:
                 raise Exception(f"Failed to rsync to bucket: {result.stderr}")
 
             logging.info(
-                f"Successfully uploaded files to {self._bucket_path()}")
+                f"Successfully uploaded files to {self._setup_bucket_path()}")
         finally:
             shutil.rmtree(temp_dir)
             logging.info(f"Cleaned up temporary directory: {temp_dir}")
 
-    def remove_genesis_from_bucket(self):
-        """Remove the entire run directory from GCP bucket if node is the first validator."""
+    def remove_bucket(self):
+        """Remove the setup bucket from GCP if node is the first validator."""
         if not self._is_first_validator():
             return
 
-        bucket_path = self._bucket_path()
+        bucket_path = self._setup_bucket_path()
         cmd = ['gsutil', 'rm', '-r', bucket_path]
         logging.info(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1463,7 +1470,7 @@ class NeardRunner:
 
         self.remove_data_dir()
         self.run_restore_from_backup_cmd(backup_path)
-        self.remove_genesis_from_bucket()
+        self.remove_bucket()
         self.set_state(TestState.STOPPED)
 
     # periodically check if we should update neard after a new epoch

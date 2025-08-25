@@ -136,7 +136,6 @@ class CommandContext:
                 f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
             )
 
-        # FIX???
         traffic_generator, nodes = local_test_node.get_nodes()
         node_config.configure_nodes(nodes + to_list(traffic_generator))
         self.traffic_generator = traffic_generator

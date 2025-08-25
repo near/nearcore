@@ -82,7 +82,6 @@ def handle_destroy(args):
     bucket_path = f"gs://near-mocknet-artefact-store/{mocknet_id}"
     logger.info(f"Removing mocknet bucket folder: {bucket_path}")
 
-    import subprocess
     cmd = ['gsutil', 'rm', '-r', bucket_path]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
