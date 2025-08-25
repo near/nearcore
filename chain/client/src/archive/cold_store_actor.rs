@@ -3,6 +3,7 @@ use std::sync::{Arc, atomic::AtomicBool};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::Actor;
 use near_async::time::Duration;
+use near_chain::types::Tip;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
@@ -10,12 +11,12 @@ use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{CloudStorage, update_cloud_storage};
 use near_store::archive::cold_storage::{
-    CopyAllDataToColdStatus, copy_all_data_to_cold, update_cold_db, update_cold_head,
+    CopyAllDataToColdStatus, copy_all_data_to_cold, get_cold_head, update_cold_db, update_cold_head,
 };
 use near_store::config::SplitStorageConfig;
 use near_store::db::ColdDB;
 use near_store::db::metadata::DbKind;
-use near_store::{NodeStorage, Store, set_genesis_height};
+use near_store::{DBCol, FINAL_HEAD_KEY, NodeStorage, Store, TAIL_KEY, set_genesis_height};
 
 use crate::metrics;
 
@@ -131,7 +132,8 @@ impl ColdStoreActor {
         shard_tracker: ShardTracker,
         keep_going: Arc<AtomicBool>,
     ) -> Self {
-        let cold_store_actor = ColdStoreActor {
+        debug_assert!(shard_tracker.is_valid_for_archival());
+        ColdStoreActor {
             split_storage_config,
             genesis_height,
             hot_store,
@@ -140,38 +142,7 @@ impl ColdStoreActor {
             epoch_manager,
             shard_tracker,
             keep_going,
-        };
-
-        // Perform the sanity check before starting the actor.
-        // If the check fails when the node is starting it's better to just fail
-        // fast and crash the node immediately.
-        let (cold_head_height, hot_final_head_height, hot_tail_height) =
-            cold_store_actor.get_heights();
-        sanity_check(cold_head_height, hot_final_head_height, hot_tail_height).unwrap();
-        debug_assert!(cold_store_actor.shard_tracker.is_valid_for_archival());
-
-        cold_store_actor
-    }
-
-    /// Return (cold head height, hot final head height, hot tail height).
-    fn get_heights(&self) -> (BlockHeight, BlockHeight, BlockHeight) {
-        let hot_store = self.hot_store.chain_store();
-        let cold_store = self.cold_db.as_store().chain_store();
-
-        // If HEAD is not set for cold storage we default it to genesis_height.
-        let cold_head_height =
-            cold_store.head().map(|tip| tip.height).unwrap_or(self.genesis_height);
-
-        // If FINAL_HEAD is not set for hot storage we default it to genesis_height.
-        let hot_final_head_height =
-            hot_store.final_head().map(|tip| tip.height).unwrap_or(self.genesis_height);
-
-        // If TAIL is not set for hot storage we default it to genesis_height.
-        // TAIL not being set is not an error.
-        // Archive dbs don't have TAIL, that means that they have all data from genesis_height.
-        let hot_tail_height = hot_store.tail().unwrap_or(self.genesis_height);
-
-        (cold_head_height, hot_final_head_height, hot_tail_height)
+        }
     }
 
     /// This function performs migration to cold storage if needed.
@@ -344,7 +315,20 @@ impl ColdStoreActor {
     /// for the next available produced block after current cold store head.
     /// Updates cold store head after.
     fn cold_store_copy(&self) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
-        let (cold_head_height, hot_final_head_height, hot_tail_height) = self.get_heights();
+        // If HEAD is not set for cold storage we default it to genesis_height.
+        let cold_head = get_cold_head(&self.cold_db)?;
+        let cold_head_height = cold_head.map_or(self.genesis_height, |tip| tip.height);
+
+        // If FINAL_HEAD is not set for hot storage we default it to genesis_height.
+        let hot_final_head = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
+        let hot_final_head_height = hot_final_head.map_or(self.genesis_height, |tip| tip.height);
+
+        // If TAIL is not set for hot storage we default it to genesis_height.
+        // TAIL not being set is not an error.
+        // Archive dbs don't have TAIL, that means that they have all data from genesis_height.
+        let hot_tail = self.hot_store.get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY)?;
+        let hot_tail_height = hot_tail.unwrap_or(self.genesis_height);
+
         let _span = tracing::debug_span!(target: "cold_store", "cold_store_copy", cold_head_height, hot_final_head_height, hot_tail_height).entered();
 
         sanity_check(cold_head_height, hot_final_head_height, hot_tail_height)?;
