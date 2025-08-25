@@ -82,6 +82,14 @@ action_delegate
 - send_sir:          200_000_000_000
 - send_not_sir:      200_000_000_000
 - execution:         200_000_000_000
+action_deterministic_state_init         
+- send_sir:                        1
+- send_not_sir:                    1
+- execution:                       1
+action_deterministic_state_init_per_byte
+- send_sir:                        2
+- send_not_sir:                    2
+- execution:                       2
 wasm_regular_op_cost                                 822_756
 wasm_grow_mem_cost                                         1
 wasm_base                                        264_768_111
