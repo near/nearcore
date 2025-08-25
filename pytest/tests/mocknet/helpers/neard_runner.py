@@ -253,6 +253,9 @@ class NeardRunner:
     def want_state_dump(self):
         return self.config.get('want_state_dump', False)
 
+    def should_upgrade_by_epoch(self):
+        return self.config.get('upgrade_by_epoch', False)
+
     def can_validate(self):
         return self.config.get('can_validate', False)
 
@@ -857,6 +860,9 @@ class NeardRunner:
     # TODO: should we update it at a random time in the middle of the
     # epoch instead of the beginning?
     def wanted_neard_path(self):
+        if not self.should_upgrade_by_epoch():
+            return self.data['current_neard_path']
+
         j = {
             'method': 'validators',
             'params': [None],

@@ -223,6 +223,7 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
     args = ctx.args
     nodes = ctx.nodes
     traffic_generator = ctx.traffic_generator
+    upgrade_by_epoch = getattr(args, 'upgrade_by_epoch', False)
     prompt_init_flags(args)
 
     if args.neard_upgrade_binary_url is not None and args.neard_upgrade_binary_url != '':
@@ -246,6 +247,7 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
             })
 
         node_config = {
+            "upgrade_by_epoch": upgrade_by_epoch,
             "run_id": run_id,
             "is_traffic_generator": False,
             "binaries": node_binaries,
@@ -848,6 +850,12 @@ def register_base_commands(subparsers):
     ''')
     init_parser.add_argument('--neard-binary-url', type=str)
     init_parser.add_argument('--neard-upgrade-binary-url', type=str)
+    init_parser.add_argument('--upgrade-by-epoch',
+                             action='store_true',
+                             help='''
+    If this is set, the upgrade binary will be started at a random epoch height between 1 and 4.
+    Otherwise, the upgrade needs to be triggered with the start-nodes command.
+    ''')
     init_parser.set_defaults(func=init_cmd)
 
     restart_parser = subparsers.add_parser(
@@ -865,6 +873,12 @@ def register_base_commands(subparsers):
         help='''Stops neard and clears all test state on all nodes.''')
     hard_reset_parser.add_argument('--neard-binary-url', type=str)
     hard_reset_parser.add_argument('--neard-upgrade-binary-url', type=str)
+    hard_reset_parser.add_argument('--upgrade-by-epoch',
+                                   action='store_true',
+                                   help='''
+    If this is set, the upgrade binary will be started at a random epoch height between 1 and 4.
+    Otherwise, the upgrade needs to be triggered with the start-nodes command.
+    ''')
     hard_reset_parser.add_argument('--yes', action='store_true')
     hard_reset_parser.set_defaults(func=hard_reset_cmd)
 
