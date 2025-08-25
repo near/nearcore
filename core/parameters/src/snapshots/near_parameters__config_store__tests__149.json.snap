@@ -230,6 +230,8 @@ expression: config_view
       "max_number_input_data_dependencies": 128,
       "max_functions_number_per_contract": 10000,
       "max_locals_per_contract": 1000000,
+      "max_tables_per_contract": 1,
+      "max_elements_per_contract_table": 10000,
       "account_id_validity_rules_version": 1,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,

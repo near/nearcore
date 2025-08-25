@@ -574,7 +574,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             runtime_config,
             &mut signer,
             &mut access_key,
-            validated_tx,
+            validated_tx.to_tx(),
             &cost,
             // here we do not know which block the transaction will be included
             // and therefore skip the check on the nonce upper bound.
@@ -723,7 +723,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         runtime_config,
                         &mut signer,
                         &mut access_key,
-                        &validated_tx,
+                        validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
                     )

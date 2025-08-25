@@ -23,7 +23,7 @@ import local_test_node
 import node_config
 import remote_node
 from node_handle import NodeHandle
-from utils import ScheduleContext
+from utils import ScheduleContext, ScheduleMode
 
 
 def to_list(item):
@@ -140,10 +140,8 @@ class CommandContext:
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
-    def _get_remote_nodes(self):
-        """
-        Get nodes in the remote infrastructure.
-        """
+    def get_mocknet_id(self):
+        mocknet_id = None
         if (self.args.chain_id is not None and
                 self.args.start_height is not None and
                 self.args.unique_id is not None):
@@ -155,6 +153,13 @@ class CommandContext:
             sys.exit(
                 f'must give all of --chain-id --start-height and --unique-id or --mocknet-id'
             )
+        return mocknet_id
+
+    def _get_remote_nodes(self):
+        """
+        Get nodes in the remote infrastructure.
+        """
+        mocknet_id = self.get_mocknet_id()
         traffic_generator, nodes = remote_node.get_nodes(mocknet_id)
         node_config.configure_nodes(nodes + to_list(traffic_generator))
         self.traffic_generator = traffic_generator
@@ -201,13 +206,15 @@ class CommandContext:
         """
         Make a schedule context if the command is scheduled.
         """
-        if getattr(self.args, 'schedule_in', None) is None:
+        schedule = getattr(self.args, 'on', None)
+        if schedule is None:
             return None
-
+        random_id = str(int(time.time() * 1000) % 100000000)
         context = ScheduleContext(
-            id=getattr(self.args, 'schedule_id', None),
-            time_spec=self.args.schedule_in,
+            id=getattr(self.args, 'schedule_id', None) or random_id,
+            schedule=schedule,
         )
+        logger.info(f'Schedule context: {context}')
         return context
 
 
@@ -335,48 +342,6 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
     return validators, boot_nodes
 
 
-def _apply_stateless_config(args, node):
-    """Applies configuration changes to the node for stateless validation,
-    including changing config.json file and updating TCP buffer size at OS level."""
-    # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make multiple round trips
-    # TODO: Enable saving witness after fixing the performance problems.
-    do_update_config(node, 'save_latest_witnesses=false')
-    if not node.want_state_dump:
-        do_update_config(node, 'tracked_shards=[]')
-        do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
-    if not args.local_test:
-        # Apply baseline network configuration (same as defined in set_kernel_params.sh)
-        node.run_cmd("sudo sysctl -w net.core.rmem_max=8388608 && "
-                     "sudo sysctl -w net.core.wmem_max=8388608 && "
-                     "sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && "
-                     "sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && "
-                     "sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0 && "
-                     "sudo sysctl -w net.ipv4.tcp_congestion_control=bbr && "
-                     "sudo sysctl -w net.core.default_qdisc=fq && "
-                     "sudo sysctl -w net.ipv4.tcp_mtu_probing=1 && "
-                     "sudo sysctl -w net.ipv4.tcp_max_syn_backlog=8096")
-
-
-def _apply_config_changes(node, state_sync_location):
-    if state_sync_location is None:
-        changes = {'state_sync_enabled': False}
-    else:
-        changes = {
-            'state_sync.sync': {
-                'ExternalStorage': {
-                    'location': state_sync_location
-                }
-            }
-        }
-        if node.want_state_dump:
-            changes['state_sync.dump.location'] = state_sync_location
-            # TODO: Change this to Enabled once we remove support the for EveryEpoch alias.
-            changes[
-                'store.state_snapshot_config.state_snapshot_type'] = "EveryEpoch"
-    for key, change in changes.items():
-        do_update_config(node, f'{key}={json.dumps(change)}')
-
-
 def _clear_state_parts_if_exists(location, nodes):
     # TODO: Maybe add an argument to set the epoch height from where we want to cleanup.
     # It still works without it because the dumper node will start dumping the current epoch after reset.
@@ -408,6 +373,8 @@ def _get_state_parts_bucket_name(args):
 
 
 def _get_state_parts_location(args):
+    if not args.gcs_state_sync:
+        return None
     if args.local_test:
         return {
             "Filesystem": {
@@ -440,14 +407,15 @@ def new_test_cmd(ctx: CommandContext):
     targeted = nodes + to_list(traffic_generator)
 
     logger.info(f'resetting/initializing home dirs')
-    test_keys = pmap(lambda node: node.neard_runner_new_test(), targeted)
+    test_keys = pmap(
+        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id()), targeted)
 
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
                                                args.num_validators)
     logger.info("""Setting validators: {0}
 Run `status` to check if the nodes are ready. After they're ready,
  you can run `start-nodes` and `start-traffic`""".format(validators))
-
+    location = _get_state_parts_location(args)
     pmap(
         lambda node: node.neard_runner_network_init(
             validators,
@@ -459,16 +427,8 @@ Run `status` to check if the nodes are ready. After they're ready,
             args.new_chain_id,
             args.genesis_protocol_version,
             genesis_time=genesis_time,
+            state_sync_location=json.dumps(location),
         ), targeted)
-
-    location = None
-    if args.gcs_state_sync:
-        location = _get_state_parts_location(args)
-    logger.info('Applying default config changes')
-    pmap(lambda node: _apply_config_changes(node, location), targeted)
-    if args.stateless_setup:
-        logger.info('Configuring nodes for stateless protocol')
-        pmap(lambda node: _apply_stateless_config(args, node), nodes)
 
     _clear_state_parts_if_exists(location, nodes)
 
@@ -794,6 +754,16 @@ def build_parser():
     return parser
 
 
+class ScheduleModeParser(Action):
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        try:
+            mode, value = values.split(' ', 1)
+            setattr(namespace, self.dest, ScheduleMode(mode=mode, value=value))
+        except ValueError as e:
+            parser.error(str(e))
+
+
 def register_schedule_subcommands(subparsers):
     schedule_parser = subparsers.add_parser('schedule',
                                             help='Manage scheduled commands.')
@@ -804,11 +774,17 @@ def register_schedule_subcommands(subparsers):
     cmd_subparsers = subparsers.add_parser(
         'cmd', help='Schedule commands to run in the future.')
     cmd_subparsers.add_argument(
-        '--schedule-in',
+        '--on',
+        action=ScheduleModeParser,
+        metavar="MODE VALUE",
         required=True,
-        type=str,
         help=
-        'Schedule the command to run after the specified time. Can be in the format of "10s", "10m", "10h", "10d"'
+        "Choose whether to schedule by calendar(date and time) or active(relative time). "
+        "Format: 'MODE VALUE' where MODE is 'calendar' or 'active'. VALUE can be any valid time specification. "
+        "Examples: 'calendar 2024-01-01 10:00:00' or 'active 1h 30m'. "
+        "Check https://man.archlinux.org/man/systemd.time.7.en#PARSING_TIMESTAMPS "
+        "and https://man.archlinux.org/man/systemd.time.7.en#PARSING_TIME_SPANS "
+        "for the format of the values.",
     )
     cmd_subparsers.add_argument(
         '--schedule-id',
