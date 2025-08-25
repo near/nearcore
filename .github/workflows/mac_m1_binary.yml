@@ -23,7 +23,7 @@ jobs:
             id: intel-macos
             os: macos-latest-large
           - name: ARM Mac OS
-            os: warp-macos-14-arm64-6x
+            os: warp-macos-15-arm64-6x
     environment: deploy
     permissions:
       id-token: write # required to use OIDC authentication
