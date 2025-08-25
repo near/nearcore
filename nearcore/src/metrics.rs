@@ -32,15 +32,6 @@ pub(crate) static CONFIG_CORRECT: LazyLock<IntGauge> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_cold_store_copy_result",
-        "The result of a cold store copy iteration in the cold store loop.",
-        &["copy_result"],
-    )
-    .unwrap()
-});
-
 pub(crate) static STATE_SYNC_DUMP_ITERATION_ELAPSED: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_state_sync_dump_iteration_elapsed_sec",

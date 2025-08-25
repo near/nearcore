@@ -4438,6 +4438,7 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "testlib",
+ "thiserror 2.0.12",
  "time",
  "tokio",
  "tokio-stream",
