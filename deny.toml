@@ -85,9 +85,8 @@ skip = [
     { name = "base64", version = "=0.13.0" },
     { name = "ahash", version = "=0.7.8" },
 
-    # ark-ec, criterion,
+    # ark-ec
     { name = "itertools", version = "0.10" },
-    { name = "itertools", version = "0.12" },
 
     # actix-http hasn't upgraded iminz_oxide/flate2 yet.
     { name = "miniz_oxide", version = "=0.5.1" },
