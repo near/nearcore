@@ -1539,11 +1539,12 @@ impl ShardsManagerActor {
                 if hash != chunk_hash {
                     warn!(
                         target: "client",
-                        "Rejecting un-requested chunk {:?}, height {}, shard_id {}, because of having {:?}",
-                        chunk_hash,
-                        partial_encoded_chunk.header.height_created(),
-                        partial_encoded_chunk.header.shard_id(),
-                        hash
+                        rejected = %chunk_hash,
+                        have = %hash,
+                        height_created = %partial_encoded_chunk.header.height_created(),
+                        shard_id = %partial_encoded_chunk.header.shard_id(),
+                        reason = "not requested",
+                        "rejecting chunk",
                     );
                     return Err(Error::DuplicateChunkHeight);
                 }
@@ -1559,11 +1560,12 @@ impl ShardsManagerActor {
                 // in this case, we still return valid result instead of error.
                 near_chain::Error::DBNotFoundErr(_) => {
                     debug!(
-                        target:"client",
-                        "Dropping partial encoded chunk {:?} height {}, shard_id {} because we don't have enough information to validate it",
-                        partial_encoded_chunk.header.chunk_hash(),
-                        partial_encoded_chunk.header.height_created(),
-                        partial_encoded_chunk.header.shard_id()
+                        target: "client",
+                        chunk = %partial_encoded_chunk.header.chunk_hash(),
+                        height_created = %partial_encoded_chunk.header.height_created(),
+                        shard_id = %partial_encoded_chunk.header.shard_id(),
+                        reason = "don't have enough information to validate it",
+                        "dropping partial encoded chunk",
                     );
                     return Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(Box::new(
                         PartialEncodedChunk::V2(partial_encoded_chunk.into_inner()),
@@ -2086,19 +2088,23 @@ impl ShardsManagerActor {
         Ok(())
     }
 
+    #[tracing::instrument(
+        target="chunks",
+        "shards_manager_request_from_client",
+        skip_all,
+        fields(r#type=<&'static str>::from(&request))
+    )]
     pub fn handle_client_request(&mut self, request: ShardsManagerRequestFromClient) {
-        let _span = tracing::debug_span!(
-            target: "chunks",
-            "shards_manager_request_from_client",
-            "type" = <&'static str>::from(&request)
-        )
-        .entered();
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
         let me = me.as_ref();
         match request {
             ShardsManagerRequestFromClient::ProcessChunkHeaderFromBlock(chunk_header) => {
                 if let Err(e) = self.process_chunk_header_from_block(&chunk_header, me) {
-                    warn!(target: "chunks", "Error processing chunk header from block: {:?}", e);
+                    warn!(
+                        target: "chunks",
+                        err = &e as &dyn std::error::Error,
+                        "error processing client's chunk header from block"
+                    );
                 }
             }
             ShardsManagerRequestFromClient::UpdateChainHeads { head, header_head } => {
@@ -2117,7 +2123,11 @@ impl ShardsManagerActor {
                     outgoing_receipts,
                     me,
                 ) {
-                    warn!(target: "chunks", "Error distributing encoded chunk: {:?}", e);
+                    warn!(
+                        target: "chunks",
+                        err = &e as &dyn std::error::Error,
+                        "error distributing client's encoded chunk"
+                    );
                 }
             }
             ShardsManagerRequestFromClient::RequestChunks { chunks_to_request, prev_hash } => {
@@ -2136,8 +2146,12 @@ impl ShardsManagerActor {
                 request_header,
                 prev_hash,
             } => {
-                if let Err(err) = self.process_partial_encoded_chunk(candidate_chunk.into(), me) {
-                    warn!(target: "chunks", ?err, "Error processing partial encoded chunk");
+                if let Err(e) = self.process_partial_encoded_chunk(candidate_chunk.into(), me) {
+                    warn!(
+                        target: "chunks",
+                        err = &e as &dyn std::error::Error,
+                        "error processing client's partial encoded chunk"
+                    );
                     self.request_chunk_single(&request_header, prev_hash, false, me);
                 }
             }
@@ -2148,7 +2162,11 @@ impl ShardsManagerActor {
                 epoch_id,
             } => {
                 if let Err(e) = self.process_partial_encoded_chunk(candidate_chunk.into(), me) {
-                    warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
+                    warn!(
+                        target: "chunks",
+                        err = &e as &dyn std::error::Error,
+                        "error processing client's partial encoded chunk (for orphan)"
+                    );
                     self.request_chunks_for_orphan(
                         vec![request_header],
                         &epoch_id,
@@ -2160,16 +2178,16 @@ impl ShardsManagerActor {
         }
     }
 
+    #[tracing::instrument(
+        target = "chunks",
+        "shards_manager_request_from_network",
+        skip_all,
+        fields(r#type=<&'static str>::from(&request))
+    )]
     pub fn handle_network_request(
         &mut self,
         request: ShardsManagerRequestFromNetwork,
     ) -> HandleNetworkRequestResult {
-        let _span = tracing::debug_span!(
-            target: "chunks",
-            "shards_manager_request_from_network",
-            "type" = <&'static str>::from(&request)
-        )
-        .entered();
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
         let me = me.as_ref();
         match request {
@@ -2178,31 +2196,45 @@ impl ShardsManagerActor {
                     Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(chunk)) => {
                         const RETRY_CHUNK_PROCESSING_DELAY: Duration = Duration::milliseconds(10);
                         return HandleNetworkRequestResult::RetryProcessing(
-                            Box::new(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk)),
-                            RETRY_CHUNK_PROCESSING_DELAY);
-                    },
-                    Ok(ProcessPartialEncodedChunkResult::Known) |
-                    Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts) |
-                    Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts) |
-                    Ok(ProcessPartialEncodedChunkResult::NeedBlock)=> { return HandleNetworkRequestResult::Ok; }
+                            Box::new(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                                *chunk,
+                            )),
+                            RETRY_CHUNK_PROCESSING_DELAY,
+                        );
+                    }
+                    Ok(ProcessPartialEncodedChunkResult::Known)
+                    | Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts)
+                    | Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts)
+                    | Ok(ProcessPartialEncodedChunkResult::NeedBlock) => {
+                        return HandleNetworkRequestResult::Ok;
+                    }
                     Err(e) => {
-                        warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
+                        warn!(
+                            target: "chunks",
+                            err = &e as &dyn std::error::Error,
+                            "error processing network's partial encoded chunk"
+                        );
                         return HandleNetworkRequestResult::Err;
-                    },
+                    }
                 }
             }
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
                 partial_encoded_chunk_forward,
-            ) => {
-                self.process_partial_encoded_chunk_forward(partial_encoded_chunk_forward, me)
-                    .map_or_else(
-                        |e| {
-                        warn!(target: "chunks", "Error processing partial encoded chunk forward: {:?}", e);
+            ) => self
+                .process_partial_encoded_chunk_forward(partial_encoded_chunk_forward, me)
+                .map_or_else(
+                    |e| {
+                        warn!(
+                            target: "chunks",
+                            err = &e as &dyn std::error::Error,
+                            "error processing network's partial encoded chunk forward"
+                        );
                         return HandleNetworkRequestResult::Err;
-                        },
-                        |_|{ return HandleNetworkRequestResult::Ok; }
-                    )
-            }
+                    },
+                    |_| {
+                        return HandleNetworkRequestResult::Ok;
+                    },
+                ),
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                 partial_encoded_chunk_response,
                 received_time,
@@ -2213,10 +2245,16 @@ impl ShardsManagerActor {
                 self.process_partial_encoded_chunk_response(partial_encoded_chunk_response, me)
                     .map_or_else(
                         |e| {
-                            warn!(target: "chunks", "Error processing partial encoded chunk response: {:?}", e);
+                            warn!(
+                                target: "chunks",
+                                err = &e as &dyn std::error::Error,
+                                "error processing network's partial encoded chunk response"
+                            );
                             return HandleNetworkRequestResult::Err;
                         },
-                        |_| { return HandleNetworkRequestResult::Ok; }
+                        |_| {
+                            return HandleNetworkRequestResult::Ok;
+                        },
                     )
             }
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
