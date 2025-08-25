@@ -1,4 +1,3 @@
-use std::any::type_name;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -9,6 +8,7 @@ use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::messaging::{
     AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message, MessageWithCallback,
 };
+use crate::pretty_type_name;
 use crate::tokio::runtime_handle::{TokioRuntimeHandle, TokioRuntimeMessage};
 
 static SEQUENCE_NUM: AtomicU64 = AtomicU64::new(0);
@@ -23,8 +23,9 @@ where
         let handler = pretty_type_name::<A>();
         tracing::trace!(target: "tokio_runtime", seq, handler, ?message, "sending sync message");
 
-        let function =
-            |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| actor.handle(message, ctx);
+        let function = |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
+            actor.handle(message, ctx);
+        };
 
         let message = TokioRuntimeMessage { seq, function: Box::new(function) };
         self.sender.send(message).unwrap();
@@ -108,11 +109,4 @@ where
             sender.send(message).unwrap();
         });
     }
-}
-
-// Quick and dirty way of getting the type name without the module path.
-// Does not work for more complex types like std::sync::Arc<std::sync::atomic::AtomicBool<...>>
-// example near_chunks::shards_manager_actor::ShardsManagerActor -> ShardsManagerActor
-fn pretty_type_name<T>() -> &'static str {
-    type_name::<T>().split("::").last().unwrap()
 }
