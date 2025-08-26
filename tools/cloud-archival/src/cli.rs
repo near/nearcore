@@ -1,6 +1,7 @@
 use actix::clock::{sleep, timeout};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
+use futures_util::StreamExt;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{GenesisValidationMode, SyncConcurrency};
 use near_client::sync::external::{
@@ -18,8 +19,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
 use near_store::{DBCol, NodeStorage, Store};
 use near_time::{Clock, Duration, Instant};
-use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-use futures_util::StreamExt;
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -160,14 +160,11 @@ impl CloudArchivalSubCommand {
         .unwrap();
         let chain_id = &near_config.genesis.config.chain_id;
         let sys = actix::System::new();
+        let concurrency_config = SyncConcurrency::default();
+        let max_attempts = 5;
         sys.block_on(async move {
             match self {
-                Self::Download {
-                    state_root,
-                    sync_hash,
-                    part_id,
-                    epoch_selection,
-                } => {
+                Self::Download { state_root, sync_hash, part_id, epoch_selection } => {
                     let external = create_external_connection(
                         root_dir,
                         s3_bucket,
@@ -176,8 +173,7 @@ impl CloudArchivalSubCommand {
                         None,
                         Mode::ReadOnly,
                     );
-                    let concurrency_config = SyncConcurrency::default();
-                    let max_attempts = 5;
+
                     download_state_parts(
                         epoch_selection,
                         shard_id,
@@ -194,7 +190,8 @@ impl CloudArchivalSubCommand {
                         near_config.client_config.state_sync_external_timeout,
                         pv,
                     )
-                    .await.unwrap()
+                    .await
+                    .unwrap()
                 }
                 Self::Upload {
                     part_from,
@@ -222,8 +219,13 @@ impl CloudArchivalSubCommand {
                         store,
                         &external,
                         pv,
+                        concurrency_config.per_shard,
+                        max_attempts,
+                        near_config.client_config.state_sync_retry_backoff,
+                        near_config.client_config.state_sync_external_timeout,
                     )
                     .await
+                    .unwrap()
                 }
             }
             near_async::shutdown_all_actors();
@@ -249,10 +251,15 @@ fn create_external_connection(
         ExternalConnection::Filesystem { root_dir }
     } else if let (Some(bucket), Some(region)) = (bucket, region) {
         let bucket = match mode {
-            Mode::ReadOnly => create_bucket_readonly(&bucket, &region, std::time::Duration::from_secs(5)),
-            Mode::ReadWrite => {
-                create_bucket_read_write(&bucket, &region, std::time::Duration::from_secs(5), credentials_file)
+            Mode::ReadOnly => {
+                create_bucket_readonly(&bucket, &region, std::time::Duration::from_secs(5))
             }
+            Mode::ReadWrite => create_bucket_read_write(
+                &bucket,
+                &region,
+                std::time::Duration::from_secs(5),
+                credentials_file,
+            ),
         }
         .expect("Failed to create an S3 bucket");
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
@@ -369,7 +376,7 @@ async fn download_state_parts(
     max_attempts: u32,
     retry_backoff: Duration,
     request_timeout: Duration,
-    pv: Option<ProtocolVersion>
+    pv: Option<ProtocolVersion>,
 ) -> Result<(), Error> {
     let epoch_id = epoch_selection.to_epoch_id(store.clone(), chain);
     let (state_root, epoch_height, epoch_id, sync_hash) =
@@ -380,12 +387,16 @@ async fn download_state_parts(
         } else {
             let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
             let sync_base = get_any_block_hash_of_epoch(&epoch, chain);
-            let sync_hash = chain.get_sync_hash(&sync_base).unwrap()
+            let sync_hash = chain
+                .get_sync_hash(&sync_base)
+                .unwrap()
                 .ok_or_else(|| Error::Other(format!("sync hash not yet known for {epoch_id:?}")))?;
-            let state_header = chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash).unwrap();
+            let state_header =
+                chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash).unwrap();
             (state_header.chunk_prev_state_root(), epoch.epoch_height(), epoch_id, sync_hash)
         };
-    let protocol_version = pv.unwrap_or(chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap());
+    let protocol_version =
+        pv.unwrap_or(chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap());
 
     let directory_path = external_storage_location_directory(
         chain_id,
@@ -394,7 +405,9 @@ async fn download_state_parts(
         shard_id,
         &StateFileType::StatePart { part_id: 0, num_parts: 0 },
     );
-    let part_file_names = external.list_objects(shard_id, &directory_path).await
+    let part_file_names = external
+        .list_objects(shard_id, &directory_path)
+        .await
         .map_err(|e| Error::Other(format!("list_objects: {e}")))?;
     assert!(!part_file_names.is_empty());
     let num_parts = get_num_parts_from_filename(&part_file_names[0]).unwrap();
@@ -422,16 +435,30 @@ async fn download_state_parts(
                     attempts += 1;
                     let file_type = StateFileType::StatePart { part_id: pid, num_parts };
                     let location = external_storage_location(
-                        chain_id, &epoch_id, epoch_height, shard_id, &file_type
+                        chain_id,
+                        &epoch_id,
+                        epoch_height,
+                        shard_id,
+                        &file_type,
                     );
                     let t_dl = Instant::now();
-                    let request_timeout = std::time::Duration::from_secs_f64(request_timeout.as_seconds_f64());
-                    let retry_backoff = std::time::Duration::from_secs_f64(retry_backoff.as_seconds_f64());
-                    let bytes = match timeout(request_timeout, external.get_file(shard_id, &location, &file_type)).await {
+                    let request_timeout =
+                        std::time::Duration::from_secs_f64(request_timeout.as_seconds_f64());
+                    let retry_backoff =
+                        std::time::Duration::from_secs_f64(retry_backoff.as_seconds_f64());
+                    let bytes = match timeout(
+                        request_timeout,
+                        external.get_file(shard_id, &location, &file_type),
+                    )
+                    .await
+                    {
                         Ok(Ok(b)) => b,
                         _ => {
-                            if attempts >= max_attempts { return Err(Error::Other("download failed".into())); }
-                            sleep(retry_backoff).await; continue;
+                            if attempts >= max_attempts {
+                                return Err(Error::Other("download failed".into()));
+                            }
+                            sleep(retry_backoff).await;
+                            continue;
                         }
                     };
                     let dl_sec = t_dl.elapsed().as_secs_f64();
@@ -441,12 +468,18 @@ async fn download_state_parts(
                     let part = StatePart::from_bytes(bytes, protocol_version)
                         .map_err(|e| Error::Other(format!("decode: {e}")))?;
                     let valid = chain.runtime_adapter.validate_state_part(
-                        shard_id, &state_root, PartId::new(pid, num_parts), &part,
+                        shard_id,
+                        &state_root,
+                        PartId::new(pid, num_parts),
+                        &part,
                     );
                     let val_sec = t_val.elapsed().as_secs_f64();
                     if !valid {
-                        if attempts >= max_attempts { return Err(Error::Other("validation failed".into())); }
-                        sleep(retry_backoff).await; continue;
+                        if attempts >= max_attempts {
+                            return Err(Error::Other("validation failed".into()));
+                        }
+                        sleep(retry_backoff).await;
+                        continue;
                     }
 
                     let t_store = Instant::now();
@@ -473,8 +506,12 @@ async fn download_state_parts(
                 sum_val += val;
                 sum_store += st;
                 total_bytes = total_bytes.saturating_add(size);
-                if size < min_bytes { min_bytes = size; }
-                if size > max_bytes { max_bytes = size; }
+                if size < min_bytes {
+                    min_bytes = size;
+                }
+                if size > max_bytes {
+                    max_bytes = size;
+                }
             }
             Err(_) => failed += 1,
         }
@@ -511,22 +548,28 @@ async fn upload_state_parts(
     store: Store,
     external: &ExternalConnection,
     pv: Option<ProtocolVersion>,
-) {
+    // nowe parametry „wydajnościowe”
+    concurrency_limit: u8,
+    max_attempts: u32,
+    retry_backoff: Duration,
+    request_timeout: Duration,
+) -> Result<(), Error> {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
-    let protocol_version = pv.unwrap_or(chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap());
-    let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
-    let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
-        Some(h) => h,
-        None => {
-            tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
-            return;
-        }
+    let protocol_version =
+        pv.unwrap_or(chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap());
+
+    // sync hash + metadane
+    let sync_hash0 = get_any_block_hash_of_epoch(&epoch, chain);
+    let Some(sync_hash) = chain.get_sync_hash(&sync_hash0).unwrap() else {
+        tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
+        return Ok(());
     };
     let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
     let sync_prev_header = chain.get_previous_header(&sync_block_header).unwrap();
     let sync_prev_prev_hash = sync_prev_header.prev_hash();
 
+    // header i liczba części
     let state_header =
         chain.state_sync_adapter.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = state_header.chunk_prev_state_root();
@@ -534,69 +577,99 @@ async fn upload_state_parts(
     let part_ids = get_part_ids(part_from, part_to, num_parts);
     let epoch_height = epoch.epoch_height();
 
-    tracing::info!(
-        target: "state-parts",
-        epoch_height,
-        epoch_id = ?epoch_id.0,
-        %shard_id,
-        num_parts,
-        ?sync_hash,
-        ?part_ids,
-        ?state_root,
-        "Dumping state as seen at the beginning of the specified epoch.",
-    );
+    tracing::info!(target: "state-parts", %shard_id, num_parts, ?sync_hash, ?state_root, ?part_ids, epoch_height, epoch_id=?epoch_id.0, "Uploading state parts (parallel)");
 
-    let timer = Instant::now();
+    let t_total = Instant::now();
 
-    // dump header
+    // Opcjonalnie: header (jednorazowo)
     if dump_header {
-        let mut state_sync_header_buf: Vec<u8> = Vec::new();
+        let mut state_sync_header_buf = Vec::new();
         state_header.serialize(&mut state_sync_header_buf).unwrap();
-
         let file_type = StateFileType::StateHeader;
         let location =
             external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
         external
             .put_file(file_type, &state_sync_header_buf, shard_id, &location)
             .await
-            .expect("Failed to put header into external storage.");
-        tracing::info!(target: "state-parts", elapsed_sec = timer.elapsed().as_secs_f64(), "Header saved to external storage.");
+            .map_err(|e| Error::Other(format!("put header: {e}")))?;
     }
 
-    // dump parts
-    for part_id in part_ids {
-        let timer = Instant::now();
-        assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let state_part = chain
-            .runtime_adapter
-            .obtain_state_part(
-                shard_id,
-                sync_prev_prev_hash,
-                &state_root,
-                PartId::new(part_id, num_parts),
-                pv,
-            )
-            .unwrap();
+    // Strumień zadań: obtain -> serialize -> upload (z retry i timeout)
+    let results = tokio_stream::iter(part_ids.clone())
+        .map(|part_id| {
+            let external = external.clone();
+            let epoch_id = epoch_id.clone();
+            let chain_id = chain_id.to_string();
+            async move {
+                let file_type = StateFileType::StatePart { part_id, num_parts };
+                let location = external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
 
-        let file_type = StateFileType::StatePart { part_id, num_parts };
-        let location = external_storage_location(
-            &chain_id,
-            &epoch_id,
-            epoch.epoch_height(),
-            shard_id,
-            &file_type,
-        );
-        let bytes = state_part.to_bytes(protocol_version);
-        external.put_file(file_type, &bytes, shard_id, &location).await.unwrap();
-        let elapsed_sec = timer.elapsed().as_secs_f64();
-        tracing::info!(
-            target: "state-parts",
-            part_id,
-            part_length = bytes.len(),
-            elapsed_sec,
-            "Wrote a state part");
+                let request_timeout_std = std::time::Duration::from_secs_f64(request_timeout.as_seconds_f64());
+                let retry_backoff_std = std::time::Duration::from_secs_f64(retry_backoff.as_seconds_f64());
+
+                let mut attempts = 0u32;
+                loop {
+                    attempts += 1;
+
+                    // 1) obtain_state_part — może być CPU-/I/O-ciężkie; jeśli wewnątrz jest dużo CPU,
+                    // przenieś do spawn_blocking (pokazane niżej warunkowo).
+                    let obtain_res = chain.runtime_adapter.obtain_state_part(
+                        shard_id,
+                        sync_prev_prev_hash,
+                        &state_root,
+                        PartId::new(part_id, num_parts),
+                        pv,
+                    );
+
+                    let state_part = match obtain_res {
+                        Ok(p) => p,
+                        Err(e) => {
+                            if attempts >= max_attempts { return Err(Error::Other(format!("obtain_state_part: {e}"))); }
+                            sleep(retry_backoff_std).await;
+                            continue;
+                        }
+                    };
+
+                    // 2) serializacja; jeśli `to_bytes` jest kosztowna, można użyć spawn_blocking
+                    let bytes = state_part.to_bytes(protocol_version);
+
+                    // 3) upload z timeoutem
+                    match timeout(request_timeout_std, external.put_file(file_type.clone(), &bytes, shard_id, &location)).await {
+                        Ok(Ok(())) => {
+                            tracing::info!(target: "state-parts", part_id, part_length = bytes.len(), "Uploaded state part");
+                            return Ok(());
+                        }
+                        _ => {
+                            if attempts >= max_attempts {
+                                return Err(Error::Other("upload failed".into()));
+                            }
+                            sleep(retry_backoff_std).await;
+                            continue;
+                        }
+                    }
+                }
+            }
+        })
+        .buffer_unordered(concurrency_limit as usize)
+        .collect::<Vec<_>>()
+        .await;
+
+    // Podsumowanie
+    let mut ok = 0usize;
+    for r in results {
+        if r.is_ok() {
+            ok += 1;
+        }
     }
-    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
+    tracing::info!(
+        target: "state-parts",
+        elapsed_sec = t_total.elapsed().as_secs_f64(),
+        succeeded = ok,
+        failed = num_parts - ok as u64,
+        "Upload state parts complete"
+    );
+
+    Ok(())
 }
 
 fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {

@@ -169,7 +169,12 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
             )
             .await?;
             let duration = clock.now() - now;
-            println!("#HERE ext download part took {} ms KALISZ id {} size {}", duration.as_millis(), part_id, data.len());
+            println!(
+                "#HERE ext download part took {} ms KALISZ id {} size {}",
+                duration.as_millis(),
+                part_id,
+                data.len()
+            );
             increment_download_count(shard_id, "part", "external", "success");
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let state_part = StatePart::from_bytes(data, protocol_version)?;

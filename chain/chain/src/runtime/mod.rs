@@ -414,7 +414,8 @@ impl NightshadeRuntime {
                 return Err(err.into());
             }
         };
-        let protocol_version = pv.unwrap_or(self.epoch_manager.get_epoch_protocol_version(&epoch_id)?);
+        let protocol_version =
+            pv.unwrap_or(self.epoch_manager.get_epoch_protocol_version(&epoch_id)?);
         let state_part = StatePart::from_partial_state(partial_state, protocol_version);
         Ok(state_part)
     }
