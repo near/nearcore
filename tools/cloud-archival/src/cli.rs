@@ -160,7 +160,7 @@ impl CloudArchivalSubCommand {
         .unwrap();
         let chain_id = &near_config.genesis.config.chain_id;
         let sys = actix::System::new();
-        let concurrency_config = SyncConcurrency::default();
+        let concurrency_limit = SyncConcurrency::default().per_shard;
         let max_attempts = 5;
         sys.block_on(async move {
             match self {
@@ -184,7 +184,7 @@ impl CloudArchivalSubCommand {
                         chain_id,
                         store,
                         &external,
-                        concurrency_config.per_shard,
+                        concurrency_limit,
                         max_attempts,
                         near_config.client_config.state_sync_retry_backoff,
                         near_config.client_config.state_sync_external_timeout,
@@ -219,7 +219,7 @@ impl CloudArchivalSubCommand {
                         store,
                         &external,
                         pv,
-                        concurrency_config.per_shard,
+                        concurrency_limit,
                         max_attempts,
                         near_config.client_config.state_sync_retry_backoff,
                         near_config.client_config.state_sync_external_timeout,
@@ -267,6 +267,11 @@ fn create_external_connection(
         if let Some(credentials_file) = credentials_file {
             unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
         }
+        let client = reqwest::Client::builder()
+            .http2_adaptive_window(true)
+            .pool_max_idle_per_host(128)
+            .tcp_nodelay(true)
+            .build().unwrap();
         ExternalConnection::GCS {
             gcs_client: Arc::new(
                 object_store::gcp::GoogleCloudStorageBuilder::from_env()
@@ -274,7 +279,7 @@ fn create_external_connection(
                     .build()
                     .unwrap(),
             ),
-            reqwest_client: Arc::new(reqwest::Client::default()),
+            reqwest_client: Arc::new(client),
             bucket,
         }
     } else {
@@ -454,6 +459,7 @@ async fn download_state_parts(
                     {
                         Ok(Ok(b)) => b,
                         _ => {
+                            panic!("download");
                             if attempts >= max_attempts {
                                 return Err(Error::Other("download failed".into()));
                             }
@@ -462,33 +468,37 @@ async fn download_state_parts(
                         }
                     };
                     let dl_sec = t_dl.elapsed().as_secs_f64();
+                    println!("Download took {}", dl_sec);
                     let part_size = bytes.len() as u64;
 
-                    let t_val = Instant::now();
-                    let part = StatePart::from_bytes(bytes, protocol_version)
-                        .map_err(|e| Error::Other(format!("decode: {e}")))?;
-                    let valid = chain.runtime_adapter.validate_state_part(
-                        shard_id,
-                        &state_root,
-                        PartId::new(pid, num_parts),
-                        &part,
-                    );
-                    let val_sec = t_val.elapsed().as_secs_f64();
-                    if !valid {
-                        if attempts >= max_attempts {
-                            return Err(Error::Other("validation failed".into()));
-                        }
-                        sleep(retry_backoff).await;
-                        continue;
-                    }
+                    // let t_val = Instant::now();
+                    // let part = StatePart::from_bytes(bytes, protocol_version)
+                    //     .map_err(|e| Error::Other(format!("decode: {e}")))?;
+                    // let valid = chain.runtime_adapter.validate_state_part(
+                    //     shard_id,
+                    //     &state_root,
+                    //     PartId::new(pid, num_parts),
+                    //     &part,
+                    // );
+                    // let val_sec = t_val.elapsed().as_secs_f64();
+                    // if !valid {
+                    //     panic!("validation");
+                    //     if attempts >= max_attempts {
+                    //         return Err(Error::Other("validation failed".into()));
+                    //     }
+                    //     sleep(retry_backoff).await;
+                    //     continue;
+                    // }
 
-                    let t_store = Instant::now();
-                    let mut su = store.store_update();
-                    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, pid)).unwrap();
-                    let raw = part.to_bytes(protocol_version);
-                    su.set(DBCol::StateParts, &key, &raw);
-                    su.commit().map_err(|e| Error::Other(format!("store commit: {e}")))?;
-                    let store_sec = t_store.elapsed().as_secs_f64();
+                    // let t_store = Instant::now();
+                    // let mut su = store.store_update();
+                    // let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, pid)).unwrap();
+                    // let raw = part.to_bytes(protocol_version);
+                    // su.set(DBCol::StateParts, &key, &raw);
+                    // su.commit().map_err(|e| Error::Other(format!("store commit: {e}")))?;
+                    // let store_sec = t_store.elapsed().as_secs_f64();
+                    let val_sec = 0.1;
+                    let store_sec = 0.1;
 
                     return Ok((dl_sec, val_sec, store_sec, part_size));
                 }
@@ -624,6 +634,7 @@ async fn upload_state_parts(
                     let state_part = match obtain_res {
                         Ok(p) => p,
                         Err(e) => {
+                            panic!("obtain failed");
                             if attempts >= max_attempts { return Err(Error::Other(format!("obtain_state_part: {e}"))); }
                             sleep(retry_backoff_std).await;
                             continue;
@@ -638,6 +649,7 @@ async fn upload_state_parts(
                             return Ok(());
                         }
                         _ => {
+                            panic!("upload failed");
                             if attempts >= max_attempts {
                                 return Err(Error::Other("upload failed".into()));
                             }
