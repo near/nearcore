@@ -1,5 +1,5 @@
-use actix_web::{App, HttpServer, web};
 use anyhow::anyhow;
+use axum::{Router, routing::get};
 use borsh::BorshDeserialize;
 use near_client::sync::external::{
     ExternalConnection, StateFileType, create_bucket_readonly, external_storage_location,
@@ -19,6 +19,7 @@ use near_primitives::views::ChunkHeaderView;
 use near_store::Trie;
 use nearcore::state_sync::extract_part_id_from_part_file_name;
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::sleep;
@@ -391,18 +392,14 @@ fn run_loop_all_shards(
             let old_status = status.as_ref().ok().cloned();
             let new_status = sys.block_on(async move {
                 if !is_prometheus_server_up {
-                    let server = HttpServer::new(move || {
-                        App::new().service(
-                            web::resource("/metrics")
-                                .route(web::get().to(near_jsonrpc::prometheus_handler)),
-                        )
-                    })
-                    .bind(prometheus_addr)?
-                    .workers(1)
-                    .shutdown_timeout(3)
-                    .disable_signals()
-                    .run();
-                    tokio::spawn(server);
+                    let app =
+                        Router::new().route("/metrics", get(near_jsonrpc::prometheus_handler));
+
+                    let addr: SocketAddr = prometheus_addr.parse().unwrap();
+                    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+                    tokio::spawn(async move {
+                        axum::serve(listener, app).await.unwrap();
+                    });
                 }
 
                 run_single_check_with_3_retries(

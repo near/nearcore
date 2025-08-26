@@ -5,6 +5,9 @@ use actix_web::HttpRequest;
 use actix_web::http::header::{self, ContentType};
 use actix_web::{App, Error as HttpError, HttpResponse, HttpServer, get, http, middleware, web};
 pub use api::{RpcFrom, RpcInto, RpcRequest};
+use axum::http::StatusCode;
+use axum::http::header::CONTENT_TYPE;
+use axum::response::{IntoResponse, Response};
 use near_async::actix::ActixResult;
 use near_async::messaging::{
     AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
@@ -1568,7 +1571,8 @@ async fn network_info_handler(
     }
 }
 
-pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
+// Actix-compatible prometheus handler (legacy)
+pub async fn prometheus_handler_actix() -> Result<HttpResponse, HttpError> {
     metrics::PROMETHEUS_REQUEST_COUNT.inc();
 
     let mut buffer = vec![];
@@ -1580,6 +1584,20 @@ pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
             .content_type(ContentType("text/plain".parse().unwrap()))
             .body(text)),
         Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
+}
+
+#[allow(clippy::unused_async)]
+pub async fn prometheus_handler() -> Response {
+    metrics::PROMETHEUS_REQUEST_COUNT.inc();
+
+    let mut buffer = vec![];
+    let encoder = TextEncoder::new();
+    encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
+
+    match String::from_utf8(buffer) {
+        Ok(text) => (StatusCode::OK, [(CONTENT_TYPE, "text/plain")], text).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
@@ -1722,7 +1740,7 @@ pub fn start_http(
                     .route(web::head().to(health_handler)),
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
-            .service(web::resource("/metrics").route(web::get().to(prometheus_handler)));
+            .service(web::resource("/metrics").route(web::get().to(prometheus_handler_actix)));
 
         if enable_debug_rpc {
             app = app
@@ -1777,7 +1795,7 @@ pub fn start_http(
             App::new()
                 .wrap(get_cors(&cors_allowed_origins_clone))
                 .wrap(middleware::Logger::default())
-                .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
+                .service(web::resource("/metrics").route(web::get().to(prometheus_handler_actix)))
         });
 
         match listener.bind(&prometheus_addr) {
