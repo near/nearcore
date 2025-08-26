@@ -423,7 +423,7 @@ async fn download_state_parts(
     let mut min_bytes: u64 = u64::MAX;
     let mut max_bytes: u64 = 0;
 
-    let results = tokio_stream::iter(part_ids.clone())
+    let mut stream = tokio_stream::iter(part_ids.clone())
         .map(|pid| {
             let external = external.clone();
             let store = store.clone();
@@ -494,11 +494,14 @@ async fn download_state_parts(
                 }
             }
         })
-        .buffer_unordered(concurrency_limit as usize)
-        .collect::<Vec<_>>()
-        .await;
+        .buffer_unordered(concurrency_limit as usize);
 
-    for res in results {
+    let mut done = 0u64;
+    let mut next_report = num_parts / 100;
+    if next_report == 0 { next_report = 1; }
+
+    while let Some(res) = stream.next().await {
+        done += 1;
         match res {
             Ok((dl, val, st, size)) => {
                 success += 1;
@@ -514,6 +517,10 @@ async fn download_state_parts(
                 }
             }
             Err(_) => failed += 1,
+        }
+        if done % next_report == 0 || done == num_parts {
+            let percent = (done * 100) / num_parts;
+            println!("Progress: {done}/{num_parts} parts ({percent}%)");
         }
     }
 
@@ -548,7 +555,6 @@ async fn upload_state_parts(
     store: Store,
     external: &ExternalConnection,
     pv: Option<ProtocolVersion>,
-    // nowe parametry „wydajnościowe”
     concurrency_limit: u8,
     max_attempts: u32,
     retry_backoff: Duration,
@@ -559,7 +565,6 @@ async fn upload_state_parts(
     let protocol_version =
         pv.unwrap_or(chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap());
 
-    // sync hash + metadane
     let sync_hash0 = get_any_block_hash_of_epoch(&epoch, chain);
     let Some(sync_hash) = chain.get_sync_hash(&sync_hash0).unwrap() else {
         tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
@@ -569,7 +574,6 @@ async fn upload_state_parts(
     let sync_prev_header = chain.get_previous_header(&sync_block_header).unwrap();
     let sync_prev_prev_hash = sync_prev_header.prev_hash();
 
-    // header i liczba części
     let state_header =
         chain.state_sync_adapter.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = state_header.chunk_prev_state_root();
@@ -581,7 +585,6 @@ async fn upload_state_parts(
 
     let t_total = Instant::now();
 
-    // Opcjonalnie: header (jednorazowo)
     if dump_header {
         let mut state_sync_header_buf = Vec::new();
         state_header.serialize(&mut state_sync_header_buf).unwrap();
@@ -594,8 +597,7 @@ async fn upload_state_parts(
             .map_err(|e| Error::Other(format!("put header: {e}")))?;
     }
 
-    // Strumień zadań: obtain -> serialize -> upload (z retry i timeout)
-    let results = tokio_stream::iter(part_ids.clone())
+    let mut stream = tokio_stream::iter(part_ids.clone())
         .map(|part_id| {
             let external = external.clone();
             let epoch_id = epoch_id.clone();
@@ -611,8 +613,6 @@ async fn upload_state_parts(
                 loop {
                     attempts += 1;
 
-                    // 1) obtain_state_part — może być CPU-/I/O-ciężkie; jeśli wewnątrz jest dużo CPU,
-                    // przenieś do spawn_blocking (pokazane niżej warunkowo).
                     let obtain_res = chain.runtime_adapter.obtain_state_part(
                         shard_id,
                         sync_prev_prev_hash,
@@ -630,10 +630,8 @@ async fn upload_state_parts(
                         }
                     };
 
-                    // 2) serializacja; jeśli `to_bytes` jest kosztowna, można użyć spawn_blocking
                     let bytes = state_part.to_bytes(protocol_version);
 
-                    // 3) upload z timeoutem
                     match timeout(request_timeout_std, external.put_file(file_type.clone(), &bytes, shard_id, &location)).await {
                         Ok(Ok(())) => {
                             tracing::info!(target: "state-parts", part_id, part_length = bytes.len(), "Uploaded state part");
@@ -650,15 +648,21 @@ async fn upload_state_parts(
                 }
             }
         })
-        .buffer_unordered(concurrency_limit as usize)
-        .collect::<Vec<_>>()
-        .await;
+        .buffer_unordered(concurrency_limit as usize);
 
-    // Podsumowanie
+    let mut done = 0u64;
+    let mut next_report = num_parts / 100;
+    if next_report == 0 { next_report = 1; }
+
     let mut ok = 0usize;
-    for r in results {
-        if r.is_ok() {
+    while let Some(res) = stream.next().await {
+        done += 1;
+        if res.is_ok() {
             ok += 1;
+        }
+        if done % next_report == 0 || done == num_parts {
+            let percent = (done * 100) / num_parts;
+            println!("Upload progress: {done}/{num_parts} parts ({percent}%)");
         }
     }
     tracing::info!(
