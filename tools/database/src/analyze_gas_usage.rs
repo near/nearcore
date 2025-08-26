@@ -243,7 +243,7 @@ fn get_gas_usage_in_block(
             assert_eq!(account_shard_id, shard_id);
 
             gas_usage_in_shard
-                .add_used_gas(outcome.executor_id, outcome.gas_burnt.as_gas() as u128);
+                .add_used_gas(outcome.executor_id, outcome.gas_burnt.as_gas().into());
         }
 
         result.add_gas_usage_in_shard(shard_uid, gas_usage_in_shard);
