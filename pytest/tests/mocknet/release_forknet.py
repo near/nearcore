@@ -14,6 +14,7 @@ from configured_logger import logger
 from release_scenarios import get_test_case, get_available_test_cases
 
 CHAIN_ID = "mainnet"
+MOCKNET_STORE_PATH = "gs://near-mocknet-artefact-store"
 
 
 class Action(Enum):
@@ -79,7 +80,7 @@ def handle_destroy(args):
 
     # Remove mocknet info bucket folder when destroying cluster
     mocknet_id = f"{CHAIN_ID}-{start_height}-{unique_id}"
-    bucket_path = f"gs://near-mocknet-artefact-store/{mocknet_id}"
+    bucket_path = f"{MOCKNET_STORE_PATH}/{mocknet_id}"
     logger.info(f"Removing mocknet bucket folder: {bucket_path}")
 
     cmd = ['gsutil', 'rm', '-r', bucket_path]

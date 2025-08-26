@@ -26,6 +26,8 @@ import dotenv
 
 # cspell:ignore dotenv CREAT RDWR gethostname levelname
 
+MOCKNET_STORE_PATH = "gs://near-mocknet-artefact-store"
+
 
 def get_lock(home):
     lock_file = os.path.join(home, 'LOCK')
@@ -109,9 +111,9 @@ class TestState(Enum):
     # Waiting to receive other validators' info to write the protocol
     # configuration.
     AWAITING_NETWORK_INIT = 2
-    # For chunk validators, waiting to receive the protocol configuration
-    # from the setup bucket.
-    AWAITING_SETUP_BUCKET = 3
+    # For chunk validators, waiting until the protocol configuration becomes
+    # available in the remote setup folder.
+    AWAITING_SETUP_AVAILABILITY = 3
     # Node writes the protocol configuration to its target home folder.
     SETTING_UP_PROTOCOL = 10
     # Node is stopped.
@@ -299,6 +301,7 @@ class NeardRunner:
 
     def set_current_neard_path(self, path):
         self.data['current_neard_path'] = path
+        self.save_data()
 
     def reset_current_neard_path(self):
         self.set_current_neard_path(self.data['binaries'][0]['system_path'])
@@ -533,7 +536,6 @@ class NeardRunner:
                                       mocknet_id)
 
             self.reset_current_neard_path()
-            self.save_data()
 
             self.neard_init(rpc_port, protocol_port, validator_id)
             self.move_init_files()
@@ -736,7 +738,6 @@ class NeardRunner:
             if state == TestState.RUNNING:
                 self.kill_neard()
             self.making_backup(backup_id, description)
-            self.save_data()
 
     def do_ls_backups(self):
         with self.lock:
@@ -801,10 +802,11 @@ class NeardRunner:
             try:
                 self.download_binaries(force=True)
             except ValueError as e:
+                error_msg = f'Internal error downloading binaries: {e}'
+                logging.error(error_msg)
+                self.set_state(TestState.ERROR, data=error_msg)
                 raise jsonrpc.exceptions.JSONRPCDispatchException(
-                    code=-32603,
-                    message=f'Internal error downloading binaries: {e}')
-                self.set_state(TestState.ERROR)
+                    code=-32603, message=error_msg)
             logging.info('update binaries finished')
 
     def do_ready(self):
@@ -1163,9 +1165,9 @@ class NeardRunner:
             config = json.dump(config, f, indent=2)
 
         # Chunk validator nodes don't have state originally.
-        # They need to download it from the setup bucket, once it appears.
+        # They need to download it from the setup folder, once it appears.
         if self.config.get('role') == 'validator':
-            self.set_state(TestState.AWAITING_SETUP_BUCKET)
+            self.set_state(TestState.AWAITING_SETUP_AVAILABILITY)
             return
 
         new_chain_id = n.get('new_chain_id')
@@ -1212,33 +1214,35 @@ class NeardRunner:
         self.run_neard(cmd)
         self.set_state(TestState.SETTING_UP_PROTOCOL)
 
-    def _setup_bucket_path(self):
+    def _remote_setup_path(self):
         mocknet_id = self.config['mocknet_id']
         run_id = self.run_id()
-        return f"gs://near-mocknet-artefact-store/{mocknet_id}/{run_id}"
+        return f"{MOCKNET_STORE_PATH}/{mocknet_id}/{run_id}"
 
-    def check_setup_bucket(self):
-        """Check if setup bucket exists and download the contents into the
+    def check_remote_setup_path(self):
+        """Check if remote setup path exists and download the contents into the
         target home folder if so."""
 
-        # Check if setup bucket exists.
-        check_cmd = ['gsutil', 'ls', self._setup_bucket_path()]
-        logging.info(f"Checking if setup bucket exists: {' '.join(check_cmd)}")
+        # Check if remote setup path exists.
+        check_cmd = ['gsutil', 'ls', self._remote_setup_path()]
+        logging.info(
+            f"Checking if remote setup path exists: {' '.join(check_cmd)}")
 
         result = subprocess.run(check_cmd, capture_output=True, text=True)
         if result.returncode == 1:
-            logging.info(f"Setup bucket not found")
+            logging.info(f"Remote setup folder not found")
             return
         elif result.returncode != 0:
-            logging.error(f"Error checking setup bucket: {result.stderr}")
-            self.set_state(TestState.ERROR)
+            error_msg = f"Error checking remote setup folder: {result.stderr}"
+            logging.error(error_msg)
+            self.set_state(TestState.ERROR, data=error_msg)
             return
 
-        # Setup bucket exists, download it.
-        logging.info(f"Downloading setup bucket")
+        # Remote setup folder exists, download it.
+        logging.info(f"Downloading remote setup folder")
         download_cmd = [
             'gsutil', '-m', 'rsync', '-r',
-            self._setup_bucket_path(),
+            self._remote_setup_path(),
             self.target_near_home_path()
         ]
         logging.info(f"Running: {' '.join(download_cmd)}")
@@ -1247,12 +1251,13 @@ class NeardRunner:
                                          capture_output=True,
                                          text=True)
         if download_result.returncode != 0:
-            logging.error(f"Failed to download: {download_result.stderr}")
-            self.set_state(TestState.ERROR)
+            error_msg = f"Failed to download: {download_result.stderr}"
+            logging.error(error_msg)
+            self.set_state(TestState.ERROR, data=error_msg)
             return
 
         logging.info(
-            f"Successfully downloaded setup bucket from {self._setup_bucket_path()}"
+            f"Successfully downloaded remote setup folder from {self._remote_setup_path()}"
         )
 
         self.set_state(TestState.STOPPED)
@@ -1271,13 +1276,9 @@ class NeardRunner:
             return
 
         if exit_code is not None and exit_code != 0:
-            logging.error(
-                f'neard fork-network set-validators exited with code {exit_code}'
-            )
-            # for now just set the state to ERROR, and if this ever happens, the
-            # test operator will have to intervene manually. Probably shouldn't
-            # really happen in practice
-            self.set_state(TestState.ERROR)
+            error_msg = f'neard fork-network set-validators exited with code {exit_code}'
+            logging.error(error_msg)
+            self.set_state(TestState.ERROR, data=error_msg)
             return
 
         cmd = [
@@ -1292,7 +1293,7 @@ class NeardRunner:
         logging.info(f'neard fork-network finalize succeeded')
 
         # Check if we are the first validator and upload protocol configuration
-        # to GCP bucket.
+        # to GCP.
         self._upload_protocol_configuration()
 
         logging.info(f'node is ready to start')
@@ -1306,11 +1307,11 @@ class NeardRunner:
 
         backup_dir = self.home_path('backups', name)
         if os.path.exists(backup_dir):
-            # we already checked that this backup ID didn't already exist, so if this path
-            # exists, someone probably manually added it. for now just set the state to ERROR
-            # and make the human intervene, but it shouldn't happen in practice
-            logging.warn(f'{backup_dir} already exists')
-            self.set_state(TestState.ERROR)
+            # We already checked that this backup ID didn't already exist, so if this path
+            # exists, someone manually added it and intervention is required.
+            error_msg = f'{backup_dir} already exists'
+            logging.error(error_msg)
+            self.set_state(TestState.ERROR, data=error_msg)
             return
         # Make a RockDB snapshot of the db to save space. This takes advantage of the immutability of sst files.
         logging.info(f'copying data dir to {backup_dir}')
@@ -1355,7 +1356,6 @@ class NeardRunner:
         self.making_backup(
             'start',
             description='initial test state after state root computation')
-        self.save_data()
         self.make_backup()
 
     def _is_first_validator(self):
@@ -1391,8 +1391,9 @@ class NeardRunner:
 
         genesis_path = self.target_near_home_path('genesis.json')
         if not os.path.exists(genesis_path):
-            logging.error("genesis.json not found")
-            self.set_state(TestState.ERROR)
+            error_msg = "genesis.json not found"
+            logging.error(error_msg)
+            self.set_state(TestState.ERROR, data=error_msg)
             return
 
         # Copy and rsync the protocol configuration to the bucket, using a
@@ -1409,7 +1410,7 @@ class NeardRunner:
 
             cmd = [
                 'gsutil', '-m', 'rsync', '-r', temp_dir,
-                self._setup_bucket_path()
+                self._remote_setup_path()
             ]
             logging.info(f"Uploading files using rsync: {' '.join(cmd)}")
 
@@ -1418,26 +1419,29 @@ class NeardRunner:
                 raise Exception(f"Failed to rsync to bucket: {result.stderr}")
 
             logging.info(
-                f"Successfully uploaded files to {self._setup_bucket_path()}")
+                f"Successfully uploaded files to {self._remote_setup_path()}")
         finally:
             shutil.rmtree(temp_dir)
             logging.info(f"Cleaned up temporary directory: {temp_dir}")
 
-    def remove_bucket(self):
-        """Remove the setup bucket from GCP if node is the first validator."""
+    def remove_remote_setup_folder(self):
+        """Remove the remote setup folder from GCP if node is the first validator."""
         if not self._is_first_validator():
             return
 
-        bucket_path = self._setup_bucket_path()
-        cmd = ['gsutil', 'rm', '-r', bucket_path]
+        remote_setup_folder_path = self._remote_setup_path()
+        cmd = ['gsutil', 'rm', '-r', remote_setup_folder_path]
         logging.info(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            logging.error(f"Failed to remove bucket directory: {result.stderr}")
-            self.set_state(TestState.ERROR)
+            error_msg = f"Failed to remove remote setup folder: {result.stderr}"
+            logging.error(error_msg)
+            self.set_state(TestState.ERROR, data=error_msg)
             return
 
-        logging.info(f"Successfully removed bucket directory {bucket_path}")
+        logging.info(
+            f"Successfully removed remote setup folder {remote_setup_folder_path}"
+        )
 
     def run_restore_from_backup_cmd(self, backup_path):
         logging.info(f'restoring data dir from backup at {backup_path}')
@@ -1465,12 +1469,13 @@ class NeardRunner:
             backup_id = 'start'
         backup_path = self.home_path('backups', backup_id)
         if not os.path.exists(backup_path):
-            logging.error(f'backup dir {backup_path} does not exist')
-            self.set_state(TestState.ERROR)
+            error_msg = f'backup dir {backup_path} does not exist'
+            logging.error(error_msg)
+            self.set_state(TestState.ERROR, data=error_msg)
 
         self.remove_data_dir()
         self.run_restore_from_backup_cmd(backup_path)
-        self.remove_bucket()
+        self.remove_remote_setup_folder()
         self.set_state(TestState.STOPPED)
 
     # periodically check if we should update neard after a new epoch
@@ -1480,8 +1485,8 @@ class NeardRunner:
                 state = self.get_state()
                 if state == TestState.AWAITING_NETWORK_INIT:
                     self.network_init()
-                elif state == TestState.AWAITING_SETUP_BUCKET:
-                    self.check_setup_bucket()
+                elif state == TestState.AWAITING_SETUP_AVAILABILITY:
+                    self.check_remote_setup_path()
                 elif state == TestState.SETTING_UP_PROTOCOL:
                     self.check_setup_protocol()
                 elif state == TestState.RUNNING:

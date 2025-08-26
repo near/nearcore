@@ -332,12 +332,13 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
                     'public_key': response['validator_public_key'],
                     'amount': str(amount),
                 })
+
+                if len(boot_nodes) < 20:
+                    boot_nodes.append(
+                        f'{response["node_key"]}@{node.ip_addr()}:{response["listen_port"]}'
+                    )
         else:
             non_validators.append(node.ip_addr())
-        if len(boot_nodes) < 20:
-            boot_nodes.append(
-                f'{response["node_key"]}@{node.ip_addr()}:{response["listen_port"]}'
-            )
 
         if len(validators) >= num_validators and len(boot_nodes) >= 20:
             break
