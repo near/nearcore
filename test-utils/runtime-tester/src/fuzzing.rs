@@ -24,7 +24,7 @@ pub const MAX_TX_DIFF: usize = 10;
 pub const MAX_ACCOUNTS: usize = 100;
 pub const MAX_ACTIONS: usize = 100;
 
-const GAS_1: u64 = 300_000_000_000_000;
+const GAS_1: Gas = Gas::from_tera(300);
 
 impl Arbitrary<'_> for Scenario {
     fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
@@ -36,9 +36,9 @@ impl Arbitrary<'_> for Scenario {
 
         let network_config = NetworkConfig { seeds };
         let runtime_config = RuntimeConfig {
-            max_total_prepaid_gas: Gas::from_gas(GAS_1 * 100),
+            max_total_prepaid_gas: GAS_1.saturating_mul(100),
             gas_limit: Gas::from_gas(
-                (GAS_1 as f64 * *u.choose(&[0.01, 0.1, 1., 10., 100.])?) as u64,
+                (GAS_1.as_gas() as f64 * *u.choose(&[0.01, 0.1, 1., 10., 100.])?) as u64,
             ),
             epoch_length: *u.choose(&[5, 10, 100, 500])? as u64,
         };
@@ -732,7 +732,7 @@ impl Function {
         Ok(FunctionCallAction {
             method_name: method_name.to_string(),
             args: args,
-            gas: Gas::from_gas(GAS_1),
+            gas: GAS_1,
             deposit: 0,
         })
     }

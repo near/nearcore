@@ -22,8 +22,8 @@ fn scenario_smoke_test() {
     let mut scenario = Scenario {
         network_config: NetworkConfig { seeds },
         runtime_config: RuntimeConfig {
-            max_total_prepaid_gas: Gas::from_tgas(300),
-            gas_limit: Gas::from_tgas(1000),
+            max_total_prepaid_gas: Gas::from_tera(300),
+            gas_limit: Gas::from_tera(1000),
             epoch_length: 500,
         },
         blocks: Vec::new(),

@@ -762,7 +762,7 @@ mod tests {
 
         // reduce congestion to 80%
         let gas_diff = config.max_congestion_outgoing_gas.saturating_div(5);
-        info.remove_buffered_receipt_gas(gas_diff.as_gas() as u128).unwrap();
+        info.remove_buffered_receipt_gas(gas_diff.as_gas().into()).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.8, control.congestion_level());
         assert_eq!(

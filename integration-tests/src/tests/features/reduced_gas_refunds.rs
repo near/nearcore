@@ -10,11 +10,9 @@ use std::sync::Arc;
 use testlib::fees_utils::FeeHelper;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
-const TGAS: Gas = Gas::from_tgas(1);
-
 #[test]
 fn test_burn_all_gas() {
-    let attached_gas = Gas::from_tgas(100);
+    let attached_gas = Gas::from_tera(100);
     let burn_gas = attached_gas.saturating_add(Gas::from_gas(1));
     let deposit = 0;
 
@@ -29,7 +27,7 @@ fn test_burn_all_gas() {
 
 #[test]
 fn test_deposit_refund() {
-    let attached_gas = TGAS.saturating_mul(100);
+    let attached_gas = Gas::from_tgas(100);
     let burn_gas = attached_gas.saturating_add(Gas::from_gas(1));
     let deposit = 10;
 
@@ -44,8 +42,8 @@ fn test_deposit_refund() {
 
 #[test]
 fn test_big_gas_refund() {
-    let attached_gas = TGAS.saturating_mul(100);
-    let burn_gas = TGAS.saturating_mul(10);
+    let attached_gas = Gas::from_tgas(100);
+    let burn_gas = Gas::from_tgas(10);
     let deposit = 0;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -55,7 +53,7 @@ fn test_big_gas_refund() {
 
 #[test]
 fn test_small_gas_refund() {
-    let attached_gas = TGAS.saturating_mul(10);
+    let attached_gas = Gas::from_tgas(10);
     let burn_gas = attached_gas.saturating_sub(TGAS.saturating_div(2));
     let deposit = 0;
 

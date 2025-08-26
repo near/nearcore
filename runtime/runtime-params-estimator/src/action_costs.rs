@@ -18,7 +18,7 @@ use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Gas};
 use std::iter;
 
-const GAS_1_MICROSECOND: Gas = Gas::from_ggas(1);
+const GAS_1_MICROSECOND: Gas = Gas::from_giga(1);
 const GAS_1_NANOSECOND: Gas = Gas::from_gas(1_000_000);
 const GAS_100_PICOSECONDS: Gas = Gas::from_gas(100_000);
 
@@ -747,7 +747,7 @@ fn function_call_action(size: ActionSize) -> Action {
     Action::FunctionCall(Box::new(near_primitives::transaction::FunctionCallAction {
         method_name,
         args: vec![1u8; arg_len],
-        gas: Gas::from_tgas(3), // 3 Tgas, to allow 100 copies in the same receipt
+        gas: Gas::from_tera(3), // 3 Tgas, to allow 100 copies in the same receipt
         deposit: 10u128.pow(24),
     }))
 }

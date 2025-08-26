@@ -33,7 +33,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         wasm_config: Arc::new(VMConfig {
             ext_costs: ext_costs_config(cost_table)?,
             grow_mem_cost: 1,
-            regular_op_cost: regular_op_cost.as_gas() as u32,
+            regular_op_cost: u32::try_from(regular_op_cost.as_gas()).unwrap(),
             limit_config: vm_limit_config,
             ..*latest_runtime_config.wasm_config
         }),

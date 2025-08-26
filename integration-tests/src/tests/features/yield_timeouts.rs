@@ -101,7 +101,7 @@ fn prepare_env_with_yield(
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_create_return_promise".to_string(),
             args: anticipated_yield_payload,
-            gas: Gas::from_tgas(300),
+            gas: Gas::from_tera(300),
             deposit: 0,
         }))],
         *genesis_block.hash(),
@@ -140,7 +140,7 @@ fn invoke_yield_resume(env: &TestEnv, data_id: CryptoHash, yield_payload: Vec<u8
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_resume".to_string(),
             args: yield_payload.into_iter().chain(data_id.as_bytes().iter().cloned()).collect(),
-            gas: Gas::from_tgas(300),
+            gas: Gas::from_tera(300),
             deposit: 0,
         }))],
         *genesis_block.hash(),

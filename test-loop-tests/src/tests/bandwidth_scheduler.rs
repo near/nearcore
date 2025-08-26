@@ -775,7 +775,7 @@ fn make_send_receipt_transaction(
         })
         .to_string()
         .into_bytes(),
-        Gas::from_tgas(300),
+        Gas::from_tera(300),
         last_block_hash,
     )
 }

@@ -184,7 +184,7 @@ fn new_fn_call_100tgas(
     signer: &Signer,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
-    let hundred_tgas = Gas::from_tgas(100);
+    let hundred_tgas = Gas::from_tera(100);
     let deposit = 0;
     let nonce = *nonce_source;
     *nonce_source += 1;
@@ -210,7 +210,7 @@ fn new_cheap_fn_call(
     receiver: AccountId,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
-    let one_tgas = Gas::from_tgas(1);
+    let one_tgas = Gas::from_tera(1);
     let deposit = 0;
     let nonce = *nonce_source;
     *nonce_source += 1;
@@ -449,8 +449,7 @@ fn measure_tx_limit(
         UpperLimitCongestion::AboveRejectThreshold => config.reject_tx_congestion_threshold * 2.0,
     };
 
-    let num_full_congestion =
-        config.max_congestion_incoming_gas.as_tgas() / 100;
+    let num_full_congestion = config.max_congestion_incoming_gas.as_tgas() / 100;
     let n = num_full_congestion as f64 * upper_limit_congestion;
     // Key of new account starts at block_height * 1_000_000
     let tip = env.clients[0].chain.head().unwrap();

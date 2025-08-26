@@ -241,8 +241,8 @@ impl VMOffsets {
             u32::from(self.pointer_size),
             align_of::<u32>(),
         );
-        self.vmctx_stack_limit_initial_begin = self.vmctx_stack_limit_begin.saturating_add(4);
-        self.size_of_vmctx = self.vmctx_stack_limit_begin.saturating_add(4);
+        self.vmctx_stack_limit_initial_begin = self.vmctx_stack_limit_begin.checked_add(4).unwrap();
+        self.size_of_vmctx = self.vmctx_stack_limit_begin.checked_add(4).unwrap();
     }
 }
 

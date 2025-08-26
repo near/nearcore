@@ -113,7 +113,7 @@ impl ReceiptGroup {
     pub fn new(receipt_size: ByteSize, receipt_gas: Gas) -> ReceiptGroup {
         ReceiptGroup::V0(ReceiptGroupV0 {
             size: receipt_size.as_u64(),
-            gas: receipt_gas.as_gas() as u128,
+            gas: receipt_gas.as_gas().into(),
         })
     }
 
@@ -169,10 +169,7 @@ pub struct ReceiptGroupsConfig {
 impl ReceiptGroupsConfig {
     pub fn default_config() -> Self {
         // TODO(bandwidth_scheduler) - put in runtime config
-        ReceiptGroupsConfig {
-            size_upper_bound: ByteSize::kb(100),
-            gas_upper_bound: Gas::gas_limit(),
-        }
+        ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: Gas::MAX }
     }
 
     /// Decide whether a new receipt should be added to the last group
@@ -193,7 +190,7 @@ impl ReceiptGroupsConfig {
 
         let mut group_gas = last_group.gas();
         add_gas_checked(&mut group_gas, new_receipt_gas);
-        if group_gas > self.gas_upper_bound.as_gas() as u128 {
+        if group_gas > self.gas_upper_bound.as_gas().into() {
             // The new group would have too much gas, start a new group.
             return true;
         }
@@ -413,13 +410,13 @@ fn subtract_size_checked(total: &mut u64, delta: ByteSize) {
 
 fn add_gas_checked(total: &mut u128, delta: Gas) {
     *total = total
-        .checked_add(delta.as_gas() as u128)
+        .checked_add(delta.as_gas().into())
         .expect("add_gas_checked - Overflow! Total gas doesn't fit into u128!");
 }
 
 fn subtract_gas_checked(total: &mut u128, delta: Gas) {
     *total = total
-        .checked_sub(delta.as_gas() as u128)
+        .checked_sub(delta.as_gas().into())
         .expect("subtract_gas_checked - Underflow! Negative gas!")
 }
 
@@ -600,7 +597,7 @@ mod tests {
         ) {
             let new_receipt_group = TestReceiptGroup {
                 total_size: receipt_size.as_u64().into(),
-                total_gas: receipt_gas.as_gas() as u128,
+                total_gas: receipt_gas.as_gas().into(),
                 receipts_num: 1,
             };
 

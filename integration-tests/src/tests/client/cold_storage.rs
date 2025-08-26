@@ -91,7 +91,7 @@ fn create_tx_function_call(
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "write_random_value".to_string(),
         args: vec![],
-        gas: Gas::from_tgas(100),
+        gas: Gas::from_tera(100),
         deposit: 0,
     }));
     SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash, 0)

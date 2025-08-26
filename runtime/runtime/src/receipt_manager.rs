@@ -570,7 +570,7 @@ mod tests {
 
     #[track_caller]
     fn function_call_weight_verify(function_calls: &[(Gas, u64, Gas)], after_distribute: bool) {
-        let mut gas_limit = Gas::from_ggas(10);
+        let mut gas_limit = Gas::from_giga(10);
 
         // Schedule all function calls
         let mut receipt_manager = super::ReceiptManager::default();
@@ -628,21 +628,21 @@ mod tests {
         // and the gas limit is `10_000_000_000`
 
         // Single function call
-        function_call_weight_check(&[(Gas::from_gas(0), 1, Gas::from_ggas(10))]);
+        function_call_weight_check(&[(Gas::from_gas(0), 1, Gas::from_giga(10))]);
 
         // Single function with static gas
-        function_call_weight_check(&[(Gas::from_gas(888), 1, Gas::from_ggas(10))]);
+        function_call_weight_check(&[(Gas::from_gas(888), 1, Gas::from_giga(10))]);
 
         // Large weight
-        function_call_weight_check(&[(Gas::from_gas(0), 88888, Gas::from_ggas(10))]);
+        function_call_weight_check(&[(Gas::from_gas(0), 88888, Gas::from_giga(10))]);
 
         // Weight larger than gas limit
-        function_call_weight_check(&[(Gas::from_gas(0), 11u64.pow(14), Gas::from_ggas(10))]);
+        function_call_weight_check(&[(Gas::from_gas(0), 11u64.pow(14), Gas::from_giga(10))]);
 
         // Split two
         function_call_weight_check(&[
-            (Gas::from_gas(0), 3, Gas::from_ggas(6)),
-            (Gas::from_gas(0), 2, Gas::from_ggas(4)),
+            (Gas::from_gas(0), 3, Gas::from_giga(6)),
+            (Gas::from_gas(0), 2, Gas::from_giga(4)),
         ]);
 
         // Split two with static gas
@@ -656,7 +656,7 @@ mod tests {
             (Gas::from_gas(1_000_000), 3, Gas::from_gas(2_699_800_000)),
             (Gas::from_gas(3_000_000), 2, Gas::from_gas(1_802_200_000)),
             (Gas::from_gas(0), 1, Gas::from_gas(899_600_000)),
-            (Gas::from_ggas(1), 0, Gas::from_ggas(1)),
+            (Gas::from_giga(1), 0, Gas::from_giga(1)),
             (Gas::from_gas(0), 4, Gas::from_gas(3_598_400_000)),
         ]);
 
@@ -676,7 +676,7 @@ mod tests {
         // Weights with one zero and one non-zero
         function_call_weight_check(&[
             (Gas::from_gas(0), 0, Gas::from_gas(0)),
-            (Gas::from_gas(0), 1, Gas::from_ggas(10)),
+            (Gas::from_gas(0), 1, Gas::from_giga(10)),
         ])
     }
 }

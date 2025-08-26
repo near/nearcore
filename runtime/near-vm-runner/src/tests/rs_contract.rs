@@ -249,7 +249,7 @@ fn function_call_weight_contract() -> ContractCode {
 fn attach_unspent_gas_but_use_all_gas() {
     with_vm_variants(|vm_kind: VMKind| {
         let mut context = create_context(vec![]);
-        context.prepaid_gas = Gas::from_tgas(100);
+        context.prepaid_gas = Gas::from_tera(100);
 
         let mut config = test_vm_config(Some(vm_kind));
         config.limit_config.max_gas_burnt = context.prepaid_gas.saturating_div(3);

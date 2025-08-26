@@ -22,7 +22,7 @@ impl Action {
         match self {
             Self::FunctionCall(fn_call) => fn_call.gas,
             // 2 Tgas is sufficient for any non-function call action
-            Self::Transfer(_) | Self::AddKey(_) | Self::DeleteKey(_) => Gas::from_tgas(2),
+            Self::Transfer(_) | Self::AddKey(_) | Self::DeleteKey(_) => Gas::from_tera(2),
         }
     }
 }

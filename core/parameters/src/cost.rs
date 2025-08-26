@@ -483,15 +483,15 @@ impl RuntimeFeesConfig {
             },
             min_gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION)
             {
-                Gas::from_tgas(1)
+                Gas::from_tera(1)
             } else {
                 Gas::from_gas(0)
             },
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee {
-                    send_sir: Gas::from_ggas(3_850),
-                    send_not_sir: Gas::from_ggas(3_850),
-                    execution: Gas::from_ggas(3_850),
+                    send_sir: Gas::from_giga(3_850),
+                    send_not_sir: Gas::from_giga(3_850),
+                    execution: Gas::from_giga(3_850),
                 },
                 ActionCosts::delete_account => Fee {
                     send_sir: Gas::from_gas(147489000000),
@@ -564,9 +564,9 @@ impl RuntimeFeesConfig {
                     execution: Gas::from_gas(59357464),
                 },
                 ActionCosts::delegate => Fee {
-                    send_sir: Gas::from_ggas(200),
-                    send_not_sir: Gas::from_ggas(200),
-                    execution: Gas::from_ggas(200),
+                    send_sir: Gas::from_giga(200),
+                    send_not_sir: Gas::from_giga(200),
+                    execution: Gas::from_giga(200),
                 },
                 ActionCosts::deploy_global_contract_base => Fee {
                     send_sir: Gas::from_gas(184_765_750_000),
@@ -623,7 +623,9 @@ impl RuntimeFeesConfig {
     pub fn gas_penalty_for_gas_refund(&self, gas_refund: Gas) -> Gas {
         let relative_cost = Gas::from_gas(
             (gas_refund.as_gas() as u128 * *self.gas_refund_penalty.numer() as u128
-                / *self.gas_refund_penalty.denom() as u128) as u64,
+                / *self.gas_refund_penalty.denom() as u128)
+                .try_into()
+                .unwrap(),
         );
 
         let penalty = std::cmp::max(relative_cost, self.min_gas_refund_penalty);

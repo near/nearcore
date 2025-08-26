@@ -380,7 +380,7 @@ mod tests {
     use near_primitives_core::types::Gas;
 
     /// Max prepaid amount of gas.
-    const MAX_GAS: Gas = Gas::from_tgas(300);
+    const MAX_GAS: Gas = Gas::from_tera(300);
 
     fn make_test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
         super::GasCounter::new(ExtCostsConfig::test(), max_burnt, 1, prepaid, is_view)
@@ -487,9 +487,9 @@ mod tests {
             );
         }
 
-        test(MAX_GAS, Gas::from_ggas(1), Err(HostError::GasExceeded));
-        test(Gas::from_ggas(1), MAX_GAS, Err(HostError::GasLimitExceeded));
-        test(Gas::from_ggas(1), Gas::from_ggas(1), Err(HostError::GasLimitExceeded));
+        test(MAX_GAS, Gas::from_giga(1), Err(HostError::GasExceeded));
+        test(Gas::from_giga(1), MAX_GAS, Err(HostError::GasLimitExceeded));
+        test(Gas::from_giga(1), Gas::from_giga(1), Err(HostError::GasLimitExceeded));
     }
 
     #[test]
@@ -498,8 +498,8 @@ mod tests {
             let mut counter = make_test_counter(burn, prepaid, false);
             assert_eq!(
                 counter.pay_action_accumulated(
-                    Gas::from_ggas(10),
-                    Gas::from_ggas(10),
+                    Gas::from_giga(10),
+                    Gas::from_giga(10),
                     ActionCosts::new_data_receipt_byte
                 ),
                 want.map_err(Into::into)
@@ -513,8 +513,8 @@ mod tests {
             );
         }
 
-        test(MAX_GAS, Gas::from_ggas(1), Err(HostError::GasExceeded));
-        test(Gas::from_ggas(1), MAX_GAS, Err(HostError::GasLimitExceeded));
-        test(Gas::from_ggas(1), Gas::from_ggas(1), Err(HostError::GasLimitExceeded));
+        test(MAX_GAS, Gas::from_giga(1), Err(HostError::GasExceeded));
+        test(Gas::from_giga(1), MAX_GAS, Err(HostError::GasLimitExceeded));
+        test(Gas::from_giga(1), Gas::from_giga(1), Err(HostError::GasLimitExceeded));
     }
 }

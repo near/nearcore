@@ -33,11 +33,11 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     ///
-    /// let tera_gas = Gas::from_tgas(5);
+    /// let tera_gas = Gas::from_tera(5);
     ///
     /// assert_eq!(tera_gas.as_gas(), 5 * 1_000_000_000_000);
     /// ```
-    pub const fn from_tgas(inner: u64) -> Self {
+    pub const fn from_tera(inner: u64) -> Self {
         Self(NearGas::from_tgas(inner))
     }
 
@@ -47,11 +47,11 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     ///    
-    /// let giga_gas = Gas::from_ggas(5);
+    /// let giga_gas = Gas::from_giga(5);
     ///
     /// assert_eq!(giga_gas.as_gas(), 5 * 1_000_000_000);
     /// ```
-    pub const fn from_ggas(inner: u64) -> Self {
+    pub const fn from_giga(inner: u64) -> Self {
         Self(NearGas::from_ggas(inner))
     }
 
@@ -88,7 +88,7 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     ///
-    /// let gas = Gas::from_ggas(1);
+    /// let gas = Gas::from_giga(1);
     /// assert_eq!(gas.as_ggas(), 1);
     /// ```
     pub const fn as_ggas(self) -> u64 {
@@ -210,10 +210,6 @@ impl Gas {
             return Gas::from_gas(0);
         }
         Self(self.0.saturating_div(rhs))
-    }
-
-    pub const fn gas_limit() -> Gas {
-        Gas::from_gas(u64::MAX)
     }
 }
 

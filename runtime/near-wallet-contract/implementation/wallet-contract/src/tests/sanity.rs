@@ -60,7 +60,7 @@ async fn test_insufficient_gas() -> anyhow::Result<()> {
             "target": target,
             "tx_bytes_b64": codec::encode_b64(&codec::rlp_encode(&signed_transaction))
         }))
-        .gas(near_primitives::Gas::from_tgas(7))
+        .gas(near_primitives::Gas::from_tera(7))
         .transact()
         .await
         .unwrap()
@@ -137,13 +137,13 @@ async fn test_simultaneous_transactions() -> anyhow::Result<()> {
             "target": receiver_account.id(),
             "tx_bytes_b64": codec::encode_b64(&codec::rlp_encode(&signed_transaction))
         }))
-        .gas(near_workspaces::types::Gas::from_tgas(100));
+        .gas(near_workspaces::types::Gas::from_tera(100));
     let wallet_method_call_2 = near_workspaces::operations::Function::new("rlp_execute")
         .args_json(serde_json::json!({
             "target": receiver_account.id(),
             "tx_bytes_b64": codec::encode_b64(&codec::rlp_encode(&signed_transaction))
         }))
-        .gas(near_workspaces::types::Gas::from_tgas(100));
+        .gas(near_workspaces::types::Gas::from_tera(100));
 
     let near_transaction = wallet_contract
         .inner
@@ -183,7 +183,7 @@ async fn test_caller_refunds() -> anyhow::Result<()> {
             receiver_id: receiver_id.to_string(),
             method_name: method.into(),
             args: args.to_vec(),
-            gas: Gas::from_tgas(10).as_gas(),
+            gas: Gas::from_tera(10).as_gas(),
             yocto_near: 0,
         };
         utils::create_signed_transaction(

@@ -31,12 +31,12 @@ const ADDRESS_REGISTRAR_ACCOUNT_ID: &str = std::include_str!("ADDRESS_REGISTRAR_
 /// token contracts with very high `storage_balance_bounds` from taking lots of $NEAR
 /// from eth-wallet-contract users.
 const NEP_141_STORAGE_DEPOSIT_AMOUNT: NearToken = NearToken::from_yoctonear(1_250 * MICRO_NEAR);
-const NEP_141_STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(5);
-const NEP_141_STORAGE_BALANCE_OF_GAS: Gas = Gas::from_tgas(5);
-const REGISTRAR_LOOKUP_GAS: Gas = Gas::from_tgas(5);
-const RLP_EXECUTE_CALLBACK_GAS: Gas = Gas::from_tgas(5);
-const ADDRESS_CHECK_CALLBACK_GAS: Gas = Gas::from_tgas(5).saturating_add(RLP_EXECUTE_CALLBACK_GAS);
-const NEP_141_STORAGE_BALANCE_CALLBACK_GAS: Gas = Gas::from_tgas(5)
+const NEP_141_STORAGE_DEPOSIT_GAS: Gas = Gas::from_tera(5);
+const NEP_141_STORAGE_BALANCE_OF_GAS: Gas = Gas::from_tera(5);
+const REGISTRAR_LOOKUP_GAS: Gas = Gas::from_tera(5);
+const RLP_EXECUTE_CALLBACK_GAS: Gas = Gas::from_tera(5);
+const ADDRESS_CHECK_CALLBACK_GAS: Gas = Gas::from_tera(5).saturating_add(RLP_EXECUTE_CALLBACK_GAS);
+const NEP_141_STORAGE_BALANCE_CALLBACK_GAS: Gas = Gas::from_tera(5)
     .saturating_add(NEP_141_STORAGE_DEPOSIT_GAS)
     .saturating_add(RLP_EXECUTE_CALLBACK_GAS);
 
@@ -506,7 +506,7 @@ fn create_ban_relayer_promise(current_account_id: AccountId) -> Promise {
         "ban_relayer".into(),
         Vec::new(),
         NearToken::from_yoctonear(0),
-        Gas::from_tgas(1),
+        Gas::from_tera(1),
         GasWeight(1),
     )
 }

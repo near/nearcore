@@ -22,7 +22,7 @@ fn run_fuzz(code: &ContractCode, config: Arc<RuntimeConfig>) -> VMOutcome {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let mut context = create_context(vec![]);
-    context.prepaid_gas = Gas::from_tgas(100);
+    context.prepaid_gas = Gas::from_tera(100);
     let wasm_config = near_parameters::vm::Config::clone(&config.wasm_config);
     let vm_kind = config.wasm_config.vm_kind;
     let fees = Arc::clone(&config.fees);
