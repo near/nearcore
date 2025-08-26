@@ -450,7 +450,7 @@ fn measure_tx_limit(
     };
 
     let num_full_congestion =
-        config.max_congestion_incoming_gas.saturating_div(100 * 10u64.pow(12)).as_gas();
+        config.max_congestion_incoming_gas.as_tgas() / 100;
     let n = num_full_congestion as f64 * upper_limit_congestion;
     // Key of new account starts at block_height * 1_000_000
     let tip = env.clients[0].chain.head().unwrap();
