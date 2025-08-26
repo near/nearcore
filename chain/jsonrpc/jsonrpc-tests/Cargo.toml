@@ -13,10 +13,10 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
-awc.workspace = true
 futures.workspace = true
 borsh.workspace = true
 parking_lot.workspace = true
+reqwest = { workspace = true, features = ["json"] }
 serde.workspace = true
 serde_json.workspace = true
 
