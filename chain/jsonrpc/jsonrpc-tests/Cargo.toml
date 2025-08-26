@@ -19,6 +19,7 @@ parking_lot.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
 
 integration-tests.workspace = true
 near-time.workspace = true

@@ -226,7 +226,7 @@ pub struct NearNode {
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
     pub arbiters: Vec<ArbiterHandle>,
-    pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
+    pub rpc_servers: Vec<(&'static str, tokio::task::JoinHandle<()>)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
@@ -550,7 +550,10 @@ pub fn start_with_config_and_synchronization(
             hot_store,
             cold_store,
         };
-        rpc_servers.extend(near_jsonrpc::start_http(
+        // TODO: Runtime will go out of scope
+        let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
+        let spawner = TokioRuntimeFutureSpawner(runtime);
+        near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone().into_multi_sender(),
@@ -560,22 +563,24 @@ pub fn start_with_config_and_synchronization(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
-        ));
+            &spawner,
+        );
     }
 
     #[cfg(feature = "rosetta_rpc")]
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
-        rpc_servers.push((
-            "Rosetta RPC",
-            near_rosetta_rpc::start_rosetta_rpc(
-                rosetta_rpc_config,
-                config.genesis,
-                genesis_block.header().hash(),
-                client_actor.clone(),
-                view_client_addr.clone(),
-                rpc_handler.clone(),
-            ),
-        ));
+        let server_handle = near_rosetta_rpc::start_rosetta_rpc(
+            rosetta_rpc_config,
+            config.genesis,
+            genesis_block.header().hash(),
+            client_actor.clone(),
+            view_client_addr.clone(),
+            rpc_handler.clone(),
+        );
+        let join_handle = tokio::spawn(async move {
+            let _ = server_handle.stop(true).await;
+        });
+        rpc_servers.push(("Rosetta RPC", join_handle));
     }
 
     rpc_servers.shrink_to_fit();

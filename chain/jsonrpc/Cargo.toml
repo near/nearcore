@@ -16,6 +16,8 @@ actix-cors.workspace = true
 actix-web.workspace = true
 axum.workspace = true
 bs58.workspace = true
+tower.workspace = true
+tower-http = { version = "0.5", features = ["cors", "fs", "limit", "trace"] }
 easy-ext.workspace = true
 serde.workspace = true
 serde_json.workspace = true

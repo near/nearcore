@@ -3,6 +3,7 @@ use std::sync::Arc;
 use actix::Addr;
 use futures::{FutureExt, future::LocalBoxFuture};
 use integration_tests::env::setup::setup_no_network_with_validity_period;
+use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_chain_configs::GenesisConfig;
 use near_client::ViewClientActor;
@@ -54,6 +55,9 @@ pub fn start_all_with_validity_period(
     );
 
     let addr = tcp::ListenerAddr::reserve_for_test();
+    // TODO: Runtime will go out of scope
+    let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
+    let spawner = TokioRuntimeFutureSpawner(runtime);
     start_http(
         RpcConfig::new(addr),
         TEST_GENESIS_CONFIG.clone(),
@@ -64,6 +68,7 @@ pub fn start_all_with_validity_period(
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
+        &spawner,
     );
     // setup_no_network_with_validity_period should use runtime_tempdir together with real runtime.
     (actor_handles.view_client_actor, addr, actor_handles.runtime_tempdir.unwrap())
