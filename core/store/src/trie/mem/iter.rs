@@ -1,9 +1,9 @@
 use super::arena::Arena;
-use super::memtrie_update::MemTrieNode;
+use super::memtrie_update::{MemTrieNode, MemTrieNodeWithSize};
 use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
 use crate::Trie;
-use crate::trie::ops::interface::GenericTrieInternalStorage;
+use crate::trie::ops::interface::{GenericTrieInternalStorage, GenericTrieNodeWithSize};
 use crate::trie::ops::iter::TrieIteratorImpl;
 use crate::trie::{AccessOptions, OptimizedValueRef};
 use near_primitives::errors::StorageError;
@@ -45,6 +45,21 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
             }
         }
         let node = MemTrieNode::from_existing_node_view(view);
+        Ok(node)
+    }
+
+    fn get_node_with_size(
+        &self,
+        node: MemTrieNodeId,
+        opts: AccessOptions,
+    ) -> Result<GenericTrieNodeWithSize<MemTrieNodeId, FlatStateValue>, StorageError> {
+        let view = node.as_ptr(self.memtrie.arena.memory()).view();
+        if opts.enable_state_witness_recording {
+            if let Some(recorder) = &self.trie.recorder {
+                recorder.record_memtrie_node(&view);
+            }
+        }
+        let node = MemTrieNodeWithSize::from_existing_node_view(view);
         Ok(node)
     }
 
