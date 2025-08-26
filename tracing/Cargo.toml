@@ -8,8 +8,9 @@ repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-actix-cors = "0.6.1"
-actix-web = "4.1"
+axum.workspace = true
+tower.workspace = true
+tower-http = { version = "0.6.2", features = ["cors", "compression-gzip", "decompression-gzip"] }
 anyhow = "1.0.62"
 bson = "2.10.0"
 clap = { version = "4.2.0", features = ["derive"] }

@@ -1,8 +1,10 @@
 use crate::db::Database;
 use crate::profile::{Category, Profile, ProfileMeta, StringTableBuilder, Thread};
-use actix_cors::Cors;
-use actix_web::middleware::Compress;
-use actix_web::{App, Error, HttpResponse, HttpServer, post, web};
+use axum::Router,
+use axum::extract::State,
+use axum::http::StatusCode,
+use axum::response::{Json, Response},
+use axum::routing::post,
 use bson::doc;
 use mongodb::options::FindOptions;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -14,21 +16,23 @@ use prost::Message;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
 use tonic::codegen::tokio_stream::StreamExt;
+use tower_http::compression::CompressionLayer;
+use tower_http::cors::CorsLayer;
 
 /// Runs a server that allows trace data to be queried and returned as a
 /// Firefox profile.
 pub async fn run_query_server(db: Database, port: u16) -> std::io::Result<()> {
-    HttpServer::new(move || {
-        App::new()
-            .wrap(Cors::permissive())
-            .wrap(Compress::default())
-            .app_data(web::Data::new(QueryState { db: db.clone() }))
-            .service(raw_trace)
-            .service(profile)
-    })
-    .bind(("0.0.0.0", port))?
-    .run()
-    .await
+    let app = Router::new()
+        .route("/raw_trace", post(raw_trace))
+        .route("/profile", post(profile))
+        .layer(CorsLayer::permissive())
+        .layer(CompressionLayer::new())
+        .with_state(QueryState { db });
+
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    axum::serve(listener, app).await
 }
 
 pub struct QueryState {
@@ -88,11 +92,10 @@ impl QueryFilter {
     }
 }
 
-#[post("/raw_trace")]
 async fn raw_trace(
-    data: web::Data<QueryState>,
-    req: web::Json<Query>,
-) -> Result<HttpResponse, Error> {
+    State(data): State<QueryState>,
+    axum::extract::Json(req): axum::extract::Json<Query>,
+) -> Result<Json<Vec<ExportTraceServiceRequest>>, StatusCode> {
     // TODO: Set a limit on the duration of the request interval.
     let col = data.db.raw_traces();
     let mut chunks = col
@@ -104,26 +107,22 @@ async fn raw_trace(
             Some(FindOptions::builder().batch_size(100).build()),
         )
         .await
-        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut result: Vec<ExportTraceServiceRequest> = Vec::new();
     while let Some(chunk) = chunks.next().await {
-        let chunk_bytes = chunk
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
-            .data
-            .bytes;
+        let chunk_bytes = chunk.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.data.bytes;
         let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         result.push(request);
     }
-    Ok(HttpResponse::Ok().json(result))
+    Ok(Json(result))
 }
 
-#[post("/profile")]
 async fn profile(
-    data: web::Data<QueryState>,
-    req: web::Json<Query>,
-) -> Result<HttpResponse, Error> {
+    State(data): State<QueryState>,
+    axum::extract::Json(req): axum::extract::Json<Query>,
+) -> Result<Json<Profile>, StatusCode> {
     // TODO: Set a limit on the duration of the request interval.
     let col = data.db.raw_traces();
     let mut chunks = col
@@ -135,16 +134,13 @@ async fn profile(
             Some(FindOptions::builder().batch_size(100).build()),
         )
         .await
-        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut result = QueryResult::default();
     while let Some(chunk) = chunks.next().await {
-        let chunk_bytes = chunk
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
-            .data
-            .bytes;
+        let chunk_bytes = chunk.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.data.bytes;
         let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         for resource_span in request.resource_spans {
             if let Some(resource) = resource_span.resource {
                 for scope_span in resource_span.scope_spans {
@@ -238,7 +234,7 @@ async fn profile(
     thread.string_array = strings.build();
     profile.threads.push(thread);
 
-    Ok(HttpResponse::Ok().json(profile))
+    Ok(Json(profile))
 }
 
 fn stringify_value(value: Option<&AnyValue>) -> String {
