@@ -232,8 +232,18 @@ impl Store {
 
         for op in &transaction.ops {
             match op {
-                DBOp::Set { col, key, .. }
-                | DBOp::Insert { col, key, .. }
+                DBOp::Set { col, key, cachable, .. } => {
+                    let Some(cache) = self.cache.work_with(*col) else { continue };
+                    let mut lock = cache.lock();
+                    lock.active_flushes += 1;
+                    keys_flushed[*col] += 1;
+                    if let Some(cachable) = cachable {
+                        lock.values.put(key.as_slice().into(), Some(Arc::clone(cachable)));
+                    } else {
+                        lock.values.pop(key);
+                    }
+                }
+                DBOp::Insert { col, key, .. }
                 | DBOp::UpdateRefcount { col, key, .. }
                 | DBOp::Delete { col, key } => {
                     // FIXME(nagisa): investigate if collecting all the keys to discard into a
@@ -444,8 +454,14 @@ impl StoreUpdate {
     ) -> io::Result<()> {
         assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column}");
         let data = borsh::to_vec(&value)?;
-        let deserialized_arc = value.into_arc();
-        self.transaction.set_cachable(column, key.to_vec(), data, deserialized_arc);
+
+        if self.store.cache.work_with(column).is_some() {
+            let deserialized_arc = value.into_arc();
+            self.transaction.set_cachable(column, key.to_vec(), data, deserialized_arc);
+        } else {
+            // No need to make a possibly expensive clone if the column is not cached.
+            self.transaction.set(column, key.to_vec(), data);
+        }
         Ok(())
     }
 
