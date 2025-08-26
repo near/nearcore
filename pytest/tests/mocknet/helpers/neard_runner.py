@@ -1138,8 +1138,10 @@ class NeardRunner:
     def set_shard_tracking_config(self, config):
         if self.can_validate():
             config['tracked_shards_config'] = "NoShards"
-            config['store']['load_mem_tries_for_tracked_shards'] = True
+            # SET TO False AS TEMPORARY MEASURE FOR < 9 NODES TEST
+            config['store']['load_mem_tries_for_tracked_shards'] = False  # True
         else:
+            # What to do with new joiners?
             config['tracked_shards_config'] = "AllShards"
             config['store']['load_mem_tries_for_tracked_shards'] = False
         return config
