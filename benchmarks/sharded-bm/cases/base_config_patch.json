@@ -9,7 +9,9 @@
         }
     },
     "store": {
-       "load_mem_tries_for_tracked_shards": true
+       "load_mem_tries_for_tracked_shards": true,
+       "col_flat_state_cache_size": 32000000,
+       "max_open_files": 5000
     },
     "view_client_threads": 4,
     "produce_chunk_add_transactions_time_limit": {

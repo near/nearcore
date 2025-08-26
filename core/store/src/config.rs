@@ -196,7 +196,18 @@ impl StoreConfig {
         match col {
             DBCol::State => self.col_state_cache_size,
             DBCol::FlatState => self.col_flat_state_cache_size,
-            _ => bytesize::ByteSize::mib(32),
+            DBCol::PartialChunks
+            | DBCol::TrieChanges
+            | DBCol::StateChanges
+            | DBCol::Chunks
+            | DBCol::Transactions
+            | DBCol::Receipts
+            | DBCol::StateTransitionData
+            | DBCol::OutgoingReceipts
+            | DBCol::IncomingReceipts
+            | DBCol::FlatStateChanges => bytesize::ByteSize::mib(32),
+            // Less 'hot' columns get a smaller cache
+            _ => bytesize::ByteSize::mib(16),
         }
     }
 
