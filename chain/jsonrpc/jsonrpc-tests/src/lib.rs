@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use actix::Addr;
-use futures::{FutureExt, TryFutureExt, future, future::LocalBoxFuture};
+use futures::{FutureExt, future::LocalBoxFuture};
 use integration_tests::env::setup::setup_no_network_with_validity_period;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_chain_configs::GenesisConfig;
@@ -14,6 +14,7 @@ use near_jsonrpc_primitives::{
 use near_network::tcp;
 use near_primitives::types::NumBlocks;
 use near_time::Clock;
+use reqwest::Client;
 use serde_json::json;
 
 pub static TEST_GENESIS_CONFIG: std::sync::LazyLock<GenesisConfig> =
@@ -93,7 +94,7 @@ type RpcRequest<T> = LocalBoxFuture<'static, Result<T, near_jsonrpc_primitives::
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 pub fn call_method<R>(
-    client: &awc::Client,
+    client: &Client,
     server_addr: &str,
     method: &str,
     params: serde_json::Value,
@@ -107,45 +108,50 @@ where
         "id": "dontcare",
         "params": params,
     });
-    // TODO: simplify this.
-    client
-        .post(server_addr)
-        .insert_header(("Content-Type", "application/json"))
-        .send_json(&request)
-        .map_err(|err| {
-            near_jsonrpc_primitives::errors::RpcError::new_internal_error(
-                None,
-                format!("{:?}", err),
-            )
-        })
-        .and_then(|mut response| {
-            response.body().map(|body| match body {
-                Ok(bytes) => from_slice(&bytes).map_err(|err| {
+    let client = client.clone();
+    let server_addr = server_addr.to_string();
+
+    async move {
+        let response = client
+            .post(&server_addr)
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|err| {
+                near_jsonrpc_primitives::errors::RpcError::new_internal_error(
+                    None,
+                    format!("{:?}", err),
+                )
+            })?;
+
+        let bytes = response.bytes().await.map_err(|err| {
+            near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
+                "Failed to retrieve payload: {:?}",
+                err
+            ))
+        })?;
+
+        let message = from_slice(&bytes).map_err(|err| {
+            near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
+                "Error {:?} in {:?}",
+                err, bytes
+            ))
+        })?;
+
+        match message {
+            Message::Response(resp) => resp.result.and_then(|x| {
+                serde_json::from_value(x).map_err(|err| {
                     near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                        "Error {:?} in {:?}",
-                        err, bytes
+                        "Failed to parse: {:?}",
+                        err
                     ))
-                }),
-                Err(err) => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                    "Failed to retrieve payload: {:?}",
-                    err
-                ))),
-            })
-        })
-        .and_then(|message| {
-            future::ready(match message {
-                Message::Response(resp) => resp.result.and_then(|x| {
-                    serde_json::from_value(x).map_err(|err| {
-                        near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                            "Failed to parse: {:?}",
-                            err
-                        ))
-                    })
-                }),
-                _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(
-                    "Failed to parse JSON RPC response".to_string(),
-                )),
-            })
-        })
-        .boxed_local()
+                })
+            }),
+            _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(
+                "Failed to parse JSON RPC response".to_string(),
+            )),
+        }
+    }
+    .boxed_local()
 }

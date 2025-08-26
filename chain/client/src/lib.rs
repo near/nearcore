@@ -36,6 +36,7 @@ pub use stateless_validation::partial_witness::partial_witness_actor::{
 
 pub mod adapter;
 pub mod adversarial;
+pub mod archive;
 mod chunk_distribution_network;
 pub mod chunk_executor_actor;
 mod chunk_inclusion_tracker;

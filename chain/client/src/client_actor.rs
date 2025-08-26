@@ -635,7 +635,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
         trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
                shard_id,
                hash,
-               state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
+               state_response.part_id().zip(state_response.payload_length()),
         );
         // Get the download that matches the shard_id and hash
 
@@ -1931,6 +1931,15 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActorInner {
         let msg = msg.span_unwrap();
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "chunk_completed",
+                    height = partial_chunk.height_created(),
+                    shard_id = %partial_chunk.shard_id(),
+                    chunk_hash = ?partial_chunk.chunk_hash(),
+                    tag_chunk_distribution = true,
+                )
+                .entered();
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
@@ -1944,6 +1953,15 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActorInner {
                 chunk_header,
                 chunk_producer,
             } => {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "chunk_header_ready_for_inclusion",
+                    height = chunk_header.height_created(),
+                    shard_id = %chunk_header.shard_id(),
+                    chunk_hash = ?chunk_header.chunk_hash(),
+                    tag_chunk_distribution = true,
+                )
+                .entered();
                 self.client
                     .chunk_inclusion_tracker
                     .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);

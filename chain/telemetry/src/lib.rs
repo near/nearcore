@@ -1,10 +1,10 @@
 mod metrics;
 
-use awc::{Client, Connector};
 use futures::FutureExt;
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Duration, Instant};
 use near_performance_metrics_macros::perf;
+use reqwest::Client;
 use std::ops::Sub;
 
 /// Timeout for establishing connection.
@@ -63,8 +63,9 @@ impl TelemetryActor {
 
         let client = Client::builder()
             .timeout(CONNECT_TIMEOUT)
-            .connector(Connector::new().max_http_version(awc::http::Version::HTTP_11))
-            .finish();
+            .build()
+            .expect("Failed to create HTTP client for telemetry");
+
         let reporting_interval = config.reporting_interval;
         Self {
             config,
@@ -87,13 +88,14 @@ impl Handler<TelemetryEvent> for TelemetryActor {
         }
         for endpoint in &self.config.endpoints {
             let endpoint = endpoint.clone();
+            let client = self.client.clone();
             near_performance_metrics::actix::spawn(
                 "telemetry",
-                self.client
+                client
                     .post(endpoint.clone())
-                    .insert_header(("Content-Type", "application/json"))
-                    .force_close() // See https://github.com/near/nearcore/pull/11914
-                    .send_json(&msg.content)
+                    .header("Content-Type", "application/json")
+                    .json(&msg.content)
+                    .send()
                     .map(move |response| {
                         let result = if let Err(error) = response {
                             tracing::warn!(

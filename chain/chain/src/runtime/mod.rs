@@ -4,7 +4,6 @@ use crate::types::{
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
     RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
-use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
@@ -24,7 +23,7 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
@@ -383,7 +382,7 @@ impl NightshadeRuntime {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
@@ -407,16 +406,38 @@ impl NightshadeRuntime {
             part_id,
             trie_with_state,
         );
-        let state_part = borsh::to_vec(&match trie_nodes {
+        let partial_state = match trie_nodes {
             Ok(partial_state) => partial_state,
             Err(err) => {
                 error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
                 return Err(err.into());
             }
-        })
-            .expect("serializer should not fail");
-
+        };
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let state_part = StatePart::from_partial_state(partial_state, protocol_version);
         Ok(state_part)
+    }
+
+    fn validate_state_part_impl(
+        &self,
+        state_root: &StateRoot,
+        part_id: PartId,
+        part: &StatePart,
+    ) -> bool {
+        let partial_state = part.to_partial_state();
+        let Ok(partial_state) = part.to_partial_state() else {
+            // Deserialization error means we've got the data from malicious peer
+            tracing::error!(target: "state-parts", ?partial_state, "State part deserialization error");
+            return false;
+        };
+        match Trie::validate_state_part(state_root, part_id, partial_state) {
+            Ok(_) => true,
+            // Storage error should not happen
+            Err(err) => {
+                tracing::error!(target: "state-parts", ?err, "State part storage error");
+                false
+            }
+        }
     }
 
     fn query_view_global_contract_code(
@@ -1016,7 +1037,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
@@ -1041,26 +1062,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: PartId,
-        data: &[u8],
+        part: &StatePart,
     ) -> bool {
         let instant = Instant::now();
-        let res = match BorshDeserialize::try_from_slice(data) {
-            Ok(trie_nodes) => {
-                match Trie::validate_state_part(state_root, part_id, trie_nodes) {
-                    Ok(_) => true,
-                    // Storage error should not happen
-                    Err(err) => {
-                        tracing::error!(target: "state-parts", ?err, "State part storage error");
-                        false
-                    }
-                }
-            }
-            // Deserialization error means we've got the data from malicious peer
-            Err(err) => {
-                tracing::error!(target: "state-parts", ?err, "State part deserialization error");
-                false
-            }
-        };
+        let res = self.validate_state_part_impl(state_root, part_id, part);
         let elapsed = instant.elapsed();
         let is_ok = if res { "ok" } else { "error" };
         metrics::STATE_SYNC_VALIDATE_PART_DELAY
@@ -1074,14 +1079,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: PartId,
-        data: &[u8],
+        part: &StatePart,
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let _timer = metrics::STATE_SYNC_APPLY_PART_DELAY
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
 
-        let part = BorshDeserialize::try_from_slice(data)
+        let part = part
+            .to_partial_state()
             .expect("Part was already validated earlier, so could never fail here");
         let ApplyStatePartResult { trie_changes, flat_state_delta, contract_codes } =
             Trie::apply_state_part(state_root, part_id, part);

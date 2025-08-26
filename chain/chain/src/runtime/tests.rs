@@ -3,6 +3,7 @@ use crate::spice_core::CoreStatementsProcessor;
 use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
+use borsh::BorshDeserialize;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};

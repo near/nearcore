@@ -1,5 +1,5 @@
 use crate::epoch_info::iterate_and_filter;
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
     ExternalConnection, StateFileType, create_bucket_read_write, create_bucket_readonly,
@@ -9,7 +9,7 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
@@ -361,6 +361,7 @@ async fn load_state_parts(
 
             (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
+    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
 
     let directory_path = external_storage_location_directory(
         chain_id,
@@ -391,7 +392,9 @@ async fn load_state_parts(
         let file_type = StateFileType::StatePart { part_id, num_parts };
         let location =
             external_storage_location(chain_id, &epoch_id, epoch_height, shard_id, &file_type);
-        let part = external.get_file(shard_id, &location, &file_type).await.unwrap();
+        let bytes = external.get_file(shard_id, &location, &file_type).await.unwrap();
+        let part_length = bytes.len();
+        let part = StatePart::from_bytes(bytes, protocol_version).unwrap();
 
         match action {
             LoadAction::Apply => {
@@ -409,7 +412,7 @@ async fn load_state_parts(
                         &epoch_id,
                     )
                     .unwrap();
-                tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded a state part");
+                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded a state part");
             }
             LoadAction::Validate => {
                 assert!(chain.runtime_adapter.validate_state_part(
@@ -418,18 +421,18 @@ async fn load_state_parts(
                     PartId::new(part_id, num_parts),
                     &part
                 ));
-                tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
+                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
             }
             LoadAction::Print => {
-                print_state_part(&state_root, PartId::new(part_id, num_parts), &part)
+                let trie_nodes = part.to_partial_state().unwrap();
+                print_state_part(&state_root, PartId::new(part_id, num_parts), trie_nodes)
             }
         }
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded all requested state parts");
 }
 
-fn print_state_part(state_root: &StateRoot, _part_id: PartId, data: &[u8]) {
-    let trie_nodes: PartialState = BorshDeserialize::try_from_slice(data).unwrap();
+fn print_state_part(state_root: &StateRoot, _part_id: PartId, trie_nodes: PartialState) {
     let trie =
         Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
     trie.print_recursive(
@@ -456,6 +459,7 @@ async fn dump_state_parts(
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
+    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
     let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
         Some(h) => h,
@@ -526,14 +530,16 @@ async fn dump_state_parts(
             shard_id,
             &file_type,
         );
-        external.put_file(file_type, &state_part, shard_id, &location).await.unwrap();
+        let bytes = state_part.to_bytes(protocol_version);
+        external.put_file(file_type, &bytes, shard_id, &location).await.unwrap();
         // part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();
-        let first_state_record = get_first_state_record(&state_root, &state_part);
+        let trie_nodes = state_part.to_partial_state().unwrap();
+        let first_state_record = get_first_state_record(&state_root, trie_nodes);
         tracing::info!(
             target: "state-parts",
             part_id,
-            part_length = state_part.len(),
+            part_length = bytes.len(),
             elapsed_sec,
             first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),
             "Wrote a state part");
@@ -542,8 +548,7 @@ async fn dump_state_parts(
 }
 
 /// Returns the first `StateRecord` encountered while iterating over a sub-trie in the state part.
-fn get_first_state_record(state_root: &StateRoot, data: &[u8]) -> Option<StateRecord> {
-    let trie_nodes = BorshDeserialize::try_from_slice(data).unwrap();
+fn get_first_state_record(state_root: &StateRoot, trie_nodes: PartialState) -> Option<StateRecord> {
     let trie =
         Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
 

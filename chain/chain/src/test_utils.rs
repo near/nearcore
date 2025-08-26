@@ -14,13 +14,16 @@ use near_async::time::Clock;
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::BlockToApply;
+use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, NumBlocks, NumShards};
+use near_primitives::types::{AccountId, BlockHeight, NumBlocks, NumShards, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -281,6 +284,55 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             }
         }
     }
+}
+
+pub fn get_fake_next_block_chunk_headers(
+    block: &Block,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> Vec<ShardChunkHeader> {
+    fn chunk_header(
+        height: BlockHeight,
+        shard_id: ShardId,
+        prev_block_hash: CryptoHash,
+        signer: &ValidatorSigner,
+    ) -> ShardChunkHeader {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            prev_block_hash,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            height,
+            shard_id,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            CongestionInfo::default(),
+            BandwidthRequests::empty(),
+            signer,
+        ))
+    }
+
+    let mut chunks = Vec::new();
+    for chunk in block.chunks().iter_raw() {
+        let shard_id = chunk.shard_id();
+        let height = block.header().height() + 1;
+        let chunk_producer = epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                shard_id,
+                epoch_id: *block.header().epoch_id(),
+                height_created: height,
+            })
+            .unwrap();
+        let signer = create_test_signer(chunk_producer.account_id().as_str());
+        let mut chunk_header = chunk_header(height, shard_id, *block.hash(), &signer);
+        *chunk_header.height_included_mut() = height;
+        chunks.push(chunk_header);
+    }
+    chunks
 }
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::types::{AccountId, ShardId};
 use std::sync::Arc;
-use tracing::debug_span;
+use tracing::instrument;
 
 pub fn need_receipt(
     prev_block_hash: &CryptoHash,
@@ -124,6 +124,15 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
     }
 }
 
+#[instrument(target = "chunks", level = "debug", "create_partial_chunk", skip_all, fields(
+    height = chunk.to_shard_chunk().height_created(),
+    shard_id = %chunk.to_shard_chunk().shard_id(),
+    chunk_hash = ?chunk.to_shard_chunk().chunk_hash(),
+    encoded_length = tracing::field::Empty,
+    num_tx = tracing::field::Empty,
+    me = me.map(tracing::field::debug),
+    tag_chunk_distribution = true,
+))]
 pub fn create_partial_chunk(
     chunk: &ShardChunkWithEncoding,
     merkle_paths: Vec<MerklePath>,
@@ -131,19 +140,9 @@ pub fn create_partial_chunk(
     epoch_manager: &dyn EpochManagerAdapter,
     shard_tracker: &ShardTracker,
 ) -> Result<PartialEncodedChunk, Error> {
+    let span = tracing::Span::current();
     let encoded_chunk = chunk.to_encoded_shard_chunk();
     let header = encoded_chunk.cloned_header();
-
-    let span = debug_span!(
-        target: "chunks",
-        "create_partial_chunk",
-        height_included = header.height_included(),
-        shard_id = %header.shard_id(),
-        encoded_length = tracing::field::Empty,
-        num_tx = tracing::field::Empty,
-        me = me.map(tracing::field::debug),
-        hash = ?encoded_chunk.chunk_hash())
-    .entered();
 
     let shard_chunk = chunk.to_shard_chunk();
     let outgoing_receipts = shard_chunk.prev_outgoing_receipts().to_vec();
@@ -181,6 +180,12 @@ pub fn create_partial_chunk(
     ))
 }
 
+#[instrument(target = "client", level = "debug", "persist_chunk", skip_all, fields(
+    height = partial_chunk.height_created(),
+    shard_id = %partial_chunk.shard_id(),
+    chunk_hash = ?partial_chunk.chunk_hash(),
+    tag_chunk_distribution = true,
+))]
 pub fn persist_chunk(
     partial_chunk: Arc<PartialEncodedChunk>,
     shard_chunk: Option<ShardChunk>,

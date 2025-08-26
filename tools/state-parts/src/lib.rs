@@ -5,7 +5,7 @@ use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_time::Instant;
 use sha2::Digest;
 use sha2::Sha256;
@@ -29,13 +29,13 @@ fn handle_message(
     app_info: &mut AppInfo,
     msg: &Message,
     received_at: near_time::Instant,
+    protocol_version: ProtocolVersion,
 ) -> anyhow::Result<()> {
     match &msg {
         Message::Direct(DirectMessage::VersionedStateResponse(response)) => {
             let shard_id = response.shard_id();
             let sync_hash = response.sync_hash();
             let state_response = response.clone().take_state_response();
-            let cached_parts = state_response.cached_parts();
             let part_id = state_response.part_id();
             let now = Instant::now();
             let duration = if let Some(part_id) = part_id {
@@ -48,8 +48,10 @@ fn handle_message(
             } else {
                 None
             };
-            let part_hash = if let Some(part) = state_response.part() {
-                Sha256::digest(&part.1).iter().fold(String::new(), |mut v, byte| {
+            let part = state_response.take_part();
+            let part_hash = if let Some(part) = part {
+                let bytes = &part.1.to_bytes(protocol_version);
+                Sha256::digest(bytes).iter().fold(String::new(), |mut v, byte| {
                     write!(&mut v, "{:02x}", byte).unwrap();
                     v
                 })
@@ -63,7 +65,6 @@ fn handle_message(
                 ?part_id,
                 ?duration,
                 ?part_hash,
-                ?cached_parts,
                 "Received VersionedStateResponse",
             );
         }
@@ -136,6 +137,7 @@ async fn state_parts_from_node(
 
     let mut result = Ok(());
     let mut part_id = start_part_id;
+    let protocol_version = protocol_version.unwrap_or(PROTOCOL_VERSION);
     loop {
         tokio::select! {
             _ = &mut next_request => {
@@ -163,6 +165,7 @@ async fn state_parts_from_node(
                             &mut app_info,
                             &msg,
                             first_byte_time.try_into().unwrap(),
+                            protocol_version,
                         );
                 if result.is_err() {
                     break;

@@ -778,18 +778,15 @@ mod tests {
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::sharding::ShardChunkHeaderV3;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-    use near_primitives::types::BlockHeight;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::validator_signer::ValidatorSigner;
     use tokio::sync::mpsc::error::TryRecvError;
     use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
-    use crate::test_utils::{get_chain_with_genesis, process_block_sync};
+    use crate::test_utils::{
+        get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    };
     use crate::{BlockProcessingArtifact, Chain, Provenance};
 
     use super::*;
@@ -2333,50 +2330,7 @@ mod tests {
         assert!(validator_notifications.contains(&parent_block_notification));
     }
 
-    fn test_chunk_header(
-        height: BlockHeight,
-        shard_id: ShardId,
-        prev_block_hash: CryptoHash,
-        signer: &ValidatorSigner,
-    ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
-            signer,
-        ))
-    }
-
     fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
-        let mut chunks = Vec::new();
-        for chunk in prev_block.chunks().iter_raw() {
-            let shard_id = chunk.shard_id();
-            let height = prev_block.header().height() + 1;
-            let chunk_producer = chain
-                .epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    shard_id,
-                    epoch_id: *prev_block.header().epoch_id(),
-                    height_created: height,
-                })
-                .unwrap();
-            let signer = create_test_signer(chunk_producer.account_id().as_str());
-            let mut chunk_header = test_chunk_header(height, shard_id, *prev_block.hash(), &signer);
-            *chunk_header.height_included_mut() = height;
-            chunks.push(chunk_header);
-        }
         let block_producer = chain
             .epoch_manager
             .get_block_producer_info(
@@ -2385,7 +2339,8 @@ mod tests {
             )
             .unwrap();
         let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-        TestBlockBuilder::new(Clock::real(), prev_block, signer).chunks(chunks)
+        TestBlockBuilder::new(Clock::real(), prev_block, signer)
+            .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
     }
 
     fn build_non_spice_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {

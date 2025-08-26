@@ -1,18 +1,18 @@
-mod alt_bn128;
-mod bls12381;
+pub(crate) mod alt_bn128;
+pub(crate) mod bls12381;
 mod context;
 mod dependencies;
 pub mod errors;
 pub mod gas_counter;
-mod logic;
+pub(crate) mod logic;
 pub mod mocks;
 pub mod recorded_storage_counter;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
 pub mod types;
-mod utils;
-mod vmstate;
+pub(crate) mod utils;
+pub(crate) mod vmstate;
 
 pub use context::VMContext;
 pub use dependencies::{External, MemSlice, MemoryLike, StorageAccessTracker, ValuePtr};

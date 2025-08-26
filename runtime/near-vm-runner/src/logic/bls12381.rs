@@ -116,7 +116,7 @@ macro_rules! bls12381_fn {
             res.to_vec()
         }
 
-        pub(super) fn $p_sum(data: &[u8]) -> Result<Option<Vec<u8>>> {
+        pub(crate) fn $p_sum(data: &[u8]) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = BLS_BOOL_SIZE + $BLS_P_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_sum", $bls12381_p))?;
 
@@ -149,7 +149,7 @@ macro_rules! bls12381_fn {
             Ok(Some($serialize_p(&res_pk)))
         }
 
-        pub(super) fn $g_multiexp(data: &[u8]) -> Result<Option<Vec<u8>>> {
+        pub(crate) fn $g_multiexp(data: &[u8]) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = $BLS_P_SIZE + BLS_SCALAR_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_multiexp", $bls12381_p))?;
 
@@ -181,7 +181,7 @@ macro_rules! bls12381_fn {
             Ok(Some($serialize_p(&res_pk)))
         }
 
-        pub(super) fn $p_decompress(data: &[u8]) -> Result<Option<Vec<u8>>> {
+        pub(crate) fn $p_decompress(data: &[u8]) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = $BLS_P_COMPRESS_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_decompress", $bls12381_p))?;
             let elements_count = data.len() / ITEM_SIZE;
@@ -202,7 +202,7 @@ macro_rules! bls12381_fn {
             Ok(Some(res))
         }
 
-        pub(super) fn $map_fp_to_g(data: &[u8]) -> Result<Option<Vec<u8>>> {
+        pub(crate) fn $map_fp_to_g(data: &[u8]) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = $BLS_FP_SIZE;
             check_input_size(data, ITEM_SIZE, $bls12381_map_fp_to_g)?;
             let elements_count: usize = data.len() / ITEM_SIZE;
@@ -283,7 +283,7 @@ bls12381_fn!(
     "bls12381_map_fp2_to_g2"
 );
 
-pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
+pub(crate) fn pairing_check(data: &[u8]) -> Result<u64> {
     const ITEM_SIZE: usize = BLS_P1_SIZE + BLS_P2_SIZE;
     check_input_size(data, ITEM_SIZE, "bls12381_pairing_check")?;
     let elements_count = data.len() / ITEM_SIZE;

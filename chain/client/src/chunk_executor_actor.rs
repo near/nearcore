@@ -778,21 +778,18 @@ mod tests {
         MainStateTransitionCache, validate_chunk_state_witness,
     };
     use near_chain::stateless_validation::spice_chunk_validation::spice_pre_validate_chunk_state_witness;
-    use near_chain::test_utils::{get_chain_with_genesis, process_block_sync};
+    use near_chain::test_utils::{
+        get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    };
     use near_chain::{BlockProcessingArtifact, Provenance};
     use near_chain_configs::test_genesis::{ONE_NEAR, TestGenesisBuilder, ValidatorsSpec};
     use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::receipt::{Receipt, ReceiptPriority};
     use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::sharding::{ShardChunk, ShardChunkHeaderV3};
-    use near_primitives::stateless_validation::ChunkProductionKey;
+    use near_primitives::sharding::ShardChunk;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-    use near_primitives::types::{
-        BlockExecutionResults, BlockHeight, ChunkExecutionResult, NumShards,
-    };
+    use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, NumShards};
     use near_store::ShardUId;
     use near_store::adapter::StoreAdapter as _;
     use reed_solomon_erasure::ReedSolomon;
@@ -1042,57 +1039,16 @@ mod tests {
         true
     }
 
-    fn test_chunk_header(
-        height: BlockHeight,
-        shard_id: ShardId,
-        prev_block_hash: CryptoHash,
-        signer: &ValidatorSigner,
-    ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
-            signer,
-        ))
-    }
-
     fn produce_block(actors: &mut [TestActor], prev_block: &Block) -> Arc<Block> {
-        let mut chunks = Vec::new();
-        for chunk in prev_block.chunks().iter_raw() {
-            let shard_id = chunk.shard_id();
-            let height = prev_block.header().height() + 1;
-            let chunk_producer = actors[0]
-                .actor
-                .epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    shard_id,
-                    epoch_id: *prev_block.header().epoch_id(),
-                    height_created: height,
-                })
-                .unwrap();
-            let signer = create_test_signer(chunk_producer.account_id().as_str());
-            let mut chunk_header = test_chunk_header(height, shard_id, *prev_block.hash(), &signer);
-            *chunk_header.height_included_mut() = height;
-            for actor in actors.iter_mut() {
-                let mut store_update = actor.actor.chain_store.store_update();
+        let chunks =
+            get_fake_next_block_chunk_headers(&prev_block, actors[0].actor.epoch_manager.as_ref());
+        for actor in actors.iter_mut() {
+            let mut store_update = actor.actor.chain_store.store_update();
+            for chunk_header in &chunks {
                 store_update.save_chunk(ShardChunk::new(chunk_header.clone(), vec![], vec![]));
-                store_update.commit().unwrap();
             }
-            chunks.push(chunk_header);
+            store_update.commit().unwrap();
         }
-
         let block_producer = actors[0]
             .actor
             .epoch_manager
