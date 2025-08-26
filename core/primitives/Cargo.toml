@@ -24,6 +24,7 @@ derive_more = { workspace = true, features = [
     "from",
     "into",
     "deref",
+    "display",
 ] }
 easy-ext.workspace = true
 hex.workspace = true
