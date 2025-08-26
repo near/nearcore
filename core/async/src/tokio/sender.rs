@@ -25,7 +25,9 @@ where
         };
 
         let message = TokioRuntimeMessage { seq, function: Box::new(function) };
-        self.sender.send(message).unwrap();
+        if let Err(_) = self.sender.send(message) {
+            tracing::info!(target: "tokio_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
+        }
     }
 }
 
@@ -53,7 +55,9 @@ where
         };
 
         let message = TokioRuntimeMessage { seq, function: Box::new(function) };
-        self.sender.send(message).unwrap();
+        if let Err(_) = self.sender.send(message) {
+            tracing::info!(target: "tokio_runtime", seq, "Ignoring sync message with callback, receiving actor is being shut down");
+        }
     }
 }
 
@@ -74,8 +78,11 @@ where
             sender.send(result).unwrap();
         };
         let message = TokioRuntimeMessage { seq, function: Box::new(function) };
-        self.sender.send(message).unwrap();
-        future.boxed()
+        if let Err(_) = self.sender.send(message) {
+            async { Err(AsyncSendError::Dropped) }.boxed()
+        } else {
+            future.boxed()
+        }
     }
 }
 
@@ -103,7 +110,8 @@ where
             tokio::time::sleep(dur.unsigned_abs()).await;
             let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| f(actor, ctx);
             let message = TokioRuntimeMessage { seq, function: Box::new(function) };
-            sender.send(message).unwrap();
+            // It's ok for this to fail; it means the runtime is shutting down already.
+            sender.send(message).ok();
         });
     }
 }
