@@ -319,7 +319,7 @@ impl RocksDB {
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
-                DBOp::Set { col, key, value } => {
+                DBOp::Set { col, key, value, .. } => {
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Insert { col, key, value } => {

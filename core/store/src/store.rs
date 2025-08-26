@@ -6,6 +6,7 @@ use crate::deserialized_column;
 use borsh::{BorshDeserialize, BorshSerialize};
 use enum_map::EnumMap;
 use near_fmt::{AbbrBytes, StorageKey};
+use std::any::Any;
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
@@ -313,6 +314,25 @@ impl StoreUpdateAdapter for StoreUpdate {
     }
 }
 
+pub trait IntoArc {
+    fn into_arc(&self) -> Arc<dyn Any + Send + Sync>;
+}
+
+impl<T> IntoArc for T
+where
+    T: Any + Send + Sync + Clone,
+{
+    fn into_arc(&self) -> Arc<dyn Any + Send + Sync> {
+        if let Some(existing_arc) = (self as &dyn Any).downcast_ref::<Arc<T>>() {
+            // Already an Arc<T>, just clone
+            Arc::clone(existing_arc) as Arc<dyn Any + Send + Sync>
+        } else {
+            // Not an Arc, make a new one (needs Clone)
+            Arc::new(self.clone())
+        }
+    }
+}
+
 impl StoreUpdate {
     const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
         Some(num) => num,
@@ -416,7 +436,7 @@ impl StoreUpdate {
     ///
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn set_ser<T: BorshSerialize + ?Sized>(
+    pub fn set_ser<T: IntoArc + BorshSerialize>(
         &mut self,
         column: DBCol,
         key: &[u8],
@@ -424,7 +444,8 @@ impl StoreUpdate {
     ) -> io::Result<()> {
         assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column}");
         let data = borsh::to_vec(&value)?;
-        self.set(column, key, &data);
+        let deserialized_arc = value.into_arc();
+        self.transaction.set_cachable(column, key.to_vec(), data, deserialized_arc);
         Ok(())
     }
 
@@ -547,7 +568,7 @@ impl StoreUpdate {
                         size = value.len(),
                         value = %AbbrBytes(value),
                     ),
-                    DBOp::Set { col, key, value } => tracing::trace!(
+                    DBOp::Set { col, key, value, .. } => tracing::trace!(
                         target: "store::update::transactions",
                         db_op = "set",
                         %col,

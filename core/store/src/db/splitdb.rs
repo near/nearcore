@@ -234,7 +234,7 @@ mod test {
     }
 
     fn set(db: &Arc<dyn Database>, col: DBCol, key: &[u8], value: &[u8]) -> () {
-        let op = DBOp::Set { col, key: key.to_vec(), value: value.to_vec() };
+        let op = DBOp::Set { col, key: key.to_vec(), value: value.to_vec(), cachable: None };
         db.write(DBTransaction { ops: vec![op] }).unwrap();
     }
 
