@@ -169,7 +169,6 @@ assert_matches = "1.5.0"
 async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
-awc = { version = "3", features = ["openssl"] }
 backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
@@ -197,7 +196,7 @@ chrono = { version = "0.4", default-features = false, features = [
 ] }
 clap = { version = "4.2.0", features = ["derive", "env", "string"] }
 cpu-time = "1.0"
-criterion = { version = "0.5.1", default-features = false, features = [
+criterion = { version = "0.7.0", default-features = false, features = [
     "html_reports",
     "cargo_bench_support",
 ] }
@@ -234,7 +233,7 @@ indicatif = { version = "0.17.0", features = ["rayon"] }
 insta = { version = "1.41.0", features = ["json", "yaml", "redactions"] }
 integration-tests = { path = "integration-tests" }
 inventory = "0.3.15"
-itertools = "0.12.0"
+itertools = "0.14.0"
 itoa = "1.0"
 json_comments = "0.2.1"
 libc = "0.2.81"
@@ -366,7 +365,7 @@ redis = "0.23.0"
 reed-solomon-erasure = { version = "6.0.0", features = ["simd-accel"] }
 regex = "1.7.1"
 region = "3.0"
-reqwest = { version = "0.12.0", features = ["blocking"] }
+reqwest = { version = "0.12.0", features = ["blocking", "native-tls-vendored"] }
 ripemd = "0.1.1"
 rkyv = "0.8.0"
 rlimit = "0.7"

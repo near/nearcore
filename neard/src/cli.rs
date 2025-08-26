@@ -589,7 +589,7 @@ impl RunCmd {
             };
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
             if let Some(handle) = cold_store_loop_handle {
-                handle.stop()
+                handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
             state_sync_dumper.stop_and_await();
             resharding_handle.stop();

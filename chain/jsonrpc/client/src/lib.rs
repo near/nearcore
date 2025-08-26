@@ -1,5 +1,5 @@
-use awc::{Client, Connector};
-use futures::{FutureExt, TryFutureExt, future, future::LocalBoxFuture};
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, from_slice};
 use near_jsonrpc_primitives::types::changes::{
@@ -15,6 +15,7 @@ use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, StatusResponse,
 };
+use reqwest::Client;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -31,8 +32,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// smaller values can raise overflow messages.
 const PAYLOAD_LIMIT: usize = 100 * 1024 * 1024;
 
-type HttpRequest<T> = LocalBoxFuture<'static, Result<T, String>>;
-type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
+type HttpRequest<T> = BoxFuture<'static, Result<T, String>>;
+type RpcRequest<T> = BoxFuture<'static, Result<T, RpcError>>;
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 fn call_method<P, R>(client: &Client, server_addr: &str, method: &str, params: P) -> RpcRequest<R>
@@ -41,32 +42,42 @@ where
     R: serde::de::DeserializeOwned + 'static,
 {
     let request = Message::request(method.to_string(), serde_json::to_value(&params).unwrap());
-    // TODO: simplify this.
-    client
-        .post(server_addr)
-        .insert_header(("Content-Type", "application/json"))
-        .send_json(&request)
-        .map_err(|err| RpcError::new_internal_error(None, format!("{:?}", err)))
-        .and_then(|mut response| {
-            response.body().limit(PAYLOAD_LIMIT).map(|body| match body {
-                Ok(bytes) => from_slice(&bytes).map_err(|err| {
-                    RpcError::parse_error(format!("Error {:?} in {:?}", err, bytes))
-                }),
-                Err(err) => {
-                    Err(RpcError::parse_error(format!("Failed to retrieve payload: {:?}", err)))
-                }
-            })
-        })
-        .and_then(|message| {
-            future::ready(match message {
-                Message::Response(resp) => resp.result.and_then(|x| {
-                    serde_json::from_value(x)
-                        .map_err(|err| RpcError::parse_error(format!("Failed to parse: {:?}", err)))
-                }),
-                _ => Err(RpcError::parse_error("Failed to parse JSON RPC response".to_string())),
-            })
-        })
-        .boxed_local()
+    let client = client.clone();
+    let server_addr = server_addr.to_string();
+
+    async move {
+        let response = client
+            .post(&server_addr)
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|err| RpcError::new_internal_error(None, format!("{:?}", err)))?;
+
+        let bytes = response.bytes().await.map_err(|err| {
+            RpcError::parse_error(format!("Failed to retrieve payload: {:?}", err))
+        })?;
+
+        if bytes.len() > PAYLOAD_LIMIT {
+            return Err(RpcError::parse_error(format!(
+                "Response payload too large: {} bytes, limit: {} bytes",
+                bytes.len(),
+                PAYLOAD_LIMIT
+            )));
+        }
+
+        let message = from_slice(&bytes)
+            .map_err(|err| RpcError::parse_error(format!("Error {:?} in {:?}", err, bytes)))?;
+
+        match message {
+            Message::Response(resp) => resp.result.and_then(|x| {
+                serde_json::from_value(x)
+                    .map_err(|err| RpcError::parse_error(format!("Failed to parse: {:?}", err)))
+            }),
+            _ => Err(RpcError::parse_error("Failed to parse JSON RPC response".to_string())),
+        }
+    }
+    .boxed()
 }
 
 /// Prepare a `HttpRequest` with a given client, server address and parameters.
@@ -80,18 +91,15 @@ where
     P: serde::Serialize,
     R: serde::de::DeserializeOwned + 'static,
 {
-    // TODO: url encode params.
-    client
-        .get(format!("{}/{}", server_addr, method))
-        .send()
-        .map_err(|err| err.to_string())
-        .and_then(|mut response| {
-            response.body().map(|body| match body {
-                Ok(bytes) => serde_json::from_slice(&bytes).map_err(|err| err.to_string()),
-                Err(err) => Err(format!("Payload error: {err}")),
-            })
-        })
-        .boxed_local()
+    let client = client.clone();
+    let url = format!("{}/{}", server_addr, method);
+
+    async move {
+        let response = client.get(&url).send().await.map_err(|err| err.to_string())?;
+        let bytes = response.bytes().await.map_err(|err| format!("Payload error: {err}"))?;
+        serde_json::from_slice(&bytes).map_err(|err| err.to_string())
+    }
+    .boxed()
 }
 
 /// Expands a variable list of parameters into its serializable form. Is needed to make the params
@@ -303,12 +311,9 @@ impl JsonRpcClient {
 fn create_client() -> Client {
     Client::builder()
         .timeout(CONNECT_TIMEOUT)
-        .connector(
-            Connector::new()
-                .conn_lifetime(Duration::from_secs(u64::max_value()))
-                .conn_keep_alive(Duration::from_secs(30)),
-        )
-        .finish()
+        .tcp_keepalive(Duration::from_secs(30))
+        .build()
+        .expect("Failed to create HTTP client")
 }
 
 /// Create new JSON RPC client that connects to the given address.

@@ -44,7 +44,7 @@ jobs:
             run_on_pr: true
           - name: MacOS
             id: macos
-            os: warp-macos-14-arm64-6x
+            os: warp-macos-latest-arm64-6x
             type: stable
             upload_profraws: false
             run_on_pr: false
