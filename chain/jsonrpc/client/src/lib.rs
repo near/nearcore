@@ -1,5 +1,5 @@
 use futures::FutureExt;
-use futures::future::LocalBoxFuture;
+use futures::future::BoxFuture;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, from_slice};
 use near_jsonrpc_primitives::types::changes::{
@@ -32,8 +32,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// smaller values can raise overflow messages.
 const PAYLOAD_LIMIT: usize = 100 * 1024 * 1024;
 
-type HttpRequest<T> = LocalBoxFuture<'static, Result<T, String>>;
-type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
+type HttpRequest<T> = BoxFuture<'static, Result<T, String>>;
+type RpcRequest<T> = BoxFuture<'static, Result<T, RpcError>>;
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 fn call_method<P, R>(client: &Client, server_addr: &str, method: &str, params: P) -> RpcRequest<R>
@@ -77,7 +77,7 @@ where
             _ => Err(RpcError::parse_error("Failed to parse JSON RPC response".to_string())),
         }
     }
-    .boxed_local()
+    .boxed()
 }
 
 /// Prepare a `HttpRequest` with a given client, server address and parameters.
