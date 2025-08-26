@@ -239,7 +239,7 @@ class TestSetup:
             # We need to share the epoch configs before the upgrade.
             self._share_epoch_configs()
         self._amend_epoch_config(
-            f".num_chunk_validator_seats = {self.node_hardware_config.num_chunk_validator_seats} | "  # REMOVE THAT BEFORE UPGRADE TEST
+            f".num_chunk_validator_seats = 4 | "  # HACK FOR UPGRADE TEST
             f".block_producer_kickout_threshold = 0 | "
             f".chunk_producer_kickout_threshold = 0 | "
             f".chunk_validator_only_kickout_threshold = 0")
