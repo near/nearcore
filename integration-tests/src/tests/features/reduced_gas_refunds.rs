@@ -14,7 +14,7 @@ const TGAS: Gas = Gas::from_tgas(1);
 
 #[test]
 fn test_burn_all_gas() {
-    let attached_gas = TGAS.saturating_mul(100);
+    let attached_gas = Gas::from_tgas(100);
     let burn_gas = attached_gas.saturating_add(Gas::from_gas(1));
     let deposit = 0;
 
