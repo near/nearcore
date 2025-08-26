@@ -149,7 +149,7 @@ impl BorshDeserialize for ProfileDataV3 {
     fn deserialize_reader<R: std::io::Read>(rd: &mut R) -> std::io::Result<Self> {
         let actions_array: Vec<u64> = BorshDeserialize::deserialize_reader(rd)?;
         let ext_array: Vec<u64> = BorshDeserialize::deserialize_reader(rd)?;
-        let wasm_gas: Gas = Gas::from_gas(BorshDeserialize::deserialize_reader(rd)?);
+        let wasm_gas: Gas = BorshDeserialize::deserialize_reader(rd)?;
 
         // Mapping raw arrays to enum maps.
         // The enum map could be smaller or larger than the raw array.
