@@ -51,11 +51,11 @@ pub struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,
 }
 
-type Cachable = Arc<dyn Any + Send + Sync>;
+type Cacheable = Arc<dyn Any + Send + Sync>;
 
 pub(crate) enum DBOp {
     /// Sets `key` to `value`, without doing any checks.
-    Set { col: DBCol, key: Vec<u8>, value: Vec<u8>, cachable: Option<Cachable> },
+    Set { col: DBCol, key: Vec<u8>, value: Vec<u8>, cacheable: Option<Cacheable> },
     /// Sets `key` to `value`, and additionally debug-checks that the value is
     /// not overwritten.
     Insert { col: DBCol, key: Vec<u8>, value: Vec<u8> },
@@ -136,11 +136,17 @@ impl DBTransaction {
     }
 
     pub fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
-        self.ops.push(DBOp::Set { col, key, value, cachable: None });
+        self.ops.push(DBOp::Set { col, key, value, cacheable: None });
     }
 
-    pub fn set_cachable(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>, cachable: Cachable) {
-        self.ops.push(DBOp::Set { col, key, value, cachable: Some(cachable) });
+    pub fn set_cacheable(
+        &mut self,
+        col: DBCol,
+        key: Vec<u8>,
+        value: Vec<u8>,
+        cacheable: Cacheable,
+    ) {
+        self.ops.push(DBOp::Set { col, key, value, cacheable: Some(cacheable) });
     }
 
     pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {

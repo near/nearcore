@@ -142,7 +142,8 @@ fn adjust_op(op: &mut DBOp) -> bool {
             let mut value = core::mem::take(value);
             match set_refcount(&mut value, 1) {
                 Ok(_) => {
-                    *op = DBOp::Set { col: *col, key: core::mem::take(key), value, cachable: None };
+                    *op =
+                        DBOp::Set { col: *col, key: core::mem::take(key), value, cacheable: None };
                     return true;
                 }
                 Err(err) => {
@@ -190,12 +191,12 @@ mod test {
     }
 
     fn set(col: DBCol, key: &[u8]) -> DBOp {
-        DBOp::Set { col, key: key.to_vec(), value: VALUE.to_vec(), cachable: None }
+        DBOp::Set { col, key: key.to_vec(), value: VALUE.to_vec(), cacheable: None }
     }
 
     fn set_with_rc(col: DBCol, key: &[u8]) -> DBOp {
         let value = [VALUE, ONE].concat();
-        DBOp::Set { col, key: key.to_vec(), value: value, cachable: None }
+        DBOp::Set { col, key: key.to_vec(), value: value, cacheable: None }
     }
 
     /// Prettifies raw key for display.

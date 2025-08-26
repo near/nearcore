@@ -193,7 +193,7 @@ mod test {
         let col = DBCol::Block;
 
         let op =
-            DBOp::Set { col, key: HASH.to_vec(), value: [VALUE, ONE].concat(), cachable: None };
+            DBOp::Set { col, key: HASH.to_vec(), value: [VALUE, ONE].concat(), cacheable: None };
 
         let mut tx = DBTransaction { ops: vec![op] };
         db.filter_db_ops(&mut tx);
@@ -207,7 +207,7 @@ mod test {
         let col = COL;
 
         let generate_op =
-            || DBOp::Set { col, key: HASH.to_vec(), value: [VALUE, ONE].concat(), cachable: None };
+            || DBOp::Set { col, key: HASH.to_vec(), value: [VALUE, ONE].concat(), cacheable: None };
 
         assert_op_writes_only_once(generate_op, db, col);
     }

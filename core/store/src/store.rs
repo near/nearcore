@@ -232,13 +232,13 @@ impl Store {
 
         for op in &transaction.ops {
             match op {
-                DBOp::Set { col, key, cachable, .. } => {
+                DBOp::Set { col, key, cacheable, .. } => {
                     let Some(cache) = self.cache.work_with(*col) else { continue };
                     let mut lock = cache.lock();
                     lock.active_flushes += 1;
                     keys_flushed[*col] += 1;
-                    if let Some(cachable) = cachable {
-                        lock.values.put(key.as_slice().into(), Some(Arc::clone(cachable)));
+                    if let Some(cacheable) = cacheable {
+                        lock.values.put(key.as_slice().into(), Some(Arc::clone(cacheable)));
                     } else {
                         lock.values.pop(key);
                     }
@@ -457,7 +457,7 @@ impl StoreUpdate {
 
         if self.store.cache.work_with(column).is_some() {
             let deserialized_arc = value.into_arc();
-            self.transaction.set_cachable(column, key.to_vec(), data, deserialized_arc);
+            self.transaction.set_cacheable(column, key.to_vec(), data, deserialized_arc);
         } else {
             // No need to make a possibly expensive clone if the column is not cached.
             self.transaction.set(column, key.to_vec(), data);
