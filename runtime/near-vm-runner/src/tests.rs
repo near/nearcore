@@ -61,7 +61,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         account_locked_balance: 0,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: Gas::from_tgas(100),
+        prepaid_gas: Gas::from_tgas(100)
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
