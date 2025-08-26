@@ -1,6 +1,4 @@
-use std::any::type_name;
 use std::fmt::Debug;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -10,8 +8,7 @@ use crate::messaging::{
     AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message, MessageWithCallback,
 };
 use crate::tokio::runtime_handle::{TokioRuntimeHandle, TokioRuntimeMessage};
-
-static SEQUENCE_NUM: AtomicU64 = AtomicU64::new(0);
+use crate::{next_message_sequence_num, pretty_type_name};
 
 impl<A, M> CanSend<M> for TokioRuntimeHandle<A>
 where
@@ -19,12 +16,13 @@ where
     M: Message + Debug + Send + 'static,
 {
     fn send(&self, message: M) {
-        let seq = SEQUENCE_NUM.fetch_add(1, Ordering::Relaxed);
-        let handler = pretty_type_name::<A>();
-        tracing::trace!(target: "tokio_runtime", seq, handler, ?message, "sending sync message");
+        let seq = next_message_sequence_num();
+        let message_type = pretty_type_name::<A>();
+        tracing::trace!(target: "tokio_runtime", seq, message_type, ?message, "sending sync message");
 
-        let function =
-            |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| actor.handle(message, ctx);
+        let function = |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
+            actor.handle(message, ctx);
+        };
 
         let message = TokioRuntimeMessage { seq, function: Box::new(function) };
         self.sender.send(message).unwrap();
@@ -39,12 +37,12 @@ where
     R: Send + 'static,
 {
     fn send(&self, message: MessageWithCallback<M, R>) {
-        let seq = SEQUENCE_NUM.fetch_add(1, Ordering::Relaxed);
-        let handler = pretty_type_name::<A>();
+        let seq = next_message_sequence_num();
+        let message_type = pretty_type_name::<A>();
         tracing::trace!(
             target: "tokio_runtime",
             seq,
-            handler,
+            message_type,
             ?message,
             "sending sync message with callback"
         );
@@ -66,9 +64,9 @@ where
     R: Debug + Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
-        let seq = SEQUENCE_NUM.fetch_add(1, Ordering::Relaxed);
-        let handler = pretty_type_name::<A>();
-        tracing::trace!(target: "tokio_runtime", seq, handler, ?message, "sending async message");
+        let seq = next_message_sequence_num();
+        let message_type = pretty_type_name::<A>();
+        tracing::trace!(target: "tokio_runtime", seq, message_type, ?message, "sending async message");
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let future = async move { receiver.await.map_err(|_| AsyncSendError::Dropped) };
         let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
@@ -98,7 +96,7 @@ where
         dur: near_time::Duration,
         f: Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send + 'static>,
     ) {
-        let seq = SEQUENCE_NUM.fetch_add(1, Ordering::Relaxed);
+        let seq = next_message_sequence_num();
         tracing::debug!(target: "tokio_runtime", seq, name, "sending delayed action");
         let sender = self.sender.clone();
         self.runtime.spawn(async move {
@@ -108,11 +106,4 @@ where
             sender.send(message).unwrap();
         });
     }
-}
-
-// Quick and dirty way of getting the type name without the module path.
-// Does not work for more complex types like std::sync::Arc<std::sync::atomic::AtomicBool<...>>
-// example near_chunks::shards_manager_actor::ShardsManagerActor -> ShardsManagerActor
-fn pretty_type_name<T>() -> &'static str {
-    type_name::<T>().split("::").last().unwrap()
 }

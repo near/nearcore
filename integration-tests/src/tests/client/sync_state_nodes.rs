@@ -16,7 +16,7 @@ use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference, ShardId};
@@ -581,6 +581,7 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                 .unwrap();
             let num_parts = state_sync_header.num_state_parts();
             let state_root = state_sync_header.chunk_prev_state_root();
+            let epoch_id = sync_block.header().epoch_id();
             // Check that state parts can be obtained.
             let state_sync_parts: Vec<_> = (0..num_parts)
                 .map(|i| {
@@ -595,7 +596,6 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
 
             tracing::info!(target: "test", "state sync - apply parts");
             env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
-            let epoch_id = sync_block.header().epoch_id();
             for i in 0..num_parts {
                 env.clients[1]
                     .runtime_adapter
@@ -641,9 +641,12 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                         .unwrap()
                 );
                 store_update.commit().unwrap();
+                let protocol_version =
+                    env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
                 for part_id in 0..num_parts {
                     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-                    let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+                    let bytes = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+                    let part = StatePart::from_bytes(bytes.to_vec(), protocol_version).unwrap();
                     env.clients[1]
                         .runtime_adapter
                         .apply_state_part(
@@ -784,8 +787,9 @@ fn slow_test_state_sync_headers() {
                         None => return ControlFlow::Continue(()),
                     };
                     let state_response = state_response_info.take_state_response();
-                    assert!(state_response.part().is_none());
-                    if state_response.has_header() {
+                    assert!(state_response.clone().take_part().is_none());
+                    let header = state_response.take_header();
+                    if header.is_some() {
                         tracing::info!(?sync_hash, %shard_id, "got header");
                     } else {
                         tracing::info!(?sync_hash, %shard_id, "got no header");
@@ -805,7 +809,7 @@ fn slow_test_state_sync_headers() {
                         None => return ControlFlow::Continue(()),
                     };
                     let state_response = state_response_info.take_state_response();
-                    assert!(!state_response.has_header());
+                    assert!(state_response.clone().take_header().is_none());
                     let part = state_response.take_part();
                     if let Some((part_id, _part)) = part {
                         if part_id != 0 {
@@ -949,8 +953,8 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                     };
                     tracing::info!(?state_response_info, "got header state response");
                     let state_response = state_response_info.take_state_response();
-                    assert!(state_response.part().is_none());
-                    assert!(!state_response.has_header());
+                    assert!(state_response.clone().take_header().is_none());
+                    assert!(state_response.take_part().is_none());
 
                     // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
                     let state_response_info = match state_request_client2
@@ -966,8 +970,8 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                     };
                     tracing::info!(?state_response_info, "got state part response");
                     let state_response = state_response_info.take_state_response();
-                    assert!(state_response.part().is_none());
-                    assert!(!state_response.has_header());
+                    assert!(state_response.clone().take_header().is_none());
+                    assert!(state_response.take_part().is_none());
                 }
                 return ControlFlow::Break(());
             })
