@@ -253,22 +253,14 @@ impl FeeHelper {
     }
 
     pub fn add_key_cost(&self, num_bytes: u64) -> Balance {
-        let add_function_call_key_base_exec_fee = self
-            .cfg()
-            .fee(ActionCosts::add_function_call_key_base)
-            .exec_fee();
-        let add_function_call_key_byte_exec_fee = self
-            .cfg()
-            .fee(ActionCosts::add_function_call_key_byte)
-            .exec_fee();
-        let add_function_call_key_base_send_fee = self
-            .cfg()
-            .fee(ActionCosts::add_function_call_key_base)
-            .send_fee(true);
-        let add_function_call_key_byte_send_fee = self
-            .cfg()
-            .fee(ActionCosts::add_function_call_key_byte)
-            .send_fee(true);
+        let add_function_call_key_base_exec_fee =
+            self.cfg().fee(ActionCosts::add_function_call_key_base).exec_fee();
+        let add_function_call_key_byte_exec_fee =
+            self.cfg().fee(ActionCosts::add_function_call_key_byte).exec_fee();
+        let add_function_call_key_base_send_fee =
+            self.cfg().fee(ActionCosts::add_function_call_key_base).send_fee(true);
+        let add_function_call_key_byte_send_fee =
+            self.cfg().fee(ActionCosts::add_function_call_key_byte).send_fee(true);
 
         let exec_gas = self
             .cfg()
@@ -288,10 +280,8 @@ impl FeeHelper {
     pub fn add_key_full_cost(&self) -> Balance {
         let add_full_access_key_exec_fee =
             self.cfg().fee(ActionCosts::add_full_access_key).exec_fee();
-        let add_full_access_key_send_fee = self
-            .cfg()
-            .fee(ActionCosts::add_full_access_key)
-            .send_fee(true);
+        let add_full_access_key_send_fee =
+            self.cfg().fee(ActionCosts::add_full_access_key).send_fee(true);
 
         let exec_gas = self
             .cfg()
@@ -325,8 +315,7 @@ impl FeeHelper {
 
     pub fn prepaid_delete_account_cost(&self) -> Balance {
         let delete_account_exec_fee = self.cfg().fee(ActionCosts::delete_account).exec_fee();
-        let delete_account_send_fee =
-            self.cfg().fee(ActionCosts::delete_account).send_fee(false);
+        let delete_account_send_fee = self.cfg().fee(ActionCosts::delete_account).send_fee(false);
 
         let exec_gas = self
             .cfg()

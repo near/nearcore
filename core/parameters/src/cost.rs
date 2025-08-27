@@ -24,7 +24,11 @@ pub struct Fee {
 
 impl Fee {
     pub fn new(send_sir: u64, send_not_sir: u64, execution: u64) -> Self {
-        Self { send_sir: Gas::from_gas(send_sir), send_not_sir: Gas::from_gas(send_not_sir), execution: Gas::from_gas(execution) }
+        Self {
+            send_sir: Gas::from_gas(send_sir),
+            send_not_sir: Gas::from_gas(send_not_sir),
+            execution: Gas::from_gas(execution),
+        }
     }
 
     #[inline]

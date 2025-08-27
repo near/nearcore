@@ -293,7 +293,7 @@ fn check_action_gas_exceeds_attached(
     let gas_limit = 10u64.pow(14);
     let gas_attached = 10u64.pow(13);
     let fee = Fee::new(
-        1,      // make burnt gas small
+        1,  // make burnt gas small
         10, // make it easy to distinguish `sir` / `not_sir`
         gas_attached / num_action_paid + 1,
     );

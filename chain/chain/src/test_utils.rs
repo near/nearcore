@@ -23,7 +23,7 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, Gas, BlockHeight, NumBlocks, NumShards, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
