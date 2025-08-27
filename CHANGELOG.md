@@ -9,6 +9,10 @@
 * Moved Tier1 configuration from experimental to top level config. No action is necessary as the default values are the recommended ones. ([#13575](https://github.com/near/nearcore/pull/13575))
 * Add a new configuration option `save_tx_outcomes` ([#13610](https://github.com/near/nearcore/pull/13610)). When set to `false`, per-transaction outcomes are not written to the db to improve validator throughput. Disabling this config means transactions processed by the node will not be queryable by transaction hash, however this is not needed for validators to perform their duties. The default for archive and RPC nodes is `true`.
 * Updated the recommended operating system network settings for running `neard` ([#14012](https://github.com/near/nearcore/pull/14012)).
+
+## [2.7.1]
+
+### Non-protocol changes
 * Add a new configuration option `protocol_version_check_config_override`. This determines which epoch the client uses to determine version compatibility with the network. The default is `NextNext`, which causes the node to exit instead of persisting potentially incorrect epoch info and corrupting the database in case the node operator does not update the client in time for the network upgrade. The prior behavior only checked the protocol version in the next epoch, which can be restored by setting this option to `Next` and allows a validator that did not upgrade their node to participate in the final epoch the client is compatible with the network.
 
 ## [2.7.0]
