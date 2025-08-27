@@ -17,7 +17,7 @@ pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
 /// One NEAR, divisible by 10^24.
 pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 
-const GAS_1: Gas = 900_000_000_000_000;
+const GAS_1: Gas = Gas::from_tera(900);
 const GAS_2: Gas = GAS_1.saturating_div(3);
 const GAS_3: Gas = GAS_2.saturating_div(3);
 

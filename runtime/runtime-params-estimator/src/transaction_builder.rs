@@ -77,7 +77,7 @@ impl TransactionBuilder {
         let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: method.to_string(),
             args,
-            gas: Gas::from_tgas(1_000_000),
+            gas: Gas::from_tera(1_000_000),
             deposit: 0,
         }))];
         self.transaction_from_actions(sender, receiver, actions)

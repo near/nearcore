@@ -61,7 +61,7 @@ pub(crate) struct InitConfigArgs {
     pub boot_nodes: Option<String>,
     /// Specify a custom max_gas_burnt_view limit.
     #[clap(long)]
-    pub max_gas_burnt_view: Option<Gas>,
+    pub max_gas_burnt_view: Option<u64>,
 }
 
 impl From<InitConfigArgs> for near_indexer::InitConfigArgs {

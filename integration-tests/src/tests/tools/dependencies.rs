@@ -18,15 +18,15 @@ use std::process::Command;
 use std::str;
 
 const LIBS_THRESHOLDS: [(&str, usize); 9] = [
-    ("near-primitives", 135),
-    ("near-jsonrpc-primitives", 142),
-    ("near-chain-configs", 136),
-    ("near-chain-primitives", 136),
-    ("near-client-primitives", 157),
-    ("near-parameters", 67),
-    ("near-crypto", 75),
-    ("near-primitives-core", 60),
-    ("near-time", 30),
+    ("near-primitives", 131),
+    ("near-jsonrpc-primitives", 138),
+    ("near-chain-configs", 132),
+    ("near-chain-primitives", 132),
+    ("near-client-primitives", 153),
+    ("near-parameters", 57),
+    ("near-crypto", 69),
+    ("near-primitives-core", 47),
+    ("near-time", 21),
 ];
 
 const THRESHOLD_IS_TOO_GENEROUS: usize = 30;
@@ -68,6 +68,8 @@ fn get_and_assert_crate_dependencies(name: &str, threshold: usize) -> usize {
         unique_crates.insert(crate_str);
     }
     let crate_count = unique_crates.len();
+
+    println!("{}, {}", name, crate_count);
 
     assert!(
         crate_count < threshold,
