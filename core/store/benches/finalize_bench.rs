@@ -29,6 +29,7 @@ use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
 };
 use near_primitives::types::{AccountId, Gas, ShardId};
+use near_primitives::utils::height_hash_to_bytes;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
@@ -68,17 +69,15 @@ fn benchmark_write_partial_encoded_chunk(bench: &mut Bencher) {
     let encoded_chunk = chunk.into_parts().1;
     let partial_chunk =
         encoded_chunk_to_partial_encoded_chunk(encoded_chunk, receipts, merkle_paths);
+    let chunk_height = partial_chunk.height_created();
     let chunks = spread_in_memory(partial_chunk);
 
     let store = near_store::test_utils::create_test_store();
     bench.iter(|| {
         let mut update = store.store_update();
+        let key = height_hash_to_bytes(chunk_height, &chunk_hash.0);
         update
-            .insert_ser(
-                DBCol::PartialChunks,
-                chunk_hash.as_ref(),
-                &chunks.choose(&mut rand::thread_rng()),
-            )
+            .insert_ser(DBCol::PartialChunks, &key, &chunks.choose(&mut rand::thread_rng()))
             .unwrap();
         black_box(update);
     });

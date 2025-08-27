@@ -18,6 +18,7 @@ fn test_request_chunk_restart() {
     }
     let block1 = env.clients[0].chain.get_block_by_height(3).unwrap();
     let request = PartialEncodedChunkRequestMsg {
+        chunk_height: block1.chunks()[0].height_created(),
         chunk_hash: block1.chunks()[0].chunk_hash().clone(),
         part_ords: vec![0],
         tracking_shards: HashSet::default(),

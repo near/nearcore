@@ -114,6 +114,7 @@ async fn test_peer_communication(
     let want = PeerMessage::Routed(Box::new(
         outbound.routed_message(
             T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+                chunk_height: chain.blocks[5].chunks()[2].height_created(),
                 chunk_hash: chain.blocks[5].chunks()[2].chunk_hash().clone(),
                 part_ords: vec![],
                 tracking_shards: Default::default(),

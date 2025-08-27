@@ -55,7 +55,9 @@ fn get_incoming_receipts(
     chunks.sort_by_key(|chunk| chunk.shard_id());
 
     for chunk in chunks {
-        if let Ok(partial_encoded_chunk) = chain_store.get_partial_chunk(&chunk.chunk_hash()) {
+        if let Ok(partial_encoded_chunk) =
+            chain_store.get_partial_chunk(chunk.height_created(), &chunk.chunk_hash())
+        {
             for receipt in partial_encoded_chunk.prev_outgoing_receipts() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 if shard_proof.to_shard_id == shard_id {

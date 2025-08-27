@@ -1048,7 +1048,10 @@ impl Chain {
             }
             match chunk_header {
                 ChunkType::New(chunk_header) => {
-                    if !self.chain_store.partial_chunk_exists(chunk_hash)? {
+                    if !self
+                        .chain_store
+                        .partial_chunk_exists(chunk_header.height_created(), chunk_hash)?
+                    {
                         missing.push(chunk_header.clone());
                     } else if self
                         .shard_tracker
@@ -1105,8 +1108,10 @@ impl Chain {
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
         for chunk_header in chunks.iter_new() {
-            let partial_encoded_chunk =
-                self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
+            let partial_encoded_chunk = self
+                .chain_store
+                .get_partial_chunk(chunk_header.height_created(), &chunk_header.chunk_hash())
+                .unwrap();
             for receipt in partial_encoded_chunk.prev_outgoing_receipts() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 let ShardProof { to_shard_id, .. } = shard_proof;

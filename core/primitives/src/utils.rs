@@ -325,6 +325,13 @@ pub fn index_to_bytes(index: u64) -> [u8; 8] {
     index.to_le_bytes()
 }
 
+pub fn height_hash_to_bytes(height: BlockHeight, hash: &CryptoHash) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(size_of::<BlockHeight>() + size_of::<CryptoHash>());
+    bytes.extend_from_slice(height.to_be_bytes().as_ref());
+    bytes.extend_from_slice(hash.as_ref());
+    bytes
+}
+
 /// A wrapper around Option<T> that provides native Display trait.
 /// Simplifies propagating automatic Display trait on parent structs.
 pub struct DisplayOption<T>(pub Option<T>);

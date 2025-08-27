@@ -1442,6 +1442,7 @@ impl PartialEncodedChunkForwardMsg {
 )]
 pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
+    pub chunk_height: BlockHeight,
     pub part_ords: Vec<u64>,
     pub tracking_shards: HashSet<ShardId>,
 }

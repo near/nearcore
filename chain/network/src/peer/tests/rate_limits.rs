@@ -185,6 +185,7 @@ async fn send_messages(
         let message = PeerMessage::Routed(Box::new(
             outbound.routed_message(
                 T2MessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
+                    chunk_height: inbound.cfg.chain.blocks[5].chunks()[2].height_created(),
                     chunk_hash: outbound.cfg.chain.blocks[5].chunks()[2].chunk_hash().clone(),
                     part_ords: vec![rng.r#gen()],
                     tracking_shards: Default::default(),
