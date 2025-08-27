@@ -261,7 +261,6 @@ fn load_snapshot(load_cmd: LoadCmd) {
                 ReshardingConfig::default(),
                 "resharding_config",
             ),
-            protocol_version_check: Default::default(),
         },
         None,
         Arc::new(RayonAsyncComputationSpawner),

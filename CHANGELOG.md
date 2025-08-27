@@ -8,11 +8,6 @@
 ### Non-protocol Changes
 **No Changes**
 
-## [2.7.1]
-
-### Non-protocol changes
-* Add a new configuration option `protocol_version_check_config_override`. This determines which epoch the client uses to determine version compatibility with the network. The default is `NextNext`, which causes the node to exit instead of persisting potentially incorrect epoch info and corrupting the database in case the node operator does not update the client in time for the network upgrade. The prior behavior only checked the protocol version in the next epoch, which can be restored by setting this option to `Next` and allows a validator that did not upgrade their node to participate in the final epoch the client is compatible with the network.
-
 ## [2.7.0]
 
 ### Protocol Changes
