@@ -49,11 +49,8 @@ class RemoteNeardRunner:
             cmd = f'rm -rf {self.neard_runner_home} && {cmd}'
         cmd_utils.run_cmd(self.node, cmd)
 
-    def upload_neard_runner(self):
-        self.node.machine.upload('tests/mocknet/helpers/neard_runner.py',
-                                 self.neard_runner_home,
-                                 switch_user='ubuntu')
-        self.node.machine.upload('tests/mocknet/helpers/requirements.txt',
+    def upload_neard_runner(self, source_dir):
+        self.node.machine.upload(source_dir,
                                  self.neard_runner_home,
                                  switch_user='ubuntu')
 

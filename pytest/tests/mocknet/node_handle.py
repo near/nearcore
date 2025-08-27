@@ -51,8 +51,8 @@ class NodeHandle:
     def start_neard_runner(self):
         self.node.start_neard_runner()
 
-    def upload_neard_runner(self):
-        self.node.upload_neard_runner()
+    def upload_neard_runner(self, source_dir):
+        self.node.upload_neard_runner(source_dir)
         self.node.update_python()
 
     def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
@@ -77,11 +77,11 @@ class NodeHandle:
     def download_file(self, src, dst):
         return self.node.download_file(src, dst)
 
-    def init_neard_runner(self, config, remove_home_dir=False):
+    def init_neard_runner(self, config, source_dir, remove_home_dir=False):
         self.node.stop_neard_runner()
         self.node.init()
         self.node.mk_neard_runner_home(remove_home_dir)
-        self.node.upload_neard_runner()
+        self.node.upload_neard_runner(source_dir)
         # TODO: this config file should just be replaced by parameters to the new-test
         # rpc method. This was originally made a config file instead because the rpc port
         # was open to the internet, but now that we call it via ssh instead (which we should

@@ -13,8 +13,9 @@ import re
 import sys
 import time
 import numpy as np
-from functools import wraps
 from typing import Optional
+import tempfile
+import os
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -273,8 +274,21 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
         all_nodes.append(traffic_generator)
         all_configs.append(traffic_generator_config)
 
-    pmap(lambda x: x[0].init_neard_runner(x[1], remove_home_dir),
-         zip(all_nodes, all_configs))
+    source_temp_dir = tempfile.mkdtemp(prefix="neard_runner_shared_")
+    try:
+        shutil.copy2('tests/mocknet/helpers/neard_runner.py',
+                     os.path.join(source_temp_dir, 'neard_runner.py'))
+        shutil.copy2('tests/mocknet/helpers/requirements.txt',
+                     os.path.join(source_temp_dir, 'requirements.txt'))
+        shutil.copy2('tests/mocknet/helpers/setup-near-cli.sh',
+                     os.path.join(source_temp_dir, 'setup-near-cli.sh'))
+
+        pmap(
+            lambda x: x[0].init_neard_runner(x[1], source_temp_dir,
+                                             remove_home_dir),
+            zip(all_nodes, all_configs))
+    finally:
+        shutil.rmtree(source_temp_dir)
 
 
 def init_cmd(ctx: CommandContext):
@@ -303,7 +317,10 @@ def restart_cmd(ctx: CommandContext):
     targeted = ctx.get_targeted()
     pmap(lambda node: node.stop_neard_runner(), targeted)
     if ctx.args.upload_program:
-        pmap(lambda node: node.upload_neard_runner(), targeted)
+        pmap(
+            lambda node: node.upload_file(
+                'tests/mocknet/helpers/neard_runner.py', node.neard_runner_home
+            ), targeted)
     pmap(lambda node: node.start_neard_runner(), targeted)
 
 
