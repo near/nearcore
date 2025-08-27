@@ -13,10 +13,10 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
@@ -80,6 +80,7 @@ pub(super) async fn run_state_sync_for_shard(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", sync_hash)),
         )?;
     let epoch_id = *block_header.epoch_id();
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id)?;
     metrics::STATE_SYNC_PARTS_TOTAL
         .with_label_values(&[&shard_id.to_string()])
@@ -111,6 +112,7 @@ pub(super) async fn run_state_sync_for_shard(
                     part_id,
                     attempt_count,
                     cancel.clone(),
+                    protocol_version,
                 );
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
             })
@@ -155,6 +157,7 @@ pub(super) async fn run_state_sync_for_shard(
                 num_parts,
                 state_root,
                 epoch_id,
+                protocol_version,
             );
             respawn_for_parallelism(&*future_spawner, "state sync apply part", future)
         })
@@ -255,13 +258,14 @@ async fn apply_state_part(
     num_parts: u64,
     state_root: CryptoHash,
     epoch_id: EpochId,
+    protocol_version: ProtocolVersion,
 ) -> anyhow::Result<(), near_chain::Error> {
     return_if_cancelled!(cancel);
     let handle =
         computation_task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
     return_if_cancelled!(cancel);
     handle.set_status("Loading part data from store");
-    let data = store
+    let bytes = store
         .get(
             DBCol::StateParts,
             &borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap(),
@@ -273,12 +277,13 @@ async fn apply_state_part(
             ))
         })?
         .to_vec();
+    let state_part = StatePart::from_bytes(bytes, protocol_version)?;
     handle.set_status("Applying part data to runtime");
     runtime.apply_state_part(
         shard_id,
         &state_root,
         PartId { idx: part_id, total: num_parts },
-        &data,
+        &state_part,
         &epoch_id,
     )?;
     Ok(())

@@ -1,11 +1,11 @@
 use std::ops::ControlFlow;
 use std::str::FromStr;
 
-use awc::http::StatusCode;
 use futures::{FutureExt, future};
 use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::transaction::SignedTransaction;
+use reqwest::StatusCode;
 use serde_json::json;
 
 use near_actix_test_utils::run_actix;
@@ -558,11 +558,12 @@ fn test_invalid_methods() {
                 "method": &method_name,
                 "params": serde_json::json!([]),
             });
-            let response = &mut client
+            let response = client
                 .client
                 .post(&client.server_addr)
-                .insert_header(("Content-Type", "application/json"))
-                .send_json(&json)
+                .header("Content-Type", "application/json")
+                .json(&json)
+                .send()
                 .await
                 .unwrap();
 
@@ -598,8 +599,9 @@ fn test_parse_error_status_code() {
         let response = &mut client
             .client
             .post(&client.server_addr)
-            .insert_header(("Content-Type", "application/json"))
-            .send_json(&json)
+            .header("Content-Type", "application/json")
+            .json(&json)
+            .send()
             .await
             .unwrap();
 
@@ -623,8 +625,9 @@ fn slow_test_bad_handler_error_status_code() {
         let response = &mut client
             .client
             .post(&client.server_addr)
-            .insert_header(("Content-Type", "application/json"))
-            .send_json(&json)
+            .header("Content-Type", "application/json")
+            .json(&json)
+            .send()
             .await
             .unwrap();
 
@@ -645,8 +648,9 @@ fn test_good_handler_error_status_code() {
         let response = &mut client
             .client
             .post(&client.server_addr)
-            .insert_header(("Content-Type", "application/json"))
-            .send_json(&json)
+            .header("Content-Type", "application/json")
+            .json(&json)
+            .send()
             .await
             .unwrap();
 

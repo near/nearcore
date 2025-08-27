@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
-use crate::ActorSystem;
 use crate::futures::{DelayedActionRunner, FutureSpawner};
 use crate::messaging::Actor;
+use tokio_util::sync::CancellationToken;
 
 /// TokioRuntimeMessage is a type alias for a boxed function that can be sent to the Tokio runtime.
 pub(super) struct TokioRuntimeMessage<A> {
@@ -40,29 +40,11 @@ where
     }
 }
 
-/// Spawns an actor in the Tokio runtime and returns a handle to it.
-/// The handle can be used to get the sender and future spawner for the actor.
-///
-/// ```rust, ignore
-///
-/// struct MyActor;
-///
-/// impl Actor for MyActor {}
-///
-/// impl Handler<MyMessage> for MyActor {
-///     fn handle(&mut self, msg: MyMessage) {}
-/// }
-///
-/// // We can use the actor_handle to create senders and future spawners.
-/// let actor_handle = spawn_tokio_actor(MyActor);
-///
-/// let sender: MyAdapter = actor_handle.sender();
-/// let future_spawner = actor_handle.future_spawner();
-/// ```
-///
-/// The sender and future spawner can then be passed onto other components that need to send messages
-/// to the actor or spawn futures in the runtime of the actor.
-pub fn spawn_tokio_actor<A>(actor_system: ActorSystem, mut actor: A) -> TokioRuntimeHandle<A>
+/// See ActorSystem::spawn_tokio_actor.
+pub(crate) fn spawn_tokio_actor<A>(
+    mut actor: A,
+    system_cancellation_signal: CancellationToken,
+) -> TokioRuntimeHandle<A>
 where
     A: Actor + Send + 'static,
 {
@@ -82,7 +64,7 @@ where
         actor.start_actor(&mut runtime_handle_clone);
         loop {
             tokio::select! {
-                _ = actor_system.tokio_cancellation_signal.cancelled() => {
+                _ = system_cancellation_signal.cancelled() => {
                     tracing::info!(target: "tokio_runtime", "shutting down Tokio runtime");
                     break;
                 }

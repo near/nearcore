@@ -126,7 +126,7 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
             let (method, params) = request.method_and_params();
             eprintln!("POST DATA: {{method = {}}} {{params = {}}}", method, params);
 
-            let client = awc::Client::new();
+            let client = reqwest::Client::new();
             let addr = unsafe {
                 #[allow(static_mut_refs)]
                 NODE_ADDR.as_ref().unwrap().to_string()

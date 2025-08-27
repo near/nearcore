@@ -13,12 +13,14 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
+crossbeam-channel.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
+rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tokio-util.workspace = true
 tracing.workspace = true
 
