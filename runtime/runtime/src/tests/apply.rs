@@ -1231,7 +1231,7 @@ fn test_compute_usage_limit() {
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
-    apply_state.gas_limit = Some(sha256_cost.gas);
+    apply_state.gas_limit = Some(Gas::from_gas(sha256_cost.compute));
 
     let deploy_contract_receipt = create_receipt_with_actions(
         alice_account(),
@@ -1610,7 +1610,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
-    apply_state.gas_limit = Some(sha256_cost.gas);
+    apply_state.gas_limit = Some(Gas::from_gas(sha256_cost.compute));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
@@ -1825,7 +1825,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
-    apply_state.gas_limit = Some(sha256_cost.gas);
+    apply_state.gas_limit = Some(Gas::from_gas(sha256_cost.compute));
 
     // We use different contract to check the code hashes in the output.
     let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
@@ -2008,7 +2008,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
-    apply_state.gas_limit = Some(sha256_cost.gas);
+    apply_state.gas_limit = Some(Gas::from_gas(sha256_cost.compute));
 
     // We use different contract to check the code hashes in the output.
     let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
@@ -2230,7 +2230,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
-    apply_state.gas_limit = Some(sha256_cost.gas);
+    apply_state.gas_limit = Some(Gas::from_gas(sha256_cost.compute));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let receipt = create_receipt_with_actions(

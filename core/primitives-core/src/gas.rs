@@ -12,6 +12,7 @@ use near_gas::NearGas;
     borsh::BorshDeserialize,
     borsh::BorshSerialize,
     derive_more::Display,
+    derive_more::FromStr,
     serde::Deserialize,
     Clone,
     Copy,

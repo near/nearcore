@@ -23,6 +23,10 @@ pub struct Fee {
 }
 
 impl Fee {
+    pub fn new(send_sir: u64, send_not_sir: u64, execution: u64) -> Self {
+        Self { send_sir: Gas::from_gas(send_sir), send_not_sir: Gas::from_gas(send_not_sir), execution: Gas::from_gas(execution) }
+    }
+
     #[inline]
     pub fn send_fee(&self, sir: bool) -> Gas {
         if sir { self.send_sir } else { self.send_not_sir }
@@ -488,106 +492,26 @@ impl RuntimeFeesConfig {
                 Gas::from_gas(0)
             },
             action_fees: enum_map::enum_map! {
-                ActionCosts::create_account => Fee {
-                    send_sir: Gas::from_giga(3_850),
-                    send_not_sir: Gas::from_giga(3_850),
-                    execution: Gas::from_giga(3_850),
-                },
-                ActionCosts::delete_account => Fee {
-                    send_sir: Gas::from_gas(147489000000),
-                    send_not_sir: Gas::from_gas(147489000000),
-                    execution: Gas::from_gas(147489000000),
-                },
-                ActionCosts::deploy_contract_base => Fee {
-                    send_sir: Gas::from_gas(184765750000),
-                    send_not_sir: Gas::from_gas(184765750000),
-                    execution: Gas::from_gas(184765750000),
-                },
-                ActionCosts::deploy_contract_byte => Fee {
-                    send_sir: Gas::from_gas(6812999),
-                    send_not_sir: Gas::from_gas(6812999),
-                    execution: Gas::from_gas(6812999),
-                },
-                ActionCosts::function_call_base => Fee {
-                    send_sir: Gas::from_gas(2319861500000),
-                    send_not_sir: Gas::from_gas(2319861500000),
-                    execution: Gas::from_gas(2319861500000),
-                },
-                ActionCosts::function_call_byte => Fee {
-                    send_sir: Gas::from_gas(2235934),
-                    send_not_sir: Gas::from_gas(2235934),
-                    execution: Gas::from_gas(2235934),
-                },
-                ActionCosts::transfer => Fee {
-                    send_sir: Gas::from_gas(115123062500),
-                    send_not_sir: Gas::from_gas(115123062500),
-                    execution: Gas::from_gas(115123062500),
-                },
-                ActionCosts::stake => Fee {
-                    send_sir: Gas::from_gas(141715687500),
-                    send_not_sir: Gas::from_gas(141715687500),
-                    execution: Gas::from_gas(102217625000),
-                },
-                ActionCosts::add_full_access_key => Fee {
-                    send_sir: Gas::from_gas(101765125000),
-                    send_not_sir: Gas::from_gas(101765125000),
-                    execution: Gas::from_gas(101765125000),
-                },
-                ActionCosts::add_function_call_key_base => Fee {
-                    send_sir: Gas::from_gas(102217625000),
-                    send_not_sir: Gas::from_gas(102217625000),
-                    execution: Gas::from_gas(102217625000),
-                },
-                ActionCosts::add_function_call_key_byte => Fee {
-                    send_sir: Gas::from_gas(1925331),
-                    send_not_sir: Gas::from_gas(1925331),
-                    execution: Gas::from_gas(1925331),
-                },
-                ActionCosts::delete_key => Fee {
-                    send_sir: Gas::from_gas(94946625000),
-                    send_not_sir: Gas::from_gas(94946625000),
-                    execution: Gas::from_gas(94946625000),
-                },
-                ActionCosts::new_action_receipt => Fee {
-                    send_sir: Gas::from_gas(108059500000),
-                    send_not_sir: Gas::from_gas(108059500000),
-                    execution: Gas::from_gas(108059500000),
-                },
-                ActionCosts::new_data_receipt_base => Fee {
-                    send_sir: Gas::from_gas(4697339419375),
-                    send_not_sir: Gas::from_gas(4697339419375),
-                    execution: Gas::from_gas(4697339419375),
-                },
-                ActionCosts::new_data_receipt_byte => Fee {
-                    send_sir: Gas::from_gas(59357464),
-                    send_not_sir: Gas::from_gas(59357464),
-                    execution: Gas::from_gas(59357464),
-                },
-                ActionCosts::delegate => Fee {
-                    send_sir: Gas::from_giga(200),
-                    send_not_sir: Gas::from_giga(200),
-                    execution: Gas::from_giga(200),
-                },
-                ActionCosts::deploy_global_contract_base => Fee {
-                    send_sir: Gas::from_gas(184_765_750_000),
-                    send_not_sir: Gas::from_gas(184_765_750_000),
-                    execution: Gas::from_gas(184_765_750_000),
-                },
-                ActionCosts::deploy_global_contract_byte => Fee {
-                    send_sir: Gas::from_gas(6_812_999),
-                    send_not_sir: Gas::from_gas(6_812_999),
-                    execution: Gas::from_gas(70_000_000),
-                },
-                ActionCosts::use_global_contract_base => Fee {
-                    send_sir: Gas::from_gas(184_765_750_000),
-                    send_not_sir: Gas::from_gas(184_765_750_000),
-                    execution: Gas::from_gas(184_765_750_000),
-                },
-                ActionCosts::use_global_contract_byte => Fee {
-                    send_sir: Gas::from_gas(6_812_999),
-                    send_not_sir: Gas::from_gas(47_683_715),
-                    execution: Gas::from_gas(64_572_944),
-                },
+                ActionCosts::create_account => Fee::new(3_850_000_000_000, 3_850_000_000_000, 3_850_000_000_000),
+                ActionCosts::delete_account => Fee::new(147489000000, 147489000000, 147489000000),
+                ActionCosts::deploy_contract_base => Fee::new(184765750000, 184765750000, 184765750000),
+                ActionCosts::deploy_contract_byte => Fee::new(6812999, 6812999, 6812999),
+                ActionCosts::function_call_base => Fee::new(2319861500000, 2319861500000, 2319861500000),
+                ActionCosts::function_call_byte => Fee::new(2235934, 2235934, 2235934),
+                ActionCosts::transfer => Fee::new(115123062500, 115123062500, 115123062500),
+                ActionCosts::stake => Fee::new(141715687500, 141715687500, 141715687500),
+                ActionCosts::add_full_access_key => Fee::new(101765125000, 101765125000, 101765125000),
+                ActionCosts::add_function_call_key_base => Fee::new(102217625000, 102217625000, 102217625000),
+                ActionCosts::add_function_call_key_byte => Fee::new(1925331, 1925331, 1925331),
+                ActionCosts::delete_key => Fee::new(94946625000, 94946625000, 94946625000),
+                ActionCosts::new_action_receipt => Fee::new(108059500000, 108059500000, 108059500000),
+                ActionCosts::new_data_receipt_base => Fee::new(4697339419375, 4697339419375, 4697339419375),
+                ActionCosts::new_data_receipt_byte => Fee::new(59357464, 59357464, 59357464),
+                ActionCosts::delegate => Fee::new(200_000_000_000, 200_000_000_000, 200_000_000_000),
+                ActionCosts::deploy_global_contract_base => Fee::new(184_765_750_000, 184_765_750_000, 184_765_750_000),
+                ActionCosts::deploy_global_contract_byte => Fee::new(6_812_999, 6_812_999, 70_000_000),
+                ActionCosts::use_global_contract_base => Fee::new(184_765_750_000, 184_765_750_000, 184_765_750_000),
+                ActionCosts::use_global_contract_byte => Fee::new(6_812_999, 47_683_715, 64_572_944),
             },
         }
     }
@@ -595,7 +519,7 @@ impl RuntimeFeesConfig {
     pub fn free() -> Self {
         Self {
             action_fees: enum_map::enum_map! {
-                _ => Fee { send_sir: Gas::from_gas(0), send_not_sir: Gas::from_gas(0), execution: Gas::from_gas(0) }
+                _ => Fee::new(0, 0, 0)
             },
             storage_usage_config: StorageUsageConfig::free(),
             burnt_gas_reward: Rational32::from_integer(0),

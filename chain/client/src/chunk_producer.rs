@@ -20,7 +20,9 @@ use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId, Gas, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
+#[cfg(feature = "test_features")]
+use near_primitives::types::Gas;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;

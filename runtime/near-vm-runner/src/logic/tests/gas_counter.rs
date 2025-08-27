@@ -240,11 +240,11 @@ fn check_action_gas_exceeds_limit(
     // Create a logic parametrized such that it will fail with out-of-gas when specified action is deducted.
     let gas_limit = 10u64.pow(13);
     let gas_attached = gas_limit;
-    let fee = Fee {
-        send_sir: Gas::from_gas(gas_limit / num_action_paid + 1),
-        send_not_sir: Gas::from_gas(gas_limit / num_action_paid + 10),
-        execution: Gas::from_gas(1), // exec part is `used`, make it small
-    };
+    let fee = Fee::new(
+        gas_limit / num_action_paid + 1,
+        gas_limit / num_action_paid + 10,
+        1, // exec part is `used`, make it small
+    );
     let mut logic_builder = VMLogicBuilder::default();
     logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
     logic_builder.fees_config.action_fees[cost] = fee;
@@ -292,11 +292,11 @@ fn check_action_gas_exceeds_attached(
     // Create a logic parametrized such that it will fail with out-of-gas when specified action is deducted.
     let gas_limit = 10u64.pow(14);
     let gas_attached = 10u64.pow(13);
-    let fee = Fee {
-        send_sir: Gas::from_gas(1),      // make burnt gas small
-        send_not_sir: Gas::from_gas(10), // make it easy to distinguish `sir` / `not_sir`
-        execution: Gas::from_gas(gas_attached / num_action_paid + 1),
-    };
+    let fee = Fee::new(
+        1,      // make burnt gas small
+        10, // make it easy to distinguish `sir` / `not_sir`
+        gas_attached / num_action_paid + 1,
+    );
     let mut logic_builder = VMLogicBuilder::default();
     logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
     logic_builder.fees_config.action_fees[cost] = fee;

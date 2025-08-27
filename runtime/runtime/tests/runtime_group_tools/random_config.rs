@@ -6,11 +6,11 @@ use rand::{Rng, RngCore, thread_rng};
 
 pub fn random_config() -> RuntimeConfig {
     let mut rng = thread_rng();
-    let mut random_fee = || Fee {
-        send_sir: Gas::from_gas(rng.next_u64() % 1000),
-        send_not_sir: Gas::from_gas(rng.next_u64() % 1000),
-        execution: Gas::from_gas(rng.next_u64() % 1000),
-    };
+    let mut random_fee = || Fee::new(
+        rng.next_u64() % 1000,
+        rng.next_u64() % 1000,
+        rng.next_u64() % 1000,
+    );
     RuntimeConfig {
         fees: std::sync::Arc::new(RuntimeFeesConfig {
             action_fees: enum_map::enum_map! {
