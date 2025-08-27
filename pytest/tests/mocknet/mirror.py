@@ -320,25 +320,27 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
     for node, response in new_test_rpc_responses:
         if len(validators) < num_validators:
             if node.can_validate:
-                # We assume that if node validates a chain, it has account id
-                # and public key.
                 if node.role() == 'validator':
                     amount = 10**32
                 else:
                     amount = 10**33
 
+                # We assume that if node validates a chain, it has account id
+                # and public key.
                 validators.append({
                     'account_id': response['validator_account_id'],
                     'public_key': response['validator_public_key'],
                     'amount': str(amount),
                 })
-
-                if len(boot_nodes) < 20:
-                    boot_nodes.append(
-                        f'{response["node_key"]}@{node.ip_addr()}:{response["listen_port"]}'
-                    )
         else:
             non_validators.append(node.ip_addr())
+
+        # We want to bootstrap chain data from nodes which have state
+        # initially, which is the case iff node is not a chunk validator.
+        if len(boot_nodes) < 20 and node.role() != 'validator':
+            boot_nodes.append(
+                f'{response["node_key"]}@{node.ip_addr()}:{response["listen_port"]}'
+            )
 
         if len(validators) >= num_validators and len(boot_nodes) >= 20:
             break
