@@ -3,6 +3,7 @@ use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ProtocolConfig;
+use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_configs::ReshardingConfig;
 use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -203,6 +204,8 @@ pub struct ChainConfig {
     pub background_migration_threads: usize,
     /// The resharding configuration.
     pub resharding_config: MutableConfigValue<ReshardingConfig>,
+    /// The epoch to check for protocol version compatibility.
+    pub protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 impl ChainConfig {
@@ -214,6 +217,7 @@ impl ChainConfig {
                 ReshardingConfig::test(),
                 "resharding_config",
             ),
+            protocol_version_check: Default::default(),
         }
     }
 }

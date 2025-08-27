@@ -5,7 +5,7 @@ use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
-use near_chain_configs::{Genesis, GenesisConfig, TrackedShardsConfig};
+use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig, TrackedShardsConfig};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client::Client;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -54,6 +54,7 @@ pub struct TestEnvBuilder {
     archive: bool,
     save_trie_changes: bool,
     state_snapshot_enabled: bool,
+    protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -84,6 +85,7 @@ impl TestEnvBuilder {
             archive: false,
             save_trie_changes: true,
             state_snapshot_enabled: false,
+            protocol_version_check: Default::default(),
         }
     }
 
@@ -471,6 +473,14 @@ impl TestEnvBuilder {
         self
     }
 
+    pub fn protocol_version_check(
+        mut self,
+        protocol_version_check: ProtocolVersionCheckConfig,
+    ) -> Self {
+        self.protocol_version_check = protocol_version_check;
+        self
+    }
+
     /// Constructs new `TestEnv` structure.
     ///
     /// If no clients were configured (either through count or vector) one
@@ -564,6 +574,7 @@ impl TestEnvBuilder {
                         rng_seed,
                         self.archive,
                         self.save_trie_changes,
+                        self.protocol_version_check,
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
                         validator_signer,
@@ -606,6 +617,7 @@ impl TestEnvBuilder {
             seeds,
             archive: self.archive,
             save_trie_changes: self.save_trie_changes,
+            protocol_version_check: self.protocol_version_check,
         }
     }
 
