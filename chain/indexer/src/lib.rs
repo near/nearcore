@@ -2,6 +2,7 @@
 
 use anyhow::Context;
 use near_config_utils::DownloadConfigType;
+use nearcore::NearNode;
 use tokio::sync::mpsc;
 
 use near_chain_configs::GenesisValidationMode;
@@ -144,14 +145,18 @@ impl Indexer {
         Ok(Self { view_client, client, near_config, indexer_config, shard_tracker })
     }
 
-    pub fn new_raw(
+    pub fn from_near_node(
         indexer_config: IndexerConfig,
         near_config: nearcore::NearConfig,
-        view_client: actix::Addr<near_client::ViewClientActor>,
-        client: TokioRuntimeHandle<ClientActorInner>,
-        shard_tracker: ShardTracker,
+        near_node: &NearNode,
     ) -> Self {
-        Self { view_client, client, near_config, indexer_config, shard_tracker }
+        Self {
+            view_client: near_node.view_client.clone(),
+            client: near_node.client.clone(),
+            near_config,
+            indexer_config,
+            shard_tracker: near_node.shard_tracker.clone(),
+        }
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.

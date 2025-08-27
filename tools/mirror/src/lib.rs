@@ -27,6 +27,7 @@ use near_primitives::views::{
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, ShardId};
+use nearcore::NearNode;
 use parking_lot::{Mutex, RwLock};
 use rocksdb::DB;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1771,21 +1772,15 @@ impl<T: ChainAccess> TxMirror<T> {
             validate_genesis: false,
         };
         let near_config = indexer_config.derive_near_config();
-        let nearcore::NearNode { client, view_client, rpc_handler, shard_tracker, .. } =
-            nearcore::start_with_config(
-                &indexer_config.home_dir,
-                near_config.clone(),
-                near_async::ActorSystem::new(),
-            )
-            .with_context(|| "failed to start near node")?;
-        let target_indexer = Indexer::new_raw(
-            indexer_config,
-            near_config,
-            view_client.clone(),
-            client.clone(),
-            shard_tracker,
-        );
+        let near_node = nearcore::start_with_config(
+            &indexer_config.home_dir,
+            near_config.clone(),
+            near_async::ActorSystem::new(),
+        )
+        .with_context(|| "failed to start near node")?;
+        let target_indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
         let mut target_stream = target_indexer.streamer();
+        let NearNode { client, view_client, rpc_handler, .. } = near_node;
         let (first_target_height, first_target_head) = Self::index_target_chain(
             &tracker,
             &tx_block_queue,
