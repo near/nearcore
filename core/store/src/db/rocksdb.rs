@@ -627,7 +627,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     // See the implementation here:
     //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
     // Increase memory budget to reduce flush/compaction frequency under heavy write load
-    opts.optimize_level_style_compaction(512 * bytesize::MIB as usize);
+    opts.optimize_level_style_compaction(256 * bytesize::MIB as usize);
     // Relax L0 triggers so background compaction interferes less with foreground writes
     opts.set_level_zero_file_num_compaction_trigger(8);
     opts.set_level_zero_slowdown_writes_trigger(32);
@@ -635,9 +635,9 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     // Allow more memtables in flight to absorb bursts
     opts.set_max_write_buffer_number(4);
     // Larger target file size reduces number of files and compactions
-    opts.set_target_file_size_base(128 * bytesize::MIB);
+    opts.set_target_file_size_base(96 * bytesize::MIB);
     // Help compaction read sequentially by adding readahead on the device
-    opts.set_compaction_readahead_size(2 * bytesize::MIB as usize);
+    opts.set_compaction_readahead_size(1 * bytesize::MIB as usize);
 
     if temp == Temperature::Hot && col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
@@ -651,10 +651,19 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
             opts.set_level_zero_file_num_compaction_trigger(8);
             opts.set_level_zero_slowdown_writes_trigger(48);
             opts.set_level_zero_stop_writes_trigger(96);
-            opts.set_max_subcompactions(2);
+            opts.set_max_subcompactions(3);
             opts.set_target_file_size_base(192 * bytesize::MIB);
             opts.set_max_write_buffer_number(8);
             opts.set_compaction_readahead_size(4 * bytesize::MIB as usize);
+        }
+        DBCol::State | DBCol::TrieChanges => {
+            opts.optimize_level_style_compaction(512 * bytesize::MIB as usize);
+            opts.set_level_zero_file_num_compaction_trigger(8);
+            opts.set_level_zero_slowdown_writes_trigger(32);
+            opts.set_level_zero_stop_writes_trigger(64);
+            opts.set_target_file_size_base(128 * bytesize::MIB);
+            opts.set_max_write_buffer_number(6);
+            opts.set_compaction_readahead_size(2 * bytesize::MIB as usize);
         }
         _ => {}
     }
