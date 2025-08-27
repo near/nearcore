@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.9.x
+
+## Breaking changes
+
+Remove `near_config` and `client_actors` methods from `Indexer`.
+Instead `NearNode` can be bootstrapped in the client code and then indexer instance
+is created with `Indexer::new_raw()`:
+```
+  let near_config = indexer_config.derive_near_config();
+  let near_node = nearcore::start_with_config(
+      &indexer_config.home_dir,
+      near_config.clone(),
+      near_async::ActorSystem::new(),
+  )?;
+  // clone required actors or near_config from near_node
+  let indexer = Indexer::new_raw(
+      indexer_config,
+      near_node.near_config,
+      near_node.view_client,
+      near_node.client,
+      near_node.shard_tracker,
+  );
+```
+
 ## 1.38.x
 
 * Make `build_streamer_message` public to allow custom indexer to reuse this function (e.g. build an indexer that streams optimistic block finalities, indexer that streams only blocks satisfying some condition, etc.)
