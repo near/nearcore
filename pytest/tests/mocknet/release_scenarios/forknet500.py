@@ -2,8 +2,10 @@
 Test case classes for release tests on forknet.
 """
 from .base import NodeHardware, TestSetup
-from mirror import CommandContext, update_config_cmd
+from mirror import CommandContext, update_config_cmd, run_remote_cmd
 import copy
+from datetime import datetime, timedelta, timezone
+from utils import ScheduleMode, start_nodes_cmd
 
 
 class Test28(TestSetup):
@@ -48,13 +50,42 @@ class Test28(TestSetup):
         ])
         update_config_cmd(CommandContext(cfg_args))
 
+    def _schedule_upgrade_nodes_every_n_minutes(self, minutes):
+
+        def time_to_str(time):
+            return time.astimezone(
+                timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+
+        now = datetime.now()
+        ref_time = [now + timedelta(minutes=i * minutes) for i in range(1, 5)]
+
+        for i in range(1, 5):
+            start_nodes_args = copy.deepcopy(self.args)
+            start_nodes_args.host_type = 'nodes'
+            start_nodes_args.select_partition = (i, 4)
+            start_nodes_args.on = ScheduleMode(mode="calendar",
+                                               value=time_to_str(ref_time[i]))
+            start_nodes_args.schedule_id = f"up-start-{i}"
+            start_nodes_args.binary_idx = 1
+            start_nodes_cmd(CommandContext(start_nodes_args))
+
+            # Send stake transaction to RPC node using node key
+            stake_cmd_args = copy.deepcopy(self.args)
+            stake_cmd_args.host_type = 'traffic'
+            stake_cmd_args.cmd = f"""
+                account_id=$(grep account_id ~/.near/node_key.json | awk -F'"' '{{print $4}}')
+                staking_key=$(grep public_key ~/.near/node_key.json | awk -F'"' '{{print $4}}')
+                near --nodeUrl=http://127.0.0.1:3030 stake $account_id $staking_key 1000000000000000000000000
+            """
+            run_remote_cmd(CommandContext(stake_cmd_args))
+
     def after_test_start(self):
         """
         Use this event to run any commands after the test is started.
         """
         super().after_test_start()
-        #self._schedule_upgrade_nodes_every_n_minutes(
-        #    self.upgrade_interval_minutes)
+        self._schedule_upgrade_nodes_every_n_minutes(
+            self.upgrade_interval_minutes)
 
 
 class OneNode(TestSetup):
