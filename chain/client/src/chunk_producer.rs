@@ -89,6 +89,11 @@ pub struct ChunkProducer {
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
 
     prepared_transactions_cache: PreparedTransactionsCache,
+
+    // If we produced a chunk, temporarily store the prepared transactions here.
+    // They can be added back to the mempool after the next set of transactions
+    // are prepared optimistically.
+    txs_in_chunk: TxsInChunk,
 }
 
 pub(crate) struct PreparedTransactionsCache {
@@ -110,6 +115,24 @@ impl PreparedTransactionsCache {
         value: PreparedTransactions,
     ) -> Option<PreparedTransactions> {
         self.cache.write().insert(key, value)
+    }
+}
+
+pub(crate) struct TxsInChunk {
+    pub txs: RwLock<Vec<(ShardUId, PreparedTransactions)>>,
+}
+
+impl TxsInChunk {
+    pub fn new() -> Self {
+        Self { txs: RwLock::new(Vec::new()) }
+    }
+
+    pub fn push(&self, item: (ShardUId, PreparedTransactions)) {
+        self.txs.write().push(item);
+    }
+
+    pub fn drain(&self) -> Vec<(ShardUId, PreparedTransactions)> {
+        self.txs.write().drain(..).collect()
     }
 }
 
@@ -147,6 +170,7 @@ impl ChunkProducer {
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
             ),
             prepared_transactions_cache: PreparedTransactionsCache::new(),
+            txs_in_chunk: TxsInChunk::new(),
         }
     }
 
@@ -315,6 +339,9 @@ impl ChunkProducer {
                 chain_validate,
             )?
         };
+        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
+        // included into the block.
+        self.txs_in_chunk.push((shard_uid, prepared_transactions.clone()));
 
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
@@ -533,20 +560,24 @@ impl ChunkProducer {
         } else {
             PreparedTransactions { transactions: Vec::new(), limited_by: None }
         };
-        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
-        // included into the block.
-        let reintroduced_count = pool_guard
-            .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
-
-        if reintroduced_count < prepared_transactions.transactions.len() {
-            debug!(
-                target: "client",
-                reintroduced_count,
-                num_tx = prepared_transactions.transactions.len(),
-                "reintroduced transactions"
-            );
-        }
         Ok(prepared_transactions)
+    }
+
+    pub fn reintroduce_txs_in_chunk_to_pool(&self) {
+        let mut pool_guard = self.sharded_tx_pool.lock();
+        for (shard_uid, prepared_txs) in self.txs_in_chunk.drain() {
+            let num_tx = prepared_txs.transactions.len();
+            let reintroduced_count =
+                pool_guard.reintroduce_transactions(shard_uid, prepared_txs.transactions);
+            if reintroduced_count < num_tx {
+                debug!(
+                    target: "client",
+                    reintroduced_count,
+                    num_tx = num_tx,
+                    "reintroduced transactions"
+                );
+            }
+        }
     }
 
     #[cfg(feature = "test_features")]

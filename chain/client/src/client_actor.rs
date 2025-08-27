@@ -1322,6 +1322,9 @@ impl ClientActorInner {
                 }
             }
         }
+        // After txs have been prepared, we can reintroduce the ones included
+        // in the chunk to the mempool.
+        self.client.chunk_producer.reintroduce_txs_in_chunk_to_pool();
 
         delay = core::cmp::min(delay, self.log_summary_timer_next_attempt - now);
         timer.observe_duration();
