@@ -1307,24 +1307,19 @@ impl ClientActorInner {
                 // TODO: avoid this if is_syncing?
                 let chain_validate =
                     self.client.chain.transaction_validity_check(block.header().clone());
-                for shard_id in self.client.epoch_manager.shard_ids(&epoch_id).unwrap() {
-                    self.client
-                        .chunk_producer
-                        .prepare_and_cache_transactions(
-                            block.as_ref(),
-                            &epoch_id,
-                            next_height,
-                            shard_id,
-                            &signer,
-                            &chain_validate,
-                        )
-                        .unwrap();
-                }
+                let chain_validate_box = Arc::new(chain_validate);
+                let chunk_producer = &self.client.chunk_producer;
+                chunk_producer
+                    .prepare_and_cache_transactions(
+                        block.as_ref(),
+                        &epoch_id,
+                        next_height,
+                        &signer,
+                        chain_validate_box.clone(),
+                    )
+                    .unwrap();
             }
         }
-        // After txs have been prepared, we can reintroduce the ones included
-        // in the chunk to the mempool.
-        self.client.chunk_producer.reintroduce_txs_in_chunk_to_pool();
 
         delay = core::cmp::min(delay, self.log_summary_timer_next_attempt - now);
         timer.observe_duration();
