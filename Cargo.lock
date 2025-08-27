@@ -4490,6 +4490,7 @@ dependencies = [
  "near-async",
  "near-chain-configs",
  "near-client",
+ "near-client-primitives",
  "near-config-utils",
  "near-dyn-configs",
  "near-epoch-manager",
