@@ -861,10 +861,16 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         deposit: 0,
     }))];
 
-    let expected_gas_burnt = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
-        .checked_add(total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap())
+    let expected_gas_burnt = apply_state
+        .config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .checked_add(
+            total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
+        )
         .unwrap()
-    .unwrap();
+        .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -946,10 +952,16 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         deposit: 0,
     }))];
 
-    let expected_gas_burnt = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
-        .checked_add(total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap())
+    let expected_gas_burnt = apply_state
+        .config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .checked_add(
+            total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
+        )
         .unwrap()
-    .unwrap();
+        .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1023,10 +1035,16 @@ fn test_apply_surplus_gas_for_function_call() {
         deposit: 0,
     }))];
 
-    let expected_gas_burnt = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
-        .checked_add(total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap())
+    let expected_gas_burnt = apply_state
+        .config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .exec_fee()
+        .checked_add(
+            total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
+        )
         .unwrap()
-    .unwrap();
+        .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),

@@ -48,7 +48,6 @@ pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, Inte
     gas_price.checked_mul(Balance::from(gas.as_gas())).ok_or(IntegerOverflowError {})
 }
 
-
 pub fn safe_mul_gas(a: Gas, b: u64) -> Result<Gas, IntegerOverflowError> {
     a.checked_mul(b).ok_or(IntegerOverflowError {})
 }
@@ -139,14 +138,14 @@ pub fn total_send_fees(
                 let delegate_cost = fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
                 let delegate_action = &signed_delegate_action.delegate_action;
 
-                delegate_cost.checked_add(
-                    total_send_fees(
+                delegate_cost
+                    .checked_add(total_send_fees(
                         config,
                         sender_is_receiver,
                         &delegate_action.get_actions(),
                         &delegate_action.receiver_id,
-                    )?
-                ).unwrap()
+                    )?)
+                    .unwrap()
             }
             DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {
                 let num_bytes = code.len() as u64;
@@ -355,9 +354,15 @@ pub fn total_prepaid_exec_fees(
                 &signed_delegate_action.delegate_action.receiver_id,
             )?;
             delta = delta
-                .checked_add(exec_fee(config, action, &signed_delegate_action.delegate_action.receiver_id))
+                .checked_add(exec_fee(
+                    config,
+                    action,
+                    &signed_delegate_action.delegate_action.receiver_id,
+                ))
                 .ok_or(IntegerOverflowError)?;
-            delta = delta.checked_add(fees.fee(ActionCosts::new_action_receipt).exec_fee()).ok_or(IntegerOverflowError)?;
+            delta = delta
+                .checked_add(fees.fee(ActionCosts::new_action_receipt).exec_fee())
+                .ok_or(IntegerOverflowError)?;
         } else {
             delta = exec_fee(config, action, receiver_id);
         }

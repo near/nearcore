@@ -1,8 +1,6 @@
 use crate::ApplyState;
 use crate::bandwidth_scheduler::BandwidthSchedulerOutput;
-use crate::config::{
-    total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
-};
+use crate::config::{total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees};
 use bytesize::ByteSize;
 use itertools::Itertools;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -686,12 +684,14 @@ pub(crate) fn compute_receipt_congestion_gas(
     match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) => {
             // account for gas guaranteed to be used for executing the receipts
-            let prepaid_exec_gas = total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
-                .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
-                .ok_or(IntegerOverflowError)?;
+            let prepaid_exec_gas =
+                total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+                    .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
+                    .ok_or(IntegerOverflowError)?;
             // account for gas guaranteed to be used for creating new receipts
             let prepaid_send_gas = total_prepaid_send_fees(config, &action_receipt.actions)?;
-            let prepaid_gas = prepaid_exec_gas.checked_add(prepaid_send_gas).ok_or(IntegerOverflowError)?;
+            let prepaid_gas =
+                prepaid_exec_gas.checked_add(prepaid_send_gas).ok_or(IntegerOverflowError)?;
 
             // account for gas potentially used for dynamic execution
             let gas_attached_to_fns = total_prepaid_gas(&action_receipt.actions)?;
