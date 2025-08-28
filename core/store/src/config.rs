@@ -196,23 +196,7 @@ impl StoreConfig {
         match col {
             DBCol::State => self.col_state_cache_size,
             DBCol::FlatState => self.col_flat_state_cache_size,
-            DBCol::PartialChunks
-            | DBCol::TrieChanges
-            | DBCol::StateChanges
-            | DBCol::Chunks
-            | DBCol::Transactions
-            | DBCol::Receipts
-            | DBCol::StateTransitionData
-            | DBCol::OutgoingReceipts
-            | DBCol::IncomingReceipts
-            | DBCol::TransactionResultForBlock
-            | DBCol::BlockHeader
-            | DBCol::Block
-            | DBCol::BlockMerkleTree
-            | DBCol::OutcomeIds
-            | DBCol::ChunkExtra
-            | DBCol::FlatStateChanges => bytesize::ByteSize::mib(32),
-            _ => bytesize::ByteSize::mib(16),
+            _ => bytesize::ByteSize::mib(32),
         }
     }
 
