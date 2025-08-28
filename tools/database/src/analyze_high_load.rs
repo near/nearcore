@@ -188,10 +188,10 @@ impl HighLoadStatsCommand {
                     .outcome;
 
                 let (account_id, gas_used_by_tx) = (outcome.executor_id, outcome.gas_burnt);
-                gas_used[shard_index] = gas_used[shard_index].saturating_add(gas_used_by_tx);
+                gas_used[shard_index] = gas_used[shard_index].checked_add(gas_used_by_tx).unwrap();
                 if account_id == target_account_id {
                     gas_used_by_account[shard_index] =
-                        gas_used_by_account[shard_index].saturating_add(gas_used_by_tx);
+                        gas_used_by_account[shard_index].checked_add(gas_used_by_tx).unwrap();
                     tx_by_account[shard_index] += 1;
                     receipts_by_account[shard_index] += outcome.receipt_ids.len();
                 }

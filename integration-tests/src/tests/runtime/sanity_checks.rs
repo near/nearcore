@@ -256,15 +256,15 @@ fn test_sanity_used_gas() {
     // When executing `used_gas` twice within a metered block, the returned values should differ by
     // that amount.
     assert_eq!(
-        used_gas[1].saturating_sub(used_gas[0]),
-        base_cost.saturating_add(Gas::from_gas(op_cost))
+        used_gas[1].checked_sub(used_gas[0]).unwrap(),
+        base_cost.checked_add(Gas::from_gas(op_cost)).unwrap()
     );
     // Between these two observations additional arithmetics have been executed.
     assert_eq!(
-        used_gas[2].saturating_sub(used_gas[1]),
-        base_cost.saturating_add(Gas::from_gas(op_cost * 8))
+        used_gas[2].checked_sub(used_gas[1]).unwrap(),
+        base_cost.checked_add(Gas::from_gas(op_cost * 8)).unwrap()
     );
-    assert!(used_gas[3].saturating_sub(used_gas[2]) > base_cost);
+    assert!(used_gas[3].checked_sub(used_gas[2]) > base_cost).unwrap();
 }
 
 /// Returns a contract which calls host function `used_gas` multiple times, both

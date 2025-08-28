@@ -309,7 +309,7 @@ impl ChunkProducer {
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.adversarial.produce_invalid_chunks {
-            gas_used.saturating_add(Gas::from_gas(1))
+            gas_used.checked_add(Gas::from_gas(1)).unwrap()
         } else {
             gas_used
         };

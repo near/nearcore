@@ -307,7 +307,7 @@ impl ActionEstimation {
             Statistic::Average => average_cost(gas_results),
             Statistic::Percentile(rank) => percentiles(gas_results, &[rank]).next().unwrap(),
         };
-        let gas_tolerance = self.min_gas.saturating_mul(self.inner_iters as u64);
+        let gas_tolerance = self.min_gas.checked_mul(self.inner_iters as u64).unwrap();
         let gas_per_action = cost_per_tx
             .saturating_sub(&base, &NonNegativeTolerance::AbsoluteTolerance(gas_tolerance))
             / self.inner_iters as u64;

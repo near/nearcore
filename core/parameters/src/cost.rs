@@ -42,7 +42,7 @@ impl Fee {
 
     /// The minimum fee to send and execute.
     pub fn min_send_and_exec_fee(&self) -> Gas {
-        std::cmp::min(self.send_sir, self.send_not_sir).saturating_add(self.execution)
+        std::cmp::min(self.send_sir, self.send_not_sir).checked_add(self.execution).unwrap()
     }
 }
 
@@ -541,7 +541,8 @@ impl RuntimeFeesConfig {
     pub fn min_receipt_with_function_call_gas(&self) -> Gas {
         self.fee(ActionCosts::new_action_receipt)
             .min_send_and_exec_fee()
-            .saturating_add(self.fee(ActionCosts::function_call_base).min_send_and_exec_fee())
+            .checked_add(self.fee(ActionCosts::function_call_base).min_send_and_exec_fee())
+            .unwrap()
     }
 
     /// Given a left over gas amount to be refunded, returns how much should be
@@ -602,12 +603,14 @@ pub fn transfer_exec_fee(
         (true, false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
         (true, true, AccountType::EthImplicitAccount) => {
-            transfer_fee.saturating_add(cfg.fee(ActionCosts::create_account).exec_fee())
+            transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
         }
         // Extra fees for the CreateAccount and AddFullAccessKey.
         (true, _, AccountType::NearImplicitAccount) => transfer_fee
-            .saturating_add(cfg.fee(ActionCosts::create_account).exec_fee())
-            .saturating_add(cfg.fee(ActionCosts::add_full_access_key).exec_fee()),
+            .checked_add(cfg.fee(ActionCosts::create_account).exec_fee())
+            .unwrap()
+            .checked_add(cfg.fee(ActionCosts::add_full_access_key).exec_fee())
+            .unwrap(),
     }
 }
 
@@ -629,10 +632,13 @@ pub fn transfer_send_fee(
         (true, false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
         (true, true, AccountType::EthImplicitAccount) => transfer_fee
-            .saturating_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)),
+            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
+            .unwrap(),
         // Extra fees for the CreateAccount and AddFullAccessKey.
         (true, _, AccountType::NearImplicitAccount) => transfer_fee
-            .saturating_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
-            .saturating_add(cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)),
+            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
+            .unwrap()
+            .checked_add(cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver))
+            .unwrap(),
     }
 }

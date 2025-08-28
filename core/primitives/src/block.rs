@@ -139,8 +139,8 @@ impl Block {
         for chunk in &chunks {
             if chunk.height_included() == height {
                 prev_validator_proposals.extend(chunk.prev_validator_proposals());
-                gas_used = gas_used.saturating_add(chunk.prev_gas_used());
-                gas_limit = gas_limit.saturating_add(chunk.gas_limit());
+                gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
+                gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
                 balance_burnt += chunk.prev_balance_burnt();
                 chunk_mask.push(true);
             } else {
@@ -647,11 +647,12 @@ impl<'a> Chunks<'a> {
 
     pub fn compute_gas_used(&self) -> Gas {
         self.iter_new()
-            .fold(Gas::from_gas(0), |acc, chunk| acc.saturating_add(chunk.prev_gas_used()))
+            .fold(Gas::from_gas(0), |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
     }
 
     pub fn compute_gas_limit(&self) -> Gas {
-        self.iter_new().fold(Gas::from_gas(0), |acc, chunk| acc.saturating_add(chunk.gas_limit()))
+        self.iter_new()
+            .fold(Gas::from_gas(0), |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
     }
 }
 

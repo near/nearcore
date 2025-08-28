@@ -44,13 +44,15 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(create_account_exec_fee);
+            .checked_add(create_account_exec_fee)
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
-            .saturating_add(create_account_send_fee);
-        self.gas_to_balance(exec_gas.saturating_add(send_gas))
+            .checked_add(create_account_send_fee)
+            .unwrap();
+        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
     pub fn create_account_transfer_full_key_fee(&self) -> Gas {
@@ -67,17 +69,23 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(create_account_exec_fee)
-            .saturating_add(transfer_exec_fee)
-            .saturating_add(add_full_access_key_exec_fee);
+            .checked_add(create_account_exec_fee)
+            .unwrap()
+            .checked_add(transfer_exec_fee)
+            .unwrap()
+            .checked_add(add_full_access_key_exec_fee)
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
-            .saturating_add(create_account_send_fee)
-            .saturating_add(transfer_send_fee)
-            .saturating_add(add_full_access_key_send_fee);
-        exec_gas.saturating_add(send_gas)
+            .checked_add(create_account_send_fee)
+            .unwrap()
+            .checked_add(transfer_send_fee)
+            .unwrap()
+            .checked_add(add_full_access_key_send_fee)
+            .unwrap();
+        exec_gas.checked_add(send_gas)
     }
 
     pub fn create_account_transfer_fee(&self) -> Gas {
@@ -90,15 +98,19 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(create_account_exec_fee)
-            .saturating_add(transfer_exec_fee);
+            .checked_add(create_account_exec_fee)
+            .unwrap()
+            .checked_add(transfer_exec_fee)
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
-            .saturating_add(create_account_send_fee)
-            .saturating_add(transfer_send_fee);
-        exec_gas.saturating_add(send_gas)
+            .checked_add(create_account_send_fee)
+            .unwrap()
+            .checked_add(transfer_send_fee)
+            .unwrap();
+        exec_gas.checked_add(send_gas).unwrap()
     }
 
     pub fn create_account_transfer_full_key_cost(&self) -> Balance {
@@ -123,16 +135,22 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(create_account_exec_fee)
-            .saturating_add(transfer_exec_fee)
-            .saturating_add(add_full_access_key_exec_fee);
+            .checked_add(create_account_exec_fee)
+            .unwrap()
+            .checked_add(transfer_exec_fee)
+            .unwrap()
+            .checked_add(add_full_access_key_exec_fee)
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
-            .saturating_add(create_account_send_fee)
-            .saturating_add(transfer_send_fee)
-            .saturating_add(add_full_access_key_send_fee);
+            .checked_add(create_account_send_fee)
+            .unwrap()
+            .checked_add(transfer_send_fee)
+            .unwrap()
+            .checked_add(add_full_access_key_send_fee)
+            .unwrap();
         self.gas_to_balance(send_gas) + self.gas_to_balance_inflated(exec_gas)
     }
 
@@ -147,15 +165,19 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(create_account_exec_fee);
+            .checked_add(create_account_exec_fee)
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
-            .saturating_add(create_account_send_fee)
-            .saturating_add(transfer_send_fee)
-            .saturating_add(add_full_access_key_send_fee);
-        self.gas_to_balance(exec_gas.saturating_add(send_gas))
+            .checked_add(create_account_send_fee)
+            .unwrap()
+            .checked_add(transfer_send_fee)
+            .unwrap()
+            .checked_add(add_full_access_key_send_fee)
+            .unwrap();
+        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
     pub fn deploy_contract_cost(&self, num_bytes: u64) -> Balance {
@@ -172,15 +194,19 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(deploy_contract_base_exec_fee)
-            .saturating_add(deploy_contract_byte_exec_fee.saturating_mul(num_bytes));
+            .checked_add(deploy_contract_base_exec_fee)
+            .unwrap()
+            .checked_add(deploy_contract_byte_exec_fee.checked_mul(num_bytes).unwrap())
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(true)
-            .saturating_add(deploy_contract_base_send_fee)
-            .saturating_add(deploy_contract_byte_send_fee.saturating_mul(num_bytes));
-        self.gas_to_balance(exec_gas.saturating_add(send_gas))
+            .checked_add(deploy_contract_base_send_fee)
+            .unwrap()
+            .checked_add(deploy_contract_byte_send_fee.checked_mul(num_bytes).unwrap())
+            .unwrap();
+        self.gas_to_balance(exec_gas.checked_add(send_gas))
     }
 
     pub fn function_call_exec_gas(&self, num_bytes: u64) -> Gas {
@@ -192,8 +218,10 @@ impl FeeHelper {
         self.cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(function_call_base_exec_fee)
-            .saturating_add(function_call_byte_exec_fee.saturating_mul(num_bytes))
+            .checked_add(function_call_base_exec_fee)
+            .unwrap()
+            .checked_add(function_call_byte_exec_fee.checked_mul(num_bytes).unwrap())
+            .unwrap()
     }
 
     pub fn function_call_cost(&self, num_bytes: u64, prepaid_gas: u64) -> Balance {
@@ -207,10 +235,16 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
-            .saturating_add(function_call_base_send_fee)
-            .saturating_add(function_call_byte_send_fee.saturating_mul(num_bytes));
+            .checked_add(function_call_base_send_fee)
+            .unwrap()
+            .checked_add(function_call_byte_send_fee.checked_mul(num_bytes).unwrap())
+            .unwrap();
         self.gas_to_balance(
-            exec_gas.saturating_add(send_gas).saturating_add(Gas::from_gas(prepaid_gas)),
+            exec_gas
+                .checked_add(send_gas)
+                .unwrap()
+                .checked_add(Gas::from_gas(prepaid_gas))
+                .unwrap(),
         )
     }
 
@@ -222,13 +256,15 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(transfer_exec_fee);
+            .checked_add(transfer_exec_fee)
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
-            .saturating_add(transfer_send_fee);
-        exec_gas.saturating_add(send_gas)
+            .checked_add(transfer_send_fee)
+            .unwrap();
+        exec_gas.checked_add(send_gas).unwrap()
     }
 
     pub fn transfer_cost(&self) -> Balance {
@@ -243,13 +279,15 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(stake_exec_fee);
+            .checked_add(stake_exec_fee)
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(true)
-            .saturating_add(stake_send_fee);
-        self.gas_to_balance(exec_gas.saturating_add(send_gas))
+            .checked_add(stake_send_fee)
+            .unwrap();
+        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
     pub fn add_key_cost(&self, num_bytes: u64) -> Balance {
@@ -266,15 +304,19 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(add_function_call_key_base_exec_fee)
-            .saturating_add(add_function_call_key_byte_exec_fee.saturating_mul(num_bytes));
+            .checked_add(add_function_call_key_base_exec_fee)
+            .unwrap()
+            .checked_add(add_function_call_key_byte_exec_fee.checked_mul(num_bytes).unwrap())
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(true)
-            .saturating_add(add_function_call_key_base_send_fee)
-            .saturating_add(add_function_call_key_byte_send_fee.saturating_mul(num_bytes));
-        self.gas_to_balance(exec_gas.saturating_add(send_gas))
+            .checked_add(add_function_call_key_base_send_fee)
+            .unwrap()
+            .checked_add(add_function_call_key_byte_send_fee.checked_mul(num_bytes).unwrap())
+            .unwrap();
+        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
     pub fn add_key_full_cost(&self) -> Balance {
@@ -287,13 +329,15 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(add_full_access_key_exec_fee);
+            .checked_add(add_full_access_key_exec_fee)
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(true)
-            .saturating_add(add_full_access_key_send_fee);
-        self.gas_to_balance(exec_gas.saturating_add(send_gas))
+            .checked_add(add_full_access_key_send_fee)
+            .unwrap();
+        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
     pub fn delete_key_cost(&self) -> Balance {
@@ -304,13 +348,15 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(delete_key_exec_fee);
+            .checked_add(delete_key_exec_fee)
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(true)
-            .saturating_add(delete_key_send_fee);
-        self.gas_to_balance(exec_gas.saturating_add(send_gas))
+            .checked_add(delete_key_send_fee)
+            .unwrap();
+        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
     pub fn prepaid_delete_account_cost(&self) -> Balance {
@@ -321,14 +367,16 @@ impl FeeHelper {
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .exec_fee()
-            .saturating_add(delete_account_exec_fee);
+            .checked_add(delete_account_exec_fee)
+            .unwrap();
         let send_gas = self
             .cfg()
             .fee(ActionCosts::new_action_receipt)
             .send_fee(false)
-            .saturating_add(delete_account_send_fee);
+            .checked_add(delete_account_send_fee)
+            .unwrap();
 
-        let total_fee = exec_gas.saturating_add(send_gas);
+        let total_fee = exec_gas.checked_add(send_gas).unwrap();
 
         self.gas_to_balance(total_fee)
     }
@@ -346,12 +394,15 @@ impl FeeHelper {
         let receipt = self.cfg().fee(ActionCosts::new_action_receipt);
         let total_gas = base
             .exec_fee()
-            .saturating_add(base.send_fee(sir))
-            .saturating_add(receipt.send_fee(sir))
-            .saturating_add(
+            .checked_add(base.send_fee(sir))
+            .unwrap()
+            .checked_add(receipt.send_fee(sir))
+            .unwrap()
+            .checked_add(
                 node_runtime::config::total_send_fees(&self.rt_cfg, sir, actions, receiver)
                     .unwrap(),
-            );
+            )
+            .unwrap();
         self.gas_to_balance(total_gas)
     }
 

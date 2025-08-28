@@ -13,7 +13,7 @@ use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 #[test]
 fn test_burn_all_gas() {
     let attached_gas = Gas::from_tera(100);
-    let burn_gas = attached_gas.saturating_add(Gas::from_gas(1));
+    let burn_gas = attached_gas.checked_add(Gas::from_gas(1)).unwrap();
     let deposit = 0;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -28,7 +28,7 @@ fn test_burn_all_gas() {
 #[test]
 fn test_deposit_refund() {
     let attached_gas = Gas::from_tera(100);
-    let burn_gas = attached_gas.saturating_add(Gas::from_gas(1));
+    let burn_gas = attached_gas.checked_add(Gas::from_gas(1)).unwrap();
     let deposit = 10;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -54,7 +54,7 @@ fn test_big_gas_refund() {
 #[test]
 fn test_small_gas_refund() {
     let attached_gas = Gas::from_tera(10);
-    let burn_gas = attached_gas.saturating_sub(Gas::from_tera(1).saturating_div(2));
+    let burn_gas = attached_gas.checked_sub(Gas::from_tera(1).checked_div(2).unwrap()).unwrap();
     let deposit = 0;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -125,7 +125,7 @@ fn generated_refunds_after_fn_call(
         .unwrap()
         .iter()
         .map(|cost_entry| cost_entry.gas_used)
-        .fold(Gas::from_gas(0), |acc, gas| acc.saturating_add(gas));
+        .fold(Gas::from_gas(0), |acc, gas| acc.checked_add(gas).unwrap());
 
     let expected_cost = fee_helper.function_call_cost(bytes, actual_fn_call_gas_burnt.as_gas());
 
@@ -133,11 +133,13 @@ fn generated_refunds_after_fn_call(
     // Since gas price didn't change, the only difference must be the gas refund penalty.
     let penalty = total_cost - expected_cost;
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-        let unspent_gas = attached_gas.saturating_sub(actual_fn_call_gas_burnt);
+        let unspent_gas = attached_gas.checked_sub(actual_fn_call_gas_burnt).unwrap();
         let max_gas_penalty = unspent_gas.max(
             unspent_gas
-                .saturating_mul(*fee_helper.cfg().gas_refund_penalty.numer() as u64)
-                .saturating_div(*fee_helper.cfg().gas_refund_penalty.denom() as u64),
+                .checked_mul(*fee_helper.cfg().gas_refund_penalty.numer() as u64)
+                .unwrap()
+                .checked_div(*fee_helper.cfg().gas_refund_penalty.denom() as u64)
+                .unwrap(),
         );
         let min_gas_penalty = unspent_gas.min(fee_helper.cfg().min_gas_refund_penalty);
 

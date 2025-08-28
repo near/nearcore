@@ -40,8 +40,10 @@ impl ProfileDataV3 {
             profile_data.add_ext_cost(cost, Gas::from_gas(i as u64));
         }
         for (i, cost) in ActionCosts::iter().enumerate() {
-            profile_data
-                .add_action_cost(cost, Gas::from_gas(i as u64).saturating_add(Gas::from_gas(1000)));
+            profile_data.add_action_cost(
+                cost,
+                Gas::from_gas(i as u64).checked_add(Gas::from_gas(1000)).unwrap(),
+            );
         }
         profile_data
     }
@@ -231,7 +233,7 @@ impl fmt::Debug for ProfileDataV3 {
                     cost,
                     d.as_gas(),
                     Ratio::new(
-                        d.saturating_mul(100).as_gas(),
+                        d.checked_mul(100).unwrap().as_gas(),
                         core::cmp::max(host_gas.as_gas(), 1)
                     )
                     .to_integer(),
@@ -416,11 +418,11 @@ mod test {
         let mut profile_data = ProfileDataV3::default();
         profile_data.add_ext_cost(
             ExtCosts::storage_read_base,
-            ExtCosts::storage_read_base.gas(&ext_costs_config).saturating_mul(2),
+            ExtCosts::storage_read_base.gas(&ext_costs_config).checked_mul(2).unwrap(),
         );
         profile_data.add_ext_cost(
             ExtCosts::storage_write_base,
-            ExtCosts::storage_write_base.gas(&ext_costs_config).saturating_mul(5),
+            ExtCosts::storage_write_base.gas(&ext_costs_config).checked_mul(5).unwrap(),
         );
         profile_data.add_action_cost(ActionCosts::function_call_base, Gas::from_gas(100));
 
@@ -428,8 +430,10 @@ mod test {
             profile_data.total_compute_usage(&ext_costs_config),
             profile_data
                 .host_gas()
-                .saturating_mul(3)
-                .saturating_add(profile_data.action_gas())
+                .checked_mul(3)
+                .unwrap()
+                .checked_add(profile_data.action_gas())
+                .unwrap()
                 .as_gas()
         );
     }

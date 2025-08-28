@@ -126,7 +126,7 @@ impl InfoHelper {
     ) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
-        self.gas_used = self.gas_used.saturating_add(gas_used);
+        self.gas_used = self.gas_used.checked_add(gas_used).unwrap();
         metrics::GAS_USED.inc_by(gas_used.as_gas() as f64);
         metrics::BLOCKS_PROCESSED.inc();
         metrics::CHUNKS_PROCESSED.inc_by(num_chunks);

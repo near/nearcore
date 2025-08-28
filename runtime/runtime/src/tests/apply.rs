@@ -338,8 +338,9 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
         .fees
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
-        .saturating_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee());
-    apply_state.gas_limit = Some(receipt_gas_cost.saturating_mul(3));
+        .checked_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee())
+        .unwrap();
+    apply_state.gas_limit = Some(receipt_gas_cost.checked_mul(3).unwrap());
 
     let n = 40;
     let receipts = generate_receipts(small_transfer, n);
@@ -390,7 +391,8 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         .fees
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
-        .saturating_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee());
+        .checked_add(apply_state.config.fees.fee(ActionCosts::transfer).exec_fee())
+        .unwrap();
 
     let n = 120;
     let receipts = generate_receipts(small_transfer, n);
@@ -407,7 +409,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         } else if num_receipts_per_block > 1 {
             num_receipts_per_block -= 1;
         }
-        apply_state.gas_limit = Some(receipt_gas_cost.saturating_mul(num_receipts_per_block));
+        apply_state.gas_limit = Some(receipt_gas_cost.checked_mul(num_receipts_per_block).unwrap());
         let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
         num_receipts_given += prev_receipts.len() as u64;
         let apply_result = runtime
@@ -818,7 +820,8 @@ fn test_apply_surplus_gas_for_transfer() {
     let exec_gas = fees
         .fee(ActionCosts::new_action_receipt)
         .exec_fee()
-        .saturating_add(fees.fee(ActionCosts::transfer).exec_fee());
+        .checked_add(fees.fee(ActionCosts::transfer).exec_fee())
+        .unwrap();
 
     let expected_burnt_amount = if fees.refund_gas_price_changes {
         Balance::from(exec_gas.as_gas()) * GAS_PRICE
@@ -878,7 +881,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         }),
     })];
     let total_receipt_cost =
-        Balance::from(Gas::from_gas(gas).saturating_add(expected_gas_burnt).as_gas()) * gas_price;
+        Balance::from(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas())
+            * gas_price;
     let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
         Balance::from(expected_gas_burnt.as_gas()) * GAS_PRICE
     } else {
@@ -963,7 +967,8 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         }),
     })];
     let total_receipt_cost =
-        Balance::from(Gas::from_gas(gas).saturating_add(expected_gas_burnt).as_gas()) * gas_price;
+        Balance::from(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas())
+            * gas_price;
     let expected_deficit = if apply_state.config.fees.refund_gas_price_changes {
         // Used full prepaid gas, but it still not enough to cover deficit.
         let expected_gas_burnt_amount = Balance::from(expected_gas_burnt.as_gas()) * GAS_PRICE;
@@ -1040,7 +1045,8 @@ fn test_apply_surplus_gas_for_function_call() {
         }),
     })];
     let total_receipt_cost =
-        Balance::from(Gas::from_gas(gas).saturating_add(expected_gas_burnt).as_gas()) * gas_price;
+        Balance::from(Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas())
+            * gas_price;
     let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
         Balance::from(expected_gas_burnt.as_gas()) * GAS_PRICE
     } else {
@@ -2816,7 +2822,8 @@ fn test_congestion_buffering() {
         congestion
             .outgoing_gas_limit(local_shard)
             .as_gas()
-            .saturating_sub(min_outgoing_gas.as_gas())
+            .checked_sub(min_outgoing_gas.as_gas())
+            .unwrap()
             < 100 * 10u64.pow(9),
         "allowed forwarding must be less than 100 GGas away from MIN_OUTGOING_GAS"
     );
@@ -2959,7 +2966,7 @@ fn test_deploy_and_call_local_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS.saturating_div(2),
+                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
                 deposit: 0,
             })),
             Action::DeployContract(DeployContractAction {
@@ -2968,7 +2975,7 @@ fn test_deploy_and_call_local_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS.saturating_div(2),
+                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
                 deposit: 0,
             })),
         ],
@@ -3034,7 +3041,7 @@ fn test_deploy_and_call_local_receipts() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS.saturating_div(2),
+                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
                 deposit: 0,
             })),
             Action::DeployContract(DeployContractAction {
@@ -3043,7 +3050,7 @@ fn test_deploy_and_call_local_receipts() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
                 args: vec![],
-                gas: MAX_ATTACHED_GAS.saturating_div(2),
+                gas: MAX_ATTACHED_GAS.checked_div(2).unwrap(),
                 deposit: 0,
             })),
         ],

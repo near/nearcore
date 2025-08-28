@@ -115,7 +115,7 @@ impl GasCounter {
     /// This function asserts that `gas_burnt <= gas_used`
     fn deduct_gas(&mut self, gas_burnt: Gas, gas_used: Gas) -> Result<()> {
         assert!(gas_burnt <= gas_used);
-        let promises_gas = gas_used.saturating_sub(gas_burnt);
+        let promises_gas = gas_used.checked_sub(gas_burnt).unwrap();
         let new_promises_gas =
             self.promises_gas.checked_add(promises_gas).ok_or(HostError::IntegerOverflow)?;
         let new_burnt_gas = self
@@ -131,7 +131,7 @@ impl GasCounter {
             if promises_gas != Gas::from_gas(0) && !self.is_view {
                 self.fast_counter.gas_limit = min(
                     self.max_gas_burnt.as_gas(),
-                    self.prepaid_gas.saturating_sub(new_promises_gas).as_gas(),
+                    self.prepaid_gas.checked_add(new_promises_gas).unwrap().as_gas(),
                 );
             }
             self.fast_counter.burnt_gas = new_burnt_gas;
@@ -332,7 +332,7 @@ impl GasCounter {
         let deduct_gas_result = self.deduct_gas(burn_gas, use_gas);
         self.update_profile_action(
             action,
-            Gas::from_gas(self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas)),
+            Gas::from_gas(self.fast_counter.burnt_gas.checked_sub(old_burnt_gas).unwrap()),
         );
         deduct_gas_result
     }
@@ -347,7 +347,7 @@ impl GasCounter {
 
     /// Amount of gas used through promises and amount burned.
     pub(crate) fn used_gas(&self) -> Gas {
-        self.promises_gas.saturating_add(Gas::from_gas(self.fast_counter.burnt_gas))
+        self.promises_gas.checked_add(Gas::from_gas(self.fast_counter.burnt_gas).unwrap())
     }
 
     pub(crate) fn profile_data(&self) -> ProfileDataV3 {

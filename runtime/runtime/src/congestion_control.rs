@@ -445,7 +445,7 @@ impl ReceiptSinkV2 {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
             outgoing_receipts.push(receipt);
             // underflow impossible: checked forward_limit > gas/size_to_forward above
-            forward_limit.gas = forward_limit.gas.saturating_sub(Gas::from_gas(gas));
+            forward_limit.gas = forward_limit.gas.checked_sub(Gas::from_gas(gas)).unwrap();
             forward_limit.size -= size;
             stats
                 .forwarded_receipts

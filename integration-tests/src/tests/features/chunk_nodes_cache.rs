@@ -132,12 +132,12 @@ fn compare_node_counts() {
                     db_reads: {
                         let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
                         assert_eq!(cost.as_gas() % touching_trie_node_cost.as_gas(), 0);
-                        cost.saturating_div(touching_trie_node_cost.as_gas()).as_gas()
+                        cost.checked_div(touching_trie_node_cost.as_gas()).unwrap().as_gas()
                     },
                     mem_reads: {
                         let cost = profile_data.get_ext_cost(ExtCosts::read_cached_trie_node);
                         assert_eq!(cost.as_gas() % read_cached_trie_node_cost.as_gas(), 0);
-                        cost.saturating_div(read_cached_trie_node_cost.as_gas()).as_gas()
+                        cost.checked_div(read_cached_trie_node_cost.as_gas()).unwrap().as_gas()
                     },
                 },
             }

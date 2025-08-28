@@ -605,7 +605,8 @@ mod tests {
                 if let Action::FunctionCall(function_call_action) = action {
                     let reference = function_calls_iter.next().unwrap();
                     assert_eq!(function_call_action.gas, accessor(reference));
-                    function_call_gas = function_call_gas.saturating_add(function_call_action.gas);
+                    function_call_gas =
+                        function_call_gas.checked_add(function_call_action.gas).unwrap();
                 }
             }
         }

@@ -62,9 +62,9 @@ impl StandaloneRuntime {
         wasm_config.limit_config.max_total_prepaid_gas = Gas::from_tera(1000);
         let fees = Arc::make_mut(&mut runtime_config.fees);
         fees.action_fees[ActionCosts::new_action_receipt].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.saturating_div(64);
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();
         fees.action_fees[ActionCosts::new_data_receipt_base].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.saturating_div(64);
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();
 
         let runtime = Runtime::new();
         let genesis = Genesis::new(

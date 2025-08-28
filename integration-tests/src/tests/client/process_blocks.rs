@@ -1576,9 +1576,12 @@ fn test_gas_price_change() {
     let send_money_total_gas = transaction_costs
         .fee(ActionCosts::transfer)
         .send_fee(false)
-        .saturating_add(transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false))
-        .saturating_add(transaction_costs.fee(ActionCosts::transfer).exec_fee())
-        .saturating_add(transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee());
+        .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false))
+        .unwrap()
+        .checked_add(transaction_costs.fee(ActionCosts::transfer).exec_fee())
+        .unwrap()
+        .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee())
+        .unwrap();
     let min_gas_price = target_num_tokens_left / send_money_total_gas.as_gas() as u128;
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Ratio::new(1, 10);
@@ -2419,8 +2422,9 @@ fn test_execution_metadata() {
         .fees
         .fee(ActionCosts::new_action_receipt)
         .execution
-        .saturating_add(config.fees.fee(ActionCosts::function_call_base).exec_fee())
-        .saturating_add(
+        .checked_add(config.fees.fee(ActionCosts::function_call_base).exec_fee())
+        .unwrap()
+        .checked_add(
             config
                 .fees
                 .fee(ActionCosts::function_call_byte)
@@ -2428,6 +2432,7 @@ fn test_execution_metadata() {
                 .checked_mul("main".len() as u64)
                 .unwrap(),
         )
+        .unwrap()
         .as_gas();
 
     // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
@@ -2467,15 +2472,16 @@ fn test_execution_metadata() {
 
     let actual_receipt_cost = outcome
         .gas_burnt
-        .saturating_sub(
+        .checked_sub(
             metadata
                 .gas_profile
                 .clone()
                 .unwrap_or_default()
                 .into_iter()
                 .map(|it| it.gas_used)
-                .fold(Gas::from_gas(0), |acc, gas| acc.saturating_add(gas)),
+                .fold(Gas::from_gas(0), |acc, gas| acc.checked_add(gas).unwrap()),
         )
+        .unwrap()
         .as_gas();
 
     assert_eq!(expected_receipt_cost, actual_receipt_cost)
