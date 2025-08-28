@@ -78,13 +78,6 @@ fn extension_to_nibbles(extension: &[u8]) -> SmallVec<[u8; MAX_NIBBLES]> {
 }
 
 impl<'a, M: ArenaMemory> TrieDescentStage<'a, M> {
-    fn can_descend(&self) -> bool {
-        match self {
-            Self::CutOff | Self::AtLeaf { .. } => false,
-            Self::InsideExtension { .. } | Self::AtBranch { .. } => true,
-        }
-    }
-
     fn current_node_memory_usage(&self) -> u64 {
         match self {
             Self::CutOff => 0,
@@ -108,6 +101,13 @@ impl<'a, M: ArenaMemory> TrieDescentStage<'a, M> {
                 .collect_vec()
                 .try_into()
                 .unwrap(),
+        }
+    }
+
+    fn can_descend(&self) -> bool {
+        match self {
+            Self::CutOff | Self::AtLeaf { .. } => false,
+            Self::InsideExtension { .. } | Self::AtBranch { .. } => true,
         }
     }
 
@@ -311,6 +311,15 @@ pub fn find_trie_split<M: ArenaMemory>(trie_ptr: MemTrieNodePtr<M>) -> TrieSplit
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::trie::TRIE_COSTS;
+    use crate::trie::mem::arena::Arena;
+    use crate::trie::mem::arena::single_thread::{STArena, STArenaMemory};
+    use crate::trie::mem::node::{InputMemTrieNode, MemTrieNodeId};
+    use assert_matches::assert_matches;
+    use near_primitives::state::FlatStateValue;
+
+    // For historical reasons, node_cost for leaves is doubled (?)
+    const EMPTY_LEAF_MEM: u64 = TRIE_COSTS.node_cost * 2;
 
     #[test]
     fn middle_child() {
@@ -324,5 +333,330 @@ mod tests {
 
         let threshold = 1050;
         assert_eq!(find_middle_child(&children_mem_usage, threshold), Some((10, 1000)));
+    }
+
+    #[test]
+    fn nibble_ops() {
+        assert_eq!(byte_to_nibbles(0x00), (0x00, 0x00));
+        assert_eq!(byte_to_nibbles(0x01), (0x00, 0x01));
+        assert_eq!(byte_to_nibbles(0x10), (0x01, 0x00));
+        assert_eq!(byte_to_nibbles(0x11), (0x01, 0x01));
+
+        assert_eq!(nibbles_to_bytes(&[]), &[] as &[u8]);
+        assert_eq!(nibbles_to_bytes(&[0x01]), &[] as &[u8]);
+        assert_eq!(nibbles_to_bytes(&[0x00, 0x01]), &[0x01]);
+        assert_eq!(nibbles_to_bytes(&[0x01, 0x02, 0x03]), &[0x12]);
+    }
+
+    fn new_leaf(arena: &mut STArena, extension_nibbles: &[u8], value: &[u8]) -> MemTrieNodeId {
+        let value = FlatStateValue::inlined(value);
+        let extension = if extension_nibbles.is_empty() {
+            SmallVec::new()
+        } else {
+            NibbleSlice::encode_nibbles(extension_nibbles, true)
+        };
+        let input = InputMemTrieNode::Leaf { value: &value, extension: &extension };
+        MemTrieNodeId::new(arena, input)
+    }
+
+    fn new_extension(
+        arena: &mut STArena,
+        extension_nibbles: &[u8],
+        child: MemTrieNodeId,
+    ) -> MemTrieNodeId {
+        let extension = NibbleSlice::encode_nibbles(extension_nibbles, false);
+        let input = InputMemTrieNode::Extension { extension: &extension, child };
+        MemTrieNodeId::new(arena, input)
+    }
+
+    fn new_branch(
+        arena: &mut STArena,
+        value: Option<&[u8]>,
+        children: [Option<MemTrieNodeId>; NUM_CHILDREN],
+    ) -> MemTrieNodeId {
+        let input = match value {
+            Some(value) => InputMemTrieNode::BranchWithValue {
+                children,
+                value: &FlatStateValue::inlined(value),
+            },
+            None => InputMemTrieNode::Branch { children },
+        };
+        MemTrieNodeId::new(arena, input)
+    }
+
+    /// These tests verify memory usage calculation of the current node and children nodes.
+    mod mem_usage {
+        use super::*;
+
+        #[test]
+        fn cut_off() {
+            let descent_stage = TrieDescentStage::<STArenaMemory>::CutOff;
+            assert_eq!(descent_stage.current_node_memory_usage(), 0);
+            assert_eq!(descent_stage.children_memory_usage(), [0u64; NUM_CHILDREN]);
+        }
+
+        #[test]
+        fn leaf() {
+            let mut arena = STArena::new("test".to_string());
+
+            let empty_leaf: TrieDescentStage<_> =
+                new_leaf(&mut arena, &[], &[]).as_ptr(arena.memory()).into();
+
+            assert_eq!(empty_leaf.current_node_memory_usage(), EMPTY_LEAF_MEM);
+            assert_eq!(empty_leaf.children_memory_usage(), [0u64; NUM_CHILDREN]);
+
+            let nonempty_leaf: TrieDescentStage<_> =
+                new_leaf(&mut arena, &[], &[1, 2, 3]).as_ptr(arena.memory()).into();
+            let exp_memory = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_value * 3;
+            assert_eq!(nonempty_leaf.current_node_memory_usage(), exp_memory);
+            assert_eq!(nonempty_leaf.children_memory_usage(), [0u64; NUM_CHILDREN]);
+
+            let extension_leaf: TrieDescentStage<_> =
+                new_leaf(&mut arena, &[1, 2], &[]).as_ptr(arena.memory()).into();
+            let exp_memory = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_key * 2;
+            let mut exp_children_mem = [0u64; NUM_CHILDREN];
+            exp_children_mem[1] = exp_memory; // The first nibble in extension is '1'
+            assert_eq!(extension_leaf.current_node_memory_usage(), exp_memory);
+            assert_eq!(extension_leaf.children_memory_usage(), exp_children_mem);
+        }
+
+        #[test]
+        fn extension() {
+            let mut arena = STArena::new("test".to_string());
+
+            let empty_leaf = new_leaf(&mut arena, &[], &[]);
+            let extension: TrieDescentStage<_> =
+                new_extension(&mut arena, &[4, 5], empty_leaf).as_ptr(arena.memory()).into();
+
+            let exp_memory = EMPTY_LEAF_MEM + TRIE_COSTS.node_cost + TRIE_COSTS.byte_of_key * 2;
+            let mut exp_children_mem = [0u64; NUM_CHILDREN];
+            exp_children_mem[4] = exp_memory; // The first nibble in extension is '4'
+            assert_eq!(extension.current_node_memory_usage(), exp_memory);
+            assert_eq!(extension.children_memory_usage(), exp_children_mem);
+        }
+
+        #[test]
+        fn branch() {
+            let mut arena = STArena::new("test".to_string());
+
+            let empty_branch: TrieDescentStage<_> =
+                new_branch(&mut arena, None, [None; 16]).as_ptr(arena.memory()).into();
+            assert_eq!(empty_branch.current_node_memory_usage(), TRIE_COSTS.node_cost);
+            assert_eq!(empty_branch.children_memory_usage(), [0u64; NUM_CHILDREN]);
+
+            let branch_with_value: TrieDescentStage<_> =
+                new_branch(&mut arena, Some(&[1, 2, 3]), [None; 16]).as_ptr(arena.memory()).into();
+            // For some reason, node_cost for branch with value is doubled (?)
+            let exp_memory = TRIE_COSTS.node_cost * 2 + TRIE_COSTS.byte_of_value * 3;
+            assert_eq!(branch_with_value.current_node_memory_usage(), exp_memory);
+            assert_eq!(branch_with_value.children_memory_usage(), [0u64; NUM_CHILDREN]);
+
+            let leaf1 = new_leaf(&mut arena, &[], &[1, 2, 3]);
+            let leaf2 = new_leaf(&mut arena, &[1, 2], &[1]);
+            let leaf1_mem = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_value * 3;
+            let leaf2_mem = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_value + TRIE_COSTS.byte_of_key * 2;
+            let mut children: [Option<MemTrieNodeId>; NUM_CHILDREN] = [None; NUM_CHILDREN];
+            children[3] = Some(leaf1);
+            children[5] = Some(leaf2);
+            let branch_with_children: TrieDescentStage<_> =
+                new_branch(&mut arena, None, children).as_ptr(arena.memory()).into();
+            let exp_memory = TRIE_COSTS.node_cost + leaf1_mem + leaf2_mem;
+            let mut exp_children_mem = [0u64; NUM_CHILDREN];
+            exp_children_mem[3] = leaf1_mem;
+            exp_children_mem[5] = leaf2_mem;
+            assert_eq!(branch_with_children.current_node_memory_usage(), exp_memory);
+            assert_eq!(branch_with_children.children_memory_usage(), exp_children_mem);
+        }
+    }
+
+    /// These tests verify descent logic for a single subtree.
+    mod descent {
+        use super::*;
+
+        #[test]
+        fn cut_off() {
+            let mut descent_stage = TrieDescentStage::<STArenaMemory>::CutOff;
+            assert!(!descent_stage.can_descend());
+            descent_stage.descend(0);
+            assert_matches!(descent_stage, TrieDescentStage::CutOff);
+        }
+
+        #[test]
+        fn leaf() {
+            let mut arena = STArena::new("test".to_string());
+
+            let mut empty_leaf: TrieDescentStage<_> =
+                new_leaf(&mut arena, &[], &[]).as_ptr(arena.memory()).into();
+            assert!(!empty_leaf.can_descend());
+            empty_leaf.descend(0);
+            assert_matches!(empty_leaf, TrieDescentStage::CutOff);
+
+            let mut leaf_with_extension: TrieDescentStage<_> =
+                new_leaf(&mut arena, &[1, 2], &[]).as_ptr(arena.memory()).into();
+            assert!(leaf_with_extension.can_descend());
+            leaf_with_extension.descend(1);
+            assert_matches!(&leaf_with_extension, TrieDescentStage::InsideExtension { remaining_nibbles, ..} if **remaining_nibbles == [2]);
+            assert!(leaf_with_extension.can_descend());
+            leaf_with_extension.descend(2);
+            assert_matches!(leaf_with_extension, TrieDescentStage::AtLeaf { .. });
+            assert!(!leaf_with_extension.can_descend());
+
+            let mut leaf_with_extension: TrieDescentStage<_> =
+                new_leaf(&mut arena, &[1, 2], &[]).as_ptr(arena.memory()).into();
+            leaf_with_extension.descend(6); // Nibble **not** in the extension
+            assert_matches!(leaf_with_extension, TrieDescentStage::CutOff);
+        }
+
+        #[test]
+        fn extension() {
+            let mut arena = STArena::new("test".to_string());
+
+            let leaf = new_leaf(&mut arena, &[], &[]);
+            let mut extension: TrieDescentStage<_> =
+                new_extension(&mut arena, &[1, 2], leaf).as_ptr(arena.memory()).into();
+            assert!(extension.can_descend());
+            extension.descend(1);
+            assert_matches!(&extension, TrieDescentStage::InsideExtension { remaining_nibbles, ..} if **remaining_nibbles == [2]);
+            assert!(extension.can_descend());
+            extension.descend(2);
+            assert_matches!(extension, TrieDescentStage::AtLeaf { .. });
+
+            let mut extension: TrieDescentStage<_> =
+                new_extension(&mut arena, &[1, 2], leaf).as_ptr(arena.memory()).into();
+            extension.descend(3); // Nibble **not** in extension
+            assert_matches!(extension, TrieDescentStage::CutOff);
+        }
+
+        #[test]
+        fn branch() {
+            let mut arena = STArena::new("test".to_string());
+
+            let leaf = new_leaf(&mut arena, &[], &[]);
+            let mut children = [None; NUM_CHILDREN];
+            children[0] = Some(leaf);
+            let mut branch: TrieDescentStage<_> =
+                new_branch(&mut arena, None, children).as_ptr(arena.memory()).into();
+            assert!(branch.can_descend());
+            branch.descend(0);
+            assert_matches!(branch, TrieDescentStage::AtLeaf { .. });
+
+            let mut branch: TrieDescentStage<_> =
+                new_branch(&mut arena, None, children).as_ptr(arena.memory()).into();
+            branch.descend(1); // Not child at this index
+            assert_matches!(branch, TrieDescentStage::CutOff);
+        }
+    }
+
+    /// These tests verify the logic of aggregate (multi-subtree) descent.
+    mod trie_descent {
+        use super::*;
+
+        fn init(
+            arena: &mut STArena,
+            subtrees: [MemTrieNodeId; SUBTREES.len()],
+        ) -> TrieDescent<STArenaMemory> {
+            let subtree_nibbles = SUBTREES.iter().map(|key| byte_to_nibbles(*key)).collect_vec();
+            let first_nibble = subtree_nibbles[0].0;
+            for (nib1, _) in &subtree_nibbles {
+                assert_eq!(first_nibble, *nib1); // ensure all subtrees have the same first nibble
+            }
+            let mut children = [None; NUM_CHILDREN];
+            for i in 0..SUBTREES.len() {
+                let idx = subtree_nibbles[i].1 as usize;
+                assert!(children[idx].is_none()); // ensure all subtrees have a different second nibble
+                children[idx] = Some(subtrees[i]);
+            }
+            let branch = new_branch(arena, None, children);
+            let root = new_extension(arena, &[first_nibble], branch);
+            TrieDescent::new(root.as_ptr(arena.memory()))
+        }
+
+        #[test]
+        fn init_empty() {
+            let mut arena = STArena::new("test".to_string());
+
+            let subtrees = [new_leaf(&mut arena, &[], &[]); SUBTREES.len()];
+            let trie_descent = init(&mut arena, subtrees);
+
+            assert_eq!(trie_descent.total_memory(), SUBTREES.len() as u64 * EMPTY_LEAF_MEM);
+            assert_eq!(trie_descent.aggregate_children_mem_usage(), [0u64; NUM_CHILDREN]);
+            assert!(trie_descent.next_step().is_none());
+        }
+
+        #[test]
+        fn init_nonempty() {
+            let mut arena = STArena::new("test".to_string());
+
+            let mut leaves = [None; NUM_CHILDREN];
+            for i in 0..NUM_CHILDREN {
+                let value = vec![0; i];
+                leaves[i] = Some(new_leaf(&mut arena, &[], &value));
+            }
+            let subtrees = [new_branch(&mut arena, None, leaves); SUBTREES.len()];
+            let trie_descent = init(&mut arena, subtrees);
+
+            let exp_children_mem: [u64; NUM_CHILDREN] = (0..NUM_CHILDREN)
+                .map(|i| {
+                    (EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_value * i as u64) * SUBTREES.len() as u64
+                })
+                .collect_vec()
+                .try_into()
+                .unwrap();
+            let exp_total_mem =
+                exp_children_mem.iter().sum::<u64>() + TRIE_COSTS.node_cost * SUBTREES.len() as u64;
+            assert_eq!(trie_descent.total_memory(), exp_total_mem);
+            assert_eq!(trie_descent.aggregate_children_mem_usage(), exp_children_mem);
+            assert!(trie_descent.next_step().is_some());
+        }
+
+        #[test]
+        fn search_trivial_accounts() {
+            let mut arena = STArena::new("test".to_string());
+
+            // Only accounts subtree is populated. Others are empty.
+            // The subtree structure looks like this:
+            //
+            //         ROOT
+            //     0    │    1
+            //     ┌────┴────┐
+            //  0  │  1   0  │  1
+            //  ┌──┴──┐   ┌──┴──┐
+            //  │     │   │     │
+            //  X     X   X     X    <-- leaves with 100-byte values
+            //
+            // The expected split path is nibbles 1, 0 resulting in byte 0x10
+
+            let accounts_subtree = {
+                let leaf = new_leaf(&mut arena, &[], &[1u8; 100]);
+                let branch = {
+                    let mut children = [None; NUM_CHILDREN];
+                    children[0] = Some(leaf);
+                    children[1] = Some(leaf);
+                    new_branch(&mut arena, None, children)
+                };
+                let mut children = [None; NUM_CHILDREN];
+                children[0] = Some(branch);
+                children[1] = Some(branch);
+                new_branch(&mut arena, None, children)
+            };
+            let mut subtrees = [new_leaf(&mut arena, &[], &[]); SUBTREES.len()];
+            subtrees[0] = accounts_subtree;
+
+            let trie_descent = init(&mut arena, subtrees);
+            let total_memory = trie_descent.total_memory();
+            let split = trie_descent.find_mem_usage_split();
+            assert_eq!(split.split_path_bytes(), vec![0x10]);
+            assert_eq!(split.left_memory + split.right_memory, total_memory);
+
+            // Now add some heavy contract code under 0x11 path to change the optimal split path.
+            subtrees[1] = new_leaf(&mut arena, &[1, 1, 1, 1, 1, 1], &[1u8; 200]);
+            let trie_descent = init(&mut arena, subtrees);
+            let total_memory = trie_descent.total_memory();
+            let split = trie_descent.find_mem_usage_split();
+            // The extra nibbles from extension in contract code subtree should *not* be included.
+            // Trie descent is over when a leaf is reached in the accounts' subtree.
+            assert_eq!(split.split_path_bytes(), vec![0x11]);
+            assert_eq!(split.left_memory + split.right_memory, total_memory);
+        }
     }
 }
