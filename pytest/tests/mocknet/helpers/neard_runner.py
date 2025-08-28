@@ -707,7 +707,7 @@ class NeardRunner:
                 if should_restart:
                     self.kill_neard()
                     self.start_neard(batch_interval_millis)
-            elif state != TestState.RUNNING:
+            else:
                 raise jsonrpc.exceptions.JSONRPCDispatchException(
                     code=-32600,
                     message=f'Cannot start node as test state is {state.name}.')
@@ -1021,7 +1021,6 @@ class NeardRunner:
             )
             self.last_start = time.time()
             self.set_state(TestState.RUNNING)
-            self.save_data()
 
     # Configure the logs config file to control the level of rust and opentelemetry logs.
     # Default config sets level to DEBUG for "client" and "chain" logs, WARN for tokio+actix, and INFO for everything else.
