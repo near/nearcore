@@ -1491,6 +1491,15 @@ class NeardRunner:
         backup_id = self.data['state_data']
         if backup_id is None:
             backup_id = 'start'
+
+        # The initial state of chunk validator node is empty, so we clean the
+        # data dir and return.
+        if backup_id == 'start' and self.config.get('role') == 'validator':
+            self.remove_data_dir()
+            self.set_state(TestState.STOPPED)
+            return
+
+        # Otherwise, restore the state from the backup.
         backup_path = self.home_path('backups', backup_id)
         if not os.path.exists(backup_path):
             error_msg = f'backup dir {backup_path} does not exist'
