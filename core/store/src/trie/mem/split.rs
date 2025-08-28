@@ -318,7 +318,7 @@ mod tests {
     use assert_matches::assert_matches;
     use near_primitives::state::FlatStateValue;
 
-    // For some reason, node_cost for leaves is doubled (?)
+    // For historical reasons, node_cost for leaves is doubled (?)
     const EMPTY_LEAF_MEM: u64 = TRIE_COSTS.node_cost * 2;
 
     #[test]
@@ -348,7 +348,7 @@ mod tests {
         assert_eq!(nibbles_to_bytes(&[0x01, 0x02, 0x03]), &[0x12]);
     }
 
-    fn new_leaf(arena: &mut STArena, value: &[u8], extension_nibbles: &[u8]) -> MemTrieNodeId {
+    fn new_leaf(arena: &mut STArena, extension_nibbles: &[u8], value: &[u8]) -> MemTrieNodeId {
         let value = FlatStateValue::inlined(value);
         let extension = if extension_nibbles.is_empty() {
             SmallVec::new()
@@ -384,6 +384,7 @@ mod tests {
         MemTrieNodeId::new(arena, input)
     }
 
+    /// These tests verify memory usage calculation of the current node and children nodes.
     mod mem_usage {
         use super::*;
 
@@ -405,13 +406,13 @@ mod tests {
             assert_eq!(empty_leaf.children_memory_usage(), [0u64; NUM_CHILDREN]);
 
             let nonempty_leaf: TrieDescentStage<_> =
-                new_leaf(&mut arena, &[1, 2, 3], &[]).as_ptr(arena.memory()).into();
+                new_leaf(&mut arena, &[], &[1, 2, 3]).as_ptr(arena.memory()).into();
             let exp_memory = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_value * 3;
             assert_eq!(nonempty_leaf.current_node_memory_usage(), exp_memory);
             assert_eq!(nonempty_leaf.children_memory_usage(), [0u64; NUM_CHILDREN]);
 
             let extension_leaf: TrieDescentStage<_> =
-                new_leaf(&mut arena, &[], &[1, 2]).as_ptr(arena.memory()).into();
+                new_leaf(&mut arena, &[1, 2], &[]).as_ptr(arena.memory()).into();
             let exp_memory = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_key * 2;
             let mut exp_children_mem = [0u64; NUM_CHILDREN];
             exp_children_mem[1] = exp_memory; // The first nibble in extension is '1'
@@ -450,8 +451,8 @@ mod tests {
             assert_eq!(branch_with_value.current_node_memory_usage(), exp_memory);
             assert_eq!(branch_with_value.children_memory_usage(), [0u64; NUM_CHILDREN]);
 
-            let leaf1 = new_leaf(&mut arena, &[1, 2, 3], &[]);
-            let leaf2 = new_leaf(&mut arena, &[1], &[1, 2]);
+            let leaf1 = new_leaf(&mut arena, &[], &[1, 2, 3]);
+            let leaf2 = new_leaf(&mut arena, &[1, 2], &[1]);
             let leaf1_mem = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_value * 3;
             let leaf2_mem = EMPTY_LEAF_MEM + TRIE_COSTS.byte_of_value + TRIE_COSTS.byte_of_key * 2;
             let mut children: [Option<MemTrieNodeId>; NUM_CHILDREN] = [None; NUM_CHILDREN];
@@ -468,6 +469,7 @@ mod tests {
         }
     }
 
+    /// These tests verify descent logic for a single subtree.
     mod descent {
         use super::*;
 
@@ -490,7 +492,7 @@ mod tests {
             assert_matches!(empty_leaf, TrieDescentStage::CutOff);
 
             let mut leaf_with_extension: TrieDescentStage<_> =
-                new_leaf(&mut arena, &[], &[1, 2]).as_ptr(arena.memory()).into();
+                new_leaf(&mut arena, &[1, 2], &[]).as_ptr(arena.memory()).into();
             assert!(leaf_with_extension.can_descend());
             leaf_with_extension.descend(1);
             assert_matches!(&leaf_with_extension, TrieDescentStage::InsideExtension { remaining_nibbles, ..} if **remaining_nibbles == [2]);
@@ -500,7 +502,7 @@ mod tests {
             assert!(!leaf_with_extension.can_descend());
 
             let mut leaf_with_extension: TrieDescentStage<_> =
-                new_leaf(&mut arena, &[], &[1, 2]).as_ptr(arena.memory()).into();
+                new_leaf(&mut arena, &[1, 2], &[]).as_ptr(arena.memory()).into();
             leaf_with_extension.descend(6); // Nibble **not** in the extension
             assert_matches!(leaf_with_extension, TrieDescentStage::CutOff);
         }
@@ -545,6 +547,7 @@ mod tests {
         }
     }
 
+    /// These tests verify the logic of aggregate (multi-subtree) descent.
     mod trie_descent {
         use super::*;
 
@@ -587,7 +590,7 @@ mod tests {
             let mut leaves = [None; NUM_CHILDREN];
             for i in 0..NUM_CHILDREN {
                 let value = vec![0; i];
-                leaves[i] = Some(new_leaf(&mut arena, &value, &[]));
+                leaves[i] = Some(new_leaf(&mut arena, &[], &value));
             }
             let subtrees = [new_branch(&mut arena, None, leaves); SUBTREES.len()];
             let trie_descent = init(&mut arena, subtrees);
@@ -624,7 +627,7 @@ mod tests {
             // The expected split path is nibbles 1, 0 resulting in byte 0x10
 
             let accounts_subtree = {
-                let leaf = new_leaf(&mut arena, &[1u8; 100], &[]);
+                let leaf = new_leaf(&mut arena, &[], &[1u8; 100]);
                 let branch = {
                     let mut children = [None; NUM_CHILDREN];
                     children[0] = Some(leaf);
@@ -646,7 +649,7 @@ mod tests {
             assert_eq!(split.left_memory + split.right_memory, total_memory);
 
             // Now add some heavy contract code under 0x11 path to change the optimal split path.
-            subtrees[1] = new_leaf(&mut arena, &[1u8; 200], &[1, 1, 1, 1, 1, 1]);
+            subtrees[1] = new_leaf(&mut arena, &[1, 1, 1, 1, 1, 1], &[1u8; 200]);
             let trie_descent = init(&mut arena, subtrees);
             let total_memory = trie_descent.total_memory();
             let split = trie_descent.find_mem_usage_split();
