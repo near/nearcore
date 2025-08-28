@@ -148,9 +148,8 @@ pub fn total_send_fees(
                         sender_is_receiver,
                         &delegate_action.get_actions(),
                         &delegate_action.receiver_id,
-                    )
-                    .unwrap(),
-                )
+                    )?
+                ).unwrap()
             }
             DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {
                 let num_bytes = code.len() as u64;
