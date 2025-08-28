@@ -651,7 +651,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
             opts.set_max_subcompactions(2);
             opts.set_target_file_size_base(128 * bytesize::MIB);
             opts.set_max_write_buffer_number(8);
-            opts.set_compaction_readahead_size(4 * bytesize::MIB as usize);
+            opts.set_compaction_readahead_size(6 * bytesize::MIB as usize);
         }
         DBCol::FlatState | DBCol::Chunks | DBCol::StateChanges | DBCol::Transactions => {
             opts.optimize_level_style_compaction(512 * bytesize::MIB as usize);
@@ -660,7 +660,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
             opts.set_level_zero_stop_writes_trigger(64);
             opts.set_target_file_size_base(128 * bytesize::MIB);
             opts.set_max_write_buffer_number(6);
-            opts.set_compaction_readahead_size(3 * bytesize::MIB as usize);
+            opts.set_compaction_readahead_size(4 * bytesize::MIB as usize);
         }
         _ => {}
     }
