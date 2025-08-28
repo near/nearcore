@@ -684,7 +684,11 @@ class NeardRunner:
         with self.lock:
             current_path = self.get_neard_path()
             # if binary_idx is None, new path will be the same.
-            new_path = self.get_neard_path(binary_idx)
+            try:
+                new_path = self.get_neard_path(binary_idx)
+            except ValueError as e:
+                raise jsonrpc.exceptions.JSONRPCDispatchException(
+                    code=-32602, message=f'Invalid index: {e}')
             self.set_current_neard_path(new_path)
             self.save_data()
 
