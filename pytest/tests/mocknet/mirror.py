@@ -8,6 +8,7 @@ import pathlib
 import json
 import random
 import shutil
+import subprocess
 from rc import pmap
 import re
 import sys
@@ -439,8 +440,14 @@ def new_test_cmd(ctx: CommandContext):
     targeted = nodes + to_list(traffic_generator)
 
     logger.info(f'resetting/initializing home dirs')
+
+    if traffic_generator:
+        rpc_ip = traffic_generator.ip_addr()
+    else:
+        rpc_ip = '0.0.0.0'
     test_keys = pmap(
-        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id()), targeted)
+        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id(), rpc_ip),
+        targeted)
 
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
                                                args.num_validators)

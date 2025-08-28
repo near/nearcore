@@ -2,10 +2,9 @@
 Test case classes for release tests on forknet.
 """
 from .base import NodeHardware, TestSetup
-from mirror import CommandContext, update_config_cmd, run_remote_cmd
+from mirror import CommandContext, ScheduleMode, update_config_cmd, run_remote_cmd, start_nodes_cmd
 import copy
 from datetime import datetime, timedelta, timezone
-from utils import ScheduleMode, start_nodes_cmd
 
 
 class Test28(TestSetup):
@@ -60,23 +59,27 @@ class Test28(TestSetup):
         ref_time = [now + timedelta(minutes=i * minutes) for i in range(1, 5)]
 
         for i in range(1, 5):
+            time_str = time_to_str(ref_time[i - 1])
+
             start_nodes_args = copy.deepcopy(self.args)
             start_nodes_args.host_type = 'nodes'
             start_nodes_args.select_partition = (i, 4)
-            start_nodes_args.on = ScheduleMode(mode="calendar",
-                                               value=time_to_str(ref_time[i]))
+            start_nodes_args.on = ScheduleMode(mode="calendar", value=time_str)
             start_nodes_args.schedule_id = f"up-start-{i}"
             start_nodes_args.binary_idx = 1
             start_nodes_cmd(CommandContext(start_nodes_args))
 
             # Send stake transaction to RPC node using node key
             stake_cmd_args = copy.deepcopy(self.args)
-            stake_cmd_args.host_type = 'traffic'
-            stake_cmd_args.cmd = f"""
-                account_id=$(grep account_id ~/.near/node_key.json | awk -F'"' '{{print $4}}')
-                staking_key=$(grep public_key ~/.near/node_key.json | awk -F'"' '{{print $4}}')
-                near --nodeUrl=http://127.0.0.1:3030 stake $account_id $staking_key 1000000000000000000000000
-            """
+            stake_cmd_args.host_type = 'nodes'
+            stake_cmd_args.select_partition = (i, 4)
+            stake_cmd_args.on = ScheduleMode(mode="calendar", value=time_str)
+            stake_cmd_args.schedule_id = f"up-stake-{i}"
+            stake_cmd_args.cmd = (
+                "near-validator staking stake-proposal "
+                "$(jq -r '\"\\(.account_id)  \\(.public_key)\"' ~/.near/validator_key.json) "
+                "'100000000 NEAR' network-config mocknet sign-with-keychain send"
+            )
             run_remote_cmd(CommandContext(stake_cmd_args))
 
     def after_test_start(self):

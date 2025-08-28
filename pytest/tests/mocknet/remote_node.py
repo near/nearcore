@@ -50,7 +50,7 @@ class RemoteNeardRunner:
         cmd_utils.run_cmd(self.node, cmd)
 
     def upload_neard_runner(self, source_dir):
-        self.node.machine.upload(source_dir,
+        self.node.machine.upload(f"{source_dir}/*",
                                  self.neard_runner_home,
                                  switch_user='ubuntu')
 

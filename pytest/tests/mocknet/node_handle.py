@@ -143,10 +143,11 @@ class NodeHandle:
     def neard_runner_stop(self):
         return self.neard_runner_jsonrpc('stop')
 
-    def neard_runner_new_test(self, mocknet_id):
+    def neard_runner_new_test(self, mocknet_id, rpc_ip):
         params = self.node.new_test_params()
         params['mocknet_id'] = mocknet_id
         params['role'] = self.role()
+        params['rpc_ip'] = rpc_ip
         params['can_validate'] = self.can_validate
         params['want_state_dump'] = self.want_state_dump
         return self.neard_runner_jsonrpc('new_test', params)
