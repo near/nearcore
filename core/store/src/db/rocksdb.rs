@@ -548,6 +548,7 @@ fn common_rocksdb_options() -> Options {
         opts.set_level_zero_stop_writes_trigger(100000000);
     } else {
         opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.set_max_total_wal_size(bytesize::GIB);
     }
     opts
 }
