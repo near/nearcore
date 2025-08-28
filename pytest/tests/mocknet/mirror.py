@@ -135,8 +135,9 @@ class CommandContext:
             sys.exit(
                 f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
             )
-            traffic_generator, nodes = local_test_node.get_nodes()
-            node_config.configure_nodes(nodes + to_list(traffic_generator))
+
+        traffic_generator, nodes = local_test_node.get_nodes()
+        node_config.configure_nodes(nodes + to_list(traffic_generator))
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
@@ -223,52 +224,57 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
     nodes = ctx.nodes
     traffic_generator = ctx.traffic_generator
     prompt_init_flags(args)
-    if args.neard_upgrade_binary_url is None or args.neard_upgrade_binary_url == '':
-        configs = [{
+
+    if args.neard_upgrade_binary_url is not None and args.neard_upgrade_binary_url != '':
+        neard_upgrade_binary_url = args.neard_upgrade_binary_url
+    else:
+        neard_upgrade_binary_url = None
+
+    run_id = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
+    all_nodes = []
+    all_configs = []
+
+    for node in nodes:
+        node_binaries = [{"url": args.neard_binary_url, "epoch_height": 0}]
+        if neard_upgrade_binary_url:
+            # Upgrade the binary at a random epoch.
+            # TODO: Consider upgrading specific portions of stake at every
+            # epoch.
+            node_binaries.append({
+                "url": neard_upgrade_binary_url,
+                "epoch_height": random.randint(1, 4),
+            })
+
+        node_config = {
+            "run_id": run_id,
             "is_traffic_generator": False,
-            "binaries": [{
-                "url": args.neard_binary_url,
-                "epoch_height": 0
-            }]
-        }] * len(nodes)
+            "binaries": node_binaries,
+        }
+        all_nodes.append(node)
+        all_configs.append(node_config)
+
+    if traffic_generator:
+        if neard_upgrade_binary_url:
+            # If our scenario upgrades the binary, use the latest binary for
+            # the traffic generator.
+            traffic_generator_binary = neard_upgrade_binary_url
+        else:
+            traffic_generator_binary = args.neard_binary_url
+
         traffic_generator_config = {
+            "run_id": run_id,
             "is_traffic_generator": True,
             "binaries": [{
-                "url": args.neard_binary_url,
-                "epoch_height": 0
-            }]
-        }
-    else:
-        # for now this test starts all validators with the same stake, so just make the upgrade
-        # epoch random. If we change the stakes, we should change this to choose how much stake
-        # we want to upgrade during each epoch
-        configs = []
-        for i in range(len(nodes)):
-            configs.append({
-                "is_traffic_generator":
-                    False,
-                "binaries": [{
-                    "url": args.neard_binary_url,
-                    "epoch_height": 0
-                }, {
-                    "url": args.neard_upgrade_binary_url,
-                    "epoch_height": random.randint(1, 4)
-                }]
-            })
-        traffic_generator_config = {
-            "is_traffic_generator":
-                True,
-            "binaries": [{
-                "url": args.neard_upgrade_binary_url,
+                "url": traffic_generator_binary,
                 "epoch_height": 0
             }]
         }
 
-    if traffic_generator is not None:
-        traffic_generator.init_neard_runner(traffic_generator_config,
-                                            remove_home_dir)
+        all_nodes.append(traffic_generator)
+        all_configs.append(traffic_generator_config)
+
     pmap(lambda x: x[0].init_neard_runner(x[1], remove_home_dir),
-         zip(nodes, configs))
+         zip(all_nodes, all_configs))
 
 
 def init_cmd(ctx: CommandContext):
@@ -313,24 +319,35 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
     boot_nodes = []
     for node, response in new_test_rpc_responses:
         if len(validators) < num_validators:
-            if node.can_validate and response[
-                    'validator_account_id'] is not None:
-                # we assume here that validator_account_id is not null, validator_public_key
-                # better not be null either
+            if node.can_validate:
+                if node.role() == 'validator':
+                    amount = 10**32
+                else:
+                    amount = 10**33
+
+                # We assume that if node validates a chain, it has account id
+                # and public key.
                 validators.append({
                     'account_id': response['validator_account_id'],
                     'public_key': response['validator_public_key'],
-                    'amount': str(10**33),
+                    'amount': str(amount),
                 })
         else:
             non_validators.append(node.ip_addr())
-        if len(boot_nodes) < 20:
+
+        # We want to bootstrap chain data from nodes which have state
+        # initially, which is the case iff node is not a chunk validator.
+        if len(boot_nodes) < 20 and node.role() != 'validator':
             boot_nodes.append(
                 f'{response["node_key"]}@{node.ip_addr()}:{response["listen_port"]}'
             )
 
         if len(validators) >= num_validators and len(boot_nodes) >= 20:
             break
+
+    # Sort validators by decreasing amount (number) and then by increasing validator account id
+    validators.sort(key=lambda v: (-int(v['amount']), v['account_id']))
+
     # neither of these should happen, since we check the number of available nodes in new_test(), and
     # only the traffic generator will respond with null validator_account_id and validator_public_key
     if len(validators) == 0:
