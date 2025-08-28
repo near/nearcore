@@ -205,8 +205,13 @@ impl StoreConfig {
             | DBCol::StateTransitionData
             | DBCol::OutgoingReceipts
             | DBCol::IncomingReceipts
+            | DBCol::TransactionResultForBlock
+            | DBCol::BlockHeader
+            | DBCol::Block
+            | DBCol::BlockMerkleTree
+            | DBCol::OutcomeIds
+            | DBCol::ChunkExtra
             | DBCol::FlatStateChanges => bytesize::ByteSize::mib(32),
-            // Less 'hot' columns get a smaller cache
             _ => bytesize::ByteSize::mib(16),
         }
     }
