@@ -1,5 +1,4 @@
 use super::{GAS_PRICE, to_yocto};
-use crate::config::safe_add_gas;
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
@@ -20,7 +19,7 @@ use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
 use near_primitives::errors::{
-    ActionErrorKind, FunctionCallError, MissingTrieValue, TxExecutionError,
+    ActionErrorKind, FunctionCallError, IntegerOverflowError, MissingTrieValue, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
@@ -862,10 +861,9 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         deposit: 0,
     }))];
 
-    let expected_gas_burnt = safe_add_gas(
-        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
-    )
+    let expected_gas_burnt = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+        .checked_add(total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap())
+        .unwrap()
     .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
@@ -948,10 +946,9 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         deposit: 0,
     }))];
 
-    let expected_gas_burnt = safe_add_gas(
-        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
-    )
+    let expected_gas_burnt = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+        .checked_add(total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap())
+        .unwrap()
     .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
@@ -1026,10 +1023,9 @@ fn test_apply_surplus_gas_for_function_call() {
         deposit: 0,
     }))];
 
-    let expected_gas_burnt = safe_add_gas(
-        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
-    )
+    let expected_gas_burnt = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+        .checked_add(total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap())
+        .unwrap()
     .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),

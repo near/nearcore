@@ -2,7 +2,7 @@
 
 use crate::actions::*;
 use crate::config::{
-    exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
+    exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
@@ -226,12 +226,11 @@ impl ActionResult {
             next_result.gas_burnt,
             next_result.gas_used
         );
-        self.gas_burnt = safe_add_gas(self.gas_burnt, next_result.gas_burnt)?;
-        self.gas_burnt_for_function_call = safe_add_gas(
-            self.gas_burnt_for_function_call,
-            next_result.gas_burnt_for_function_call,
-        )?;
-        self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
+        self.gas_burnt = self.gas_burnt.checked_add(next_result.gas_burnt).ok_or(IntegerOverflowError)?;
+        self.gas_burnt_for_function_call = self.gas_burnt_for_function_call
+            .checked_add(next_result.gas_burnt_for_function_call)
+            .ok_or(IntegerOverflowError)?;
+        self.gas_used = self.gas_used.checked_add(next_result.gas_used).ok_or(IntegerOverflowError)?;
         self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
         self.profile.merge(&next_result.profile);
         self.result = next_result.result;
@@ -865,23 +864,17 @@ impl Runtime {
         config: &RuntimeConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = safe_add_gas(
-            total_prepaid_gas(&action_receipt.actions)?,
-            total_prepaid_send_fees(config, &action_receipt.actions)?,
-        )?;
-        let prepaid_exec_gas = safe_add_gas(
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
-            config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        )?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions)?)
+            .ok_or(IntegerOverflowError)?;
+        let prepaid_exec_gas = total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+            .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
+            .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
-            Gas::from_gas(
-                safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_burnt.as_gas(),
-            )
+                prepaid_gas.checked_add(prepaid_exec_gas).ok_or(IntegerOverflowError)?.checked_sub(result.gas_burnt).unwrap(),
         } else {
-            Gas::from_gas(
-                safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_used.as_gas(),
-            )
+                prepaid_gas.checked_add(prepaid_exec_gas).ok_or(IntegerOverflowError)?.checked_sub(result.gas_used).unwrap(),
         };
 
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
@@ -951,23 +944,17 @@ impl Runtime {
         config: &RuntimeConfig,
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = safe_add_gas(
-            total_prepaid_gas(&action_receipt.actions)?,
-            total_prepaid_send_fees(config, &action_receipt.actions)?,
-        )?;
-        let prepaid_exec_gas = safe_add_gas(
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
-            config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        )?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions)?)
+            .ok_or(IntegerOverflowError)?;
+        let prepaid_exec_gas = total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+            .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
+            .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gross_gas_refund = if result.result.is_err() {
-            Gas::from_gas(
-                safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_burnt.as_gas(),
-            )
+                prepaid_gas.checked_add(prepaid_exec_gas).ok_or(IntegerOverflowError)?.checked_sub(result.gas_burnt).unwrap(),
         } else {
-            Gas::from_gas(
-                safe_add_gas(prepaid_gas, prepaid_exec_gas)?.as_gas() - result.gas_used.as_gas(),
-            )
+                prepaid_gas.checked_add(prepaid_exec_gas).ok_or(IntegerOverflowError)?.checked_subresult.gas_used).unwrap(),
         };
 
         // NEP-536 also adds a penalty to gas refund.

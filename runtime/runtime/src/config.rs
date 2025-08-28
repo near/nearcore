@@ -48,9 +48,6 @@ pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, Inte
     gas_price.checked_mul(Balance::from(gas.as_gas())).ok_or(IntegerOverflowError {})
 }
 
-pub fn safe_add_gas(a: Gas, b: Gas) -> Result<Gas, IntegerOverflowError> {
-    a.checked_add(b).ok_or(IntegerOverflowError {})
-}
 
 pub fn safe_mul_gas(a: Gas, b: u64) -> Result<Gas, IntegerOverflowError> {
     a.checked_mul(b).ok_or(IntegerOverflowError {})
@@ -176,7 +173,7 @@ pub fn total_send_fees(
                     .unwrap()
             }
         };
-        result = safe_add_gas(result, delta)?;
+        result = result.checked_add(delta).ok_or(IntegerOverflowError)?;
     }
     Ok(result)
 }
@@ -207,7 +204,7 @@ pub fn total_prepaid_send_fees(
             }
             _ => Gas::from_gas(0),
         };
-        result = safe_add_gas(result, delta)?;
+        result = result.checked_add(delta).ok_or(IntegerOverflowError)?;
     }
     Ok(result)
 }
@@ -314,26 +311,24 @@ pub fn tx_cost(
     let sender_is_receiver = tx.receiver_id() == tx.signer_id();
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
-    gas_burnt = safe_add_gas(
-        gas_burnt,
-        total_send_fees(config, sender_is_receiver, tx.actions(), tx.receiver_id())?,
-    )?;
-    let prepaid_gas = safe_add_gas(
-        total_prepaid_gas(&tx.actions())?,
-        total_prepaid_send_fees(config, &tx.actions())?,
-    )?;
+    gas_burnt = gas_burnt
+        .checked_add(total_send_fees(config, sender_is_receiver, tx.actions(), tx.receiver_id())?)
+        .ok_or(IntegerOverflowError)?;
+    let prepaid_gas = total_prepaid_gas(&tx.actions())?
+        .checked_add(total_prepaid_send_fees(config, &tx.actions())?)
+        .ok_or(IntegerOverflowError)?;
     let receipt_gas_price = if ProtocolFeature::ReducedGasRefunds.enabled(protocol_version) {
         gas_price
     } else {
         pessimistic_gas_price(gas_price, sender_is_receiver, fees, prepaid_gas.as_gas())?
     };
 
-    let mut gas_remaining =
-        safe_add_gas(prepaid_gas, fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
-    gas_remaining = safe_add_gas(
-        gas_remaining,
-        total_prepaid_exec_fees(config, tx.actions(), tx.receiver_id())?,
-    )?;
+    let mut gas_remaining = prepaid_gas
+        .checked_add(fees.fee(ActionCosts::new_action_receipt).exec_fee())
+        .ok_or(IntegerOverflowError)?;
+    gas_remaining = gas_remaining
+        .checked_add(total_prepaid_exec_fees(config, tx.actions(), tx.receiver_id())?)
+        .ok_or(IntegerOverflowError)?;
     let burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
@@ -359,16 +354,15 @@ pub fn total_prepaid_exec_fees(
                 &actions,
                 &signed_delegate_action.delegate_action.receiver_id,
             )?;
-            delta = safe_add_gas(
-                delta,
-                exec_fee(config, action, &signed_delegate_action.delegate_action.receiver_id),
-            )?;
-            delta = safe_add_gas(delta, fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
+            delta = delta
+                .checked_add(exec_fee(config, action, &signed_delegate_action.delegate_action.receiver_id))
+                .ok_or(IntegerOverflowError)?;
+            delta = delta.checked_add(fees.fee(ActionCosts::new_action_receipt).exec_fee()).ok_or(IntegerOverflowError)?;
         } else {
             delta = exec_fee(config, action, receiver_id);
         }
 
-        result = safe_add_gas(result, delta)?;
+        result = result.checked_add(delta).ok_or(IntegerOverflowError)?;
     }
     Ok(result)
 }
@@ -403,7 +397,7 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
             action_gas = action.get_prepaid_gas();
         }
 
-        total_gas = safe_add_gas(total_gas, action_gas)?;
+        total_gas = total_gas.checked_add(action_gas).ok_or(IntegerOverflowError)?;
     }
     Ok(total_gas)
 }

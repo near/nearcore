@@ -347,7 +347,7 @@ impl GasCounter {
 
     /// Amount of gas used through promises and amount burned.
     pub(crate) fn used_gas(&self) -> Gas {
-        self.promises_gas.checked_add(Gas::from_gas(self.fast_counter.burnt_gas).unwrap())
+        self.promises_gas.checked_add(Gas::from_gas(self.fast_counter.burnt_gas)).unwrap()
     }
 
     pub(crate) fn profile_data(&self) -> ProfileDataV3 {

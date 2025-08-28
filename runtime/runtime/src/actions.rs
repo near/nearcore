@@ -1,5 +1,5 @@
 use crate::config::{
-    safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
+    safe_add_compute, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
 };
 use crate::ext::{ExternalError, RuntimeExt};
@@ -10,7 +10,7 @@ use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, Runtime
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::config::ViewConfig;
-use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
+use near_primitives::errors::{ActionError, ActionErrorKind, IntegerOverflowError, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
@@ -136,7 +136,7 @@ pub(crate) fn execute_function_call(
     if !context.view_config.is_some() {
         let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
         let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
-        outcome.used_gas = safe_add_gas(outcome.used_gas, distributed)?;
+        outcome.used_gas = outcome.used_gas.checked_add(distributed).ok_or(IntegerOverflowError)?;
     }
 
     Ok(outcome)
@@ -249,14 +249,15 @@ pub(crate) fn action_function_call(
             ActionErrorKind::FunctionCallError(crate::conversions::Convert::convert(err)).into();
         result.result = Err(action_err);
     }
-    result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
-    result.gas_burnt_for_function_call =
-        safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
+    result.gas_burnt = result.gas_burnt.checked_add(outcome.burnt_gas).ok_or(IntegerOverflowError)?;
+    result.gas_burnt_for_function_call = result.gas_burnt_for_function_call
+        .checked_add(outcome.burnt_gas)
+        .ok_or(IntegerOverflowError)?;
     // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
     // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
     // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
     // `FunctionCall`s error.
-    result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+    result.gas_used = result.gas_used.checked_add(outcome.used_gas).ok_or(IntegerOverflowError)?;
     result.compute_usage = safe_add_compute(result.compute_usage, outcome.compute_usage)?;
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
@@ -816,11 +817,11 @@ pub(crate) fn apply_delegate_action(
     let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, &action_receipt.actions)?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt,
-    result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
+    result.gas_used = result.gas_used.checked_add(required_gas).ok_or(IntegerOverflowError)?;
     // This gas was prepaid on Relayer shard. Need to burn it because the receipt is going to be sent.
     // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
-    result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
-    result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
+    result.gas_used = result.gas_used.checked_add(prepaid_send_fees).ok_or(IntegerOverflowError)?;
+    result.gas_burnt = result.gas_burnt.checked_add(prepaid_send_fees).ok_or(IntegerOverflowError)?;
     // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
     result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees.as_gas())?;
     result.new_receipts.push(new_receipt);
@@ -832,17 +833,16 @@ pub(crate) fn apply_delegate_action(
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-            let mut required_gas = safe_add_gas(
-                total_prepaid_exec_fees(
+            let mut required_gas = total_prepaid_exec_fees(
                     &apply_state.config,
                     &action_receipt.actions,
                     receipt.receiver_id(),
-                )?,
-                total_prepaid_gas(&action_receipt.actions)?,
-            )?;
-            required_gas = safe_add_gas(
-                required_gas,
-                apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
+                )?
+                .checked_add(total_prepaid_gas(&action_receipt.actions)?)
+                .ok_or(IntegerOverflowError)?;
+            required_gas = required_gas
+                .checked_add(apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
+                .ok_or(IntegerOverflowError)?;
             )?;
 
             required_gas
