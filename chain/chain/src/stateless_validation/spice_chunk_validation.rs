@@ -263,7 +263,7 @@ mod tests {
         let MainTransition::NewChunk { new_chunk_data, block_hash: _ } =
             output.main_transition_params
         else {
-            panic!()
+            unreachable!()
         };
 
         let prev_execution_results = test_chain.prev_execution_results();
@@ -290,18 +290,8 @@ mod tests {
 
         let invalid_epoch_id =
             EpochId::from_str("32222222222233333333334444444444445555555777").unwrap();
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            invalid_epoch_id,
-            valid_witness.chunk_header().clone(),
-            valid_witness.main_state_transition().clone(),
-            valid_witness.source_receipt_proofs().clone(),
-            *valid_witness.applied_receipts_hash(),
-            valid_witness.transactions().clone(),
-            valid_witness.implicit_transitions().clone(),
-            valid_witness.new_transactions().clone(),
-            PROTOCOL_VERSION,
-        );
+        let invalid_witness =
+            TestWitnessBuilder::from_default(valid_witness).epoch_id(invalid_epoch_id).build();
 
         let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
         assert_contains(&error_message, "does not match epoch id");
@@ -314,18 +304,9 @@ mod tests {
         let valid_witness = test_chain.valid_witness();
 
         let invalid_chunk_header = test_chain.prev_chunk_header();
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            *valid_witness.epoch_id(),
-            invalid_chunk_header,
-            valid_witness.main_state_transition().clone(),
-            valid_witness.source_receipt_proofs().clone(),
-            *valid_witness.applied_receipts_hash(),
-            valid_witness.transactions().clone(),
-            valid_witness.implicit_transitions().clone(),
-            valid_witness.new_transactions().clone(),
-            PROTOCOL_VERSION,
-        );
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .chunk_header(invalid_chunk_header)
+            .build();
 
         let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
         assert_contains(&error_message, "doesn't contain state witness' chunk header");
@@ -338,18 +319,9 @@ mod tests {
         let valid_witness = test_chain.valid_witness();
 
         let invalid_receipt_proofs = HashMap::new();
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            *valid_witness.epoch_id(),
-            valid_witness.chunk_header().clone(),
-            valid_witness.main_state_transition().clone(),
-            invalid_receipt_proofs,
-            *valid_witness.applied_receipts_hash(),
-            valid_witness.transactions().clone(),
-            valid_witness.implicit_transitions().clone(),
-            valid_witness.new_transactions().clone(),
-            PROTOCOL_VERSION,
-        );
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .source_receipt_proofs(invalid_receipt_proofs)
+            .build();
 
         let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
         assert_contains(
@@ -374,18 +346,9 @@ mod tests {
                 (chunk.chunk_hash().clone(), proof.clone())
             })
             .collect();
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            *valid_witness.epoch_id(),
-            valid_witness.chunk_header().clone(),
-            valid_witness.main_state_transition().clone(),
-            invalid_receipt_proofs,
-            *valid_witness.applied_receipts_hash(),
-            valid_witness.transactions().clone(),
-            valid_witness.implicit_transitions().clone(),
-            valid_witness.new_transactions().clone(),
-            PROTOCOL_VERSION,
-        );
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .source_receipt_proofs(invalid_receipt_proofs)
+            .build();
 
         let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
         assert_contains(&error_message, "Missing source receipt proof");
@@ -406,18 +369,9 @@ mod tests {
                 (chunk_hash, proof)
             })
             .collect();
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            *valid_witness.epoch_id(),
-            valid_witness.chunk_header().clone(),
-            valid_witness.main_state_transition().clone(),
-            invalid_receipt_proofs,
-            *valid_witness.applied_receipts_hash(),
-            valid_witness.transactions().clone(),
-            valid_witness.implicit_transitions().clone(),
-            valid_witness.new_transactions().clone(),
-            PROTOCOL_VERSION,
-        );
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .source_receipt_proofs(invalid_receipt_proofs)
+            .build();
 
         let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
         assert_contains(&error_message, "is from shard 42, expected shard");
@@ -438,18 +392,9 @@ mod tests {
                 (chunk_hash, proof)
             })
             .collect();
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            *valid_witness.epoch_id(),
-            valid_witness.chunk_header().clone(),
-            valid_witness.main_state_transition().clone(),
-            invalid_receipt_proofs,
-            *valid_witness.applied_receipts_hash(),
-            valid_witness.transactions().clone(),
-            valid_witness.implicit_transitions().clone(),
-            valid_witness.new_transactions().clone(),
-            PROTOCOL_VERSION,
-        );
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .source_receipt_proofs(invalid_receipt_proofs)
+            .build();
 
         let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
         assert_contains(&error_message, "is for shard 42, expected shard");
@@ -481,18 +426,9 @@ mod tests {
                 (chunk_hash, proof)
             })
             .collect();
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            *valid_witness.epoch_id(),
-            valid_witness.chunk_header().clone(),
-            valid_witness.main_state_transition().clone(),
-            invalid_receipt_proofs,
-            *valid_witness.applied_receipts_hash(),
-            valid_witness.transactions().clone(),
-            valid_witness.implicit_transitions().clone(),
-            valid_witness.new_transactions().clone(),
-            PROTOCOL_VERSION,
-        );
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .source_receipt_proofs(invalid_receipt_proofs)
+            .build();
 
         let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
         assert_contains(
@@ -508,18 +444,9 @@ mod tests {
         let valid_witness = test_chain.valid_witness();
 
         let invalid_receipts_hash = CryptoHash::default();
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            *valid_witness.epoch_id(),
-            valid_witness.chunk_header().clone(),
-            valid_witness.main_state_transition().clone(),
-            valid_witness.source_receipt_proofs().clone(),
-            invalid_receipts_hash,
-            valid_witness.transactions().clone(),
-            valid_witness.implicit_transitions().clone(),
-            valid_witness.new_transactions().clone(),
-            PROTOCOL_VERSION,
-        );
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .applied_receipts_hash(invalid_receipts_hash)
+            .build();
 
         let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
         assert_contains(&error_message, "does not match expected receipts hash");
@@ -536,18 +463,9 @@ mod tests {
                 .take(valid_witness.transactions().len())
                 .collect();
         assert_ne!(&invalid_transactions, valid_witness.transactions());
-        let invalid_witness = ChunkStateWitness::new(
-            AccountId::from_str("unused").unwrap(),
-            *valid_witness.epoch_id(),
-            valid_witness.chunk_header().clone(),
-            valid_witness.main_state_transition().clone(),
-            valid_witness.source_receipt_proofs().clone(),
-            *valid_witness.applied_receipts_hash(),
-            invalid_transactions,
-            valid_witness.implicit_transitions().clone(),
-            valid_witness.new_transactions().clone(),
-            PROTOCOL_VERSION,
-        );
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .transactions(invalid_transactions)
+            .build();
 
         let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
         assert_contains(&error_message, "does not match expected transaction root");
@@ -751,6 +669,61 @@ mod tests {
         };
 
         vec![send_money(100), send_money(200), send_money(300)]
+    }
+
+    struct TestWitnessBuilder {
+        epoch_id: EpochId,
+        chunk_header: ShardChunkHeader,
+        main_state_transition: ChunkStateTransition,
+        source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+        applied_receipts_hash: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+        implicit_transitions: Vec<ChunkStateTransition>,
+    }
+
+    macro_rules! builder_setter {
+        ($field: ident, $type: ty) => {
+            fn $field(mut self, value: $type) -> Self {
+                self.$field = value;
+                self
+            }
+        };
+    }
+
+    impl TestWitnessBuilder {
+        builder_setter!(epoch_id, EpochId);
+        builder_setter!(chunk_header, ShardChunkHeader);
+        builder_setter!(source_receipt_proofs, HashMap<ChunkHash, ReceiptProof>);
+        builder_setter!(applied_receipts_hash, CryptoHash);
+        builder_setter!(transactions, Vec<SignedTransaction>);
+
+        fn from_default(default: ChunkStateWitness) -> Self {
+            Self {
+                epoch_id: *default.epoch_id(),
+                chunk_header: default.chunk_header().clone(),
+                main_state_transition: default.main_state_transition().clone(),
+                source_receipt_proofs: default.source_receipt_proofs().clone(),
+                applied_receipts_hash: *default.applied_receipts_hash(),
+                transactions: default.transactions().clone(),
+                implicit_transitions: default.implicit_transitions().clone(),
+            }
+        }
+
+        fn build(self) -> ChunkStateWitness {
+            let new_transactions = vec![];
+            ChunkStateWitness::new(
+                AccountId::from_str("unused").unwrap(),
+                self.epoch_id,
+                self.chunk_header,
+                self.main_state_transition,
+                self.source_receipt_proofs,
+                self.applied_receipts_hash,
+                self.transactions,
+                self.implicit_transitions,
+                new_transactions,
+                PROTOCOL_VERSION,
+            )
+        }
     }
 
     struct TestChain {
