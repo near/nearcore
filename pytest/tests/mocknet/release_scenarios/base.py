@@ -104,7 +104,8 @@ class TestSetup:
             f"Initializing environment for test case {self.args.test_case}")
         # Load test state orchestrator
         init_args = copy.deepcopy(self.args)
-        init_args.neard_upgrade_binary_url = ''
+        # why?
+        # init_args.neard_upgrade_binary_url = ''
         init_args.yes = True
         init_args.gcs_state_sync = self.has_state_dumper
         hard_reset_cmd(CommandContext(init_args))
@@ -226,6 +227,17 @@ class TestSetup:
         run_cmd_args.cmd = cmd_traffic
         run_remote_cmd(CommandContext(run_cmd_args))
 
+        jq_cmd = f"""-type f -name "80.json" -exec sh -c 'jq ".num_chunk_validator_seats = 30" $1 > $1.tmp && mv $1.tmp $1' _ {{}} \;"""
+        cmd_node = f"find ~/.near/epoch_configs/ {jq_cmd}"
+        cmd_traffic = f"find ~/.near/target/epoch_configs/ {jq_cmd}"
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = 'nodes'
+        run_cmd_args.cmd = cmd_node
+        run_remote_cmd(CommandContext(run_cmd_args))
+        run_cmd_args.host_type = 'traffic'
+        run_cmd_args.cmd = cmd_traffic
+        run_remote_cmd(CommandContext(run_cmd_args))
+
     def _reduce_chunk_validators_stake(self):
         """
         Reduce the stake of the chunk validators to avoid accidentally becoming the block producers.
@@ -239,7 +251,7 @@ class TestSetup:
             # We need to share the epoch configs before the upgrade.
             self._share_epoch_configs()
         self._amend_epoch_config(
-            f".num_chunk_validator_seats = 4 | "  # HACK FOR UPGRADE TEST
+            f".num_chunk_validator_seats = 20 | "  # HACK FOR UPGRADE TEST
             f".block_producer_kickout_threshold = 0 | "
             f".chunk_producer_kickout_threshold = 0 | "
             f".chunk_validator_only_kickout_threshold = 0")

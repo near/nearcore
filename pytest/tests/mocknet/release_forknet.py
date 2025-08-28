@@ -4,6 +4,7 @@ This script is used to run a release tests on a forknet.
 
 from argparse import ArgumentParser
 import sys
+import copy
 import pathlib
 import subprocess
 from enum import Enum
@@ -12,6 +13,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 
 from release_scenarios import get_test_case, get_available_test_cases
+from mirror import CommandContext, ScheduleMode, update_config_cmd, run_remote_cmd, start_nodes_cmd
 
 CHAIN_ID = "mainnet"
 MOCKNET_STORE_PATH = "gs://near-mocknet-artefact-store"
@@ -97,6 +99,16 @@ def handle_destroy(args):
 def handle_start_test(args):
     logger.info("🚀 Starting test...")
     test_setup = get_test_case(args.test_case, args)
+
+    # stake_cmd_args = copy.deepcopy(test_setup.args)
+    # stake_cmd_args.host_filter = '-cv-'
+    # stake_cmd_args.cmd = (
+    #     "/home/ubuntu/.cargo/bin/near-validator staking stake-proposal "
+    #     "$(jq -r '\"\\(.account_id)  \\(.public_key)\"' ~/.near/validator_key.json) "
+    #     "'100000000 NEAR' network-config mocknet sign-with-keychain send")
+    # run_remote_cmd(CommandContext(stake_cmd_args))
+    # exit(0)
+
     logger.info("🔄 Initializing environment...")
     test_setup.init_env()
     logger.info("🔄 Running before test setup...")

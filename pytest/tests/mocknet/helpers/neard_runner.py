@@ -310,6 +310,7 @@ class NeardRunner:
     # if force is set to true all binaries will be downloaded, otherwise only the missing ones
     def download_binaries(self, force):
         binaries = self.parse_binaries_config()
+        logging.info(f'downloading binaries: {binaries}')
         try:
             os.mkdir(self.home_path('binaries'))
         except FileExistsError:
@@ -1142,7 +1143,7 @@ class NeardRunner:
         if self.can_validate():
             config['tracked_shards_config'] = "NoShards"
             # SET TO False AS TEMPORARY MEASURE FOR < 9 NODES TEST
-            config['store']['load_mem_tries_for_tracked_shards'] = False  # True
+            config['store']['load_mem_tries_for_tracked_shards'] = True
         else:
             # What to do with new joiners?
             config['tracked_shards_config'] = "AllShards"
@@ -1187,13 +1188,14 @@ class NeardRunner:
         with open(self.target_near_home_path('config.json'), 'w') as f:
             config = json.dump(config, f, indent=2)
 
+        new_chain_id = n.get('new_chain_id')
+        self._configure_near_cli(new_chain_id=new_chain_id)
+
         # Chunk validator nodes don't have state originally.
         # They need to download it from the setup folder, once it appears.
         if self.config.get('role') == 'validator':
             self.set_state(TestState.AWAITING_SETUP_AVAILABILITY)
             return
-
-        new_chain_id = n.get('new_chain_id')
 
         if n['state_source'] == 'empty':
             self.remove_data_dir()
@@ -1235,7 +1237,6 @@ class NeardRunner:
             cmd.append(str(n['protocol_version']))
 
         self.run_neard(cmd)
-        self._configure_near_cli(new_chain_id=new_chain_id)
         self.set_state(TestState.SETTING_UP_PROTOCOL)
 
     def _remote_setup_path(self):
