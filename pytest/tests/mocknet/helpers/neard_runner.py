@@ -23,6 +23,7 @@ import time
 import http
 import http.server
 import dotenv
+from pydantic import BaseModel, ConfigDict
 
 # cspell:ignore dotenv CREAT RDWR gethostname levelname
 
@@ -251,6 +252,9 @@ class NeardRunner:
 
     def want_state_dump(self):
         return self.config.get('want_state_dump', False)
+
+    def should_upgrade_by_epoch(self):
+        return self.config.get('upgrade_by_epoch', False)
 
     def can_validate(self):
         return self.config.get('can_validate', False)
@@ -663,29 +667,54 @@ class NeardRunner:
 
         return True
 
-    def do_start(self, batch_interval_millis=None):
-        if batch_interval_millis is not None and not isinstance(
-                batch_interval_millis, int):
-            raise ValueError(
-                f'batch_interval_millis: {batch_interval_millis} not an int')
+    class StartParams(BaseModel):
+        batch_interval_millis: int | None = None
+        binary_idx: int | None = None
+
+        model_config = ConfigDict(extra='forbid')
+
+    def do_start(self, **kwargs):
+        try:
+            params = self.StartParams(**kwargs)
+            batch_interval_millis = params.batch_interval_millis
+            binary_idx = params.binary_idx
+        except ValueError as e:
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32602, message=f'Invalid arguments: {e}')
         with self.lock:
+            current_path = self.get_neard_path()
+            # if binary_idx is None, new path will be the same.
+            try:
+                new_path = self.get_neard_path(binary_idx)
+            except ValueError as e:
+                raise jsonrpc.exceptions.JSONRPCDispatchException(
+                    code=-32602, message=f'Invalid index: {e}')
+            self.set_current_neard_path(new_path)
+            self.save_data()
+
+            if batch_interval_millis is not None and not self.is_traffic_generator(
+            ):
+                logging.warn(
+                    f'got batch_interval_millis = {batch_interval_millis} on non traffic generator node. Ignoring it.'
+                )
+                batch_interval_millis = None
+                # TODO: restart it if we get a different batch_interval_millis than last time
+
+            should_restart = False
+            if current_path != new_path:
+                should_restart = True
+
             state = self.get_state()
             if state == TestState.STOPPED:
-                if batch_interval_millis is not None and not self.is_traffic_generator(
-                ):
-                    logging.warn(
-                        f'got batch_interval_millis = {batch_interval_millis} on non traffic generator node. Ignoring it.'
-                    )
-                    batch_interval_millis = None
-                # TODO: restart it if we get a different batch_interval_millis than last time
                 self.start_neard(batch_interval_millis)
-                self.set_state(TestState.RUNNING)
-            elif state != TestState.RUNNING:
+            elif state == TestState.RUNNING:
+                if should_restart:
+                    self.kill_neard()
+                    self.start_neard(batch_interval_millis)
+            else:
                 raise jsonrpc.exceptions.JSONRPCDispatchException(
                     code=-32600,
-                    message=
-                    'Cannot start node as test state has not been initialized yet'
-                )
+                    message=f'Cannot start node as test state is {state.name}.')
 
     # right now only has an effect if the test setup has been initialized. Should it also mean stop setting up
     # the test if we're in the middle of initializing it?
@@ -835,6 +864,9 @@ class NeardRunner:
     # TODO: should we update it at a random time in the middle of the
     # epoch instead of the beginning?
     def wanted_neard_path(self):
+        if not self.should_upgrade_by_epoch():
+            return self.data['current_neard_path']
+
         j = {
             'method': 'validators',
             'params': [None],
@@ -992,6 +1024,7 @@ class NeardRunner:
                 out_file=out,
             )
             self.last_start = time.time()
+            self.set_state(TestState.RUNNING)
 
     # Configure the logs config file to control the level of rust and opentelemetry logs.
     # Default config sets level to DEBUG for "client" and "chain" logs, WARN for tokio+actix, and INFO for everything else.
@@ -1096,6 +1129,13 @@ class NeardRunner:
         if start_neard:
             self.set_current_neard_path(neard_path)
             self.start_neard()
+
+    def get_neard_path(self, binary_idx=None):
+        if binary_idx is None:
+            return self.data['current_neard_path']
+        if binary_idx >= len(self.data['binaries']):
+            raise ValueError(f'binary_idx {binary_idx} is out of range')
+        return self.data['binaries'][binary_idx]['system_path']
 
     def get_state(self):
         return TestState(self.data['state'])
