@@ -643,24 +643,24 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
 
     // Optimize write-heavy columns to boost compaction throughput
     match col {
-        DBCol::PartialChunks => {
+        DBCol::PartialChunks | DBCol::State | DBCol::TrieChanges => {
             opts.optimize_level_style_compaction(1024 * bytesize::MIB as usize);
             opts.set_level_zero_file_num_compaction_trigger(8);
-            opts.set_level_zero_slowdown_writes_trigger(48);
-            opts.set_level_zero_stop_writes_trigger(96);
-            opts.set_max_subcompactions(3);
+            opts.set_level_zero_slowdown_writes_trigger(32);
+            opts.set_level_zero_stop_writes_trigger(64);
+            opts.set_max_subcompactions(2);
             opts.set_target_file_size_base(192 * bytesize::MIB);
             opts.set_max_write_buffer_number(8);
-            opts.set_compaction_readahead_size(4 * bytesize::MIB as usize);
+            opts.set_compaction_readahead_size(6 * bytesize::MIB as usize);
         }
-        DBCol::State | DBCol::TrieChanges => {
+        DBCol::FlatState | DBCol::Chunks | DBCol::StateChanges | DBCol::Transactions => {
             opts.optimize_level_style_compaction(512 * bytesize::MIB as usize);
             opts.set_level_zero_file_num_compaction_trigger(8);
             opts.set_level_zero_slowdown_writes_trigger(32);
             opts.set_level_zero_stop_writes_trigger(64);
             opts.set_target_file_size_base(128 * bytesize::MIB);
             opts.set_max_write_buffer_number(6);
-            opts.set_compaction_readahead_size(2 * bytesize::MIB as usize);
+            opts.set_compaction_readahead_size(4 * bytesize::MIB as usize);
         }
         _ => {}
     }
