@@ -29,7 +29,7 @@ class Test28(TestSetup):
         self.genesis_protocol_version = 79
         self.has_archival = False
         self.regions = "us-east1,europe-west4,asia-east1,us-west1,asia-south1,europe-west1,asia-southeast1"
-        self.upgrade_interval_minutes = 3  # Within the first 2 epochs
+        self.upgrade_interval_minutes = 2  # Within the first 2 epochs
 
     def amend_epoch_config(self):
         super().amend_epoch_config()
@@ -67,12 +67,12 @@ class Test28(TestSetup):
             start_nodes_args.select_partition = (i, 4)
             start_nodes_args.on = ScheduleMode(mode="calendar",
                                                value=upgrade_time_str)
-            start_nodes_args.schedule_id = f"up-starting-{i}"
+            start_nodes_args.schedule_id = f"up-start-{i}"
             start_nodes_args.binary_idx = 1
             start_nodes_cmd(CommandContext(start_nodes_args))
 
             stake_time_str = time_to_str(ref_time[i - 1] +
-                                         timedelta(minutes=2 * minutes))
+                                         timedelta(minutes=minutes))
 
             # Send stake transaction to RPC node using node key
             stake_cmd_args = copy.deepcopy(self.args)
@@ -80,7 +80,7 @@ class Test28(TestSetup):
             stake_cmd_args.select_partition = (i, 4)
             stake_cmd_args.on = ScheduleMode(mode="calendar",
                                              value=stake_time_str)
-            stake_cmd_args.schedule_id = f"up-staking-{i}"
+            stake_cmd_args.schedule_id = f"up-stake-{i}"
             stake_cmd_args.cmd = "bash ~/.near/neard-runner/send-stake-proposal.sh"
             run_remote_cmd(CommandContext(stake_cmd_args))
 
