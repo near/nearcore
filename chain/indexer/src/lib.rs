@@ -132,22 +132,23 @@ impl Indexer {
             home_dir = ?indexer_config.home_dir,
             "new indexer",
         );
-
         let near_config = indexer_config.derive_near_config();
         let nearcore::NearNode { client, view_client, shard_tracker, .. } =
-            nearcore::start_with_config(
-                &indexer_config.home_dir,
-                near_config.clone(),
-                ActorSystem::new(),
-            )
-            .with_context(|| "start_with_config")?;
-
+            Self::start_near_node(&indexer_config, near_config.clone())
+                .with_context(|| "failed to start near node as part of indexer")?;
         Ok(Self { view_client, client, near_config, indexer_config, shard_tracker })
+    }
+
+    pub fn start_near_node(
+        indexer_config: &IndexerConfig,
+        near_config: NearConfig,
+    ) -> Result<NearNode, anyhow::Error> {
+        nearcore::start_with_config(&indexer_config.home_dir, near_config, ActorSystem::new())
     }
 
     pub fn from_near_node(
         indexer_config: IndexerConfig,
-        near_config: nearcore::NearConfig,
+        near_config: NearConfig,
         near_node: &NearNode,
     ) -> Self {
         Self {

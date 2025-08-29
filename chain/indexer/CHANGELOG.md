@@ -9,11 +9,8 @@ Instead `NearNode` can be bootstrapped in the client code and then indexer insta
 is created with `Indexer::from_near_node(..)`:
 ```
   let near_config = indexer_config.derive_near_config();
-  let near_node = nearcore::start_with_config(
-      &indexer_config.home_dir,
-      near_config.clone(),
-      near_async::ActorSystem::new(),
-  )?;
+  let near_node = Indexer::start_near_node(&indexer_config, near_config.clone())
+      .expect("failed to start near node);
   let indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
   // take the required actors from near_node
 ```
