@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
+# This script is used to setup the near and near-validator CLI for the
+# mocknet cluster.
 
 # Check if near CLI is already installed
-if command -v near &> /dev/null; then
-    echo "near CLI is already installed at: $(which near)"
-    echo "Version: $(near --version)"
+if [ -x /home/ubuntu/.cargo/bin/near ]; then
+    echo "near CLI is already installed at: /home/ubuntu/.cargo/bin/near"
+    echo "Version: $(/home/ubuntu/.cargo/bin/near --version)"
 else
     echo "Installing near-cli-rs..."
     curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/latest/download/near-cli-rs-installer.sh | sh
 fi
 
 # Check if near-validator is already installed
-if command -v near-validator &> /dev/null; then
-    echo "near-validator is already installed at: $(which near-validator)"
-    echo "Version: $(near-validator --version)"
+if [ -x /home/ubuntu/.cargo/bin/near-validator ]; then
+    echo "near-validator is already installed at: /home/ubuntu/.cargo/bin/near-validator"
+    echo "Version: $(/home/ubuntu/.cargo/bin/near-validator --version)"
 else
     echo "Installing near-validator..."
     curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near-cli-rs/near-validator-cli-rs/releases/latest/download/near-validator-installer.sh | sh
@@ -31,7 +33,7 @@ mkdir -p "$CONFIG_DIR"
 
 cat > "$CONFIG_FILE" <<EOF
 version = "3"
-credentials_home_dir = "/home/ubuntu/.near-credentials"
+credentials_home_dir = "$CREDENTIALS_DIR"
 
 [network_connection.mocknet]
 network_name = "$NETWORK_ID"

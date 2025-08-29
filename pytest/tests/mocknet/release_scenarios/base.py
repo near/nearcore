@@ -172,6 +172,7 @@ class TestSetup:
         new_test_args.gcs_state_sync = self.has_state_dumper
         new_test_args.state_source = 'dump'
         new_test_args.patches_path = None
+        new_test_args.stake_distribution = 'mainnet'
 
         new_test_cmd(CommandContext(new_test_args))
 

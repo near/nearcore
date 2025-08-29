@@ -277,12 +277,12 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
 
     source_temp_dir = tempfile.mkdtemp(prefix="neard_runner_shared_")
     try:
-        shutil.copy2('tests/mocknet/helpers/neard_runner.py',
-                     os.path.join(source_temp_dir, 'neard_runner.py'))
-        shutil.copy2('tests/mocknet/helpers/requirements.txt',
-                     os.path.join(source_temp_dir, 'requirements.txt'))
-        shutil.copy2('tests/mocknet/helpers/setup-near-cli.sh',
-                     os.path.join(source_temp_dir, 'setup-near-cli.sh'))
+        for file in [
+                'neard_runner.py', 'requirements.txt', 'setup-near-cli.sh',
+                'send-stake-proposal.sh'
+        ]:
+            shutil.copy2(f'tests/mocknet/helpers/{file}',
+                         os.path.join(source_temp_dir, file))
 
         pmap(
             lambda x: x[0].init_neard_runner(x[1], source_temp_dir,
@@ -450,7 +450,7 @@ def new_test_cmd(ctx: CommandContext):
         targeted)
 
     stake_distribution = build_stake_distribution(
-        getattr(args, 'stake_distribution', None), args.num_seats)
+        getattr(args, 'stake_distribution', None), 10)
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
                                                args.num_validators,
                                                stake_distribution)

@@ -81,11 +81,7 @@ class Test28(TestSetup):
             stake_cmd_args.on = ScheduleMode(mode="calendar",
                                              value=stake_time_str)
             stake_cmd_args.schedule_id = f"up-staking-{i}"
-            stake_cmd_args.cmd = (
-                "/home/ubuntu/.cargo/bin/near-validator staking stake-proposal "
-                "$(jq -r '\"\\(.account_id)  \\(.public_key)\"' ~/.near/validator_key.json) "
-                "'100000000 NEAR' network-config mocknet sign-with-keychain send"
-            )
+            stake_cmd_args.cmd = "bash ~/.near/neard-runner/send-stake-proposal.sh"
             run_remote_cmd(CommandContext(stake_cmd_args))
 
     def after_test_start(self):

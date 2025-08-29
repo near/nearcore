@@ -64,22 +64,33 @@ class MainnetStakeDistribution(StakeDistribution):
             "params": [None]
         }
         response = requests.post(url, json=payload)
-        if response.status_code == 200:
-            data = response.json()
-            return [
-                int(v['stake']) for v in data['result']['current_validators']
-            ]
-        else:
+        if response.status_code != 200:
             raise Exception(
                 f"Failed to get mainnet stakes: {response.status_code}")
+
+        data = response.json()
+        stakes = [int(v['stake']) for v in data['result']['current_validators']]
+
+        # Multiply bottom-100 stakes by 2
+        if len(stakes) > 100:
+            for i in range(len(stakes) - 100, len(stakes)):
+                stakes[i] *= 2
+
+        # Multiply all stakes by 100000
+        stakes = [stake * 100000 for stake in stakes]
+
+        # Sort stakes in reverse order (highest to lowest)
+        stakes.sort(reverse=True)
+
+        return stakes
 
     def __init__(self, num_chunk_producers):
         super().__init__(num_chunk_producers)
         self.mainnet_stakes = MainnetStakeDistribution.get_mainnet_stakes()
         self.num_validators = len(self.mainnet_stakes)
         self.validator_idx = self.num_chunk_producers
-        self.double_after = 100
-        self.multiplier = 100000
+        # self.double_after = 100
+        # self.multiplier = 100000
 
     def get_next_validator_stake(self):
         if self.validator_idx >= self.num_validators:
@@ -87,14 +98,14 @@ class MainnetStakeDistribution(StakeDistribution):
         else:
             stake = self.mainnet_stakes[self.validator_idx]
             self.validator_idx += 1
-        if self.validator_idx >= self.num_validators - self.double_after:
-            stake = stake * 2
-        return stake * self.multiplier
+        # if self.validator_idx >= self.num_validators - self.double_after:
+        #     stake = stake * 2
+        return stake
 
     def get_next_producer_stake(self):
         stake = self.mainnet_stakes[self.producer_idx]
         self.producer_idx += 1
-        return stake * self.multiplier
+        return stake
 
 
 class StaticStakeDistribution(StakeDistribution):
