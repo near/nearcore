@@ -6405,6 +6405,30 @@
               "ShardStuck"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Computation of the total gas burnt by the chunk overflows",
+            "properties": {
+              "BurntGasOverflow": {
+                "properties": {
+                  "burnt_amount": {
+                    "description": "amount of gas burnt by the failed transaction alone",
+                    "format": "uint128",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "burnt_amount"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "BurntGasOverflow"
+            ],
+            "type": "object"
           }
         ]
       },
