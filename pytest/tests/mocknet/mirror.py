@@ -718,7 +718,7 @@ def clear_scheduled_cmds(ctx: CommandContext):
     logger.info(
         f'Clearing scheduled commands matching "{filter}" from {",".join([h.name() for h in targeted])}'
     )
-    cmd = f'systemctl --user stop "{filter}"'
+    cmd = f'systemctl --user stop "{filter}"; systemctl --user reset-failed "{filter}"'
     _run_remote(targeted, cmd)
 
 

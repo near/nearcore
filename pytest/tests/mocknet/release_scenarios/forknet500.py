@@ -23,13 +23,13 @@ class Test28(TestSetup):
         self.start_height = 158710624
         self.args.start_height = self.start_height
         self.node_hardware_config = NodeHardware.SmallChunkValidatorsConfig(
-            num_chunk_producer_seats=10, num_chunk_validator_seats=30)
-        self.epoch_len = 200
+            num_chunk_producer_seats=100, num_chunk_validator_seats=500)
+        self.epoch_len = 400
         self.has_state_dumper = False
         self.genesis_protocol_version = 79
         self.has_archival = False
         self.regions = "us-east1,europe-west4,asia-east1,us-west1,asia-south1,europe-west1,asia-southeast1"
-        self.upgrade_interval_minutes = 2  # Within the first 2 epochs
+        self.upgrade_interval_minutes = 5  # Within the first 2 epochs
 
     def amend_epoch_config(self):
         super().amend_epoch_config()
@@ -72,7 +72,7 @@ class Test28(TestSetup):
             start_nodes_cmd(CommandContext(start_nodes_args))
 
             stake_time_str = time_to_str(ref_time[i - 1] +
-                                         timedelta(minutes=minutes))
+                                         timedelta(minutes=2 * minutes))
 
             # Send stake transaction to RPC node using node key
             stake_cmd_args = copy.deepcopy(self.args)
