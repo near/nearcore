@@ -1484,6 +1484,9 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
+    /// Process a single transaction.
+    /// Transactions that fail to validate are going to have `ExecutionStatus::Failure` status.
+    /// `RuntimeError` indicates processing errors.
     fn process_transaction<'a>(
         &self,
         tx: &'a SignedTransaction,
@@ -1700,8 +1703,14 @@ impl Runtime {
     /// Fills the `processing_state` with local receipts generated during processing of the
     /// transactions.
     ///
-    /// Any transactions that fail to validate (e.g. invalid nonces, unknown signing keys,
-    /// insufficient NEAR balance, etc.) will be skipped, producing no receipts.
+    /// Depending on InvalidTxGenerateOutcomes feature status:
+    /// enabled => : Every transaction will result in an outcome registered in the processing state. Transaction that failed processing
+    /// will have `ExecutionStatus::Failure` status.
+    /// disabled => : Any transactions that fail to validate (e.g. invalid nonces, unknown signing keys,
+    /// insufficient NEAR balance, etc.) will be skipped, producing no receipts or outcomes
+    ///
+    /// In case processing any transaction results in `Err()` the chunk is dropped and
+    /// `RuntimeError` returned.
     fn process_transactions(
         &self,
         processing_state: &mut ApplyProcessingReceiptState,
