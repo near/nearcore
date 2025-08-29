@@ -102,10 +102,7 @@ def handle_start_test(args):
 
     # stake_cmd_args = copy.deepcopy(test_setup.args)
     # stake_cmd_args.host_filter = '-cv-'
-    # stake_cmd_args.cmd = (
-    #     "/home/ubuntu/.cargo/bin/near-validator staking stake-proposal "
-    #     "$(jq -r '\"\\(.account_id)  \\(.public_key)\"' ~/.near/validator_key.json) "
-    #     "'100000000 NEAR' network-config mocknet sign-with-keychain send")
+    # stake_cmd_args.cmd = "bash ~/.near/neard-runner/send-stake-proposal.sh"
     # run_remote_cmd(CommandContext(stake_cmd_args))
     # exit(0)
 
