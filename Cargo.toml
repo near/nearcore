@@ -339,7 +339,7 @@ oneshot = { version = "0.1.11", features = ["std"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }
-opentelemetry-otlp = "0.15.0"
+opentelemetry-otlp = { version = "0.15.0", default-features = false, features = ["http-proto", "reqwest-client", "trace"] }
 opentelemetry-semantic-conventions = "0.14.0"
 ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
 paperclip = { version = "0.9.0", features = ["actix4"] }
