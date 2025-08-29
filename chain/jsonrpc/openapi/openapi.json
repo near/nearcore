@@ -8924,6 +8924,14 @@
           }
         ]
       },
+      "ProtocolVersionCheckConfig": {
+        "description": "Configures whether the node checks the next or the next next epoch for network version compatibility.",
+        "enum": [
+          "Next",
+          "NextNext"
+        ],
+        "type": "string"
+      },
       "PublicKey": {
         "type": "string"
       },
@@ -9691,6 +9699,14 @@
             "description": "Produce empty blocks, use `false` for testing.",
             "type": "boolean"
           },
+          "protocol_version_check": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProtocolVersionCheckConfig"
+              }
+            ],
+            "description": "Determines whether client should exit if the protocol version is not supported\nfor the next or next next epoch."
+          },
           "resharding_config": {
             "$ref": "#/components/schemas/MutableConfigValue"
           },
@@ -9943,7 +9959,8 @@
           "orphan_state_witness_max_size",
           "save_latest_witnesses",
           "save_invalid_witnesses",
-          "transaction_request_handler_threads"
+          "transaction_request_handler_threads",
+          "protocol_version_check"
         ],
         "type": "object"
       },

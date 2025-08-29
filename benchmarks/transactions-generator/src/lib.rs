@@ -418,9 +418,10 @@ impl TxGenerator {
             tasks.spawn(Self::run_load_task(
                 client_sender.clone(),
                 Arc::clone(&accounts),
-                tokio::time::interval(Duration::from_micros(
-                    1_000_000 * TX_GENERATOR_TASK_COUNT / load.tps,
-                )),
+                tokio::time::interval(Duration::from_micros({
+                    let load_tps = std::cmp::max(load.tps, 1);
+                    1_000_000 * TX_GENERATOR_TASK_COUNT / load_tps
+                })),
                 load.duration,
                 rx_block.clone(),
                 Arc::clone(&stats),
@@ -435,6 +436,7 @@ impl TxGenerator {
         initial_rate: u64,
         mut rx_block: tokio::sync::watch::Receiver<(CryptoHash, u64)>,
     ) -> tokio::sync::watch::Receiver<tokio::time::Duration> {
+        let initial_rate = std::cmp::max(initial_rate, 1);
         let mut rate = initial_rate as f64;
         let (tx_tps_values, rx_tps_values) = tokio::sync::watch::channel(
             tokio::time::Duration::from_micros(1_000_000 * TX_GENERATOR_TASK_COUNT / initial_rate),
@@ -452,7 +454,12 @@ impl TxGenerator {
                         let (_, height) = *rx_block.borrow();
                         rate += controller.register(height);
                         tracing::debug!(target: "transaction-generator", rate, "tps updated");
-                        tx_tps_values.send(tokio::time::Duration::from_micros((1_000_000*TX_GENERATOR_TASK_COUNT) / rate as u64 )).unwrap();
+                        let effective_rate = if rate.is_finite() && rate >= 1.0 { rate } else { 1.0 };
+                        let micros = ((1_000_000.0 * TX_GENERATOR_TASK_COUNT as f64) / effective_rate)
+                            .max(1.0) as u64;
+                        tx_tps_values
+                            .send(tokio::time::Duration::from_micros(micros))
+                            .unwrap();
                     }
                 }
             }
