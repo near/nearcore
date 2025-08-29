@@ -332,7 +332,7 @@ impl GasCounter {
         let deduct_gas_result = self.deduct_gas(burn_gas, use_gas);
         self.update_profile_action(
             action,
-            Gas::from_gas(self.fast_counter.burnt_gas.checked_sub(old_burnt_gas).unwrap()),
+            Gas::from_gas(self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas)),
         );
         deduct_gas_result
     }
