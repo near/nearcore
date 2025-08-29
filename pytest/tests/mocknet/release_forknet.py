@@ -53,6 +53,7 @@ def call_gh_workflow(action: Action,
     if tracing_server != None:
         cmd += f"-f tracing_server={'true' if tracing_server else 'false'} "
     logger.info(f"Calling GH workflow with command: {cmd}")
+    exit(0)
     result = subprocess.run(cmd, shell=True)
     logger.info(
         f"GH workflow call completed with return code: {result.returncode}")
