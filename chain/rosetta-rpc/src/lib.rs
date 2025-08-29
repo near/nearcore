@@ -5,12 +5,11 @@ use std::sync::Arc;
 
 use actix::Addr;
 use actix_cors::Cors;
+use actix_web::web::{self, Json};
 use actix_web::{App, HttpServer, ResponseError};
-use paperclip::actix::{
-    OpenApiExt, api_v2_operation,
-    web::{self, Json},
-};
 use strum::IntoEnumIterator;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 pub use config::RosettaRpcConfig;
 use near_async::messaging::CanSendAsync;
@@ -76,7 +75,6 @@ async fn check_network_identifier(
 ///
 /// This endpoint returns a list of NetworkIdentifiers that the Rosetta server
 /// supports.
-#[api_v2_operation]
 async fn network_list(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
     _body: Json<models::MetadataRequest>,
@@ -94,7 +92,6 @@ async fn network_list(
     }))
 }
 
-#[api_v2_operation]
 /// Get Network Status
 ///
 /// This endpoint returns the current status of the network requested. Any
@@ -149,7 +146,6 @@ async fn network_status(
     }))
 }
 
-#[api_v2_operation]
 /// Get Network Options
 ///
 /// This endpoint returns the version information and allowed network-specific
@@ -185,7 +181,6 @@ async fn network_options(
     }))
 }
 
-#[api_v2_operation]
 /// Get a Block
 ///
 /// Get a block by its Block Identifier. If transactions are returned in the
@@ -252,7 +247,6 @@ async fn block_details(
     }))
 }
 
-#[api_v2_operation]
 /// cspell:ignore UTXOs
 /// Get a Block Transaction
 ///
@@ -309,7 +303,6 @@ async fn block_transaction_details(
     Ok(Json(models::BlockTransactionResponse { transaction }))
 }
 
-#[api_v2_operation]
 /// Get an Account Balance
 ///
 /// Get an array of all AccountBalances for an AccountIdentifier and the
@@ -444,7 +437,6 @@ async fn account_balance(
     }
 }
 
-#[api_v2_operation]
 /// Get All Mempool Transactions (not implemented)
 ///
 /// Get all Transaction Identifiers in the mempool
@@ -457,7 +449,6 @@ async fn mempool(
     Ok(Json(models::MempoolResponse { transaction_identifiers: vec![] }))
 }
 
-#[api_v2_operation]
 /// Get a Mempool Transaction (not implemented)
 ///
 /// Get a transaction in the mempool by its Transaction Identifier. This is a
@@ -478,7 +469,6 @@ async fn mempool_transaction(
     Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
-#[api_v2_operation]
 /// Derive an Address from a PublicKey (offline API, only for implicit accounts)
 ///
 /// Derive returns the network-specific address associated with a public key.
@@ -517,7 +507,6 @@ async fn construction_derive(
     }))
 }
 
-#[api_v2_operation]
 /// Create a Request to Fetch Metadata (offline API)
 ///
 /// Preprocess is called prior to /construction/payloads to construct a request
@@ -547,7 +536,6 @@ async fn construction_preprocess(
     }))
 }
 
-#[api_v2_operation]
 /// Get Metadata for Transaction Construction (online API)
 ///
 /// Get any information required to construct a transaction for a specific
@@ -593,7 +581,6 @@ async fn construction_metadata(
     }))
 }
 
-#[api_v2_operation]
 /// Generate an Unsigned Transaction and Signing Payloads (offline API)
 ///
 /// Payloads is called with an array of operations and the response from
@@ -667,7 +654,6 @@ async fn construction_payloads(
     }))
 }
 
-#[api_v2_operation]
 /// Create Network Transaction from Signatures (offline API)
 ///
 /// Combine creates a network-specific transaction from an unsigned transaction
@@ -703,7 +689,6 @@ async fn construction_combine(
     Ok(Json(models::ConstructionCombineResponse { signed_transaction: signed_transaction.into() }))
 }
 
-#[api_v2_operation]
 /// Parse a Transaction (offline API)
 ///
 /// Parse is called on both unsigned and signed transactions to understand the
@@ -752,7 +737,6 @@ async fn construction_parse(
     }))
 }
 
-#[api_v2_operation]
 /// Get the Hash of a Signed Transaction
 ///
 /// TransactionHash returns the network-specific transaction hash for a signed
@@ -772,7 +756,6 @@ async fn construction_hash(
     }))
 }
 
-#[api_v2_operation]
 /// Submit a Signed Transaction
 ///
 /// Submit a pre-signed transaction to the node. This call should not block on
@@ -816,6 +799,50 @@ async fn construction_submit(
         .into()),
     }
 }
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(),
+    components(
+        schemas(
+            models::NetworkListResponse,
+            models::NetworkIdentifier,
+            models::MetadataRequest,
+            models::NetworkRequest,
+            models::NetworkStatusResponse,
+            models::NetworkOptionsResponse,
+            models::BlockRequest,
+            models::BlockResponse,
+            models::BlockTransactionRequest,
+            models::BlockTransactionResponse,
+            models::AccountBalanceRequest,
+            models::AccountBalanceResponse,
+            models::MempoolResponse,
+            models::MempoolTransactionRequest,
+            models::MempoolTransactionResponse,
+            models::ConstructionDeriveRequest,
+            models::ConstructionDeriveResponse,
+            models::ConstructionPreprocessRequest,
+            models::ConstructionPreprocessResponse,
+            models::ConstructionMetadataRequest,
+            models::ConstructionMetadataResponse,
+            models::ConstructionPayloadsRequest,
+            models::ConstructionPayloadsResponse,
+            models::ConstructionCombineRequest,
+            models::ConstructionCombineResponse,
+            models::ConstructionParseRequest,
+            models::ConstructionParseResponse,
+            models::ConstructionHashRequest,
+            models::TransactionIdentifierResponse,
+            models::ConstructionSubmitRequest,
+            models::Error
+        )
+    ),
+    tags(
+        (name = "rosetta", description = "NEAR Protocol Rosetta API")
+    )
+)]
+struct RosettaOpenApi;
 
 fn get_cors(cors_allowed_origins: &[String]) -> Cors {
     let mut cors = Cors::permissive();
@@ -866,7 +893,6 @@ pub fn start_rosetta_rpc(
             .app_data(web::Data::new(tx_handler_addr.clone()))
             .app_data(web::Data::new(currencies.clone()))
             .wrap(get_cors(&cors_allowed_origins))
-            .wrap_api()
             .service(web::resource("/network/list").route(web::post().to(network_list)))
             .service(web::resource("/network/status").route(web::post().to(network_status)))
             .service(web::resource("/network/options").route(web::post().to(network_options)))
@@ -903,8 +929,10 @@ pub fn start_rosetta_rpc(
             .service(
                 web::resource("/construction/submit").route(web::post().to(construction_submit)),
             )
-            .with_json_spec_at("/api/spec")
-            .build()
+            .service(
+                SwaggerUi::new("/swagger-ui/{_:.*}")
+                    .url("/api/openapi.json", RosettaOpenApi::openapi()),
+            )
     })
     .bind(addr)
     .unwrap()

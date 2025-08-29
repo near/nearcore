@@ -8,6 +8,9 @@ use futures::StreamExt;
 use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
 use near_primitives::borsh::{self, BorshDeserialize, BorshSerialize};
+use utoipa::ToSchema;
+use utoipa::openapi::RefOr;
+use utoipa::openapi::schema::{ObjectBuilder, Schema, SchemaType};
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
 pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);
@@ -21,12 +24,15 @@ where
     }
 }
 
-impl<T> paperclip::v2::schema::TypedData for BorshInHexString<T>
+impl<T> ToSchema<'_> for BorshInHexString<T>
 where
     T: BorshSerialize + BorshDeserialize,
 {
-    fn data_type() -> paperclip::v2::models::DataType {
-        paperclip::v2::models::DataType::String
+    fn schema() -> (&'static str, RefOr<Schema>) {
+        (
+            "BorshInHexString",
+            RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::String).build())),
+        )
     }
 }
 
@@ -78,12 +84,15 @@ where
 #[as_ref(forward)]
 pub(crate) struct BlobInHexString<T: AsRef<[u8]> + From<Vec<u8>>>(T);
 
-impl<T> paperclip::v2::schema::TypedData for BlobInHexString<T>
+impl<T> ToSchema<'_> for BlobInHexString<T>
 where
     T: AsRef<[u8]> + From<Vec<u8>>,
 {
-    fn data_type() -> paperclip::v2::models::DataType {
-        paperclip::v2::models::DataType::String
+    fn schema() -> (&'static str, RefOr<Schema>) {
+        (
+            "BlobInHexString",
+            RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::String).build())),
+        )
     }
 }
 
@@ -141,12 +150,15 @@ where
     absolute_difference: T,
 }
 
-impl<T> paperclip::v2::schema::TypedData for SignedDiff<T>
+impl<T> ToSchema<'_> for SignedDiff<T>
 where
     T: Copy + PartialEq,
 {
-    fn data_type() -> paperclip::v2::models::DataType {
-        paperclip::v2::models::DataType::String
+    fn schema() -> (&'static str, RefOr<Schema>) {
+        (
+            "SignedDiff",
+            RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::String).build())),
+        )
     }
 }
 
