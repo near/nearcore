@@ -242,6 +242,7 @@ impl TestDB {
 
 impl Drop for TestDB {
     fn drop(&mut self) {
+        tracing::warn!("Dropping TestDB instance");
         if let Some(ref persist_dir) = self.persist_dir {
             if let Err(e) = self.save_to_disk(persist_dir) {
                 tracing::warn!("Failed to persist TestDB state to {}: {}", persist_dir, e);
