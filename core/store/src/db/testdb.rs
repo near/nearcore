@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::io;
@@ -10,6 +10,13 @@ use strum::IntoEnumIterator;
 
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
 use crate::{DBCol, StoreStatistics, deserialized_column};
+
+/// Global singleton instance of TestDB
+///
+/// This is initialized when the first TestDB instance is created via `new()` or `new_persistent()`.
+/// It allows global access to the TestDB instance throughout the application.
+/// The singleton can be updated by subsequent calls to constructors.
+static GLOBAL_TESTDB: Mutex<Option<Arc<TestDB>>> = Mutex::new(None);
 
 /// Metadata for tracking column sizes and insertion order for FIFO eviction
 #[derive(Debug, BorshSerialize, BorshDeserialize, Clone)]
@@ -42,6 +49,11 @@ struct PersistedState {
 /// - Optional persistence to disk when `persist_dir` is set
 /// - Deterministic iteration order using BTreeMap
 /// - Tracks insertion order and column sizes for eviction
+/// - Global singleton instance accessible via `TestDB::global()`
+///
+/// The global singleton is initialized when either `new()` or `new_persistent()`
+/// is called for the first time. Subsequent calls will update the singleton to
+/// point to the new instance.
 pub struct TestDB {
     // In order to ensure determinism when iterating over column's results
     // a BTreeMap is used since it is an ordered map. A HashMap would
@@ -75,7 +87,12 @@ impl Default for TestDB {
 
 impl TestDB {
     pub fn new() -> Arc<TestDB> {
-        Arc::new(Self::default())
+        let instance = Arc::new(Self::default());
+
+        // Initialize/update the global singleton with this instance
+        *GLOBAL_TESTDB.lock() = Some(instance.clone());
+
+        instance
     }
 
     pub fn new_persistent(dir: String) -> Arc<TestDB> {
@@ -87,7 +104,17 @@ impl TestDB {
             tracing::warn!("Failed to load persisted TestDB state from {}: {}", dir, e);
         }
 
-        Arc::new(instance)
+        let arc_instance = Arc::new(instance);
+
+        // Initialize/update the global singleton with this instance
+        *GLOBAL_TESTDB.lock() = Some(arc_instance.clone());
+
+        arc_instance
+    }
+
+    /// Get the global singleton instance if it has been initialized
+    pub fn global() -> Option<Arc<TestDB>> {
+        GLOBAL_TESTDB.lock().clone()
     }
 
     /// Load database state from disk
@@ -680,6 +707,64 @@ mod tests {
             assert_eq!(metadata[DBCol::Misc].current_size, expected_misc_size);
             assert_eq!(metadata[DBCol::Block].current_size, expected_block_size);
         }
+    }
+
+    #[test]
+    fn test_global_singleton() {
+        // Initially, global should be None
+        assert!(TestDB::global().is_none());
+
+        // Create a TestDB instance - this should set the global
+        let db1 = TestDB::new();
+
+        // Now global should be available
+        let global =
+            TestDB::global().expect("Global TestDB should be set after creating an instance");
+
+        // The global instance should be the same as the one we created (same Arc)
+        assert!(Arc::ptr_eq(&db1, &global));
+
+        // Add some data to verify it's functional
+        let ops = vec![DBOp::Set {
+            col: DBCol::Misc,
+            key: b"global_test_key".to_vec(),
+            value: b"global_test_value".to_vec(),
+        }];
+
+        let transaction = crate::db::DBTransaction { ops };
+        global.write(transaction).unwrap();
+
+        // Verify data is accessible through both references
+        let db_data = db1.db.read();
+        assert_eq!(
+            db_data[DBCol::Misc].get(b"global_test_key".as_slice()),
+            Some(&b"global_test_value".to_vec())
+        );
+
+        let global_data = global.db.read();
+        assert_eq!(
+            global_data[DBCol::Misc].get(b"global_test_key".as_slice()),
+            Some(&b"global_test_value".to_vec())
+        );
+    }
+
+    #[test]
+    fn test_global_singleton_persistent() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let persist_dir = temp_dir.path().to_str().unwrap().to_string();
+
+        // Create a persistent TestDB - this should set the global
+        let db = TestDB::new_persistent(persist_dir.clone());
+
+        // Global should be available and point to the same instance
+        let global = TestDB::global()
+            .expect("Global TestDB should be set after creating persistent instance");
+        assert!(Arc::ptr_eq(&db, &global));
+
+        // Verify the persistent directory is set correctly
+        assert_eq!(global.persist_dir, Some(persist_dir));
     }
 
     #[test]
