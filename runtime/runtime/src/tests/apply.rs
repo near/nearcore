@@ -19,7 +19,7 @@ use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
 use near_primitives::errors::{
-    ActionErrorKind, FunctionCallError, IntegerOverflowError, MissingTrieValue, TxExecutionError,
+    ActionErrorKind, FunctionCallError, MissingTrieValue, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
@@ -869,7 +869,6 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         .checked_add(
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
-        .unwrap()
         .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
@@ -960,7 +959,6 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         .checked_add(
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
-        .unwrap()
         .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
@@ -1043,7 +1041,6 @@ fn test_apply_surplus_gas_for_function_call() {
         .checked_add(
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
-        .unwrap()
         .unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),

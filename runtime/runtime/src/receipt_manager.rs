@@ -4,7 +4,7 @@ use near_primitives::action::{
     DeployContractAction, DeployGlobalContractAction, FunctionCallAction, StakeAction,
     TransferAction, UseGlobalContractAction,
 };
-use near_primitives::errors::RuntimeError;
+use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::DataReceiver;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
@@ -546,7 +546,8 @@ impl ReceiptManager {
             };
             let to_assign =
                 (unused_gas.as_gas() as u128 * weight.0 as u128 / gas_weight_sum) as u64;
-            action.gas = action.gas.checked_add(Gas::from_gas(to_assign))?;
+            action.gas =
+                action.gas.checked_add(Gas::from_gas(to_assign)).ok_or(IntegerOverflowError)?;
             distributed = distributed
                 .checked_add(to_assign)
                 .unwrap_or_else(|| panic!("gas computation overflowed"));
@@ -555,7 +556,8 @@ impl ReceiptManager {
                 distributed = distributed
                     .checked_add(remainder)
                     .unwrap_or_else(|| panic!("gas computation overflowed"));
-                action.gas = action.gas.checked_add(Gas::from_gas(remainder))?;
+                action.gas =
+                    action.gas.checked_add(Gas::from_gas(remainder)).ok_or(IntegerOverflowError)?;
             }
         }
         assert_eq!(unused_gas.as_gas(), distributed);

@@ -85,7 +85,7 @@ impl FeeHelper {
             .unwrap()
             .checked_add(add_full_access_key_send_fee)
             .unwrap();
-        exec_gas.checked_add(send_gas)
+        exec_gas.checked_add(send_gas).unwrap()
     }
 
     pub fn create_account_transfer_fee(&self) -> Gas {
@@ -206,7 +206,7 @@ impl FeeHelper {
             .unwrap()
             .checked_add(deploy_contract_byte_send_fee.checked_mul(num_bytes).unwrap())
             .unwrap();
-        self.gas_to_balance(exec_gas.checked_add(send_gas))
+        self.gas_to_balance(exec_gas.checked_add(send_gas).unwrap())
     }
 
     pub fn function_call_exec_gas(&self, num_bytes: u64) -> Gas {
