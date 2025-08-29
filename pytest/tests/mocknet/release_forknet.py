@@ -53,7 +53,7 @@ def call_gh_workflow(action: Action,
     if tracing_server != None:
         cmd += f"-f tracing_server={'true' if tracing_server else 'false'} "
     logger.info(f"Calling GH workflow with command: {cmd}")
-    exit(0)
+    # exit(0)
     result = subprocess.run(cmd, shell=True)
     logger.info(
         f"GH workflow call completed with return code: {result.returncode}")
@@ -107,12 +107,12 @@ def handle_start_test(args):
     # run_remote_cmd(CommandContext(stake_cmd_args))
     # exit(0)
 
-    logger.info("🔄 Initializing environment...")
-    test_setup.init_env()
-    logger.info("🔄 Running before test setup...")
-    test_setup.before_test_setup()
-    logger.info("🔄 Running new test...")
-    test_setup.new_test()
+    # logger.info("🔄 Initializing environment...")
+    # test_setup.init_env()
+    # logger.info("🔄 Running before test setup...")
+    # test_setup.before_test_setup()
+    # logger.info("🔄 Running new test...")
+    # test_setup.new_test()
     logger.info("🔄 Waiting for network to be ready...")
     test_setup.wait_for_network_to_be_ready()
     logger.info("🔄 Amending epoch config...")
