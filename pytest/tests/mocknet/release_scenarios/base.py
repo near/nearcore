@@ -186,7 +186,7 @@ class TestSetup:
             if len(not_ready_nodes) == 0:
                 break
             logger.info(
-                f"Waiting for network to be ready. {len(not_ready_nodes)} nodes not ready."
+                f"Waiting for network to be ready. {len(not_ready_nodes)} nodes not ready: {not_ready_nodes[:5]}..."
             )
             time.sleep(1)
         logger.info("Network is ready.")
