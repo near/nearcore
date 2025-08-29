@@ -158,7 +158,7 @@ actix-cors = "0.6.1"
 actix-rt = "2"
 actix-web = "4.1"
 anyhow = "1.0.62"
-axum = "0.8.1"
+axum = { version = "0.8", features = ["macros"] }
 arbitrary = { version = "1.2.3", features = ["derive"] }
 tower = "0.5"
 tower-http = { version = "0.6.2", features = ["cors", "compression-gzip", "decompression-gzip", "trace"] }

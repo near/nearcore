@@ -25,7 +25,7 @@ use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client_internal as client;
 pub use near_jsonrpc_primitives as primitives;
 use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
-use near_jsonrpc_primitives::message::{Message, Request};
+use near_jsonrpc_primitives::message::{Message, Request as JsonRpcRequest};
 use near_jsonrpc_primitives::types::blocks::RpcBlockRequest;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQueryWithParams};
@@ -143,9 +143,9 @@ fn serialize_response(value: impl serde::ser::Serialize) -> Result<Value, RpcErr
 /// results of the `callback` will be converted into a [`Value`] via serde
 /// serialization.
 fn process_method_call<'a, R, V, E, F>(
-    request: Request,
-    callback: impl FnOnce(R) -> F + Send + 'a,
-) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send + 'a>>
+    request: JsonRpcRequest,
+    callback: impl FnOnce(R) -> F + 'a + Send,
+) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + 'a + Send>>
 where
     R: RpcRequest + Send,
     V: serde::ser::Serialize,
@@ -316,7 +316,7 @@ impl JsonRpcHandler {
 
     // `process_request` increments affected metrics but the request processing is done by
     // `process_request_internal`.
-    async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+    async fn process_request(&self, request: JsonRpcRequest) -> Result<Value, RpcError> {
         let timer = Instant::now();
         let (metrics_name, response) = self.process_request_internal(request).await;
 
@@ -339,7 +339,7 @@ impl JsonRpcHandler {
     /// and the result of the execution.
     async fn process_request_internal(
         &self,
-        request: Request,
+        request: JsonRpcRequest,
     ) -> (String, Result<Value, RpcError>) {
         let method_name = request.method.to_string();
         let request = match self.process_adversarial_request_internal(request).await {
@@ -388,8 +388,8 @@ impl JsonRpcHandler {
 
     async fn process_basic_requests_internal(
         &self,
-        request: Request,
-    ) -> Result<Result<Value, RpcError>, Request> {
+        request: JsonRpcRequest,
+    ) -> Result<Result<Value, RpcError>, JsonRpcRequest> {
         Ok(match request.method.as_ref() {
             // Handlers ordered alphabetically
             "block" => process_method_call(request, |params| self.block(params)).await,
@@ -491,16 +491,16 @@ impl JsonRpcHandler {
     #[allow(clippy::unused_async)]
     async fn process_adversarial_request_internal(
         &self,
-        request: Request,
-    ) -> Result<Result<Value, RpcError>, Request> {
+        request: JsonRpcRequest,
+    ) -> Result<Result<Value, RpcError>, JsonRpcRequest> {
         Err(request)
     }
 
     #[cfg(feature = "test_features")]
     async fn process_adversarial_request_internal(
         &self,
-        request: Request,
-    ) -> Result<Result<Value, RpcError>, Request> {
+        request: JsonRpcRequest,
+    ) -> Result<Result<Value, RpcError>, JsonRpcRequest> {
         Ok(match request.method.as_ref() {
             "adv_disable_header_sync" => self.adv_disable_header_sync(request.params),
             "adv_disable_doomslug" => self.adv_disable_doomslug(request.params),
@@ -1660,7 +1660,9 @@ async fn display_debug_html(
 /// configuration may also start another HTTP server just for providing
 /// Prometheus metrics (i.e. covering the `/metrics` path).
 ///
-/// Uses the provided `future_spawner` to spawn the server tasks.
+/// Returns a vector of servers that have been started.  Each server is returned
+/// as a tuple containing a name of the server (e.g. `"JSON RPC"`) which can be
+/// used in diagnostic messages.
 pub fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
