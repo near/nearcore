@@ -78,7 +78,8 @@ class Test28(TestSetup):
             stake_cmd_args = copy.deepcopy(self.args)
             stake_cmd_args.host_filter = '-cv-'
             stake_cmd_args.select_partition = (i, 4)
-            stake_cmd_args.on = ScheduleMode(mode="calendar", value="*:0/2")
+            stake_cmd_args.on = ScheduleMode(mode="calendar",
+                                             value=f"*:{i*3}/15")
             stake_cmd_args.schedule_id = f"up-stake-{i}"
             stake_cmd_args.cmd = "if pgrep -f neard1 > /dev/null; then bash ~/.near/neard-runner/send-stake-proposal.sh; fi"
             run_remote_cmd(CommandContext(stake_cmd_args))
