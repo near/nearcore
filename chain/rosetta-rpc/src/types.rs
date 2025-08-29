@@ -24,9 +24,4 @@ impl fmt::Debug for AccountId {
     }
 }
 
-use paperclip::v2::{models::DataType, schema::TypedData};
-impl TypedData for AccountId {
-    fn data_type() -> DataType {
-        DataType::String
-    }
-}
+// Note: utoipa handles schema generation automatically for standard types
