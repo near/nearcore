@@ -9,6 +9,7 @@ use std::sync::Arc;
 use strum::IntoEnumIterator;
 
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
+use crate::metrics::TESTDB_COLUMN_SIZE;
 use crate::{DBCol, StoreStatistics, deserialized_column};
 
 /// Global singleton instance of TestDB
@@ -266,6 +267,10 @@ impl TestDB {
                     break;
                 }
             }
+            // Update metrics
+            TESTDB_COLUMN_SIZE
+                .with_label_values(&[&col.to_string()])
+                .set(column_meta.current_size as i64);
         }
     }
 
