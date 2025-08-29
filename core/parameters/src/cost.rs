@@ -503,7 +503,7 @@ impl RuntimeFeesConfig {
                 ActionCosts::function_call_base => Fee::new(2319861500000, 2319861500000, 2319861500000),
                 ActionCosts::function_call_byte => Fee::new(2235934, 2235934, 2235934),
                 ActionCosts::transfer => Fee::new(115123062500, 115123062500, 115123062500),
-                ActionCosts::stake => Fee::new(141715687500, 141715687500, 141715687500),
+                ActionCosts::stake => Fee::new(141715687500, 141715687500, 102217625000),
                 ActionCosts::add_full_access_key => Fee::new(101765125000, 101765125000, 101765125000),
                 ActionCosts::add_function_call_key_base => Fee::new(102217625000, 102217625000, 102217625000),
                 ActionCosts::add_function_call_key_byte => Fee::new(1925331, 1925331, 1925331),
