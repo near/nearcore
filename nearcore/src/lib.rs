@@ -259,11 +259,11 @@ pub fn start_with_config_and_synchronization(
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
-    // Check USE_TESTDB environment variable
-    let use_testdb = std::env::var("USE_TESTDB").is_ok();
+    // Check USE_ROCKSDB environment variable
+    let use_rocksdb = std::env::var("USE_ROCKSDB").is_ok();
 
-    let storage = if use_testdb {
-        tracing::warn!("Using TestDB as storage because USE_TESTDB environment variable is set");
+    let storage = if !use_rocksdb {
+        tracing::warn!("Using TestDB because USE_ROCKSDB is not set. Not for production use.");
         let dir = home_dir.join("testdb").to_str().unwrap().to_string();
         std::fs::create_dir_all(&dir).unwrap();
         NodeStorage::new(TestDB::new_persistent(dir))
