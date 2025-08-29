@@ -642,6 +642,10 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
+    if col == DBCol::PartialChunks {
+        opts.set_enable_blob_files(true);
+        opts.set_enable_blob_gc(true);
+    }
     opts
 }
 
