@@ -450,7 +450,7 @@ def new_test_cmd(ctx: CommandContext):
         targeted)
 
     stake_distribution = build_stake_distribution(
-        getattr(args, 'stake_distribution', None), 10)
+        getattr(args, 'stake_distribution', None), 100)
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
                                                args.num_validators,
                                                stake_distribution)
