@@ -28,7 +28,7 @@ use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
-use near_store::db::RocksDB;
+use near_store::db::{RocksDB, TestDB};
 use near_store::{Mode, ShardUId};
 use near_undo_block::cli::UndoBlockCommand;
 use serde_json::Value;
@@ -605,6 +605,7 @@ impl RunCmd {
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
+        TestDB::persist_global_instance();
     }
 }
 
