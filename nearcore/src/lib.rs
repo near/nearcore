@@ -264,7 +264,8 @@ pub fn start_with_config_and_synchronization(
 
     let storage = if use_testdb {
         tracing::warn!("Using TestDB as storage because USE_TESTDB environment variable is set");
-        NodeStorage::new(TestDB::new())
+        let dir = home_dir.join("testdb").to_str().unwrap().to_string();
+        NodeStorage::new(TestDB::new_persistent(dir))
     } else {
         open_storage(home_dir, &mut config)?
     };

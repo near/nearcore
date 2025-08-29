@@ -1,14 +1,18 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, VecDeque};
+use std::fs;
 use std::io;
 use std::ops::Bound;
+use std::path::Path;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
 use crate::{DBCol, StoreStatistics, deserialized_column};
 
 /// Metadata for tracking column sizes and insertion order for FIFO eviction
-#[derive(Debug)]
+#[derive(Debug, BorshSerialize, BorshDeserialize, Clone)]
 struct ColumnMetadata {
     /// Current byte size of the column (sum of key + value sizes)
     current_size: usize,
@@ -22,7 +26,22 @@ impl Default for ColumnMetadata {
     }
 }
 
+/// Serializable representation of database state for persistence
+#[derive(BorshSerialize, BorshDeserialize)]
+struct PersistedState {
+    /// Database contents for each column
+    db_data: Vec<(String, Vec<(Vec<u8>, Vec<u8>)>)>, // (col_name, key_value_pairs)
+    /// Metadata for each column
+    metadata: Vec<(String, ColumnMetadata)>, // (col_name, metadata)
+}
+
 /// An in-memory database intended for tests and IO-agnostic estimations.
+///
+/// Features:
+/// - FIFO eviction based on configurable byte limits per column
+/// - Optional persistence to disk when `persist_dir` is set
+/// - Deterministic iteration order using BTreeMap
+/// - Tracks insertion order and column sizes for eviction
 pub struct TestDB {
     // In order to ensure determinism when iterating over column's results
     // a BTreeMap is used since it is an ordered map. A HashMap would
@@ -38,6 +57,8 @@ pub struct TestDB {
     stats: RwLock<Option<StoreStatistics>>,
 
     cache: Arc<deserialized_column::Cache>,
+
+    persist_dir: Option<String>,
 }
 
 impl Default for TestDB {
@@ -47,6 +68,7 @@ impl Default for TestDB {
             column_metadata: Default::default(),
             stats: Default::default(),
             cache: deserialized_column::Cache::enabled().into(),
+            persist_dir: None,
         }
     }
 }
@@ -54,6 +76,121 @@ impl Default for TestDB {
 impl TestDB {
     pub fn new() -> Arc<TestDB> {
         Arc::new(Self::default())
+    }
+
+    pub fn new_persistent(dir: String) -> Arc<TestDB> {
+        let mut instance = Self::default();
+        instance.persist_dir = Some(dir.clone());
+
+        // Try to load existing state
+        if let Err(e) = instance.load_from_disk(&dir) {
+            tracing::warn!("Failed to load persisted TestDB state from {}: {}", dir, e);
+        }
+
+        Arc::new(instance)
+    }
+
+    /// Load database state from disk
+    fn load_from_disk(&mut self, persist_dir: &str) -> io::Result<()> {
+        let persist_path = Path::new(persist_dir).join("testdb_state.bin");
+
+        if !persist_path.exists() {
+            return Ok(()); // No existing state to load
+        }
+
+        let data = fs::read(&persist_path)?;
+        let persisted_state: PersistedState = BorshDeserialize::try_from_slice(&data)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        // Restore database contents
+        let mut db = self.db.write();
+        let mut metadata = self.column_metadata.write();
+
+        // Clear existing state
+        for (_col, col_data) in db.iter_mut() {
+            col_data.clear();
+        }
+        for (_col, col_meta) in metadata.iter_mut() {
+            *col_meta = ColumnMetadata::default();
+        }
+
+        // Load persisted data
+        for (col_name, key_value_pairs) in persisted_state.db_data {
+            // Find the DBCol that matches this name
+            if let Some(col) = DBCol::iter().find(|&c| format!("{:?}", c) == col_name) {
+                for (key, value) in key_value_pairs {
+                    db[col].insert(key, value);
+                }
+            }
+        }
+
+        // Load persisted metadata
+        for (col_name, col_metadata) in persisted_state.metadata {
+            if let Some(col) = DBCol::iter().find(|&c| format!("{:?}", c) == col_name) {
+                metadata[col] = col_metadata;
+            }
+        }
+
+        tracing::warn!("Loaded persisted TestDB state from {}", persist_dir);
+        for col in DBCol::iter() {
+            tracing::warn!(
+                "Column {:?}: {} entries, {} bytes",
+                col,
+                self.db.read()[col].len(),
+                self.column_metadata.read()[col].current_size
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Save database state to disk
+    fn save_to_disk(&self, persist_dir: &str) -> io::Result<()> {
+        tracing::warn!("Persisting TestDB state to {}", persist_dir);
+        for col in DBCol::iter() {
+            tracing::warn!(
+                "Column {:?}: {} entries, {} bytes",
+                col,
+                self.db.read()[col].len(),
+                self.column_metadata.read()[col].current_size
+            );
+        }
+
+        // Create directory if it doesn't exist
+        fs::create_dir_all(persist_dir)?;
+
+        let persist_path = Path::new(persist_dir).join("testdb_state.bin");
+
+        // Collect database state
+        let db = self.db.read();
+        let metadata = self.column_metadata.read();
+
+        let mut db_data = Vec::new();
+        let mut metadata_data = Vec::new();
+
+        for (col, col_data) in db.iter() {
+            if !col_data.is_empty() {
+                let col_name = format!("{:?}", col);
+                let key_value_pairs: Vec<(Vec<u8>, Vec<u8>)> =
+                    col_data.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                db_data.push((col_name, key_value_pairs));
+            }
+        }
+
+        for (col, col_meta) in metadata.iter() {
+            if col_meta.current_size > 0 || !col_meta.insertion_order.is_empty() {
+                let col_name = format!("{:?}", col);
+                metadata_data.push((col_name, col_meta.clone()));
+            }
+        }
+
+        let persisted_state = PersistedState { db_data, metadata: metadata_data };
+
+        let serialized = borsh::to_vec(&persisted_state)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        fs::write(&persist_path, serialized)?;
+        Ok(())
     }
 
     /// Returns the byte limit for a given column.
@@ -100,6 +237,16 @@ impl TestDB {
 impl TestDB {
     pub fn set_store_statistics(&self, stats: StoreStatistics) {
         *self.stats.write() = Some(stats);
+    }
+}
+
+impl Drop for TestDB {
+    fn drop(&mut self) {
+        if let Some(ref persist_dir) = self.persist_dir {
+            if let Err(e) = self.save_to_disk(persist_dir) {
+                tracing::warn!("Failed to persist TestDB state to {}: {}", persist_dir, e);
+            }
+        }
     }
 }
 
@@ -325,11 +472,7 @@ mod tests {
 
     #[test]
     fn test_byte_limit_enforcement() {
-        let mut db = TestDB::new();
-
-        // Override the byte_limit method for this specific test instance
-        // We'll manually enforce a small limit
-        let small_limit = 50;
+        let db = TestDB::new();
 
         // Create some test data that will exceed the limit
         let mut ops = Vec::new();
@@ -340,8 +483,6 @@ mod tests {
                 value: format!("value_{}_with_some_extra_data", i).into_bytes(),
             });
         }
-
-        let transaction = crate::db::DBTransaction { ops };
 
         // Manually test the eviction logic with our small limit
         let db_ref = Arc::new(db);
@@ -466,5 +607,101 @@ mod tests {
         assert_eq!(db_data[DBCol::Misc].len(), 0);
         assert_eq!(metadata[DBCol::Misc].insertion_order.len(), 0);
         assert_eq!(metadata[DBCol::Misc].current_size, 0);
+    }
+
+    #[test]
+    fn test_persistence() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let persist_dir = temp_dir.path().to_str().unwrap().to_string();
+
+        // Create and populate a persistent TestDB
+        {
+            let db = TestDB::new_persistent(persist_dir.clone());
+
+            let ops = vec![
+                DBOp::Set {
+                    col: DBCol::Misc,
+                    key: b"persistent_key".to_vec(),
+                    value: b"persistent_value".to_vec(),
+                },
+                DBOp::Set {
+                    col: DBCol::Block,
+                    key: b"block_key".to_vec(),
+                    value: b"block_value".to_vec(),
+                },
+            ];
+
+            let transaction = crate::db::DBTransaction { ops };
+            db.write(transaction).unwrap();
+
+            // Verify data is there
+            let db_data = db.db.read();
+            assert_eq!(db_data[DBCol::Misc].len(), 1);
+            assert_eq!(db_data[DBCol::Block].len(), 1);
+            assert_eq!(
+                db_data[DBCol::Misc].get(b"persistent_key".as_slice()),
+                Some(&b"persistent_value".to_vec())
+            );
+
+            // Database will be saved on drop
+        }
+
+        // Create a new TestDB instance from the same directory
+        {
+            let db2 = TestDB::new_persistent(persist_dir.clone());
+
+            // Verify data was loaded
+            let db_data = db2.db.read();
+            let metadata = db2.column_metadata.read();
+
+            assert_eq!(db_data[DBCol::Misc].len(), 1);
+            assert_eq!(db_data[DBCol::Block].len(), 1);
+            assert_eq!(
+                db_data[DBCol::Misc].get(b"persistent_key".as_slice()),
+                Some(&b"persistent_value".to_vec())
+            );
+            assert_eq!(
+                db_data[DBCol::Block].get(b"block_key".as_slice()),
+                Some(&b"block_value".to_vec())
+            );
+
+            // Verify metadata was loaded
+            assert_eq!(metadata[DBCol::Misc].insertion_order.len(), 1);
+            assert_eq!(metadata[DBCol::Block].insertion_order.len(), 1);
+            assert_eq!(metadata[DBCol::Misc].insertion_order[0], b"persistent_key");
+            assert_eq!(metadata[DBCol::Block].insertion_order[0], b"block_key");
+
+            // Verify sizes are correct
+            let expected_misc_size = TestDB::entry_size(b"persistent_key", b"persistent_value");
+            let expected_block_size = TestDB::entry_size(b"block_key", b"block_value");
+            assert_eq!(metadata[DBCol::Misc].current_size, expected_misc_size);
+            assert_eq!(metadata[DBCol::Block].current_size, expected_block_size);
+        }
+    }
+
+    #[test]
+    fn test_persistence_empty_database() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let persist_dir = temp_dir.path().to_str().unwrap().to_string();
+
+        // Create an empty persistent TestDB
+        {
+            let _db = TestDB::new_persistent(persist_dir.clone());
+            // No data added, just drop it
+        }
+
+        // Create a new TestDB instance from the same directory
+        {
+            let db2 = TestDB::new_persistent(persist_dir.clone());
+
+            // Verify database is empty (this should not fail)
+            let db_data = db2.db.read();
+            assert_eq!(db_data[DBCol::Misc].len(), 0);
+            assert_eq!(db_data[DBCol::Block].len(), 0);
+        }
     }
 }
