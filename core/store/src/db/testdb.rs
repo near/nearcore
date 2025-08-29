@@ -8,6 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 
+use crate::db::rocksdb::instance_tracker;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
 use crate::{DBCol, StoreStatistics, deserialized_column};
 
@@ -59,16 +60,22 @@ pub struct TestDB {
     cache: Arc<deserialized_column::Cache>,
 
     persist_dir: Option<String>,
+
+    // RAII-style of keeping track of the number of instances of RocksDB and
+    // counting total sum of max_open_files.
+    _instance_tracker: instance_tracker::InstanceTracker,
 }
 
 impl Default for TestDB {
     fn default() -> Self {
+        let counter = instance_tracker::InstanceTracker::try_new(1).unwrap();
         Self {
             db: Default::default(),
             column_metadata: Default::default(),
             stats: Default::default(),
             cache: deserialized_column::Cache::enabled().into(),
             persist_dir: None,
+            _instance_tracker: counter,
         }
     }
 }
