@@ -134,31 +134,33 @@ impl TestDB {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
         // Restore database contents
-        let mut db = self.db.write();
-        let mut metadata = self.column_metadata.write();
+        {
+            let mut db = self.db.write();
+            let mut metadata = self.column_metadata.write();
 
-        // Clear existing state
-        for (_col, col_data) in db.iter_mut() {
-            col_data.clear();
-        }
-        for (_col, col_meta) in metadata.iter_mut() {
-            *col_meta = ColumnMetadata::default();
-        }
+            // Clear existing state
+            for (_col, col_data) in db.iter_mut() {
+                col_data.clear();
+            }
+            for (_col, col_meta) in metadata.iter_mut() {
+                *col_meta = ColumnMetadata::default();
+            }
 
-        // Load persisted data
-        for (col_name, key_value_pairs) in persisted_state.db_data {
-            // Find the DBCol that matches this name
-            if let Some(col) = DBCol::iter().find(|&c| format!("{:?}", c) == col_name) {
-                for (key, value) in key_value_pairs {
-                    db[col].insert(key, value);
+            // Load persisted data
+            for (col_name, key_value_pairs) in persisted_state.db_data {
+                // Find the DBCol that matches this name
+                if let Some(col) = DBCol::iter().find(|&c| format!("{:?}", c) == col_name) {
+                    for (key, value) in key_value_pairs {
+                        db[col].insert(key, value);
+                    }
                 }
             }
-        }
 
-        // Load persisted metadata
-        for (col_name, col_metadata) in persisted_state.metadata {
-            if let Some(col) = DBCol::iter().find(|&c| format!("{:?}", c) == col_name) {
-                metadata[col] = col_metadata;
+            // Load persisted metadata
+            for (col_name, col_metadata) in persisted_state.metadata {
+                if let Some(col) = DBCol::iter().find(|&c| format!("{:?}", c) == col_name) {
+                    metadata[col] = col_metadata;
+                }
             }
         }
 
