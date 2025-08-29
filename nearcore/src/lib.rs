@@ -38,6 +38,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::PeerManagerActor;
 use near_primitives::genesis::GenesisId;
 use near_primitives::types::EpochId;
+use near_store::db::TestDB;
 use near_store::db::metadata::DbKind;
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
@@ -258,7 +259,15 @@ pub fn start_with_config_and_synchronization(
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
-    let storage = open_storage(home_dir, &mut config)?;
+    // Check USE_TESTDB environment variable
+    let use_testdb = std::env::var("USE_TESTDB").is_ok();
+
+    let storage = if use_testdb {
+        tracing::warn!("Using TestDB as storage because USE_TESTDB environment variable is set");
+        NodeStorage::new(TestDB::new())
+    } else {
+        open_storage(home_dir, &mut config)?
+    };
     let db_metrics_arbiter = if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
         let db_metrics_arbiter_handle = spawn_db_metrics_loop(&storage, period)?;
