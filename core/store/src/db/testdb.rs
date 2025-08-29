@@ -126,6 +126,10 @@ impl TestDB {
         }
 
         let data = fs::read(&persist_path)?;
+        let len = data.len();
+        tracing::warn!("Loading persisted TestDB state from {}", persist_path.display());
+        tracing::warn!("Size of persisted state: {} bytes", len);
+
         let persisted_state: PersistedState = BorshDeserialize::try_from_slice(&data)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
@@ -216,7 +220,10 @@ impl TestDB {
         let serialized = borsh::to_vec(&persisted_state)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
+        let len = serialized.len();
         fs::write(&persist_path, serialized)?;
+        tracing::warn!("Persisted TestDB state to {}", persist_path.display());
+        tracing::warn!("Size of persisted state: {} bytes", len);
         Ok(())
     }
 
