@@ -80,6 +80,13 @@ impl TrackedShardsConfig {
         false
     }
 
+    pub fn is_rpc(&self) -> bool {
+        match self {
+            TrackedShardsConfig::NoShards | TrackedShardsConfig::ShadowValidator(_) => false,
+            _ => true,
+        }
+    }
+
     /// For backward compatibility, we support `tracked_shards`, `tracked_shard_schedule`,
     /// `tracked_shadow_validator`, and `tracked_accounts` as separate configuration fields,
     /// in that order of priority.
@@ -601,6 +608,15 @@ pub struct ChunkDistributionUris {
     pub set: String,
 }
 
+#[derive(Default, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+/// Configures whether the node checks the next or the next next epoch for network version compatibility.
+pub enum ProtocolVersionCheckConfig {
+    Next,
+    #[default]
+    NextNext,
+}
+
 /// ClientConfig where some fields can be updated at runtime.
 #[derive(Clone, serde::Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -775,6 +791,9 @@ pub struct ClientConfig {
     /// This option can cause extra load on the database and is not recommended for production use.
     pub save_invalid_witnesses: bool,
     pub transaction_request_handler_threads: usize,
+    /// Determines whether client should exit if the protocol version is not supported
+    /// for the next or next next epoch.
+    pub protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 impl ClientConfig {
@@ -868,6 +887,7 @@ impl ClientConfig {
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
+            protocol_version_check: Default::default(),
         }
     }
 }
