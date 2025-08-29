@@ -131,7 +131,7 @@ impl GasCounter {
             if promises_gas != Gas::from_gas(0) && !self.is_view {
                 self.fast_counter.gas_limit = min(
                     self.max_gas_burnt.as_gas(),
-                    self.prepaid_gas.checked_add(new_promises_gas).unwrap().as_gas(),
+                    self.prepaid_gas.checked_sub(new_promises_gas).unwrap().as_gas(),
                 );
             }
             self.fast_counter.burnt_gas = new_burnt_gas;
