@@ -3213,7 +3213,7 @@ fn test_expired_transaction() {
         assert_eq!(
             apply_result.outcomes.len(),
             1,
-            "should have not produced any outcomes for the expired tx"
+            "expired tx should produce an outcome with status `Failure`"
         );
         assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::Failure(_));
     } else {

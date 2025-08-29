@@ -80,7 +80,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
-use verifier::ValidateReceiptMode;
+use verifier::{ValidateReceiptMode, validate_actions};
 
 mod actions;
 pub mod adapter;
@@ -1729,16 +1729,15 @@ impl Runtime {
                                 valid_mask[idx] = Some(InvalidTxError::Expired);
                                 continue;
                             }
-                            valid_mask[idx] = match validate_transaction(
-                                &apply_state.config,
-                                tx.clone(),
+                            valid_mask[idx] = if let Err(err) = validate_actions(
+                                &apply_state.config.wasm_config.limit_config,
+                                tx.transaction.actions(),
                                 protocol_version,
                             ) {
-                                Ok(_) => None,
-                                Err((err, _)) => {
-                                    tracing::debug!(?tx_hash, ?err, "transaction invalid");
-                                    Some(err)
-                                }
+                                tracing::debug!(?tx_hash, ?err, "transaction invalid");
+                                Some(InvalidTxError::ActionsValidation(err))
+                            } else {
+                                None
                             }
                         }
                         valid_mask
@@ -1767,9 +1766,7 @@ impl Runtime {
             },
         );
 
-        let valid_mask_iterator = valid_masks
-            .into_iter()
-            .flat_map(|mask| (0..CHUNK_SIZE).map(move |idx| (mask[idx].clone())));
+        let valid_mask_iterator = valid_masks.into_iter().flatten();
 
         let default_hash = CryptoHash::default();
         let mut last_tx_hash = &default_hash;
