@@ -101,7 +101,7 @@ pub(super) fn block_until_all_instances_are_closed() {
 /// We’ve seen problems with RocksDB corruptions.  InstanceTracker lets us
 /// gracefully shutdown the process letting RocksDB to finish all operations and
 /// leaving the instances in a valid non-corrupted state.
-pub struct InstanceTracker {
+pub(super) struct InstanceTracker {
     /// max_open_files configuration of given RocksDB instance.
     max_open_files: u32,
 }
@@ -117,7 +117,7 @@ impl InstanceTracker {
     /// max_open_files options.
     ///
     /// The instance is unregistered once this object is dropped.
-    pub fn try_new(max_open_files: u32) -> Result<Self, String> {
+    pub(super) fn try_new(max_open_files: u32) -> Result<Self, String> {
         STATE.try_new_instance(max_open_files)?;
         Ok(Self { max_open_files })
     }

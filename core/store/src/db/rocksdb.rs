@@ -16,7 +16,7 @@ use tracing::warn;
 
 use super::metadata;
 
-pub mod instance_tracker;
+mod instance_tracker;
 pub mod snapshot;
 
 /// List of integer RocksDB properties we’re reading when collecting statistics.
