@@ -601,6 +601,8 @@ fn validate_deterministic_state_init(
     }
 
     // TODO: Do we miss additional checks?
+    // Max key length for state entries?
+    // Max length for state entries?
     // Total size is already limited by gas and existing size limits.
     // Anything else?
     Ok(())
