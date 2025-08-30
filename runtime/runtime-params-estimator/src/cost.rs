@@ -234,6 +234,10 @@ pub enum Cost {
     ActionDeterministicStateInitPerByteSendNotSir,
     ActionDeterministicStateInitPerByteSendSir,
     ActionDeterministicStateInitPerByteExec,
+    ActionDeterministicStateInitPerEntry,
+    ActionDeterministicStateInitPerEntrySendNotSir,
+    ActionDeterministicStateInitPerEntrySendSir,
+    ActionDeterministicStateInitPerEntryExec,
 
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
     /// once on every host function call. However, this is currently

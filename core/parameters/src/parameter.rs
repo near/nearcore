@@ -77,6 +77,7 @@ pub enum Parameter {
     ActionDeleteKey,
     ActionDelegate,
     ActionDeterministicStateInit,
+    ActionDeterministicStateInitPerEntry,
     ActionDeterministicStateInitPerByte,
 
     // Smart contract dynamic gas costs
