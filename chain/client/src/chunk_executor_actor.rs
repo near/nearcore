@@ -46,7 +46,7 @@ use near_primitives::types::AccountId;
 use near_primitives::types::ChunkExecutionResult;
 use near_primitives::types::EpochId;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{ShardId, ShardIndex};
+use near_primitives::types::{Gas, ShardId, ShardIndex};
 use near_primitives::utils::get_receipt_proof_key;
 use near_primitives::utils::get_receipt_proof_target_shard_prefix;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -725,7 +725,7 @@ impl ChunkExecutorActor {
 }
 
 fn new_execution_result(
-    gas_limit: &u64,
+    gas_limit: &Gas,
     apply_result: &ApplyChunkResult,
     outgoing_receipts_root: CryptoHash,
 ) -> ChunkExecutionResult {

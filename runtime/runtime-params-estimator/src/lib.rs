@@ -105,7 +105,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockContractRuntimeCache;
@@ -623,7 +623,7 @@ fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // tolerance is chosen, quite arbitrarily, as a full base cost from protocol
     // v50. Values further in the negative indicate that the estimation error is
     // out of proportion.
-    let negative_base_tolerance = 369_531_500_000u64;
+    let negative_base_tolerance = Gas::from_gas(369_531_500_000u64);
     // For icount-based measurements, since we start compilation after the full
     // contract is already loaded into memory, it is possible that IO costs per
     // byte are essentially 0 and sometimes negative in the fitted curve. If
@@ -936,7 +936,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let instructions_per_iter = {
         let op_cost = config.regular_op_cost as u64;
-        warmup_outcome.burnt_gas / op_cost
+        warmup_outcome.burnt_gas.as_gas() / op_cost
     };
 
     let per_instruction = total / (instructions_per_iter * n_iters);

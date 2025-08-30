@@ -58,7 +58,7 @@ impl ShardChunkHeaderInner {
             Self::V5(_) => {
                 // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
                 // anymore.
-                0
+                Gas::from_gas(0)
             }
         }
     }
@@ -73,7 +73,7 @@ impl ShardChunkHeaderInner {
             Self::V5(_) => {
                 // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
                 // anymore.
-                0
+                Gas::from_gas(0)
             }
         }
     }

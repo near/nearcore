@@ -242,7 +242,7 @@ fn get_gas_usage_in_block(
             let account_shard_id = shard_layout.account_id_to_shard_id(&outcome.executor_id);
             assert_eq!(account_shard_id, shard_id);
 
-            gas_usage_in_shard.add_used_gas(outcome.executor_id, outcome.gas_burnt.into());
+            gas_usage_in_shard.add_used_gas(outcome.executor_id, outcome.gas_burnt.as_gas().into());
         }
 
         result.add_gas_usage_in_shard(shard_uid, gas_usage_in_shard);

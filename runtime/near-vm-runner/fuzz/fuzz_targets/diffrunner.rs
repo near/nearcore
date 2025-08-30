@@ -2,6 +2,7 @@
 
 use near_parameters::RuntimeConfigStore;
 use near_parameters::vm::VMKind;
+use near_primitives::types::Gas;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_test_contracts::ArbitraryModule;
 use near_vm_runner::ContractCode;
@@ -23,7 +24,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let mut context = create_context(vec![]);
-    context.prepaid_gas = 10u64.pow(14);
+    context.prepaid_gas = Gas::from_tera(100);
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION);
     let fees = Arc::clone(&config.fees);
