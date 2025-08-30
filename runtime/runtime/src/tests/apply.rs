@@ -2689,7 +2689,10 @@ fn test_congestion_delayed_receipts_accounting() {
     );
     let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
 
-    assert_eq!(expected_delayed_gas.as_gas() as u128, congestion.delayed_receipts_gas());
+    assert_eq!(
+        Into::<u128>::into(expected_delayed_gas.as_gas()),
+        congestion.delayed_receipts_gas()
+    );
     assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
 }
 

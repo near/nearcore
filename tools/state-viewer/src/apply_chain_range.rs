@@ -822,7 +822,7 @@ fn benchmark_chunk_application(
         let chunk_application_start_time = Instant::now();
         let apply_result = apply_chunk_from_input(cur_input, &*runtime_adapter);
         total_chunk_application_time += chunk_application_start_time.elapsed();
-        total_gas_burned += apply_result.total_gas_burnt.as_gas() as u128;
+        total_gas_burned += Into::<u128>::into(apply_result.total_gas_burnt.as_gas());
 
         if i == 1 || last_report_time.elapsed() >= report_interval {
             println!(

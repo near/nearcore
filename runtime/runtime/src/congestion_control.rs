@@ -365,7 +365,7 @@ impl ReceiptSinkV2 {
             )? {
                 ReceiptForwarding::Forwarded => {
                     self.own_congestion_info.remove_receipt_bytes(size)?;
-                    self.own_congestion_info.remove_buffered_receipt_gas(gas as u128)?;
+                    self.own_congestion_info.remove_buffered_receipt_gas(gas.into())?;
                     if should_update_outgoing_metadatas {
                         // Can't update metadatas immediately because state_update is borrowed by iterator.
                         outgoing_metadatas_updates.push((ByteSize::b(size), Gas::from_gas(gas)));
@@ -974,5 +974,5 @@ fn overflow_storage_err() -> StorageError {
 
 // we use u128 for accumulated gas because congestion may deal with a lot of gas
 fn safe_add_gas_to_u128(a: u128, b: Gas) -> Result<u128, IntegerOverflowError> {
-    a.checked_add(b.as_gas() as u128).ok_or(IntegerOverflowError {})
+    a.checked_add(b.as_gas().into()).ok_or(IntegerOverflowError {})
 }

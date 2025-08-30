@@ -74,8 +74,7 @@ impl ProfileDataV2 {
         let mut profile_data = ProfileDataV2::default();
         let num_legacy_actions = 10;
         for i in 0..num_legacy_actions {
-            profile_data.data.0[i] =
-                Gas::from_gas(i as u64).checked_add(Gas::from_gas(1000)).unwrap().as_gas();
+            profile_data.data.0[i] = i as u64 + 1000;
         }
         for i in num_legacy_actions..DataArray::LEN {
             profile_data.data.0[i] = (i - num_legacy_actions) as u64;

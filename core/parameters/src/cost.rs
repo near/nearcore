@@ -551,7 +551,7 @@ impl RuntimeFeesConfig {
     /// Must return a value smaller or equal to the `gas_refund` parameter.
     pub fn gas_penalty_for_gas_refund(&self, gas_refund: Gas) -> Gas {
         let relative_cost = Gas::from_gas(
-            (gas_refund.as_gas() as u128 * *self.gas_refund_penalty.numer() as u128
+            (Into::<u128>::into(gas_refund.as_gas()) * *self.gas_refund_penalty.numer() as u128
                 / *self.gas_refund_penalty.denom() as u128)
                 .try_into()
                 .unwrap(),

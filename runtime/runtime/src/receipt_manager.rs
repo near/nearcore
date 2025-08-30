@@ -544,8 +544,8 @@ impl ReceiptManager {
                     "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
                 );
             };
-            let to_assign =
-                (unused_gas.as_gas() as u128 * weight.0 as u128 / gas_weight_sum) as u64;
+            let to_assign = (Into::<u128>::into(unused_gas.as_gas()) * weight.0 as u128
+                / gas_weight_sum) as u64;
             action.gas =
                 action.gas.checked_add(Gas::from_gas(to_assign)).ok_or(IntegerOverflowError)?;
             distributed = distributed

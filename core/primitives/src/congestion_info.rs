@@ -278,7 +278,7 @@ impl CongestionInfo {
             CongestionInfo::V1(inner) => {
                 inner.delayed_receipts_gas = inner
                     .delayed_receipts_gas
-                    .checked_add(gas.as_gas() as u128)
+                    .checked_add(gas.as_gas().into())
                     .ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("add_delayed_receipt_gas".into())
                     })?;
@@ -292,7 +292,7 @@ impl CongestionInfo {
             CongestionInfo::V1(inner) => {
                 inner.delayed_receipts_gas = inner
                     .delayed_receipts_gas
-                    .checked_sub(gas.as_gas() as u128)
+                    .checked_sub(gas.as_gas().into())
                     .ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("remove_delayed_receipt_gas".into())
                     })?;
@@ -306,7 +306,7 @@ impl CongestionInfo {
             CongestionInfo::V1(inner) => {
                 inner.buffered_receipts_gas = inner
                     .buffered_receipts_gas
-                    .checked_add(gas.as_gas() as u128)
+                    .checked_add(gas.as_gas().into())
                     .ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("add_buffered_receipt_gas".into())
                     })?;
@@ -747,7 +747,7 @@ mod tests {
 
         info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas).unwrap();
         info.add_buffered_receipt_gas(Gas::from_gas(500)).unwrap();
-        info.remove_buffered_receipt_gas(500 as u128).unwrap();
+        info.remove_buffered_receipt_gas(500).unwrap();
 
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(1.0, control.congestion_level());
@@ -779,7 +779,7 @@ mod tests {
         // reduce congestion to 10%
         let gas_diff =
             config.max_congestion_outgoing_gas.checked_mul(7).unwrap().checked_div(10).unwrap();
-        info.remove_buffered_receipt_gas(gas_diff.as_gas() as u128).unwrap();
+        info.remove_buffered_receipt_gas(gas_diff.as_gas().into()).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.1, control.congestion_level());
         assert_eq!(

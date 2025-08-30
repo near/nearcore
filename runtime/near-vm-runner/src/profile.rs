@@ -129,8 +129,10 @@ impl ProfileDataV3 {
                 }
                 // If the `value` is non-zero, the gas cost also must be non-zero.
                 debug_assert!(key.gas(ext_costs_config) != Gas::from_gas(0));
-                ((value.as_gas() as u128).saturating_mul(key.compute(ext_costs_config) as u128)
-                    / (key.gas(ext_costs_config).as_gas() as u128)) as u64
+                ((Into::<u128>::into(value.as_gas()))
+                    .saturating_mul(key.compute(ext_costs_config) as u128)
+                    / (Into::<u128>::into(key.gas(ext_costs_config).as_gas())))
+                    as u64
             })
             .fold(0, Compute::saturating_add);
 
