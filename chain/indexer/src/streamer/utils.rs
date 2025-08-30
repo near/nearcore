@@ -1,5 +1,3 @@
-use actix::Addr;
-
 use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_parameters::RuntimeConfig;
 use near_primitives::types::ProtocolVersion;
@@ -8,9 +6,11 @@ use node_runtime::config::tx_cost;
 
 use super::errors::FailedToFetchData;
 use super::fetchers::fetch_block;
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_client::ViewClientActorInner;
 
 pub(crate) async fn convert_transactions_sir_into_local_receipts(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &MultithreadRuntimeHandle<ViewClientActorInner>,
     runtime_config: &RuntimeConfig,
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
