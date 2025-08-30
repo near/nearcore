@@ -8,9 +8,6 @@ use futures::StreamExt;
 use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
 use near_primitives::borsh::{self, BorshDeserialize, BorshSerialize};
-use utoipa::ToSchema;
-use utoipa::openapi::RefOr;
-use utoipa::openapi::schema::{ObjectBuilder, Schema, SchemaType};
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
 pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);
@@ -21,18 +18,6 @@ where
 {
     pub fn into_inner(self) -> T {
         self.0
-    }
-}
-
-impl<T> ToSchema<'_> for BorshInHexString<T>
-where
-    T: BorshSerialize + BorshDeserialize,
-{
-    fn schema() -> (&'static str, RefOr<Schema>) {
-        (
-            "BorshInHexString",
-            RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::String).build())),
-        )
     }
 }
 
@@ -83,18 +68,6 @@ where
 #[derive(Debug, Clone, Eq, PartialEq, derive_more::AsRef, derive_more::From)]
 #[as_ref(forward)]
 pub(crate) struct BlobInHexString<T: AsRef<[u8]> + From<Vec<u8>>>(T);
-
-impl<T> ToSchema<'_> for BlobInHexString<T>
-where
-    T: AsRef<[u8]> + From<Vec<u8>>,
-{
-    fn schema() -> (&'static str, RefOr<Schema>) {
-        (
-            "BlobInHexString",
-            RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::String).build())),
-        )
-    }
-}
 
 impl<T> BlobInHexString<T>
 where
@@ -148,18 +121,6 @@ where
 {
     is_positive: bool,
     absolute_difference: T,
-}
-
-impl<T> ToSchema<'_> for SignedDiff<T>
-where
-    T: Copy + PartialEq,
-{
-    fn schema() -> (&'static str, RefOr<Schema>) {
-        (
-            "SignedDiff",
-            RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::String).build())),
-        )
-    }
 }
 
 impl From<u64> for SignedDiff<u64> {

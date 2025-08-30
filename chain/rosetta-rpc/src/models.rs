@@ -42,6 +42,7 @@ pub(crate) struct AccountBalanceResponse {
 // include that number in the metadata.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct AccountBalanceResponseMetadata {
+    #[schema(value_type = Vec<u64>)]
     pub nonces: Vec<Nonce>,
 }
 /// The account_identifier uniquely identifies an account within a network. All
@@ -51,6 +52,7 @@ pub(crate) struct AccountBalanceResponseMetadata {
 pub(crate) struct AccountIdentifier {
     /// The address may be a cryptographic public key (or some encoding of it)
     /// or a provided username.
+    #[schema(value_type = String)]
     pub address: super::types::AccountId,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,6 +118,7 @@ pub(crate) struct Amount {
     /// Value of the transaction in atomic units represented as an
     /// arbitrary-sized signed integer.  For example, 1 BTC would be represented
     /// by a value of 100000000.
+    #[schema(value_type = String)]
     pub value: crate::utils::SignedDiff<near_primitives::types::Balance>,
 
     pub currency: Currency,
@@ -303,6 +306,7 @@ pub(crate) struct ConstructionPreprocessRequest {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct ConstructionMetadataOptions {
+    #[schema(value_type = String)]
     pub signer_account_id: super::types::AccountId,
 }
 
@@ -378,6 +382,7 @@ pub(crate) struct ConstructionPayloadsRequest {
 /// array of payloads that must be signed by the caller.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct ConstructionPayloadsResponse {
+    #[schema(value_type = String)]
     pub unsigned_transaction: BorshInHexString<near_primitives::transaction::Transaction>,
     pub payloads: Vec<SigningPayload>,
 }
@@ -389,6 +394,7 @@ pub(crate) struct ConstructionPayloadsResponse {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct ConstructionCombineRequest {
     pub network_identifier: NetworkIdentifier,
+    #[schema(value_type = String)]
     pub unsigned_transaction: BorshInHexString<near_primitives::transaction::Transaction>,
     pub signatures: Vec<Signature>,
 }
@@ -398,6 +404,7 @@ pub(crate) struct ConstructionCombineRequest {
 /// `construction/submit` endpoint.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct ConstructionCombineResponse {
+    #[schema(value_type = String)]
     pub signed_transaction: BorshInHexString<near_primitives::transaction::SignedTransaction>,
 }
 
@@ -411,6 +418,7 @@ pub(crate) struct ConstructionParseRequest {
     /// This must be either the unsigned transaction blob returned by
     /// `/construction/payloads` or the signed transaction blob
     /// returned by `/construction/combine`.
+    #[schema(value_type = String)]
     pub transaction: BlobInHexString<Vec<u8>>,
 }
 
@@ -435,6 +443,7 @@ pub(crate) struct ConstructionParseResponse {
 pub(crate) struct ConstructionSubmitRequest {
     pub network_identifier: NetworkIdentifier,
 
+    #[schema(value_type = String)]
     pub signed_transaction: BorshInHexString<near_primitives::transaction::SignedTransaction>,
 }
 
@@ -455,6 +464,7 @@ pub(crate) struct TransactionIdentifierResponse {
 pub(crate) struct ConstructionHashRequest {
     pub network_identifier: NetworkIdentifier,
 
+    #[schema(value_type = String)]
     pub signed_transaction: BorshInHexString<near_primitives::transaction::SignedTransaction>,
 }
 
@@ -785,15 +795,18 @@ pub(crate) struct OperationMetadata {
     // pub access_key: Option<TODO>,
     /// Has to be specified for DEPLOY_CONTRACT operation
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
     pub code: Option<BlobInHexString<Vec<u8>>>,
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub method_name: Option<String>,
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
     pub args: Option<BlobInHexString<Vec<u8>>>,
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
     pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub predecessor_id: Option<AccountIdentifier>,
@@ -801,9 +814,11 @@ pub(crate) struct OperationMetadata {
     pub contract_address: Option<String>,
     /// Has to be specified for DELEGATE_ACTION operation
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<u64>)]
     pub max_block_height: Option<near_primitives::types::BlockHeight>,
     /// Has to be specified for DELEGATE_ACTION operation
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<u64>)]
     pub nonce: Option<Nonce>,
     /// Has to be specified for SIGNED_DELEGATE_ACTION operation
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1200,6 +1215,7 @@ pub(crate) struct Version {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct PublicKey {
     /// Hex-encoded public key bytes in the format specified by the CurveType.
+    #[schema(value_type = String)]
     pub hex_bytes: BlobInHexString<Vec<u8>>,
     pub curve_type: CurveType,
 }
@@ -1253,6 +1269,7 @@ impl From<near_crypto::KeyType> for CurveType {
 pub(crate) struct SigningPayload {
     /// The account identifier that should sign the payload.
     pub account_identifier: AccountIdentifier,
+    #[schema(value_type = String)]
     pub hex_bytes: BlobInHexString<Vec<u8>>,
     pub signature_type: Option<SignatureType>,
 }
@@ -1266,6 +1283,7 @@ pub(crate) struct Signature {
     pub signing_payload: SigningPayload,
     pub public_key: PublicKey,
     pub signature_type: SignatureType,
+    #[schema(value_type = String)]
     pub hex_bytes: BlobInHexString<Vec<u8>>,
 }
 
@@ -1385,6 +1403,7 @@ pub(crate) struct EventBase {
 pub(crate) struct FtEvent {
     pub affected_id: AccountIdentifier,
     pub involved_id: Option<AccountIdentifier>,
+    #[schema(value_type = String)]
     pub delta: SignedDiff<u128>,
     pub symbol: String,
     pub decimals: u32,

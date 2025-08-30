@@ -12,6 +12,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 pub use config::RosettaRpcConfig;
+use models::*;
 use near_async::messaging::CanSendAsync;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::Genesis;
@@ -35,7 +36,7 @@ pub const BLOCKCHAIN: &str = "nearprotocol";
 /// Genesis together with genesis block identifier.
 struct GenesisWithIdentifier {
     genesis: Genesis,
-    block_id: models::BlockIdentifier,
+    block_id: BlockIdentifier,
 }
 
 /// Verifies that network identifier provided by the user is what we expect.
@@ -44,7 +45,7 @@ struct GenesisWithIdentifier {
 /// be provided.  On success returns client actor’s status response.
 async fn check_network_identifier(
     client_addr: &web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    identifier: models::NetworkIdentifier,
+    identifier: NetworkIdentifier,
 ) -> Result<near_client::StatusResponse, errors::ErrorKind> {
     if identifier.blockchain != BLOCKCHAIN {
         return Err(errors::ErrorKind::WrongNetwork(format!(
@@ -75,16 +76,25 @@ async fn check_network_identifier(
 ///
 /// This endpoint returns a list of NetworkIdentifiers that the Rosetta server
 /// supports.
+#[utoipa::path(
+    post,
+    path = "/network/list",
+    request_body = MetadataRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = NetworkListResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn network_list(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    _body: Json<models::MetadataRequest>,
-) -> Result<Json<models::NetworkListResponse>, models::Error> {
+    _body: Json<MetadataRequest>,
+) -> Result<Json<NetworkListResponse>, Error> {
     let status = client_addr
         .send_async(near_client::Status { is_health_check: false, detailed: false }.span_wrap())
         .await?
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-    Ok(Json(models::NetworkListResponse {
-        network_identifiers: vec![models::NetworkIdentifier {
+    Ok(Json(NetworkListResponse {
+        network_identifiers: vec![NetworkIdentifier {
             blockchain: BLOCKCHAIN.to_string(),
             network: status.chain_id,
             sub_network_identifier: None,
@@ -96,13 +106,22 @@ async fn network_list(
 ///
 /// This endpoint returns the current status of the network requested. Any
 /// NetworkIdentifier returned by /network/list should be accessible here.
+#[utoipa::path(
+    post,
+    path = "/network/status",
+    request_body = NetworkRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = NetworkStatusResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn network_status(
     genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
-    body: Json<models::NetworkRequest>,
-) -> Result<Json<models::NetworkStatusResponse>, models::Error> {
-    let Json(models::NetworkRequest { network_identifier }) = body;
+    body: Json<NetworkRequest>,
+) -> Result<Json<NetworkStatusResponse>, Error> {
+    let Json(NetworkRequest { network_identifier }) = body;
 
     let status = check_network_identifier(&client_addr, network_identifier).await?;
 
@@ -117,20 +136,20 @@ async fn network_status(
     )?;
     let network_info = network_info.map_err(errors::ErrorKind::InternalError)?;
     let genesis_block_identifier = genesis.block_id.clone();
-    let oldest_block_identifier: models::BlockIdentifier = earliest_block
+    let oldest_block_identifier: BlockIdentifier = earliest_block
         .ok()
         .map(|block| (&block).into())
         .unwrap_or_else(|| genesis_block_identifier.clone());
 
     let final_block = crate::utils::get_final_block(&view_client_addr).await?;
-    Ok(Json(models::NetworkStatusResponse {
+    Ok(Json(NetworkStatusResponse {
         current_block_identifier: (&final_block).into(),
         current_block_timestamp: i64::try_from(final_block.header.timestamp_nanosec / 1_000_000)
             .unwrap(),
         genesis_block_identifier,
         oldest_block_identifier,
         sync_status: if status.sync_info.syncing {
-            Some(models::SyncStatus {
+            Some(SyncStatus {
                 current_index: status.sync_info.latest_block_height.try_into().unwrap(),
                 target_index: None,
                 stage: None,
@@ -141,7 +160,7 @@ async fn network_status(
         peers: network_info
             .connected_peers
             .into_iter()
-            .map(|peer| models::Peer { peer_id: peer.id.to_string() })
+            .map(|peer| Peer { peer_id: peer.id.to_string() })
             .collect(),
     }))
 }
@@ -153,29 +172,35 @@ async fn network_status(
 /// /network/list should be accessible here. Because options are retrievable in
 /// the context of a NetworkIdentifier, it is possible to define unique options
 /// for each network.
+#[utoipa::path(
+    post,
+    path = "/network/options",
+    request_body = NetworkRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = NetworkOptionsResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn network_options(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    body: Json<models::NetworkRequest>,
-) -> Result<Json<models::NetworkOptionsResponse>, models::Error> {
-    let Json(models::NetworkRequest { network_identifier }) = body;
+    body: Json<NetworkRequest>,
+) -> Result<Json<NetworkOptionsResponse>, Error> {
+    let Json(NetworkRequest { network_identifier }) = body;
 
     let status = check_network_identifier(&client_addr, network_identifier).await?;
 
-    Ok(Json(models::NetworkOptionsResponse {
-        version: models::Version {
+    Ok(Json(NetworkOptionsResponse {
+        version: Version {
             rosetta_version: API_VERSION.to_string(),
             node_version: status.version.version,
             middleware_version: None,
         },
-        allow: models::Allow {
-            operation_statuses: models::OperationStatusKind::iter()
-                .map(|status| models::OperationStatus {
-                    status,
-                    successful: status.is_successful(),
-                })
+        allow: Allow {
+            operation_statuses: OperationStatusKind::iter()
+                .map(|status| OperationStatus { status, successful: status.is_successful() })
                 .collect(),
-            operation_types: models::OperationType::iter().collect(),
-            errors: errors::ErrorKind::iter().map(models::Error::from_error_kind).collect(),
+            operation_types: OperationType::iter().collect(),
+            errors: errors::ErrorKind::iter().map(Error::from_error_kind).collect(),
             historical_balance_lookup: true,
         },
     }))
@@ -196,14 +221,23 @@ async fn network_options(
 /// No such restriction is imposed when requesting a block by height,
 /// given that a chain reorg event might cause the specific block at
 /// height `n` to be set to a different one.
+#[utoipa::path(
+    post,
+    path = "/block",
+    request_body = BlockRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = BlockResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn block_details(
     genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
-    currencies: web::Data<Option<Vec<models::Currency>>>,
-    body: Json<models::BlockRequest>,
-) -> Result<Json<models::BlockResponse>, models::Error> {
-    let Json(models::BlockRequest { network_identifier, block_identifier }) = body;
+    currencies: web::Data<Option<Vec<Currency>>>,
+    body: Json<BlockRequest>,
+) -> Result<Json<BlockResponse>, Error> {
+    let Json(BlockRequest { network_identifier, block_identifier }) = body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
@@ -212,7 +246,7 @@ async fn block_details(
         .await?
         .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
-    let block_identifier: models::BlockIdentifier = (&block).into();
+    let block_identifier: BlockIdentifier = (&block).into();
 
     let parent_block_identifier = if block.header.prev_hash == Default::default() {
         // According to Rosetta API genesis block should have the parent block
@@ -236,8 +270,8 @@ async fn block_details(
     )
     .await?;
 
-    Ok(Json(models::BlockResponse {
-        block: Some(models::Block {
+    Ok(Json(BlockResponse {
+        block: Some(Block {
             block_identifier,
             parent_block_identifier,
             timestamp: (block.header.timestamp / 1_000_000).try_into().unwrap(),
@@ -268,14 +302,23 @@ async fn block_details(
 ///
 /// NOTE: The current implementation is suboptimal as it processes the whole
 /// block to only return a single transaction.
+#[utoipa::path(
+    post,
+    path = "/block/transaction",
+    request_body = BlockTransactionRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = BlockTransactionResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn block_transaction_details(
     genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
-    currencies: web::Data<Option<Vec<models::Currency>>>,
-    body: Json<models::BlockTransactionRequest>,
-) -> Result<Json<models::BlockTransactionResponse>, models::Error> {
-    let Json(models::BlockTransactionRequest {
+    currencies: web::Data<Option<Vec<Currency>>>,
+    body: Json<BlockTransactionRequest>,
+) -> Result<Json<BlockTransactionResponse>, Error> {
+    let Json(BlockTransactionRequest {
         network_identifier,
         block_identifier,
         transaction_identifier,
@@ -300,7 +343,7 @@ async fn block_transaction_details(
     .find(|transaction| transaction.transaction_identifier == transaction_identifier)
     .ok_or_else(|| errors::ErrorKind::NotFound("Transaction not found".into()))?;
 
-    Ok(Json(models::BlockTransactionResponse { transaction }))
+    Ok(Json(BlockTransactionResponse { transaction }))
 }
 
 /// Get an Account Balance
@@ -319,15 +362,24 @@ async fn block_transaction_details(
 /// requests with unique AccountIdentifiers. It is also possible to perform a
 /// historical balance lookup (if the server supports it) by passing in an
 /// optional BlockIdentifier.
+#[utoipa::path(
+    post,
+    path = "/account/balance",
+    request_body = AccountBalanceRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = AccountBalanceResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn account_balance(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
-    currencies: web::Data<Option<Vec<models::Currency>>>,
-    body: Json<models::AccountBalanceRequest>,
-) -> Result<Json<models::AccountBalanceResponse>, models::Error> {
+    currencies: web::Data<Option<Vec<Currency>>>,
+    body: Json<AccountBalanceRequest>,
+) -> Result<Json<AccountBalanceResponse>, Error> {
     let config_currencies = currencies;
 
-    let Json(models::AccountBalanceRequest {
+    let Json(AccountBalanceRequest {
         network_identifier,
         block_identifier,
         account_identifier,
@@ -372,10 +424,8 @@ async fn account_balance(
 
     let balance = if let Some(sub_account) = account_identifier.sub_account {
         match sub_account.address {
-            crate::models::SubAccount::Locked => account_balances.locked,
-            crate::models::SubAccount::LiquidBalanceForStorage => {
-                account_balances.liquid_for_storage
-            }
+            crate::SubAccount::Locked => account_balances.locked,
+            crate::SubAccount::LiquidBalanceForStorage => account_balances.liquid_for_storage,
         }
     } else {
         account_balances.liquid
@@ -393,7 +443,7 @@ async fn account_balance(
         None
     };
     if let Some(currencies) = currencies {
-        let mut balances: Vec<models::Amount> = Vec::default();
+        let mut balances: Vec<Amount> = Vec::default();
         for currency in currencies {
             let ft_balance = crate::adapters::nep141::get_fungible_token_balance_for_account(
                 &view_client_addr,
@@ -420,18 +470,18 @@ async fn account_balance(
                 &account_identifier_for_ft,
             )
             .await?;
-            balances.push(models::Amount::from_fungible_token(ft_balance, currency))
+            balances.push(Amount::from_fungible_token(ft_balance, currency))
         }
-        balances.push(models::Amount::from_yoctonear(balance));
-        Ok(Json(models::AccountBalanceResponse {
-            block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
+        balances.push(Amount::from_yoctonear(balance));
+        Ok(Json(AccountBalanceResponse {
+            block_identifier: BlockIdentifier::new(block_height, &block_hash),
             balances,
             metadata: nonces,
         }))
     } else {
-        Ok(Json(models::AccountBalanceResponse {
-            block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
-            balances: vec![models::Amount::from_yoctonear(balance)],
+        Ok(Json(AccountBalanceResponse {
+            block_identifier: BlockIdentifier::new(block_height, &block_hash),
+            balances: vec![Amount::from_yoctonear(balance)],
             metadata: nonces,
         }))
     }
@@ -442,11 +492,20 @@ async fn account_balance(
 /// Get all Transaction Identifiers in the mempool
 ///
 /// NOTE: The mempool is short-lived, so it is currently not implemented.
+#[utoipa::path(
+    post,
+    path = "/mempool",
+    request_body = NetworkRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = MempoolResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn mempool(
     _client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    _body: Json<models::NetworkRequest>,
-) -> Result<Json<models::MempoolResponse>, models::Error> {
-    Ok(Json(models::MempoolResponse { transaction_identifiers: vec![] }))
+    _body: Json<NetworkRequest>,
+) -> Result<Json<MempoolResponse>, Error> {
+    Ok(Json(MempoolResponse { transaction_identifiers: vec![] }))
 }
 
 /// Get a Mempool Transaction (not implemented)
@@ -462,10 +521,19 @@ async fn mempool(
 ///
 /// NOTE: The mempool is short-lived, so this method does not make a lot of
 /// sense to be implemented.
+#[utoipa::path(
+    post,
+    path = "/mempool/transaction",
+    request_body = MempoolTransactionRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = MempoolTransactionResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn mempool_transaction(
     _client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    _body: Json<models::MempoolTransactionRequest>,
-) -> Result<Json<models::MempoolTransactionResponse>, models::Error> {
+    _body: Json<MempoolTransactionRequest>,
+) -> Result<Json<MempoolTransactionResponse>, Error> {
     Err(errors::ErrorKind::InternalError("Not implemented yet".to_string()).into())
 }
 
@@ -478,11 +546,20 @@ async fn mempool_transaction(
 ///
 /// NEAR implements explicit accounts with CREATE_ACCOUNT action and implicit
 /// accounts, where account id is just a hex of the public key.
+#[utoipa::path(
+    post,
+    path = "/construction/derive",
+    request_body = ConstructionDeriveRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = ConstructionDeriveResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn construction_derive(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    body: Json<models::ConstructionDeriveRequest>,
-) -> Result<Json<models::ConstructionDeriveResponse>, models::Error> {
-    let Json(models::ConstructionDeriveRequest { network_identifier, public_key }) = body;
+    body: Json<ConstructionDeriveRequest>,
+) -> Result<Json<ConstructionDeriveResponse>, Error> {
+    let Json(ConstructionDeriveRequest { network_identifier, public_key }) = body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
@@ -498,8 +575,8 @@ async fn construction_derive(
         .into());
     };
 
-    Ok(Json(models::ConstructionDeriveResponse {
-        account_identifier: models::AccountIdentifier {
+    Ok(Json(ConstructionDeriveResponse {
+        account_identifier: AccountIdentifier {
             address: address.parse().unwrap(),
             sub_account: None,
             metadata: None,
@@ -514,23 +591,32 @@ async fn construction_derive(
 /// account nonce). The request returned from this method will be used by the
 /// caller (in a different execution environment) to call the
 /// /construction/metadata endpoint.
+#[utoipa::path(
+    post,
+    path = "/construction/preprocess",
+    request_body = ConstructionPreprocessRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = ConstructionPreprocessResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn construction_preprocess(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    body: Json<models::ConstructionPreprocessRequest>,
-) -> Result<Json<models::ConstructionPreprocessResponse>, models::Error> {
-    let Json(models::ConstructionPreprocessRequest { network_identifier, operations }) = body;
+    body: Json<ConstructionPreprocessRequest>,
+) -> Result<Json<ConstructionPreprocessResponse>, Error> {
+    let Json(ConstructionPreprocessRequest { network_identifier, operations }) = body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
     let near_actions: crate::adapters::NearActions = operations.try_into()?;
 
-    Ok(Json(models::ConstructionPreprocessResponse {
-        required_public_keys: vec![models::AccountIdentifier {
+    Ok(Json(ConstructionPreprocessResponse {
+        required_public_keys: vec![AccountIdentifier {
             address: near_actions.sender_account_id.clone().into(),
             sub_account: None,
             metadata: None,
         }],
-        options: models::ConstructionMetadataOptions {
+        options: ConstructionMetadataOptions {
             signer_account_id: near_actions.sender_account_id.into(),
         },
     }))
@@ -546,13 +632,21 @@ async fn construction_preprocess(
 /// should not pre-construct any transactions for the client (this should happen
 /// in /construction/payloads). This endpoint is left purposely unstructured
 /// because of the wide scope of metadata that could be required.
+#[utoipa::path(
+    post,
+    path = "/construction/metadata",
+    request_body = ConstructionMetadataRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = ConstructionMetadataResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn construction_metadata(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
-    body: Json<models::ConstructionMetadataRequest>,
-) -> Result<Json<models::ConstructionMetadataResponse>, models::Error> {
-    let Json(models::ConstructionMetadataRequest { network_identifier, options, public_keys }) =
-        body;
+    body: Json<ConstructionMetadataRequest>,
+) -> Result<Json<ConstructionMetadataResponse>, Error> {
+    let Json(ConstructionMetadataRequest { network_identifier, options, public_keys }) = body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
@@ -573,8 +667,8 @@ async fn construction_metadata(
     )
     .await?;
 
-    Ok(Json(models::ConstructionMetadataResponse {
-        metadata: models::ConstructionMetadata {
+    Ok(Json(ConstructionMetadataResponse {
+        metadata: ConstructionMetadata {
             recent_block_hash: block_hash.to_string(),
             signer_public_access_key_nonce: access_key.nonce.saturating_add(1),
         },
@@ -593,16 +687,21 @@ async fn construction_metadata(
 /// sufficient for construction. For this reason, parsing the corresponding
 /// transaction in the Data API (when it lands on chain) will contain a superset
 /// of whatever operations were provided during construction.
+#[utoipa::path(
+    post,
+    path = "/construction/payloads",
+    request_body = ConstructionPayloadsRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = ConstructionPayloadsResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn construction_payloads(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    body: Json<models::ConstructionPayloadsRequest>,
-) -> Result<Json<models::ConstructionPayloadsResponse>, models::Error> {
-    let Json(models::ConstructionPayloadsRequest {
-        network_identifier,
-        operations,
-        public_keys,
-        metadata,
-    }) = body;
+    body: Json<ConstructionPayloadsRequest>,
+) -> Result<Json<ConstructionPayloadsResponse>, Error> {
+    let Json(ConstructionPayloadsRequest { network_identifier, operations, public_keys, metadata }) =
+        body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
@@ -624,8 +723,7 @@ async fn construction_payloads(
         receiver_account_id,
         actions,
     } = operations.try_into()?;
-    let models::ConstructionMetadata { recent_block_hash, signer_public_access_key_nonce } =
-        metadata;
+    let ConstructionMetadata { recent_block_hash, signer_public_access_key_nonce } = metadata;
     let unsigned_transaction = near_primitives::transaction::Transaction::V0(
         near_primitives::transaction::TransactionV0 {
             block_hash: recent_block_hash.parse().map_err(|err| {
@@ -644,9 +742,9 @@ async fn construction_payloads(
 
     let (transaction_hash, _) = unsigned_transaction.get_hash_and_size();
 
-    Ok(Json(models::ConstructionPayloadsResponse {
+    Ok(Json(ConstructionPayloadsResponse {
         unsigned_transaction: unsigned_transaction.into(),
-        payloads: vec![models::SigningPayload {
+        payloads: vec![SigningPayload {
             account_identifier: signer_account_id.into(),
             signature_type: Some(signer_public_access_key.key_type().into()),
             hex_bytes: transaction_hash.as_ref().to_owned().into(),
@@ -659,15 +757,21 @@ async fn construction_payloads(
 /// Combine creates a network-specific transaction from an unsigned transaction
 /// and an array of provided signatures. The signed transaction returned from
 /// this method will be sent to the /construction/submit endpoint by the caller.
+#[utoipa::path(
+    post,
+    path = "/construction/combine",
+    request_body = ConstructionCombineRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = ConstructionCombineResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn construction_combine(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    body: Json<models::ConstructionCombineRequest>,
-) -> Result<Json<models::ConstructionCombineResponse>, models::Error> {
-    let Json(models::ConstructionCombineRequest {
-        network_identifier,
-        unsigned_transaction,
-        signatures,
-    }) = body;
+    body: Json<ConstructionCombineRequest>,
+) -> Result<Json<ConstructionCombineResponse>, Error> {
+    let Json(ConstructionCombineRequest { network_identifier, unsigned_transaction, signatures }) =
+        body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
@@ -686,7 +790,7 @@ async fn construction_combine(
         unsigned_transaction.into_inner(),
     );
 
-    Ok(Json(models::ConstructionCombineResponse { signed_transaction: signed_transaction.into() }))
+    Ok(Json(ConstructionCombineResponse { signed_transaction: signed_transaction.into() }))
 }
 
 /// Parse a Transaction (offline API)
@@ -695,11 +799,20 @@ async fn construction_combine(
 /// intent of the formulated transaction. This is run as a sanity check before
 /// signing (after /construction/payloads) and before broadcast (after
 /// /construction/combine).
+#[utoipa::path(
+    post,
+    path = "/construction/parse",
+    request_body = ConstructionParseRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = ConstructionParseResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn construction_parse(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    body: Json<models::ConstructionParseRequest>,
-) -> Result<Json<models::ConstructionParseResponse>, models::Error> {
-    let Json(models::ConstructionParseRequest { network_identifier, transaction, signed }) = body;
+    body: Json<ConstructionParseRequest>,
+) -> Result<Json<ConstructionParseResponse>, Error> {
+    let Json(ConstructionParseRequest { network_identifier, transaction, signed }) = body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
@@ -731,7 +844,7 @@ async fn construction_parse(
         actions: transaction.take_actions(),
     };
 
-    Ok(Json(models::ConstructionParseResponse {
+    Ok(Json(ConstructionParseResponse {
         account_identifier_signers,
         operations: near_actions.into(),
     }))
@@ -741,16 +854,25 @@ async fn construction_parse(
 ///
 /// TransactionHash returns the network-specific transaction hash for a signed
 /// transaction.
+#[utoipa::path(
+    post,
+    path = "/construction/hash",
+    request_body = ConstructionHashRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = TransactionIdentifierResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn construction_hash(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
-    body: Json<models::ConstructionHashRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    let Json(models::ConstructionHashRequest { network_identifier, signed_transaction }) = body;
+    body: Json<ConstructionHashRequest>,
+) -> Result<Json<TransactionIdentifierResponse>, Error> {
+    let Json(ConstructionHashRequest { network_identifier, signed_transaction }) = body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
-    Ok(Json(models::TransactionIdentifierResponse {
-        transaction_identifier: models::TransactionIdentifier::transaction(
+    Ok(Json(TransactionIdentifierResponse {
+        transaction_identifier: TransactionIdentifier::transaction(
             &signed_transaction.as_ref().get_hash(),
         ),
     }))
@@ -764,12 +886,21 @@ async fn construction_hash(
 /// included in the mempool. The transaction submission response should only
 /// return a 200 status if the submitted transaction could be included in the
 /// mempool. Otherwise, it should return an error.
+#[utoipa::path(
+    post,
+    path = "/construction/submit",
+    request_body = ConstructionSubmitRequest,
+    responses(
+        (status = 200, description = "Expected response to a valid request", body = TransactionIdentifierResponse),
+        (status = 500, description = "unexpected error", body = Error),
+    ),
+)]
 async fn construction_submit(
     client_addr: web::Data<TokioRuntimeHandle<ClientActorInner>>,
     tx_handler_addr: web::Data<Addr<RpcHandlerActor>>,
-    body: Json<models::ConstructionSubmitRequest>,
-) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
-    let Json(models::ConstructionSubmitRequest { network_identifier, signed_transaction }) = body;
+    body: Json<ConstructionSubmitRequest>,
+) -> Result<Json<TransactionIdentifierResponse>, Error> {
+    let Json(ConstructionSubmitRequest { network_identifier, signed_transaction }) = body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
@@ -783,10 +914,8 @@ async fn construction_submit(
         .await?;
     match transaction_submission {
         near_client::ProcessTxResponse::ValidTx | near_client::ProcessTxResponse::RequestRouted => {
-            Ok(Json(models::TransactionIdentifierResponse {
-                transaction_identifier: models::TransactionIdentifier::transaction(
-                    &transaction_hash,
-                ),
+            Ok(Json(TransactionIdentifierResponse {
+                transaction_identifier: TransactionIdentifier::transaction(&transaction_hash),
             }))
         }
         near_client::ProcessTxResponse::InvalidTx(error) => {
@@ -805,38 +934,93 @@ async fn construction_submit(
     paths(),
     components(
         schemas(
-            models::NetworkListResponse,
-            models::NetworkIdentifier,
-            models::MetadataRequest,
-            models::NetworkRequest,
-            models::NetworkStatusResponse,
-            models::NetworkOptionsResponse,
-            models::BlockRequest,
-            models::BlockResponse,
-            models::BlockTransactionRequest,
-            models::BlockTransactionResponse,
-            models::AccountBalanceRequest,
-            models::AccountBalanceResponse,
-            models::MempoolResponse,
-            models::MempoolTransactionRequest,
-            models::MempoolTransactionResponse,
-            models::ConstructionDeriveRequest,
-            models::ConstructionDeriveResponse,
-            models::ConstructionPreprocessRequest,
-            models::ConstructionPreprocessResponse,
-            models::ConstructionMetadataRequest,
-            models::ConstructionMetadataResponse,
-            models::ConstructionPayloadsRequest,
-            models::ConstructionPayloadsResponse,
-            models::ConstructionCombineRequest,
-            models::ConstructionCombineResponse,
-            models::ConstructionParseRequest,
-            models::ConstructionParseResponse,
-            models::ConstructionHashRequest,
-            models::TransactionIdentifierResponse,
-            models::ConstructionSubmitRequest,
-            models::Error
+            AccountBalanceRequest,
+            AccountBalanceResponse,
+            AccountBalanceResponseMetadata,
+            AccountIdentifier,
+            AccountIdentifierMetadata,
+            Allow,
+            Amount,
+            Block,
+            BlockIdentifier,
+            BlockRequest,
+            BlockResponse,
+            BlockTransactionRequest,
+            BlockTransactionResponse,
+            ConstructionCombineRequest,
+            ConstructionCombineResponse,
+            ConstructionDeriveRequest,
+            ConstructionDeriveResponse,
+            ConstructionHashRequest,
+            ConstructionMetadata,
+            ConstructionMetadataOptions,
+            ConstructionMetadataRequest,
+            ConstructionMetadataResponse,
+            ConstructionParseRequest,
+            ConstructionParseResponse,
+            ConstructionPayloadsRequest,
+            ConstructionPayloadsResponse,
+            ConstructionPreprocessRequest,
+            ConstructionPreprocessResponse,
+            ConstructionSubmitRequest,
+            Currency,
+            CurrencyMetadata,
+            CurveType,
+            Error,
+            MempoolResponse,
+            MempoolTransactionRequest,
+            MempoolTransactionResponse,
+            MetadataRequest,
+            NetworkIdentifier,
+            NetworkListResponse,
+            NetworkOptionsResponse,
+            NetworkRequest,
+            NetworkStatusResponse,
+            Operation,
+            OperationIdentifier,
+            OperationMetadata,
+            OperationMetadataTransferFeeType,
+            OperationStatus,
+            OperationStatusKind,
+            OperationType,
+            PartialBlockIdentifier,
+            Peer,
+            PublicKey,
+            RelatedTransaction,
+            RelatedTransactionDirection,
+            Signature,
+            SignatureType,
+            SigningPayload,
+            SubAccount,
+            SubAccountIdentifier,
+            SubNetworkIdentifier,
+            SyncStage,
+            SyncStatus,
+            Transaction,
+            TransactionIdentifier,
+            TransactionIdentifierResponse,
+            TransactionMetadata,
+            TransactionType,
+            Version,
         )
+    ),
+    paths(
+        network_list,
+        network_status,
+        network_options,
+        block_details,
+        block_transaction_details,
+        account_balance,
+        mempool,
+        mempool_transaction,
+        construction_derive,
+        construction_preprocess,
+        construction_metadata,
+        construction_payloads,
+        construction_combine,
+        construction_parse,
+        construction_hash,
+        construction_submit,
     ),
     tags(
         (name = "rosetta", description = "NEAR Protocol Rosetta API")
@@ -869,7 +1053,7 @@ pub fn start_rosetta_rpc(
     tx_handler_addr: Addr<RpcHandlerActor>,
 ) -> actix_web::dev::ServerHandle {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits, currencies } = config;
-    let block_id = models::BlockIdentifier::new(genesis.config.genesis_height, genesis_block_hash);
+    let block_id = BlockIdentifier::new(genesis.config.genesis_height, genesis_block_hash);
     let genesis = Arc::new(GenesisWithIdentifier { genesis, block_id });
     let server = HttpServer::new(move || {
         let json_config = web::JsonConfig::default()
@@ -878,7 +1062,7 @@ pub fn start_rosetta_rpc(
                 let error_message = err.to_string();
                 actix_web::error::InternalError::from_response(
                     err,
-                    models::Error::from_error_kind(errors::ErrorKind::InvalidInput(error_message))
+                    Error::from_error_kind(errors::ErrorKind::InvalidInput(error_message))
                         .error_response(),
                 )
                 .into()
