@@ -1,5 +1,9 @@
 use std::fmt;
 
+use utoipa::ToSchema;
+use utoipa::openapi::RefOr;
+use utoipa::openapi::schema::{ObjectBuilder, Schema, SchemaType};
+
 #[derive(
     Eq,
     Ord,
@@ -24,9 +28,11 @@ impl fmt::Debug for AccountId {
     }
 }
 
-use paperclip::v2::{models::DataType, schema::TypedData};
-impl TypedData for AccountId {
-    fn data_type() -> DataType {
-        DataType::String
+impl ToSchema<'_> for AccountId {
+    fn schema() -> (&'static str, RefOr<Schema>) {
+        (
+            "AccountId",
+            RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::String).build())),
+        )
     }
 }
