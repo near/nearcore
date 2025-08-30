@@ -413,6 +413,7 @@
         "upto",
         "useragent",
         "usize",
+        "utoipa",
         "valgrind",
         "valset",
         "Vecs",
