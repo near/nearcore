@@ -19,11 +19,11 @@ pub(super) struct TokioRuntimeMessage<A> {
 pub struct TokioRuntimeHandle<A> {
     /// The sender is used to send messages to the actor running in the Tokio runtime.
     pub(super) sender: mpsc::UnboundedSender<TokioRuntimeMessage<A>>,
-    /// The runtime is the Tokio runtime that runs the actor and processes messages.
+    /// The runtime_handle used to post futures to the Tokio runtime.
     /// This is a handle, meaning it does not prevent the runtime from shutting down.
     /// Runtime shutdown is governed by cancellation only (either via TokioRuntimeHandle::stop() or
     /// ActorSystem::stop()).
-    pub(super) runtime: tokio::runtime::Handle,
+    pub(super) runtime_handle: tokio::runtime::Handle,
     /// Cancellation token used to signal shutdown of this specific Tokio runtime.
     /// There is also a global shutdown signal in the ActorSystem. These are separate
     /// shutdown mechanisms that can both be used to shut down the actor.
@@ -34,7 +34,7 @@ impl<A> Clone for TokioRuntimeHandle<A> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
-            runtime: self.runtime.clone(),
+            runtime_handle: self.runtime_handle.clone(),
             cancel: self.cancel.clone(),
         }
     }
@@ -102,7 +102,8 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
         let (sender, receiver) = mpsc::unbounded_channel::<TokioRuntimeMessage<A>>();
         let cancel = CancellationToken::new();
 
-        let handle = TokioRuntimeHandle { sender, runtime: runtime.handle().clone(), cancel };
+        let handle =
+            TokioRuntimeHandle { sender, runtime_handle: runtime.handle().clone(), cancel };
 
         Self {
             handle,
@@ -118,7 +119,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
 
     pub fn spawn_tokio_actor(mut self, mut actor: A) {
         let mut runtime_handle = self.handle.clone();
-        let inner_runtime_handle = runtime_handle.runtime.clone();
+        let inner_runtime_handle = runtime_handle.runtime_handle.clone();
         let runtime = self.runtime.take().unwrap();
         let mut receiver = self.receiver.take().unwrap();
         inner_runtime_handle.spawn(async move {

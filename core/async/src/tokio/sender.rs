@@ -89,7 +89,7 @@ where
 impl<A> FutureSpawner for TokioRuntimeHandle<A> {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
         tracing::debug!(target: "tokio_runtime", description, "spawning future");
-        self.runtime.spawn(f);
+        self.runtime_handle.spawn(f);
     }
 }
 
@@ -106,7 +106,7 @@ where
         let seq = next_message_sequence_num();
         tracing::debug!(target: "tokio_runtime", seq, name, "sending delayed action");
         let sender = self.sender.clone();
-        self.runtime.spawn(async move {
+        self.runtime_handle.spawn(async move {
             tokio::time::sleep(dur.unsigned_abs()).await;
             let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| f(actor, ctx);
             let message = TokioRuntimeMessage { seq, function: Box::new(function) };
