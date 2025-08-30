@@ -2601,12 +2601,13 @@ impl Chain {
         self.chain_store().compute_transaction_validity(prev_block_header, chunk)
     }
 
-    pub fn transaction_validity_check<'a>(
-        &'a self,
+    pub fn transaction_validity_check(
+        &self,
         prev_block_header: BlockHeader,
-    ) -> impl Fn(&SignedTransaction) -> bool + 'a {
+    ) -> impl Fn(&SignedTransaction) -> bool + 'static {
+        let store = self.chain_store().clone();
         move |tx: &SignedTransaction| -> bool {
-            self.chain_store()
+            store
                 .check_transaction_validity_period(&prev_block_header, tx.transaction.block_hash())
                 .is_ok()
         }
