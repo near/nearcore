@@ -225,8 +225,6 @@ genesis-populate = { path = "genesis-tools/genesis-populate" }
 hex = { version = "0.4.2", features = ["serde"] }
 hex-literal = "0.2"
 hkdf = "0.12.3"
-hyper = { version = "0.14", features = ["full"] }
-hyper-tls = "0.5.0"
 im = "15"
 indexmap = "2"
 indicatif = { version = "0.17.0", features = ["rayon"] }
