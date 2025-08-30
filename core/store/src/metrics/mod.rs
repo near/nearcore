@@ -12,6 +12,10 @@ use near_time::Duration;
 use rocksdb_metrics::export_stats_as_metrics;
 use std::sync::LazyLock;
 
+pub(crate) static TESTDB_COLUMN_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec("near_testdb_column_size", "TestDB column size", &["column"]).unwrap()
+});
+
 pub(crate) static DATABASE_OP_LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_database_op_latency_by_op_and_column",

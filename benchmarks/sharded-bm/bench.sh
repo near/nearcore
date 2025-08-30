@@ -3,6 +3,7 @@
 # cspell:word benchnet mpstat tonumber
 
 set -o errexit
+set -x
 
 CASE="${CASE:-$2}"
 BM_PARAMS=${CASE}/params.json
@@ -128,7 +129,14 @@ start_neard0() {
 
 start_nodes_local() {
     if [ "${NUM_NODES}" -eq "1" ]; then
-        sudo systemctl start neard
+        #sudo systemctl start neard
+        mkdir -p ${LOG_DIR}
+        #for node in "${NEAR_HOMES[@]}"; do
+        node=${NEAR_HOME}
+        log="${LOG_DIR}/$(basename ${node})"
+        echo "Starting node: ${node}, log: ${log}"
+        nohup ${NEARD} --home ${node} run &>${log} &
+        #done
     else
         mkdir -p ${LOG_DIR}
         for node in "${NEAR_HOMES[@]}"; do
@@ -157,7 +165,8 @@ stop_nodes_forknet() {
 
 stop_nodes_local() {
     if [ "${NUM_NODES}" -eq "1" ]; then
-        sudo systemctl stop neard
+        #sudo systemctl stop neard
+        killall neard || true
     else
         killall --wait neard || true
     fi
