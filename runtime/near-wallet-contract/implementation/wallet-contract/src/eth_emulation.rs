@@ -11,7 +11,7 @@ use aurora_engine_transactions::NormalizedEthTransaction;
 use ethabi::{Address, ParamType};
 use near_sdk::{env, AccountId, NearToken};
 
-const FIVE_TERA_GAS: u64 = near_sdk::Gas::from_tera(5).as_gas();
+const FIVE_TERA_GAS: u64 = near_sdk::Gas::from_tgas(5).as_gas();
 
 pub const ERC20_BALANCE_OF_SELECTOR: &[u8] = &[0x70, 0xa0, 0x82, 0x31];
 const ERC20_BALANCE_OF_SIGNATURE: [ParamType; 1] = [ParamType::Address];
