@@ -21,7 +21,6 @@ where
     }
 }
 
-
 impl<T> serde::Serialize for BorshInHexString<T>
 where
     T: BorshSerialize + BorshDeserialize,
@@ -70,11 +69,7 @@ where
 #[as_ref(forward)]
 pub(crate) struct BlobInHexString<T: AsRef<[u8]> + From<Vec<u8>>>(T);
 
-
-impl<T> BlobInHexString<T>
-where
-    T: AsRef<[u8]> + From<Vec<u8>>,
-{
+impl<T: AsRef<[u8]> + From<Vec<u8>>> BlobInHexString<T> {
     pub fn into_inner(self) -> T {
         self.0
     }
@@ -124,7 +119,6 @@ where
     is_positive: bool,
     absolute_difference: T,
 }
-
 
 impl From<u64> for SignedDiff<u64> {
     fn from(value: u64) -> Self {
