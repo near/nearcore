@@ -114,5 +114,5 @@ fn test_separate_thousands() {
     assert_eq!(format_gas(Gas::from_gas(0)).as_str(), "0");
     assert_eq!(format_gas(Gas::from_gas(999)).as_str(), "999");
     assert_eq!(format_gas(Gas::from_gas(1000)).as_str(), "1_000");
-    assert_eq!(format_gas(Gas::from_gas(u64::MAX)).as_str(), "18_446_744_073_709_551_615");
+    assert_eq!(format_gas(Gas::MAX).as_str(), "18_446_744_073_709_551_615");
 }

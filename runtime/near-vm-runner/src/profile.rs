@@ -384,11 +384,11 @@ mod test {
     #[test]
     fn test_no_panic_on_overflow() {
         let mut profile_data = ProfileDataV3::default();
-        profile_data.add_action_cost(ActionCosts::add_full_access_key, Gas::from_gas(u64::MAX));
-        profile_data.add_action_cost(ActionCosts::add_full_access_key, Gas::from_gas(u64::MAX));
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, Gas::MAX);
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, Gas::MAX);
 
         let res = profile_data.get_action_cost(ActionCosts::add_full_access_key);
-        assert_eq!(res, Gas::from_gas(u64::MAX));
+        assert_eq!(res, Gas::MAX);
     }
 
     #[test]

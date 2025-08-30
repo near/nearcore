@@ -115,7 +115,7 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     ///
-    /// assert_eq!(Gas::from_gas(u64::MAX -2).checked_add(Gas::from_gas(2)), Some(Gas::from_gas(u64::MAX)));
+    /// assert_eq!(Gas::from_gas(u64::MAX -2).checked_add(Gas::from_gas(2)), Some(Gas::MAX));
     /// assert_eq!(Gas::from_gas(u64::MAX -2).checked_add(Gas::from_gas(3)), None);
     /// ```
     pub const fn checked_add(self, rhs: Gas) -> Option<Self> {
@@ -143,7 +143,7 @@ impl Gas {
     ///
     /// use std::u64;
     /// assert_eq!(Gas::from_gas(2).checked_mul(2), Some(Gas::from_gas(4)));
-    /// assert_eq!(Gas::from_gas(u64::MAX).checked_mul(2), None)
+    /// assert_eq!(Gas::MAX.checked_mul(2), None)
     pub const fn checked_mul(self, rhs: u64) -> Option<Self> {
         if let Some(result) = self.0.checked_mul(rhs) { Some(Self(result)) } else { None }
     }
@@ -167,7 +167,7 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     /// assert_eq!(Gas::from_gas(5).saturating_add(Gas::from_gas(5)), Gas::from_gas(10));
-    /// assert_eq!(Gas::from_gas(u64::MAX).saturating_add(Gas::from_gas(1)), Gas::from_gas(u64::MAX));
+    /// assert_eq!(Gas::MAX.saturating_add(Gas::from_gas(1)), Gas::MAX);
     /// ```
     pub const fn saturating_add(self, rhs: Gas) -> Gas {
         Self(self.0.saturating_add(rhs.0))
@@ -192,7 +192,7 @@ impl Gas {
     /// use near_primitives_core::gas::Gas;
     /// use std::u64;
     /// assert_eq!(Gas::from_gas(2).saturating_mul(5), Gas::from_gas(10));
-    /// assert_eq!(Gas::from_gas(u64::MAX).saturating_mul(2), Gas::from_gas(u64::MAX));
+    /// assert_eq!(Gas::MAX.saturating_mul(2), Gas::MAX);
     /// ```
     pub const fn saturating_mul(self, rhs: u64) -> Gas {
         Self(self.0.saturating_mul(rhs))

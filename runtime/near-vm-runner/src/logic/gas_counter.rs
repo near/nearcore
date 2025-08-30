@@ -89,7 +89,7 @@ impl GasCounter {
     ) -> Self {
         use std::cmp::min;
         // Ignore prepaid gas limit when in view.
-        let prepaid_gas = if is_view { Gas::from_gas(u64::MAX) } else { prepaid_gas };
+        let prepaid_gas = if is_view { Gas::MAX } else { prepaid_gas };
         Self {
             ext_costs_config,
             fast_counter: FastGasCounter {
