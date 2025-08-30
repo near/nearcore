@@ -484,7 +484,7 @@ mod tests {
         let (chain, mut sv) = init();
         let mut store_update = chain.chain_store().store().store_update();
         assert!(sv.validate_col(DBCol::TrieChanges).is_ok());
-        store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]).unwrap();
+        store_update.set_ser::<Vec<u8>>(DBCol::TrieChanges, "567".as_ref(), &vec![123]).unwrap();
         store_update.commit().unwrap();
         match sv.validate_col(DBCol::TrieChanges) {
             Err(StoreValidatorError::DBCorruption(_)) => {}
