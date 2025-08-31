@@ -9,6 +9,7 @@ use reqwest::StatusCode;
 use serde_json::json;
 
 use near_actix_test_utils::run_actix;
+use near_async::ActorSystem;
 use near_crypto::{InMemorySigner, Signature};
 use near_jsonrpc::client::{ChunkId, JsonRpcClient, new_client};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
@@ -414,8 +415,9 @@ fn test_status_fail() {
     init_test_logger();
 
     run_actix(async {
+        let actor_system = ActorSystem::new();
         let (_, addr, _runtime_temp_dir) =
-            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator, &actor_system);
 
         let client = new_client(&format!("http://{}", addr));
         wait_or_timeout(100, 10000, || async {
@@ -428,6 +430,7 @@ fn test_status_fail() {
         .await
         .unwrap();
         near_async::shutdown_all_actors();
+        actor_system.stop();
     });
 }
 
@@ -452,8 +455,9 @@ fn test_health_fail_no_blocks() {
     init_test_logger();
 
     run_actix(async {
+        let actor_system = ActorSystem::new();
         let (_, addr, _runtime_temp_dir) =
-            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator, &actor_system);
 
         let client = new_client(&format!("http://{}", addr));
         wait_or_timeout(300, 10000, || async {
@@ -466,6 +470,7 @@ fn test_health_fail_no_blocks() {
         .await
         .unwrap();
         near_async::shutdown_all_actors();
+        actor_system.stop();
     });
 }
 

@@ -4732,6 +4732,7 @@ dependencies = [
  "actix",
  "arbitrary",
  "libfuzzer-sys",
+ "near-async",
  "near-jsonrpc-primitives",
  "near-jsonrpc-tests",
  "near-primitives",

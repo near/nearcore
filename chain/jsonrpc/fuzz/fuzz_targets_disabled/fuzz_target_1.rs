@@ -1,6 +1,7 @@
 #![no_main]
 use actix::System;
 use libfuzzer_sys::{arbitrary, fuzz_target};
+use near_async::ActorSystem;
 use near_time::Clock;
 use serde::ser::{Serialize, Serializer};
 use serde_json::json;
@@ -103,8 +104,12 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
     NODE_INIT.call_once(|| {
         std::thread::spawn(|| {
             System::new().block_on(async {
-                let (_view_client_addr, addr, _runtime_temp_dir) =
-                    test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+                let actor_system = ActorSystem::new();
+                let (_view_client_addr, addr, _runtime_temp_dir) = test_utils::start_all(
+                    Clock::real(),
+                    test_utils::NodeType::NonValidator,
+                    &actor_system,
+                );
                 unsafe { NODE_ADDR = Some(addr.to_string()) }
             });
         });

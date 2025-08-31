@@ -5,6 +5,7 @@ use futures::{FutureExt, TryFutureExt, future};
 use parking_lot::Mutex;
 
 use near_actix_test_utils::run_actix;
+use near_async::ActorSystem;
 use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
@@ -25,8 +26,9 @@ fn test_send_tx_async() {
     init_test_logger();
 
     run_actix(async {
+        let actor_system = ActorSystem::new();
         let (_, addr, _runtime_temp_dir) =
-            test_utils::start_all(Clock::real(), test_utils::NodeType::Validator);
+            test_utils::start_all(Clock::real(), test_utils::NodeType::Validator, &actor_system);
 
         let client = new_client(&format!("http://{}", addr));
 
@@ -84,6 +86,7 @@ fn test_send_tx_async() {
             2000,
         )
         .start();
+        actor_system.stop();
     });
 }
 
@@ -120,11 +123,13 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     run_actix(async {
+        let actor_system = ActorSystem::new();
         let (_, addr, _runtime_tempdir) = test_utils::start_all_with_validity_period(
             Clock::real(),
             test_utils::NodeType::Validator,
             1,
             false,
+            &actor_system,
         );
 
         let block_hash = Arc::new(Mutex::new(None));
@@ -162,7 +167,6 @@ fn test_expired_tx() {
                                                     "InvalidTxError": "Expired"
                                                 }})
                                             );
-                                            near_async::shutdown_all_actors();
                                         })
                                         .map(|_| ()),
                                 );
@@ -179,6 +183,7 @@ fn test_expired_tx() {
             1000,
         )
         .start();
+        actor_system.stop();
     });
 }
 
