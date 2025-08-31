@@ -439,7 +439,7 @@ async fn ping_via_node(
 
     let server = HttpServer::new(move || {
         App::new().service(
-            web::resource("/metrics").route(web::get().to(near_jsonrpc::prometheus_handler)),
+            web::resource("/metrics").route(web::get().to(near_jsonrpc::prometheus_handler_actix)),
         )
     })
     .bind(prometheus_addr)
