@@ -429,7 +429,6 @@ fn test_status_fail() {
         })
         .await
         .unwrap();
-        near_async::shutdown_all_actors();
         actor_system.stop();
     });
 }
@@ -469,7 +468,6 @@ fn test_health_fail_no_blocks() {
         })
         .await
         .unwrap();
-        near_async::shutdown_all_actors();
         actor_system.stop();
     });
 }

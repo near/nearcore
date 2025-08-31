@@ -1724,16 +1724,16 @@ pub fn start_http(
         app = app
             .route("/debug/api/entity", post(handle_entity_debug))
             .route(
-                "/debug/api/block_status/:starting_height",
+                "/debug/api/block_status/{starting_height}",
                 #[allow(deprecated)]
                 get(deprecated_debug_block_status_handler),
             )
             .route("/debug/api/block_status", get(debug_block_status_handler))
-            .route("/debug/api/epoch_info/:epoch_id", get(debug_epoch_info_handler))
-            .route("/debug/api/*api_path", get(debug_handler))
+            .route("/debug/api/epoch_info/{epoch_id}", get(debug_epoch_info_handler))
+            .route("/debug/api/{*api_path}", get(debug_handler))
             .route("/debug/client_config", get(client_config_handler))
             .route("/debug", get(debug_html))
-            .route("/debug/pages/:page", get(display_debug_html));
+            .route("/debug/pages/{page}", get(display_debug_html));
     }
 
     let app = app

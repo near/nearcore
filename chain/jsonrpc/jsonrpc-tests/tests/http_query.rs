@@ -24,7 +24,6 @@ fn test_status() {
             assert_eq!(res.chain_id, "unittest");
             assert_eq!(res.sync_info.latest_block_height, 0);
             assert_eq!(res.sync_info.syncing, false);
-            near_async::shutdown_all_actors();
             actor_system.stop();
             future::ready(())
         }));
