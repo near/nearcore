@@ -19,6 +19,7 @@ use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
+use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
@@ -2437,6 +2438,73 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.pay_action_per_byte(ActionCosts::use_global_contract_byte, len, sir)?;
 
         self.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+        Ok(())
+    }
+
+    /// Appends `DeterministicStateInit` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   [`HostError::InvalidPromiseIndex`].
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+    /// * If called as view function returns [`HostError::ProhibitedInView`].
+    /// * If `state_init_len + state_init_ptr` or `amount_ptr + 16` points outside the memory of the
+    /// guest or host returns [`HostError::MemoryAccessViolation`].
+    /// * If the state init data is not a valid borsh serialization of
+    ///   [`DeterministicAccountStateInit`] returns
+    ///   [`HostError::DeterministicAccountStateInitMalformed`].
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas` := base + dispatch action base fee + dispatch action per byte fee * num bytes
+    ///             + dispatch action per entry fee * num entries in data field
+    ///             + cost of reading vector from memory + cost of reading amount from memory
+    ///             + cost of borsh decoding
+    ///
+    /// `used_gas`  := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    ///             + exec action per entry fee * num entries in data field
+    pub fn promise_batch_action_state_init(
+        &mut self,
+        promise_idx: u64,
+        state_init_len: u64,
+        state_init_ptr: u64,
+        amount_ptr: u64,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_state_init".to_string(),
+            }
+            .into());
+        }
+
+        let amount = self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?;
+
+        let serialized = get_memory_or_register!(self, state_init_ptr, state_init_len)?;
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+        let len = serialized.len() as u64;
+
+        // Note: There is no fee for parsing the state init struct here. This is
+        // not quite consistent with other code, where we charge for decoding
+        // utf8 for account ids passed as parameter. But this practice is
+        // somewhat questionable, at least in this case.
+        // Including the cost in the action-per-byte cost works better here.
+        // Sending an action from a transaction also involves deserializing the
+        // state init struct, so the is already included in the action send fee.
+        let state_init: DeterministicAccountStateInit = borsh::from_slice(&serialized)
+            .map_err(|_| HostError::DeterministicAccountStateInitMalformed)?;
+
+        let entries = state_init.data().len() as u64;
+        self.pay_action_base(ActionCosts::deterministic_state_init_base, sir)?;
+        self.pay_action_per_byte(ActionCosts::deterministic_state_init_byte, len, sir)?;
+        self.pay_action_per_byte(ActionCosts::deterministic_state_init_entry, entries, sir)?;
+
+        self.result_state.deduct_balance(amount)?;
+        self.ext.append_action_deterministic_state_init(receipt_idx, state_init, amount)?;
+
         Ok(())
     }
 

@@ -2,6 +2,7 @@ use crate::ContractCode;
 use crate::logic::dependencies::{Result, StorageAccessTracker};
 use crate::logic::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex};
 use crate::logic::{External, ValuePtr};
+use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
 use std::collections::HashMap;
@@ -33,6 +34,11 @@ pub enum MockAction {
     UseGlobalContract {
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
+    },
+    DeterministicStateInit {
+        receipt_index: ReceiptIndex,
+        state_init: DeterministicAccountStateInit,
+        amount: Balance,
     },
     FunctionCallWeight {
         receipt_index: ReceiptIndex,
@@ -269,6 +275,20 @@ impl External for MockedExternal {
         contract_id: crate::logic::types::GlobalContractIdentifier,
     ) -> Result<(), crate::logic::VMLogicError> {
         self.action_log.push(MockAction::UseGlobalContract { receipt_index, contract_id });
+        Ok(())
+    }
+
+    fn append_action_deterministic_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: DeterministicAccountStateInit,
+        amount: Balance,
+    ) -> Result<(), crate::logic::VMLogicError> {
+        self.action_log.push(MockAction::DeterministicStateInit {
+            receipt_index,
+            state_init,
+            amount,
+        });
         Ok(())
     }
 

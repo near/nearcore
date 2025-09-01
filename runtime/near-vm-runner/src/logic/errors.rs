@@ -288,6 +288,8 @@ pub enum HostError {
     },
     /// Contract code hash is malformed.
     ContractCodeHashMalformed,
+    /// Failed deserializing the DeterministicAccountStateInit input.
+    DeterministicAccountStateInitMalformed,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -537,6 +539,9 @@ impl std::fmt::Display for HostError {
                 limit
             ),
             ContractCodeHashMalformed => write!(f, "contract code hash is malformed"),
+            DeterministicAccountStateInitMalformed => {
+                write!(f, "malformed DeterministicAccountStateInit")
+            }
         }
     }
 }

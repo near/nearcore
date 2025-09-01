@@ -1,9 +1,10 @@
 use near_crypto::PublicKey;
 use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, DeployGlobalContractAction, FunctionCallAction, StakeAction,
-    TransferAction, UseGlobalContractAction,
+    DeployContractAction, DeployGlobalContractAction, DeterministicStateInitAction,
+    FunctionCallAction, StakeAction, TransferAction, UseGlobalContractAction,
 };
+use near_primitives::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::DataReceiver;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -306,6 +307,33 @@ impl ReceiptManager {
         self.append_action(
             receipt_index,
             Action::UseGlobalContract(Box::new(UseGlobalContractAction { contract_identifier })),
+        );
+        Ok(())
+    }
+
+    /// Attach the [`DeterministicStateInit`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `state_init` - initial state object for the deterministic account
+    /// * `deposit` - how much NEAR to attach to the initialization
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    pub(super) fn append_deterministic_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: DeterministicAccountStateInit,
+        deposit: Balance,
+    ) -> Result<(), VMLogicError> {
+        self.append_action(
+            receipt_index,
+            Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                state_init,
+                deposit,
+            })),
         );
         Ok(())
     }
