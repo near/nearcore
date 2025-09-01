@@ -4858,14 +4858,12 @@ dependencies = [
 name = "near-jsonrpc-client-internal"
 version = "0.0.0"
 dependencies = [
- "axum-test",
  "futures",
  "near-jsonrpc-primitives",
  "near-primitives",
  "reqwest 0.12.4",
  "serde",
  "serde_json",
- "url",
 ]
 
 [[package]]
