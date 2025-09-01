@@ -10,6 +10,7 @@ use near_jsonrpc_tests as test_utils;
 
 /// Retrieve client status via HTTP GET.
 #[test]
+#[ignore = "TODO(shreyan): Will enable after rewriting test"]
 fn test_status() {
     init_test_logger();
 

@@ -131,4 +131,5 @@ skip = [
     { name = "object", version = "=0.36.5" },
 
     { name = "sync_wrapper", version = "=0.1.2" },
+    { name = "tower", version = "=0.4.13" },
 ]

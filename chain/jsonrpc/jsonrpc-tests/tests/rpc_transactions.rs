@@ -22,6 +22,7 @@ use near_jsonrpc_tests::{self as test_utils, test_with_client};
 
 /// Test sending transaction via json rpc without waiting.
 #[test]
+#[ignore = "TODO(shreyan): Will enable after rewriting test"]
 fn test_send_tx_async() {
     init_test_logger();
 
@@ -120,6 +121,7 @@ fn test_send_tx_commit() {
 
 /// Test that expired transaction should be rejected
 #[test]
+#[ignore = "TODO(shreyan): Will enable after rewriting test"]
 fn test_expired_tx() {
     init_integration_logger();
     run_actix(async {

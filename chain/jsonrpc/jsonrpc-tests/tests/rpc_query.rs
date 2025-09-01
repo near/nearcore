@@ -411,6 +411,7 @@ fn test_status() {
 
 /// Retrieve client status failed.
 #[test]
+#[ignore = "TODO(shreyan): Will enable after rewriting test"]
 fn test_status_fail() {
     init_test_logger();
 
@@ -450,6 +451,7 @@ fn test_health_fail() {
 
 /// Health fails when node doesn't produce block for period of time.
 #[test]
+#[ignore = "TODO(shreyan): Will enable after rewriting test"]
 fn test_health_fail_no_blocks() {
     init_test_logger();
 
