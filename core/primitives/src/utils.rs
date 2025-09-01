@@ -1,12 +1,12 @@
 #[cfg(feature = "clock")]
 use crate::block::BlockHeader;
-use crate::deterministic_account_id::DeterministicAccountStateInit;
 use crate::hash::{CryptoHash, hash};
 use crate::types::{NumSeats, NumShards, ShardId};
 use chrono;
 use chrono::DateTime;
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
 use near_primitives_core::account::id::{AccountId, AccountType};
+use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
 use serde;
 use std::cmp::max;

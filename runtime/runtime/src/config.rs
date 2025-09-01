@@ -164,7 +164,7 @@ pub fn total_send_fees(
                 // TODO(sharded_contracts):
                 // Need to implement the rest first to identify an appropriate cost.
                 // probably something like CreateAccount + UseGlobalContract + also bytes of data and maybe number of entries + transfer cost for refund"
-                0
+                Gas::ZERO
             }
         };
         result = result.checked_add_result(delta)?;
@@ -278,7 +278,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             // TODO(sharded_contracts):
             // Need to implement the rest first to identify an appropriate cost.
             // probably something like CreateAccount + UseGlobalContract + also bytes of data and maybe number of entries + transfer cost for refund"
-            0
+            Gas::ZERO
         }
     }
 }

@@ -3,11 +3,12 @@ use std::sync::Arc;
 
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{
-    ContractIsLocalError, DeployGlobalContractAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, UseGlobalContractAction,
+    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    UseGlobalContractAction,
 };
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::errors::{ActionErrorKind, RuntimeError};
+use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};

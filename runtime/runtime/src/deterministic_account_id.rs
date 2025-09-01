@@ -5,11 +5,11 @@ use crate::{ActionResult, ApplyState};
 use near_parameters::StorageUsageConfig;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::DeterministicStateInitAction;
-use near_primitives::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::Receipt;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
+use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_store::{StorageError, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
 
@@ -109,7 +109,7 @@ pub(crate) fn action_deterministic_state_init(
                 // (following actions might be able to fix the balance  requirements but these will no affect this refund)
                 let new_balance = safe_add_balance(account.amount(), action.deposit)?;
                 account.set_amount(new_balance);
-                0
+                Balance::ZERO
             }
         }
         Err(StorageStakingError::StorageError(err)) => {
@@ -117,7 +117,7 @@ pub(crate) fn action_deterministic_state_init(
         }
     };
 
-    if deposit_refund > 0 {
+    if deposit_refund > Balance::ZERO {
         result.new_receipts.push(Receipt::new_balance_refund(
             receipt.balance_refund_receiver(),
             deposit_refund,
@@ -138,8 +138,12 @@ pub(crate) fn create_deterministic_account(
     // be checked against that for actor permissions, preventing
     // `AddKey`, `DeployContract`, or any other actions that only the
     // account owner is permitted to do.
-    *account =
-        Some(Account::new(0, 0, AccountContract::None, storage_usage_config.num_bytes_account));
+    *account = Some(Account::new(
+        Balance::ZERO,
+        Balance::ZERO,
+        AccountContract::None,
+        storage_usage_config.num_bytes_account,
+    ));
 }
 
 /// Take the content of a `StateInit` and deploy it on the account.

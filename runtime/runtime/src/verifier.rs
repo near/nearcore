@@ -2106,7 +2106,7 @@ mod tests {
                             data: Default::default(),
                         },
                     ),
-                    deposit: 0,
+                    deposit: Balance::ZERO,
                 }))],
                 &receiver.parse().unwrap(),
                 protocol_version,
