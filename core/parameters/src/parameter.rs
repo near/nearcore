@@ -283,6 +283,7 @@ pub enum FeeParameter {
     ActionUseGlobalContractPerIdentifierByte,
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerByte,
+    ActionDeterministicStateInitPerEntry,
 }
 
 impl Parameter {
@@ -352,6 +353,9 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::use_global_contract_byte => Self::ActionUseGlobalContractPerIdentifierByte,
             ActionCosts::deterministic_state_init_base => Self::ActionDeterministicStateInit,
             ActionCosts::deterministic_state_init_byte => Self::ActionDeterministicStateInitPerByte,
+            ActionCosts::deterministic_state_init_entry => {
+                Self::ActionDeterministicStateInitPerEntry
+            }
         }
     }
 }
