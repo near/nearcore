@@ -22,8 +22,15 @@ class ScheduleContext(BaseModel):
     schedule: ScheduleMode
 
 
-### Stake distribution ###
 class StakeDistribution:
+    """
+    A stake management class that tracks and assigns stakes to validator and producer nodes.
+    The get_stake() method returns the appropriate stake amount for each node type.
+    The class maintains indices to track the next validator (validator_idx) and producer 
+    (producer_idx) to be assigned stakes. The producer_idx is capped at num_chunk_producers
+    to limit the number of chunk producers. When implementing this class, use validator_idx
+    and producer_idx to determine which node should receive the next stake assignment.
+    """
 
     def __init__(self, num_chunk_producers):
         self.num_chunk_producers = num_chunk_producers
