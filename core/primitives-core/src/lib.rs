@@ -8,6 +8,8 @@ pub mod apply;
 pub mod chains;
 pub mod code;
 pub mod config;
+pub mod deterministic_account_id;
+pub mod global_contract;
 pub mod hash;
 pub mod serialize;
 pub mod types;

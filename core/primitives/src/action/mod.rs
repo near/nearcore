@@ -1,10 +1,14 @@
 pub mod delegate;
 
+// This type used to be defined here, then moved to core primitives to give access to the vm
+// runtime. Reexporting it here avoids breakage on depending crates.
+pub use near_primitives_core::global_contract::GlobalContractIdentifier;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
     account::AccessKey,
-    hash::CryptoHash,
+    deterministic_account_id::DeterministicAccountStateInit,
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
 };
@@ -14,9 +18,7 @@ use serde_with::serde_as;
 use std::fmt;
 use std::sync::Arc;
 
-use crate::{
-    deterministic_account_id::DeterministicAccountStateInit, trie_key::GlobalContractCodeIdentifier,
-};
+use crate::trie_key::GlobalContractCodeIdentifier;
 
 pub fn base64(s: &[u8]) -> String {
     use base64::Engine;
@@ -175,27 +177,6 @@ impl fmt::Debug for DeployGlobalContractAction {
     }
 }
 
-#[serde_as]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    serde::Serialize,
-    serde::Deserialize,
-    Hash,
-    PartialEq,
-    Eq,
-    Clone,
-    ProtocolSchema,
-    Debug,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[borsh(use_discriminant = true)]
-#[repr(u8)]
-pub enum GlobalContractIdentifier {
-    CodeHash(CryptoHash) = 0,
-    AccountId(AccountId) = 1,
-}
-
 impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
     fn from(identifier: GlobalContractCodeIdentifier) -> Self {
         match identifier {
@@ -205,15 +186,6 @@ impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
             GlobalContractCodeIdentifier::AccountId(account_id) => {
                 GlobalContractIdentifier::AccountId(account_id)
             }
-        }
-    }
-}
-
-impl GlobalContractIdentifier {
-    pub fn len(&self) -> usize {
-        match self {
-            GlobalContractIdentifier::CodeHash(_) => 32,
-            GlobalContractIdentifier::AccountId(account_id) => account_id.len(),
         }
     }
 }

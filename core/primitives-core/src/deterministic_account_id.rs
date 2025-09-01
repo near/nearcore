@@ -1,4 +1,4 @@
-use crate::action::GlobalContractIdentifier;
+use crate::global_contract::GlobalContractIdentifier;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
@@ -12,7 +12,6 @@ use std::collections::BTreeMap;
     Clone,
     serde::Serialize,
     serde::Deserialize,
-    strum::AsRefStr,
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

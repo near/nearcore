@@ -14,9 +14,6 @@ use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
 use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
-use crate::deterministic_account_id::{
-    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
-};
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
@@ -52,6 +49,7 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::account::{AccountContract, GasKey};
+use near_primitives_core::deterministic_account_id::{DeterministicAccountStateInit, DeterministicAccountStateInitV1};
 use near_primitives_core::types::NonceIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
