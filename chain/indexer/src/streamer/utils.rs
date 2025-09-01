@@ -4,12 +4,12 @@ use near_primitives::types::ProtocolVersion;
 use near_primitives::views;
 use node_runtime::config::tx_cost;
 
-use crate::streamer::IndexerViewClientSender;
+use crate::streamer::IndexerViewClientFetcher;
 
 use super::errors::FailedToFetchData;
 
 pub(crate) async fn convert_transactions_sir_into_local_receipts(
-    client: &IndexerViewClientSender,
+    client: &IndexerViewClientFetcher,
     runtime_config: &RuntimeConfig,
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,

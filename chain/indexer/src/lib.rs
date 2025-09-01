@@ -21,7 +21,7 @@ use near_async::ActorSystem;
 use near_epoch_manager::shard_tracker::ShardTracker;
 pub use streamer::build_streamer_message;
 
-use crate::streamer::{IndexerClientSender, IndexerViewClientSender};
+use crate::streamer::{IndexerClientFetcher, IndexerViewClientFetcher};
 
 mod streamer;
 
@@ -120,8 +120,8 @@ impl IndexerConfig {
 pub struct Indexer {
     indexer_config: IndexerConfig,
     near_config: nearcore::NearConfig,
-    view_client: IndexerViewClientSender,
-    client: IndexerClientSender,
+    view_client: IndexerViewClientFetcher,
+    client: IndexerClientFetcher,
     shard_tracker: ShardTracker,
 }
 
@@ -138,8 +138,8 @@ impl Indexer {
             Self::start_near_node(&indexer_config, near_config.clone())
                 .with_context(|| "failed to start near node as part of indexer")?;
         Ok(Self {
-            view_client: view_client.into_multi_sender(),
-            client: client.into_multi_sender(),
+            view_client: IndexerViewClientFetcher::new(view_client.into_multi_sender()),
+            client: IndexerClientFetcher::new(client.into_multi_sender()),
             near_config,
             indexer_config,
             shard_tracker,
@@ -159,8 +159,10 @@ impl Indexer {
         near_node: &NearNode,
     ) -> Self {
         Self {
-            view_client: near_node.view_client.clone().into_multi_sender(),
-            client: near_node.client.clone().into_multi_sender(),
+            view_client: IndexerViewClientFetcher::new(
+                near_node.view_client.clone().into_multi_sender(),
+            ),
+            client: IndexerClientFetcher::new(near_node.client.clone().into_multi_sender()),
             near_config,
             indexer_config,
             shard_tracker: near_node.shard_tracker.clone(),

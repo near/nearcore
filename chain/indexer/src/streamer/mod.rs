@@ -23,11 +23,11 @@ use crate::INDEXER;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 use near_epoch_manager::shard_tracker::ShardTracker;
 
-pub use senders::{IndexerClientSender, IndexerViewClientSender};
+pub use fetchers::{IndexerClientFetcher, IndexerViewClientFetcher};
 
 mod errors;
+mod fetchers;
 mod metrics;
-mod senders;
 mod utils;
 
 static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
@@ -40,7 +40,7 @@ const INTERVAL: Duration = Duration::from_millis(250);
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
 /// and returns everything together in one struct
 pub async fn build_streamer_message(
-    client: &IndexerViewClientSender,
+    client: &IndexerViewClientFetcher,
     block: views::BlockView,
     shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
@@ -200,7 +200,7 @@ pub async fn build_streamer_message(
 // we will be iterating over previous blocks until we found the receipt
 // or panic if we didn't find it in 1000 blocks
 async fn lookup_delayed_local_receipt_in_previous_blocks(
-    client: &IndexerViewClientSender,
+    client: &IndexerViewClientFetcher,
     runtime_config: &RuntimeConfig,
     block: views::BlockView,
     receipt_id: CryptoHash,
@@ -254,7 +254,7 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
 /// Function that tries to find specific local receipt by it's ID and returns it
 /// otherwise returns None
 async fn find_local_receipt_by_id_in_block(
-    client: &IndexerViewClientSender,
+    client: &IndexerViewClientFetcher,
     runtime_config: &RuntimeConfig,
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
@@ -304,8 +304,8 @@ async fn find_local_receipt_by_id_in_block(
 ///
 /// We have to pass `client: Addr<near_client::ClientActor>` and `view_client: Addr<near_client::ViewClientActor>`.
 pub(crate) async fn start(
-    view_client: IndexerViewClientSender,
-    client: IndexerClientSender,
+    view_client: IndexerViewClientFetcher,
+    client: IndexerClientFetcher,
     shard_tracker: ShardTracker,
     indexer_config: IndexerConfig,
     store_config: near_store::StoreConfig,
