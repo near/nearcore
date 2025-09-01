@@ -51,6 +51,7 @@ use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
+use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;
 use near_chain_primitives::error::{BlockKnownError, Error};
@@ -138,7 +139,21 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 #[rtype(result = "()")]
 pub struct ApplyChunksDoneMessage;
 
-pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct NewChunkAppliedMessage {
+    pub result: NewChunkResult,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+#[multi_send_message_derive(Debug)]
+// #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyChunksDoneSender {
+    pub apply_chunks_done: near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>,
+    pub new_chunk_apply: near_async::messaging::Sender<NewChunkAppliedMessage>,
+}
+
+// pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
 
 /// Contains information for missing chunks in a block
 pub struct BlockMissingChunks {
@@ -1707,11 +1722,18 @@ impl Chain {
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
                 (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
             );
-            sc.send((block, res)).unwrap();
             drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
-                sender.send(ApplyChunksDoneMessage {}.span_wrap());
+                for (_, _, shard_update_result) in res.iter() {
+                    if let Ok(ShardUpdateResult::NewChunk(res_new_chunk)) = shard_update_result {
+                        sender
+                            .new_chunk_apply
+                            .send(NewChunkAppliedMessage { result: res_new_chunk.clone() });
+                    }
+                }
+                sender.apply_chunks_done.send(ApplyChunksDoneMessage {}.span_wrap());
             }
+            sc.send((block, res)).unwrap();
         });
     }
 

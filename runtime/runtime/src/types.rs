@@ -6,7 +6,7 @@ pub struct SignedValidPeriodTransactions {
     ///
     /// Not all of them may be valid. See the other fields. Access the transactions via
     /// [`Self::iter_nonexpired_transactions`] or similar accessors, as appropriate.
-    transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<SignedTransaction>,
     /// List of the transactions that are valid and should be processed by `apply`.
     ///
     /// This list is exactly the length of the corresponding `Self::transactions` field. Element at

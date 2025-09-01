@@ -10,6 +10,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use node_runtime::SignedValidPeriodTransactions;
@@ -21,6 +22,7 @@ pub struct NewChunkResult {
     pub shard_uid: ShardUId,
     pub gas_limit: Gas,
     pub apply_result: ApplyChunkResult,
+    pub context: NewChunkContext,
 }
 
 /// Result of updating a shard for some block when it doesn't have a new chunk
@@ -38,6 +40,17 @@ pub struct OldChunkResult {
 pub enum ShardUpdateResult {
     NewChunk(NewChunkResult),
     OldChunk(OldChunkResult),
+}
+
+/// Subset of the `NewChunkData` required to reproduce the chunk application context on another
+/// validator.
+#[derive(Debug, Clone)]
+pub struct NewChunkContext {
+    pub chunk_header: ShardChunkHeader,
+    pub transactions: Vec<SignedTransaction>,
+    pub receipts: Vec<Receipt>,
+    pub block: ApplyChunkBlockContext,
+    // pub storage_context: StorageContext,
 }
 
 pub struct NewChunkData {
@@ -149,13 +162,21 @@ pub fn apply_new_chunk(
             gas_limit,
             is_new_chunk: true,
         },
-        block,
+        block.clone(),
         &receipts,
-        transactions,
+        transactions.clone(),
     ) {
-        Ok(apply_result) => {
-            Ok(NewChunkResult { gas_limit, shard_uid: shard_context.shard_uid, apply_result })
-        }
+        Ok(apply_result) => Ok(NewChunkResult {
+            gas_limit,
+            shard_uid: shard_context.shard_uid,
+            apply_result,
+            context: NewChunkContext {
+                chunk_header,
+                transactions: transactions.transactions,
+                receipts,
+                block,
+            },
+        }),
         Err(err) => Err(err),
     }
 }

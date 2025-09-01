@@ -471,7 +471,7 @@ impl ChunkExecutorActor {
         new_chunk_result: &NewChunkResult,
         outgoing_receipts_root: CryptoHash,
     ) -> Result<(), Error> {
-        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
+        let NewChunkResult { shard_uid, gas_limit, apply_result, .. } = new_chunk_result;
         let shard_id = shard_uid.shard_id();
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
