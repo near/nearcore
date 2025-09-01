@@ -1773,7 +1773,7 @@ impl<T: ChainAccess> TxMirror<T> {
         };
         let near_config = indexer_config.derive_near_config();
         let near_node = Indexer::start_near_node(&indexer_config, near_config.clone())
-            .with_context(|| "failed to start near node")?;
+            .context("failed to start near node")?;
         let target_indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
         let mut target_stream = target_indexer.streamer();
         let NearNode { client, view_client, rpc_handler, .. } = near_node;

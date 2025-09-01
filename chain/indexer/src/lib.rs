@@ -101,7 +101,7 @@ impl IndexerConfig {
             GenesisValidationMode::UnsafeFast
         };
         let near_config = nearcore::config::load_config(&self.home_dir, genesis_validation_mode)
-            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+            .expect("failed to load config");
 
         // TODO(cloud_archival): When`TrackedShardsConfig::Shards` is added, ensure it is supported by indexer nodes and update the check below accordingly.
         assert!(
