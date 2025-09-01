@@ -13,18 +13,24 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
+axum.workspace = true
+axum-test.workspace = true
 futures.workspace = true
 borsh.workspace = true
 parking_lot.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 serde.workspace = true
 serde_json.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+num-rational.workspace = true
 
 integration-tests.workspace = true
 near-time.workspace = true
 near-async.workspace = true
+near-chain.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
+near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-client.workspace = true
 near-store.workspace = true
@@ -32,6 +38,7 @@ near-o11y.workspace = true
 near-network.workspace = true
 near-jsonrpc.workspace = true
 near-jsonrpc-primitives.workspace = true
+nearcore.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]

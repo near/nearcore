@@ -12,6 +12,7 @@ publish = false
 workspace = true
 
 [dependencies]
+axum-test.workspace = true
 futures.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 serde.workspace = true

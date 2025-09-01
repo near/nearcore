@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use actix::Addr;
+
+pub mod util;
 use futures::{FutureExt, future::LocalBoxFuture};
 use integration_tests::env::setup::setup_no_network_with_validity_period;
 use near_async::messaging::{IntoMultiSender, noop};
