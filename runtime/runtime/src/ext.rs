@@ -2,6 +2,7 @@ use crate::receipt_manager::ReceiptManager;
 use near_parameters::vm::StorageGetMode;
 use near_primitives::account::Account;
 use near_primitives::account::id::AccountType;
+use near_primitives::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
@@ -396,6 +397,15 @@ impl<'a> External for RuntimeExt<'a> {
         contract_id: GlobalContractIdentifier,
     ) -> Result<(), VMLogicError> {
         self.receipt_manager.append_use_deploy_global_contract(receipt_index, contract_id)
+    }
+
+    fn append_action_deterministic_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: DeterministicAccountStateInit,
+        amount: Balance,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_deterministic_state_init(receipt_index, state_init, amount)
     }
 
     fn append_action_function_call_weight(

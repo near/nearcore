@@ -2,6 +2,7 @@
 use super::VMLogicError;
 use super::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex};
 use near_crypto::PublicKey;
+use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use std::borrow::Cow;
@@ -377,6 +378,24 @@ pub trait External {
         &mut self,
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
+    ) -> Result<(), VMLogicError>;
+
+    /// Attach the [`DeterministicStateInit`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `state_init` - initial state object for the deterministic account
+    /// * `amount` - how much NEAR to attach to the initialization
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_deterministic_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: DeterministicAccountStateInit,
+        amount: Balance,
     ) -> Result<(), VMLogicError>;
 
     /// Attach the [`FunctionCallAction`] action to an existing receipt.
