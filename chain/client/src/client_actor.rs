@@ -883,6 +883,7 @@ impl Handler<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>
 
 impl Handler<SpanWrapped<ApplyChunksDoneMessage>> for ClientActorInner {
     fn handle(&mut self, _msg: SpanWrapped<ApplyChunksDoneMessage>) {
+        // todo(slavas): distribute "optimistic" state witness here
         self.try_process_unfinished_blocks();
     }
 }
