@@ -607,7 +607,7 @@ impl ChunkExecutorActor {
         new_chunk_result: &NewChunkResult,
         outgoing_receipts_root: CryptoHash,
     ) -> Result<(), Error> {
-        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
+        let NewChunkResult { shard_uid, gas_limit, apply_result, .. } = new_chunk_result;
         let shard_id = shard_uid.shard_id();
 
         let execution_result =
@@ -764,6 +764,7 @@ impl ChunkExecutorActor {
                 receipts,
                 block,
                 storage_context,
+                chunk: None,
             })
         };
 

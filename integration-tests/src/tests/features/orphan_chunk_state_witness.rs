@@ -31,6 +31,9 @@ impl ChunkStateWitnessExt for ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.source_receipt_proofs,
+            ChunkStateWitness::V3(witness) => {
+                &mut witness.chunk_validate_witness.as_mut().unwrap().source_receipt_proofs
+            }
         }
     }
 
@@ -38,6 +41,9 @@ impl ChunkStateWitnessExt for ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.chunk_header,
+            ChunkStateWitness::V3(witness) => {
+                &mut witness.chunk_validate_witness.as_mut().unwrap().chunk_header
+            }
         }
     }
 }
@@ -306,6 +312,7 @@ fn test_orphan_witness_far_from_head() {
         ShardChunkHeaderInner::V3(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V4(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V5(inner) => inner.height_created = bad_height,
+        ShardChunkHeaderInner::V6(inner) => inner.height_created = bad_height,
     });
 
     let outcome = chunk_validation_actor.handle_orphan_witness(witness, 2000).unwrap();

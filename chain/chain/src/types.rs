@@ -93,7 +93,7 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ApplyChunkResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -306,7 +306,7 @@ pub enum BlockType {
     Optimistic,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ApplyChunkBlockContext {
     pub block_type: BlockType,
     pub height: BlockHeight,

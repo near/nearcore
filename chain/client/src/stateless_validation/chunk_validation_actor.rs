@@ -430,37 +430,42 @@ impl ChunkValidationActorInner {
 
         if let Ok(prev_chunk_extra) = self.chain_store.get_chunk_extra(&prev_block_hash, &shard_uid)
         {
-            match validate_chunk_with_chunk_extra_and_roots(
-                &self.chain_store,
-                self.epoch_manager.as_ref(),
-                &prev_block_hash,
-                &prev_chunk_extra,
-                last_header.height_included(),
-                &chunk_header,
-                state_witness.new_transactions(),
-                self.rs.as_ref(),
-            ) {
-                Ok(()) => {
-                    send_chunk_endorsement_to_block_producers(
-                        &chunk_header,
-                        self.epoch_manager.as_ref(),
-                        signer.as_ref(),
-                        &self.network_adapter,
-                    );
-                    return Ok(());
-                }
-                Err(err) => {
-                    tracing::error!(
-                        target: "chunk_validation",
-                        ?err,
-                        ?chunk_producer_name,
-                        ?chunk_production_key,
-                        "Failed to validate chunk using existing chunk extra",
-                    );
-                    CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
-                        .inc();
-                    return Err(err);
+            if let Some(new_transactions) = state_witness.new_transactions() {
+                match validate_chunk_with_chunk_extra_and_roots(
+                    &self.chain_store,
+                    self.epoch_manager.as_ref(),
+                    &prev_block_hash,
+                    &prev_chunk_extra,
+                    last_header.height_included(),
+                    &chunk_header,
+                    new_transactions,
+                    self.rs.as_ref(),
+                ) {
+                    Ok(()) => {
+                        send_chunk_endorsement_to_block_producers(
+                            &chunk_header,
+                            self.epoch_manager.as_ref(),
+                            signer.as_ref(),
+                            &self.network_adapter,
+                        );
+                        return Ok(());
+                    }
+                    Err(err) => {
+                        tracing::error!(
+                            target: "chunk_validation",
+                            ?err,
+                            ?chunk_producer_name,
+                            ?chunk_production_key,
+                            "Failed to validate chunk using existing chunk extra",
+                        );
+                        CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                            .with_label_values(&[
+                                &shard_id.to_string(),
+                                err.prometheus_label_value(),
+                            ])
+                            .inc();
+                        return Err(err);
+                    }
                 }
             }
         }

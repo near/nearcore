@@ -4,11 +4,14 @@ use std::fmt::Debug;
 use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
-use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use crate::state::PartialState;
 use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
 use crate::utils::compression::CompressedData;
+use crate::{
+    receipt::Receipt,
+    sharding::{ChunkHash, ReceiptProof, ShardChunkHeader},
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_primitives_core::hash::CryptoHash;
@@ -91,12 +94,16 @@ impl ChunkStateWitnessAck {
 
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
+// todo(slavas): remove the clippy warning stub once the data duplication between the witness parts
+// is removed
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum ChunkStateWitness {
     V1 = 0, // Deprecated
     V2(Box<ChunkStateWitnessV2>) = 1,
+    V3(ChunkStateWitnessV3) = 2,
 }
 /// From V1 -> V2 we have the following changes:
 /// - The `chunk_producer`, `new_transactions`, `new_transactions_validation_state`,
@@ -166,6 +173,120 @@ pub struct ChunkStateWitnessV2 {
     pub new_transactions: Vec<SignedTransaction>,
 }
 
+/// The part of the witness that the validator needs to receive in order to apply the chunk.
+/// Does not include the data needed for actual validation and production of endorsements.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkApplyWitness {
+    /// EpochId corresponds to the next block after chunk's previous block.
+    /// This is effectively the output of EpochManager::get_epoch_id_from_prev_block
+    /// with chunk_header.prev_block_hash().
+    pub epoch_id: EpochId,
+
+    /// header of the chunk being applied, same heigh. Only V6 fields are included.
+    pub chunk_header: ShardChunkHeader,
+
+    /// The base state and post-state-root of the main transition where we
+    /// apply transactions and receipts. Corresponds to the state transition
+    /// that takes us from the pre-state-root of the last new chunk of this
+    /// shard to the post-state-root of that same chunk.
+    pub main_state_transition: ChunkStateTransition,
+    /// For the main state transition, we apply transactions and receipts.
+    /// Exactly which of them must be applied is a deterministic property
+    /// based on the blockchain history this chunk is based on.
+    ///
+    /// The set of receipts is exactly
+    ///   Filter(R, |receipt| receipt.target_shard = S), where
+    ///     - R is the set of outgoing receipts included in the set of chunks C
+    ///       (defined below),
+    ///     - S is the shard of this chunk.
+    ///
+    /// The set of chunks C, from which the receipts are sourced, is defined as
+    /// all new chunks included in the set of blocks B.
+    ///
+    /// The set of blocks B is defined as the contiguous subsequence of blocks
+    /// B1 (EXCLUSIVE) to B2 (inclusive) in this chunk's chain (i.e. the linear
+    /// chain that this chunk's parent block is on), where B2 is the block that
+    /// contains the last new chunk of shard S before this chunk, and B1 is the
+    /// block that contains the last new chunk of shard S before B2.
+    ///
+    /// Furthermore, the set of transactions to apply is exactly the
+    /// transactions included in the chunk of shard S at B2.
+    ///
+    /// For the purpose of this text, a "new chunk" is defined as a chunk that
+    /// is proposed by a chunk producer, not one that was copied from the
+    /// previous block (commonly called a "missing chunk").
+    ///
+    /// This field, `source_receipt_proofs`, is a (non-strict) superset of the
+    /// receipts that must be applied, along with information that allows these
+    /// receipts to be verifiable against the blockchain history.
+    pub receipts: Vec<Receipt>,
+    /// An overall hash of the list of receipts that should be applied. This is
+    /// redundant information but is useful for diagnosing why a witness might
+    /// fail. This is the hash of the borsh encoding of the Vec<Receipt> in the
+    /// order that they should be applied.
+    pub applied_receipts_hash: CryptoHash,
+    /// The transactions to apply. These must be in the correct order in which
+    /// they are to be applied.
+    pub transactions: Vec<SignedTransaction>,
+    /// For each missing chunk after the last new chunk of the shard, we need
+    /// to carry out an implicit state transition. Mostly, this is for
+    /// distributing validator rewards. This list contains one for each such
+    /// chunk, in forward chronological order.
+    ///
+    /// After these are applied as well, we should arrive at the pre-state-root
+    /// of the chunk that this witness is for.
+    pub implicit_transitions: Vec<ChunkStateTransition>,
+}
+
+/// doc me
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkValidateWitness {
+    /// The chunk header that this witness is for. While this is not needed
+    /// to apply the state transition, it is needed for a chunk validator to
+    /// produce a chunk endorsement while knowing what they are endorsing.
+    // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
+    pub chunk_header: ShardChunkHeader,
+    /// For the main state transition, we apply transactions and receipts.
+    /// Exactly which of them must be applied is a deterministic property
+    /// based on the blockchain history this chunk is based on.
+    ///
+    /// The set of receipts is exactly
+    ///   Filter(R, |receipt| receipt.target_shard = S), where
+    ///     - R is the set of outgoing receipts included in the set of chunks C
+    ///       (defined below),
+    ///     - S is the shard of this chunk.
+    ///
+    /// The set of chunks C, from which the receipts are sourced, is defined as
+    /// all new chunks included in the set of blocks B.
+    ///
+    /// The set of blocks B is defined as the contiguous subsequence of blocks
+    /// B1 (EXCLUSIVE) to B2 (inclusive) in this chunk's chain (i.e. the linear
+    /// chain that this chunk's parent block is on), where B2 is the block that
+    /// contains the last new chunk of shard S before this chunk, and B1 is the
+    /// block that contains the last new chunk of shard S before B2.
+    ///
+    /// Furthermore, the set of transactions to apply is exactly the
+    /// transactions included in the chunk of shard S at B2.
+    ///
+    /// For the purpose of this text, a "new chunk" is defined as a chunk that
+    /// is proposed by a chunk producer, not one that was copied from the
+    /// previous block (commonly called a "missing chunk").
+    ///
+    /// This field, `source_receipt_proofs`, is a (non-strict) superset of the
+    /// receipts that must be applied, along with information that allows these
+    /// receipts to be verifiable against the blockchain history.
+    pub source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+    pub new_transactions: Vec<SignedTransaction>,
+}
+
+/// doc me
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkStateWitnessV3 {
+    // todo(slavas): make the `chunk_apply_witness` field optional
+    pub chunk_apply_witness: ChunkApplyWitness,
+    pub chunk_validate_witness: Option<ChunkValidateWitness>,
+}
+
 impl ChunkStateWitness {
     pub fn new(
         epoch_id: EpochId,
@@ -208,6 +329,7 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => witness.chunk_production_key(),
+            ChunkStateWitness::V3(witness) => witness.chunk_production_key(),
         }
     }
 
@@ -215,6 +337,7 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.epoch_id,
+            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.epoch_id,
         }
     }
 
@@ -222,6 +345,7 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.chunk_header,
+            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.chunk_header,
         }
     }
 
@@ -229,6 +353,7 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.main_state_transition,
+            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.main_state_transition,
         }
     }
 
@@ -236,6 +361,9 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.main_state_transition,
+            ChunkStateWitness::V3(witness) => {
+                &mut witness.chunk_apply_witness.main_state_transition
+            }
         }
     }
 
@@ -243,6 +371,9 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.source_receipt_proofs,
+            ChunkStateWitness::V3(witness) => {
+                &witness.chunk_validate_witness.as_ref().unwrap().source_receipt_proofs
+            }
         }
     }
 
@@ -250,6 +381,7 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.applied_receipts_hash,
+            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.applied_receipts_hash,
         }
     }
 
@@ -257,6 +389,7 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.transactions,
+            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.transactions,
         }
     }
 
@@ -264,13 +397,21 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &witness.implicit_transitions,
+            ChunkStateWitness::V3(witness) => &witness.chunk_apply_witness.implicit_transitions,
         }
     }
 
-    pub fn new_transactions(&self) -> &Vec<SignedTransaction> {
+    pub fn new_transactions(&self) -> Option<&Vec<SignedTransaction>> {
         match self {
             ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
-            ChunkStateWitness::V2(witness) => &witness.new_transactions,
+            ChunkStateWitness::V2(witness) => Some(&witness.new_transactions),
+            ChunkStateWitness::V3(witness) => {
+                if let Some(chunk_validate_witness) = &witness.chunk_validate_witness {
+                    Some(&chunk_validate_witness.new_transactions)
+                } else {
+                    None
+                }
+            }
         }
     }
 }
@@ -281,6 +422,16 @@ impl ChunkStateWitnessV2 {
             shard_id: self.chunk_header.shard_id(),
             epoch_id: self.epoch_id,
             height_created: self.chunk_header.height_created(),
+        }
+    }
+}
+
+impl ChunkStateWitnessV3 {
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        ChunkProductionKey {
+            shard_id: self.chunk_apply_witness.chunk_header.shard_id(),
+            epoch_id: self.chunk_apply_witness.epoch_id,
+            height_created: self.chunk_apply_witness.chunk_header.height_created(),
         }
     }
 }

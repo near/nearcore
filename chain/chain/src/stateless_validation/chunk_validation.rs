@@ -411,6 +411,7 @@ pub fn pre_validate_chunk_state_witness(
                     }),
                     state_patch: Default::default(),
                 },
+                chunk: Some(chunk_header.clone()),
             },
             shard_id: chunk_header.shard_id(),
             block_hash: *last_chunk_block.hash(),
@@ -736,14 +737,17 @@ pub fn validate_chunk_state_witness_impl(
         },
         || {
             if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
-                let (tx_root, _) = merklize(&state_witness.new_transactions());
+                let new_transactions = &state_witness
+                    .new_transactions()
+                    .expect("should only be called with the `ValidateChunkStateWitness` available");
+                let (tx_root, _) = merklize(new_transactions);
                 if tx_root != *state_witness.chunk_header().tx_root() {
                     return Err(Error::InvalidTxRoot);
                 }
                 validate_chunk_with_encoded_merkle_root(
                     &state_witness.chunk_header(),
                     &outgoing_receipts,
-                    state_witness.new_transactions(),
+                    new_transactions,
                     rs.as_ref(),
                     shard_id,
                 )

@@ -23,8 +23,8 @@ use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
-use near_async::messaging::IntoAsyncSender;
-use near_async::messaging::{CanSend, Sender};
+use near_async::messaging::IntoMultiSender;
+use near_async::messaging::{CanSend, IntoAsyncSender, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
     ApplyChunksDoneSender, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -1093,8 +1093,10 @@ impl Client {
             return;
         }
 
-        self.chain
-            .preprocess_optimistic_block(block, Some(self.myself_sender.apply_chunks_done.clone()));
+        self.chain.preprocess_optimistic_block(
+            block,
+            Some(self.myself_sender.clone().into_multi_sender()),
+        );
     }
 
     /// To protect ourselves from spamming, we do some pre-check on block
@@ -1379,7 +1381,7 @@ impl Client {
         self.process_blocks_with_missing_chunks(apply_chunks_done_sender);
 
         self.chain
-            .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
+            .maybe_process_optimistic_block(Some(self.myself_sender.clone().into_multi_sender()));
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk

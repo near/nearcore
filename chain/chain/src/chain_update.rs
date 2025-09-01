@@ -117,7 +117,12 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
         match result {
-            ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, shard_uid, apply_result }) => {
+            ShardUpdateResult::NewChunk(NewChunkResult {
+                gas_limit,
+                shard_uid,
+                apply_result,
+                ..
+            }) => {
                 let (outcome_root, outcome_paths) =
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();

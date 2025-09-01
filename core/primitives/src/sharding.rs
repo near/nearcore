@@ -473,6 +473,11 @@ impl ShardChunkHeader {
                     prev_outgoing_receipts_root,
                 })
             }
+            ShardChunkHeaderInner::V6(_) => {
+                // todo(slavas): check it is ever needed
+                debug_assert!(false, "");
+                header.inner
+            }
         };
         header.hash = ShardChunkHeaderV3::compute_hash(&header.inner);
         Self::V3(header)
@@ -613,7 +618,7 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V1(_) => false,
                 ShardChunkHeaderInner::V2(_) => false,
                 ShardChunkHeaderInner::V3(_) => false,
-                ShardChunkHeaderInner::V4(_) => true,
+                ShardChunkHeaderInner::V4(_) | ShardChunkHeaderInner::V6(_) => true,
                 ShardChunkHeaderInner::V5(_) => cfg!(feature = "protocol_feature_spice"),
             },
         };

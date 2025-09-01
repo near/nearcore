@@ -3,10 +3,19 @@ use crate::Client;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use near_async::messaging::{CanSend, IntoSender};
 use near_chain::BlockHeader;
+use near_chain::chain::NewChunkResult;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
 use near_chain_primitives::Error;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::state::PartialState;
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
+use near_primitives::stateless_validation::state_witness::{
+    ChunkApplyWitness, ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessV3,
+};
 use near_primitives::types::EpochId;
+use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::{TrieDBStorage, TrieStorage};
 
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
@@ -70,6 +79,62 @@ impl Client {
             contract_updates,
             main_transition_shard_id,
         });
+        Ok(())
+    }
+
+    pub fn send_chunk_apply_witness_to_chunk_validators(
+        &mut self,
+        epoch_id: EpochId,
+        new_chunk: NewChunkResult,
+    ) -> Result<(), Error> {
+        let context = new_chunk.context;
+        let apply_result = &new_chunk.apply_result;
+
+        let shard_id = context.chunk_header.as_ref().unwrap().shard_id();
+
+        // let applied_receipts_hash = ;
+        let main_state_transition = {
+            let ContractUpdates { contract_accesses, contract_deploys: _ } =
+                apply_result.contract_updates.clone();
+
+            let PartialState::TrieValues(mut base_state_values) =
+                apply_result.proof.clone().unwrap().nodes;
+            let trie_storage = TrieDBStorage::new(
+                TrieStoreAdapter::new(self.runtime_adapter.store().clone()),
+                shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?,
+            );
+            base_state_values.reserve_exact(contract_accesses.len());
+            for contract_hash in contract_accesses {
+                let contract = trie_storage.retrieve_raw_bytes(&contract_hash.0)?;
+                base_state_values.push(contract);
+            }
+            ChunkStateTransition {
+                block_hash: Default::default(),
+                base_state: PartialState::TrieValues(base_state_values),
+                post_state_root: apply_result.new_root,
+            }
+        };
+
+        // todo(slavas): handle implicit transitions
+        let implicit_transitions = Vec::new();
+
+        self.partial_witness_adapter.send(DistributeStateWitnessRequest {
+            state_witness: ChunkStateWitness::V3(ChunkStateWitnessV3 {
+                chunk_apply_witness: ChunkApplyWitness {
+                    epoch_id,
+                    chunk_header: context.chunk_header.unwrap(),
+                    main_state_transition,
+                    receipts: context.receipts,
+                    applied_receipts_hash: new_chunk.apply_result.applied_receipts_hash,
+                    transactions: context.transactions,
+                    implicit_transitions,
+                },
+                chunk_validate_witness: None,
+            }),
+            contract_updates: new_chunk.apply_result.contract_updates,
+            main_transition_shard_id: shard_id,
+        });
+
         Ok(())
     }
 }

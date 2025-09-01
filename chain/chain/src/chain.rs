@@ -51,6 +51,7 @@ use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;
 use near_chain_primitives::error::{BlockKnownError, Error};
@@ -135,7 +136,19 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 #[derive(Debug)]
 pub struct ApplyChunksDoneMessage;
 
-pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
+#[derive(Debug)]
+pub struct NewChunkAppliedMessage {
+    pub result: NewChunkResult,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom)]
+// #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyChunksDoneSender {
+    pub apply_chunks_done: near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>,
+    pub new_chunk_apply: near_async::messaging::Sender<NewChunkAppliedMessage>,
+}
+
+// pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
 
 /// `PostStateReadyMessage` is a message that contains the post state after processing a chunk.
 /// This message is sent from a callback in the runtime to the Client actor before the post-state,
@@ -1763,11 +1776,18 @@ impl Chain {
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
                 (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
             );
-            sc.send((block, res)).unwrap();
             drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
-                sender.send(ApplyChunksDoneMessage {}.span_wrap());
+                for (_, _, shard_update_result) in res.iter() {
+                    if let Ok(ShardUpdateResult::NewChunk(res_new_chunk)) = shard_update_result {
+                        sender
+                            .new_chunk_apply
+                            .send(NewChunkAppliedMessage { result: res_new_chunk.clone() });
+                    }
+                }
+                sender.apply_chunks_done.send(ApplyChunksDoneMessage {}.span_wrap());
             }
+            sc.send((block, res)).unwrap();
         });
     }
 
@@ -3301,6 +3321,7 @@ impl Chain {
                 receipts,
                 block,
                 storage_context,
+                chunk: Some(chunk_header.clone()),
             })
         } else {
             ShardUpdateReason::OldChunk(OldChunkData {
