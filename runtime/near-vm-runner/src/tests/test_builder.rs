@@ -101,6 +101,7 @@ impl TestBuilder {
 
     pub(crate) fn skip_near_vm(mut self) -> Self {
         self.skip.insert(VMKind::NearVm);
+        self.skip.insert(VMKind::NearVm2);
         self
     }
 
@@ -182,8 +183,9 @@ impl TestBuilder {
 
         for (want, &protocol_version) in wants.zip(&self.protocol_versions) {
             let mut results = vec![];
-            for vm_kind in [VMKind::NearVm, VMKind::Wasmtime] {
+            for vm_kind in [VMKind::NearVm, VMKind::NearVm2, VMKind::Wasmtime] {
                 if self.skip.contains(&vm_kind) {
+                    println!("Skipping {:?}", vm_kind);
                     continue;
                 }
 
