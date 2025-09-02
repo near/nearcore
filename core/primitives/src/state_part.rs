@@ -6,7 +6,10 @@ use near_schema_checker_lib::ProtocolSchema;
 use crate::state::PartialState;
 use crate::state_sync::STATE_PART_MEMORY_LIMIT;
 
-const DEFAULT_STATE_PARTS_COMPRESSION_LEVEL: i32 = 3;
+/// We haven't observed meaningful gains from higher compression levels.
+/// Even `-5` produced a result close to levels 1–3.
+/// Therefore we keep 1 as the default.
+const DEFAULT_STATE_PARTS_COMPRESSION_LEVEL: i32 = 1;
 
 // to specify a part we always specify both part_id and num_parts together
 #[derive(Copy, Clone, Debug)]
@@ -65,7 +68,9 @@ impl StatePartV1 {
     fn to_partial_state(&self) -> borsh::io::Result<PartialState> {
         let part_size_limit = STATE_PART_MEMORY_LIMIT.as_u64();
         let decoder = zstd::stream::read::Decoder::new(self.bytes_compressed.as_slice())?;
+        // We add +1 so we can detect when decompressed size exceeds the limit
         let mut decoder_with_limit = std::io::Read::take(decoder, part_size_limit + 1);
+
         let mut decoded = Vec::new();
         std::io::Read::read_to_end(&mut decoder_with_limit, &mut decoded)?;
         if decoded.len() > part_size_limit as usize {
@@ -212,6 +217,8 @@ mod tests {
 
         let decompression_result = state_part.to_partial_state();
         // Although the compressed size is less than half of the limit, after decompression is twice the limit.
-        assert!(decompression_result.is_err());
+        let err = decompression_result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(err.to_string(), "decompression limit exceeded");
     }
 }
