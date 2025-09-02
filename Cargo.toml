@@ -191,7 +191,6 @@ chrono = { version = "0.4", default-features = false, features = [
     "serde",
 ] }
 clap = { version = "4.2.0", features = ["derive", "env", "string"] }
-cpu-time = "1.0"
 criterion = { version = "0.7.0", default-features = false, features = [
     "html_reports",
     "cargo_bench_support",
@@ -371,7 +370,6 @@ rocksdb = { version = "0.21.0", default-features = false, features = [
     "zlib",
     "jemalloc",
 ] }
-runtime-tester = { path = "test-utils/runtime-tester" }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
