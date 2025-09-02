@@ -116,14 +116,14 @@ pub trait User {
 
     fn set_signer(&mut self, signer: Arc<Signer>);
 
-    fn sign_and_commit_actions(
+    fn make_signed_transaction(
         &self,
         signer_id: AccountId,
         receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<FinalExecutionOutcomeView, CommitError> {
+    ) -> SignedTransaction {
         let block_hash = self.get_best_block_hash().unwrap_or_default();
-        let signed_transaction = SignedTransaction::from_actions(
+        SignedTransaction::from_actions(
             self.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default() + 1,
             signer_id,
             receiver_id,
@@ -131,8 +131,16 @@ pub trait User {
             actions,
             block_hash,
             0,
-        );
-        self.commit_transaction(signed_transaction)
+        )
+    }
+
+    fn sign_and_commit_actions(
+        &self,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> Result<FinalExecutionOutcomeView, CommitError> {
+        self.commit_transaction(self.make_signed_transaction(signer_id, receiver_id, actions))
     }
 
     fn send_money(

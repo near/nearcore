@@ -4,7 +4,7 @@ mod runtime;
 use assert_matches::assert_matches;
 use near_chain_configs::NEAR_BASE;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives::account::{
@@ -364,6 +364,24 @@ pub fn test_redeploy_contract(node: impl Node) {
     assert_ne!(root, new_root);
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.code_hash, hash(test_binary));
+}
+
+pub fn test_transaction_signature_error(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let node_user = node.user();
+    let mut tx = node_user.make_signed_transaction(
+        account_id.clone(),
+        bob_account(),
+        vec![Action::Transfer(TransferAction { deposit: 1 })],
+    );
+    tx.signature = Signature::from_parts(KeyType::ED25519, &[0u8; 64]).unwrap();
+    let result = node_user.commit_transaction(tx);
+    assert_matches!(
+        result.unwrap_err(),
+        CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidSignature
+        )))
+    );
 }
 
 pub fn test_send_money(node: impl Node) {
