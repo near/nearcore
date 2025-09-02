@@ -4,7 +4,6 @@ use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::transaction::SignedTransaction;
 use reqwest::StatusCode;
-use serde_json::json;
 
 use near_crypto::{InMemorySigner, Signature};
 use near_jsonrpc::client::{ChunkId, JsonRpcClient, new_client};
@@ -19,8 +18,7 @@ use near_primitives::types::{
 };
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 
-use near_jsonrpc_tests::util::{NodeType, create_test_setup_with_node_type};
-use near_jsonrpc_tests::{self as test_utils};
+use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 
 /// Retrieve blocks via json rpc
 #[actix::test]
@@ -683,17 +681,8 @@ async fn test_get_chunk_with_object_in_params() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
 
-    let chunk: near_primitives::views::ChunkView = test_utils::call_method(
-        &client.client,
-        &client.server_addr,
-        "chunk",
-        json!({
-            "block_id": 0u64,
-            "shard_id": 0u64,
-        }),
-    )
-    .await
-    .unwrap();
+    let chunk =
+        client.chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::new(0))).await.unwrap();
     assert_eq!(chunk.author, "test1");
     assert_eq!(chunk.header.balance_burnt, 0);
     assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);

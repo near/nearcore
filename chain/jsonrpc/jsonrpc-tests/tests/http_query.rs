@@ -1,5 +1,5 @@
 use near_jsonrpc::client::new_http_client;
-use near_jsonrpc_tests::util::{NodeType, create_test_setup_with_node_type};
+use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 
 #[actix::test]
 async fn test_status() {
