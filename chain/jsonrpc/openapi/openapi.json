@@ -3640,6 +3640,12 @@
             ],
             "description": "Specifies where to write the obtained state parts."
           },
+          "parts_compression_lvl": {
+            "description": "Optional Zstd compression level for state parts.\nIf `None`, a default value will be used internally.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
           "restart_dump_for_shards": {
             "description": "Use in case a node that dumps state to the external storage\ngets in trouble.",
             "items": {

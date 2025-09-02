@@ -207,8 +207,7 @@ mod tests {
         let big_value = Arc::from(vec![b'a'; 2 * part_size_limit].into_boxed_slice());
         let partial_state = PartialState::TrieValues(vec![big_value]);
 
-        let state_part =
-            StatePart::from_partial_state(partial_state.clone(), protocol_version, None);
+        let state_part = StatePart::from_partial_state(partial_state, protocol_version, None);
         assert!(state_part.payload_length() < part_size_limit / 2);
 
         let decompression_result = state_part.to_partial_state();
