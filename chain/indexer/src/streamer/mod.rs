@@ -42,36 +42,6 @@ static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
 
 const INTERVAL: Duration = Duration::from_millis(250);
 
-/// Blocks #47317863 and #47317864 with restored receipts.
-const PROBLEMATIC_BLOCKS: [CryptoHash; 2] = [
-    CryptoHash(
-        *b"\xcd\xde\x9a\x3f\x5d\xdf\xb4\x2c\xb9\x9b\xf4\x8c\x04\x95\x6f\x5b\
-           \xa0\xb7\x29\xe2\xa5\x04\xf8\xbd\x9c\x86\x92\xd6\x16\x8c\xcf\x14",
-    ),
-    CryptoHash(
-        *b"\x12\xa9\x5a\x1a\x3d\x14\xa7\x36\xb3\xce\xe6\xea\x07\x20\x8e\x75\
-           \x4e\xb5\xc2\xd7\xf9\x11\xca\x29\x09\xe0\xb8\x85\xb5\x2b\x95\x6a",
-    ),
-];
-
-/// Tests whether raw hashes in [`PROBLEMATIC_BLOCKS`] match expected
-/// user-readable hashes.  Ideally we would compute the hashes at compile time
-/// but there’s no const function for base58→bytes conversion so instead we’re
-/// hard-coding the raw base in [`PROBLEMATIC_BLOCKS`] and have this test to
-/// confirm the raw values are correct.
-#[test]
-fn test_problematic_blocks_hash() {
-    let got: Vec<String> =
-        PROBLEMATIC_BLOCKS.iter().map(std::string::ToString::to_string).collect();
-    assert_eq!(
-        vec![
-            "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK",
-            "2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw"
-        ],
-        got
-    );
-}
-
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
 /// and returns everything together in one struct
@@ -187,29 +157,6 @@ pub async fn build_streamer_message(
             };
             receipt_execution_outcomes
                 .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
-        }
-
-        // Blocks #47317863 and #47317864
-        // (ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK, 2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw)
-        // are the first blocks of an upgraded protocol version on mainnet.
-        // In this block ExecutionOutcomes for restored Receipts appear.
-        // However the Receipts are not included in any Chunk. Indexer Framework needs to include them,
-        // so it was decided to artificially include the Receipts into the Chunk of the Block where
-        // ExecutionOutcomes appear.
-        // ref: https://github.com/near/nearcore/pull/4248
-        if PROBLEMATIC_BLOCKS.contains(&block.header.hash)
-            && &protocol_config_view.chain_id == near_primitives::chains::MAINNET
-        {
-            let mut restored_receipts: Vec<views::ReceiptView> = vec![];
-            let receipt_ids_included: std::collections::HashSet<CryptoHash> =
-                chunk_non_local_receipts.iter().map(|receipt| receipt.receipt_id).collect();
-            for outcome in &receipt_execution_outcomes {
-                if !receipt_ids_included.contains(&outcome.receipt.receipt_id) {
-                    restored_receipts.push(outcome.receipt.clone());
-                }
-            }
-
-            chunk_receipts.extend(restored_receipts);
         }
 
         chunk_receipts.extend(chunk_non_local_receipts);

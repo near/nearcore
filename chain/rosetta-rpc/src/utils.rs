@@ -21,15 +21,6 @@ where
     }
 }
 
-impl<T> paperclip::v2::schema::TypedData for BorshInHexString<T>
-where
-    T: BorshSerialize + BorshDeserialize,
-{
-    fn data_type() -> paperclip::v2::models::DataType {
-        paperclip::v2::models::DataType::String
-    }
-}
-
 impl<T> serde::Serialize for BorshInHexString<T>
 where
     T: BorshSerialize + BorshDeserialize,
@@ -77,15 +68,6 @@ where
 #[derive(Debug, Clone, Eq, PartialEq, derive_more::AsRef, derive_more::From)]
 #[as_ref(forward)]
 pub(crate) struct BlobInHexString<T: AsRef<[u8]> + From<Vec<u8>>>(T);
-
-impl<T> paperclip::v2::schema::TypedData for BlobInHexString<T>
-where
-    T: AsRef<[u8]> + From<Vec<u8>>,
-{
-    fn data_type() -> paperclip::v2::models::DataType {
-        paperclip::v2::models::DataType::String
-    }
-}
 
 impl<T> BlobInHexString<T>
 where
@@ -139,15 +121,6 @@ where
 {
     is_positive: bool,
     absolute_difference: T,
-}
-
-impl<T> paperclip::v2::schema::TypedData for SignedDiff<T>
-where
-    T: Copy + PartialEq,
-{
-    fn data_type() -> paperclip::v2::models::DataType {
-        paperclip::v2::models::DataType::String
-    }
 }
 
 impl From<u64> for SignedDiff<u64> {

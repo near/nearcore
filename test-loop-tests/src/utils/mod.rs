@@ -1,5 +1,4 @@
 use near_async::test_loop::data::TestLoopData;
-use near_async::time::Duration;
 use near_client::Client;
 use near_client::client_actor::ClientActorInner;
 use near_primitives::types::{AccountId, BlockHeight};
@@ -42,23 +41,6 @@ pub(crate) fn get_node_head_height(
     get_node_client(env, client_account_id).chain.head().unwrap().height
 }
 
-#[allow(dead_code)]
-pub(crate) fn run_until_node_head_height(
-    env: &mut TestLoopEnv,
-    client_account_id: &AccountId,
-    height: BlockHeight,
-    maximum_duration: Duration,
-) {
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client_actor =
-                retrieve_client_actor(&env.node_datas, test_loop_data, client_account_id);
-            client_actor.client.chain.head().unwrap().height >= height
-        },
-        maximum_duration,
-    );
-}
-
 pub(crate) fn run_for_number_of_blocks(
     env: &mut TestLoopEnv,
     client_account_id: &AccountId,
@@ -99,21 +81,4 @@ pub(crate) fn retrieve_client_actor<'a>(
 ) -> &'a mut ClientActorInner {
     let client_handle = get_node_data(node_datas, client_account_id).client_sender.actor_handle();
     test_loop_data.get_mut(&client_handle)
-}
-
-pub(crate) fn retrieve_all_client_actors<'a>(
-    node_datas: &'a [NodeExecutionData],
-    test_loop_data: &'a TestLoopData,
-) -> Vec<&'a ClientActorInner> {
-    node_datas.iter().map(|data| test_loop_data.get(&data.client_sender.actor_handle())).collect()
-}
-
-pub(crate) fn retrieve_all_clients<'a>(
-    node_datas: &'a [NodeExecutionData],
-    test_loop_data: &'a TestLoopData,
-) -> Vec<&'a Client> {
-    retrieve_all_client_actors(node_datas, test_loop_data)
-        .into_iter()
-        .map(|actor| &actor.client)
-        .collect()
 }

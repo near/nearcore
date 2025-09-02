@@ -7,7 +7,7 @@ use near_chain::stateless_validation::processing_tracker::{
 };
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
-use near_chain_configs::{Genesis, GenesisConfig};
+use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandler};
@@ -77,6 +77,7 @@ pub struct TestEnv {
     pub(crate) archive: bool,
     pub(crate) save_trie_changes: bool,
     pub(crate) save_tx_outcomes: bool,
+    pub(crate) protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 pub struct StateWitnessPropagationOutput {
@@ -689,6 +690,7 @@ impl TestEnv {
             self.archive,
             self.save_trie_changes,
             self.save_tx_outcomes,
+            self.protocol_version_check,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.clone(),

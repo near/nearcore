@@ -1,4 +1,3 @@
-# cspell:ignore psutil dotenv pydantic
 json-rpc
 psutil
 requests

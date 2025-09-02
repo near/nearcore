@@ -8,12 +8,17 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot;
 
 /// Trait for an actor. An actor is a struct that can handle messages and implements the Handler or
-/// HandlerWithContext trait. We can optionally implement the start_actor trait which is executed in
-/// the beginning of the actor's lifecycle.
-/// This corresponds to the actix::Actor trait `started` function.
+/// HandlerWithContext trait.
+///
+/// IMPORTANT NOTE: For the Multithread actor runtime, NONE of the below methods are ever called.
+/// These are only applicable for the async tokio runtime.
 pub trait Actor {
+    /// This is automatically called by the actor runtime when the actor is started.
+    /// It is called before any messages are processed.
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {}
 
+    /// This is called for every message that the actor handles, so that the actor can do something
+    /// else before and after handling the message.
     fn wrap_handler<M, R>(
         &mut self,
         msg: M,
@@ -22,6 +27,9 @@ pub trait Actor {
     ) -> R {
         f(self, msg, ctx)
     }
+
+    /// Called by the actor runtime right before the actor is dropped.
+    fn stop_actor(&mut self) {}
 }
 
 /// All handled messages shall implement this trait.

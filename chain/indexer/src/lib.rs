@@ -2,6 +2,7 @@
 
 use anyhow::Context;
 use near_config_utils::DownloadConfigType;
+use nearcore::NearNode;
 use tokio::sync::mpsc;
 
 use near_chain_configs::GenesisValidationMode;
@@ -92,13 +93,34 @@ pub struct IndexerConfig {
     pub validate_genesis: bool,
 }
 
+impl IndexerConfig {
+    pub fn derive_near_config(&self) -> NearConfig {
+        let genesis_validation_mode = if self.validate_genesis {
+            GenesisValidationMode::Full
+        } else {
+            GenesisValidationMode::UnsafeFast
+        };
+        let near_config = nearcore::config::load_config(&self.home_dir, genesis_validation_mode)
+            .expect("failed to load config");
+
+        // TODO(cloud_archival): When`TrackedShardsConfig::Shards` is added, ensure it is supported by indexer nodes and update the check below accordingly.
+        assert!(
+            near_config.client_config.tracked_shards_config.tracks_all_shards() || near_config.client_config.tracked_shards_config.tracks_any_account(),
+            "Indexer should either track at least one shard or track at least one account. \n\
+            Tip: You may want to update {} with `\"tracked_shards_config\": \"AllShards\"` (which tracks all shards)
+            or `\"tracked_shards_config\": {{\"tracked_accounts\": [\"some_account.near\"]}}` (which tracks whatever shard the account is on)",
+            self.home_dir.join("config.json").display()
+        );
+        near_config
+    }
+}
+
 /// This is the core component, which handles `nearcore` and internal `streamer`.
 pub struct Indexer {
     indexer_config: IndexerConfig,
     near_config: nearcore::NearConfig,
     view_client: actix::Addr<near_client::ViewClientActor>,
     client: TokioRuntimeHandle<ClientActorInner>,
-    rpc_handler: actix::Addr<near_client::RpcHandlerActor>,
     shard_tracker: ShardTracker,
 }
 
@@ -107,35 +129,35 @@ impl Indexer {
     pub fn new(indexer_config: IndexerConfig) -> Result<Self, anyhow::Error> {
         tracing::info!(
             target: INDEXER,
-            "Load config from {}...",
-            indexer_config.home_dir.display()
+            home_dir = ?indexer_config.home_dir,
+            "new indexer",
         );
+        let near_config = indexer_config.derive_near_config();
+        let nearcore::NearNode { client, view_client, shard_tracker, .. } =
+            Self::start_near_node(&indexer_config, near_config.clone())
+                .with_context(|| "failed to start near node as part of indexer")?;
+        Ok(Self { view_client, client, near_config, indexer_config, shard_tracker })
+    }
 
-        let genesis_validation_mode = if indexer_config.validate_genesis {
-            GenesisValidationMode::Full
-        } else {
-            GenesisValidationMode::UnsafeFast
-        };
-        let near_config =
-            nearcore::config::load_config(&indexer_config.home_dir, genesis_validation_mode)
-                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+    pub fn start_near_node(
+        indexer_config: &IndexerConfig,
+        near_config: NearConfig,
+    ) -> Result<NearNode, anyhow::Error> {
+        nearcore::start_with_config(&indexer_config.home_dir, near_config, ActorSystem::new())
+    }
 
-        // TODO(cloud_archival): When`TrackedShardsConfig::Shards` is added, ensure it is supported by indexer nodes and update the check below accordingly.
-        assert!(
-            near_config.client_config.tracked_shards_config.tracks_all_shards() || near_config.client_config.tracked_shards_config.tracks_any_account(),
-            "Indexer should either track at least one shard or track at least one account. \n\
-            Tip: You may want to update {} with `\"tracked_shards_config\": \"AllShards\"` (which tracks all shards)
-            or `\"tracked_shards_config\": {{\"tracked_accounts\": [\"some_account.near\"]}}` (which tracks whatever shard the account is on)",
-            indexer_config.home_dir.join("config.json").display()
-        );
-        let nearcore::NearNode { client, view_client, rpc_handler, shard_tracker, .. } =
-            nearcore::start_with_config(
-                &indexer_config.home_dir,
-                near_config.clone(),
-                ActorSystem::new(),
-            )
-            .with_context(|| "start_with_config")?;
-        Ok(Self { view_client, client, rpc_handler, near_config, indexer_config, shard_tracker })
+    pub fn from_near_node(
+        indexer_config: IndexerConfig,
+        near_config: NearConfig,
+        near_node: &NearNode,
+    ) -> Self {
+        Self {
+            view_client: near_node.view_client.clone(),
+            client: near_node.client.clone(),
+            near_config,
+            indexer_config,
+            shard_tracker: near_node.shard_tracker.clone(),
+        }
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
@@ -150,22 +172,6 @@ impl Indexer {
             sender,
         ));
         receiver
-    }
-
-    /// Expose neard config
-    pub fn near_config(&self) -> &nearcore::NearConfig {
-        &self.near_config
-    }
-
-    /// Internal client actors just in case. Use on your own risk, backward compatibility is not guaranteed
-    pub fn client_actors(
-        &self,
-    ) -> (
-        actix::Addr<near_client::ViewClientActor>,
-        TokioRuntimeHandle<ClientActorInner>,
-        actix::Addr<near_client::RpcHandlerActor>,
-    ) {
-        (self.view_client.clone(), self.client.clone(), self.rpc_handler.clone())
     }
 }
 

@@ -51,7 +51,7 @@ use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain_configs::MutableValidatorSigner;
+use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;
 use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
@@ -282,6 +282,9 @@ pub struct Chain {
     validator_signer: MutableValidatorSigner,
     /// For spice keeps track of core statements.
     pub spice_core_processor: CoreStatementsProcessor,
+    /// Determines whether client should exit if the protocol version is not supported
+    /// in the next or next next epoch.
+    protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 impl Drop for Chain {
@@ -388,6 +391,7 @@ impl Chain {
             resharding_manager,
             validator_signer,
             spice_core_processor,
+            protocol_version_check: Default::default(),
         })
     }
 
@@ -552,6 +556,7 @@ impl Chain {
             resharding_manager,
             validator_signer,
             spice_core_processor,
+            protocol_version_check: chain_config.protocol_version_check,
         })
     }
 
@@ -1721,13 +1726,18 @@ impl Chain {
         // for generating a state witness. Storage space optimization.
         let should_save_state_transition_data =
             self.should_produce_state_witness_for_this_or_next_epoch(block.header())?;
+        let epoch_to_check = self.protocol_version_check;
         let mut chain_update = self.chain_update();
+        let block_hash = *block.hash();
         let new_head = chain_update.postprocess_block(
             block,
             block_preprocess_info,
             apply_results,
             should_save_state_transition_data,
         )?;
+        if new_head.is_some() {
+            chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
+        }
         chain_update.commit()?;
         Ok(new_head)
     }
@@ -2225,15 +2235,6 @@ impl Chain {
             // TODO: enable after #3729 and #3863
             // self.verify_orphan_header_approvals(&header)?;
             return Err(Error::Orphan);
-        }
-
-        let epoch_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        if epoch_protocol_version > PROTOCOL_VERSION {
-            panic!(
-                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
-                PROTOCOL_VERSION, epoch_protocol_version
-            );
         }
 
         // First real I/O expense.

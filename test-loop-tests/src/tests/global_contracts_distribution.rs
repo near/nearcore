@@ -3,29 +3,30 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::receipt::ReceiptEnum;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeightDelta};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::utils::ONE_NEAR;
+use crate::utils::account::{
+    create_account_id, create_account_ids, create_validators_spec, validators_spec_clients,
+};
+use crate::utils::node::TestLoopNode;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use crate::utils::transactions::{check_txs, deploy_global_contract, use_global_contract};
-use crate::utils::{ONE_NEAR, get_node_client, run_until_node_head_height};
 
 const EPOCH_LENGTH: BlockHeightDelta = 5;
 
-// TODO(stedfn): remove "nightly" feature once we have a new protocol version
-// (see the explanation for `slow_test_resharding_v3_global_contract_by_hash`).
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_global_receipt_distribution_at_resharding_boundary() {
     init_test_logger();
     let mut env = GlobalContractsReshardingTestEnv::setup();
@@ -34,12 +35,7 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
     // shard that is being split at the first height after the resharding
     let send_deploy_tx_height = expected_new_shard_layout_height - 3;
 
-    run_until_node_head_height(
-        &mut env.env,
-        &env.chunk_producer,
-        send_deploy_tx_height,
-        Duration::seconds(10),
-    );
+    env.run_until_head_height(send_deploy_tx_height);
     assert_eq!(env.current_shard_layout(), env.base_shard_layout);
 
     // Deploying global contract with the user from the split shard.
@@ -51,7 +47,7 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
         !env.new_shard_layout
             .shard_ids()
             .contains(&env.base_shard_layout.account_id_to_shard_id(&deploy_user)),
-        "Expected deploy user to be in the split shard"
+        "expected deploy user to be in the split shard"
     );
     let code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let deploy_tx = deploy_global_contract(
@@ -64,12 +60,7 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
         GlobalContractDeployMode::CodeHash,
     );
 
-    run_until_node_head_height(
-        &mut env.env,
-        &env.chunk_producer,
-        expected_new_shard_layout_height,
-        Duration::seconds(10),
-    );
+    env.run_until_head_height(expected_new_shard_layout_height);
     check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &[deploy_tx]);
     assert_eq!(env.current_shard_layout(), env.new_shard_layout);
 
@@ -136,12 +127,13 @@ struct GlobalContractsReshardingTestEnv {
 
 impl GlobalContractsReshardingTestEnv {
     fn setup() -> Self {
-        let base_boundary_accounts: Vec<AccountId> = parse_accounts(&["user2", "user3", "user4"]);
-        let split_boundary_account: AccountId = "user1".parse().unwrap();
+        let base_boundary_accounts = create_account_ids(["user2", "user3", "user4"]).to_vec();
+        let split_boundary_account: AccountId = create_account_id("user1");
         let base_shard_layout = ShardLayout::multi_shard_custom(base_boundary_accounts, 3);
-        let chunk_producer: AccountId = "cp0".parse().unwrap();
-        let users: Vec<AccountId> = parse_accounts(&["user0", "user1", "user2", "user3", "user4"]);
-        let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer.as_str()], &[]);
+        let users = create_account_ids(["user0", "user1", "user2", "user3", "user4"]).to_vec();
+        let validators_spec = create_validators_spec(1, 0);
+        let clients = validators_spec_clients(&validators_spec);
+        let chunk_producer = clients[0].clone();
         let genesis = TestLoopBuilder::new_genesis_builder()
             .protocol_version(PROTOCOL_VERSION - 1)
             .validators_spec(validators_spec)
@@ -161,7 +153,7 @@ impl GlobalContractsReshardingTestEnv {
                 .map(|acc| new_shard_layout.account_id_to_shard_id(acc))
                 .collect::<HashSet<_>>(),
             new_shard_layout.shard_ids().collect::<HashSet<_>>(),
-            "Expected to have users for all shards"
+            "expected to have users for all shards"
         );
 
         let epoch_configs = vec![
@@ -172,7 +164,7 @@ impl GlobalContractsReshardingTestEnv {
 
         let env = TestLoopBuilder::new()
             .genesis(genesis)
-            .clients(vec![chunk_producer.clone()])
+            .clients(clients)
             .epoch_config_store(epoch_config_store)
             .build()
             .warmup();
@@ -180,8 +172,14 @@ impl GlobalContractsReshardingTestEnv {
         Self { env, chunk_producer, base_shard_layout, new_shard_layout, users }
     }
 
+    fn run_until_head_height(&mut self, height: BlockHeight) {
+        TestLoopNode::for_account(&self.env.node_datas, &self.chunk_producer)
+            .run_until_head_height(&mut self.env.test_loop, height);
+    }
+
     fn client(&self) -> &Client {
-        get_node_client(&self.env, &self.chunk_producer)
+        TestLoopNode::for_account(&self.env.node_datas, &self.chunk_producer)
+            .client(self.env.test_loop_data())
     }
 
     fn current_shard_layout(&self) -> ShardLayout {
@@ -193,8 +191,4 @@ impl GlobalContractsReshardingTestEnv {
     fn shutdown(self) {
         self.env.shutdown_and_drain_remaining_events(Duration::seconds(10));
     }
-}
-
-fn parse_accounts(accounts: &[&str]) -> Vec<AccountId> {
-    accounts.iter().map(|acc| acc.parse().unwrap()).collect()
 }
