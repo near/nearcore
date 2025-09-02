@@ -791,6 +791,12 @@ impl NightshadeRuntime {
             &config.config.contract_cache_path,
             config.config.max_loaded_contracts,
         )?;
+        let state_parts_compression_lvl = config
+            .client_config
+            .state_sync
+            .dump
+            .as_ref()
+            .and_then(|dump_config| dump_config.parts_compression_lvl);
         Ok(NightshadeRuntime::new(
             store,
             ContractRuntimeCache::handle(&contract_cache),
@@ -802,6 +808,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
+            state_parts_compression_lvl,
         ))
     }
 }

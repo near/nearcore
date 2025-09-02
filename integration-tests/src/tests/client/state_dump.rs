@@ -53,6 +53,7 @@ fn slow_test_state_dump() {
         restart_dump_for_shards: None,
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
+        parts_compression_lvl: None,
     });
 
     let validator = MutableConfigValue::new(
@@ -169,6 +170,7 @@ fn run_state_sync_with_dumped_parts(
         restart_dump_for_shards: None,
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
+        parts_compression_lvl: None,
     });
     let arbiter = actix::Arbiter::new();
     let mut state_sync_dumper = StateSyncDumper {

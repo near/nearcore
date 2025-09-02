@@ -314,6 +314,7 @@ impl<'a> NodeStateBuilder<'a> {
                 location: external_storage_location.clone(),
                 credentials_file: None,
                 restart_dump_for_shards: None,
+                parts_compression_lvl: None,
             }),
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location: external_storage_location,

@@ -140,6 +140,7 @@ impl TestEnv {
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
             StateSnapshotConfig::enabled(dir.path(), "data", "state_snapshot"),
+            None,
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let genesis_hash = hash(&[0]);

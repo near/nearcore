@@ -422,8 +422,7 @@ impl ProtocolFeature {
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::RefTypesBulkMemory
-            | ProtocolFeature::StatePartsCompression => 81,
+            ProtocolFeature::RefTypesBulkMemory | ProtocolFeature::StatePartsCompression => 81,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

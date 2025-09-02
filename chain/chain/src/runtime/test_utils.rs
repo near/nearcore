@@ -30,6 +30,7 @@ impl NightshadeRuntime {
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
             StateSnapshotConfig::enabled(home_dir, "data", STATE_SNAPSHOT_DIR),
+            None,
         )
     }
 
@@ -54,6 +55,7 @@ impl NightshadeRuntime {
             gc_num_epochs_to_keep,
             trie_config,
             StateSnapshotConfig::enabled(home_dir, "data", STATE_SNAPSHOT_DIR),
+            None,
         )
     }
 

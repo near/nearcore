@@ -228,6 +228,10 @@ pub struct DumpConfig {
     /// Location of a json file with credentials allowing write access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<PathBuf>,
+    /// Optional Zstd compression level for state parts.
+    /// If `None`, a default value will be used internally.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parts_compression_lvl: Option<i32>,
 }
 
 /// Configures how to fetch state parts during state sync.
