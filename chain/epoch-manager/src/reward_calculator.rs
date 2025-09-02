@@ -58,7 +58,7 @@ impl RewardCalculator {
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
         validator_stake: &HashMap<AccountId, Balance>,
         total_supply: Balance,
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
         epoch_duration: u64,
         online_thresholds: ValidatorOnlineThresholds,
     ) -> (HashMap<AccountId, Balance>, Balance) {
