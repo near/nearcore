@@ -128,4 +128,8 @@ skip = [
     # Bolero depends on outdated versions of these
     { name = "gimli", version = "=0.31.1" },
     { name = "object", version = "=0.36.5" },
+
+    { name = "sync_wrapper", version = "=0.1.2" },
+    { name = "tower", version = "=0.4.13" },
+    { name = "bytesize", version = "=1.1.0" },
 ]
