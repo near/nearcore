@@ -55,7 +55,7 @@ nextest-slow TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'default() +
 nextest-all TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'all()'" FLAGS)
 
 # TODO(#13341): Remove once spice tests can run as part of nightly or stable tests.
-spice_test_filter := "-E 'all() & (test(/^chunk_executor_actor/) + test(spice))'"
+spice_test_filter := "-E 'all() & test(spice)'"
 nextest-spice *FLAGS: (nextest "stable" "--features protocol_feature_spice" "--ignore-default-filter" spice_test_filter FLAGS)
 
 doctests:

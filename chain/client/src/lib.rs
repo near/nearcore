@@ -56,3 +56,6 @@ pub mod sync;
 pub mod sync_jobs_actor;
 pub mod test_utils;
 mod view_client_actor;
+
+#[cfg(test)]
+mod tests;

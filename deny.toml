@@ -55,7 +55,7 @@ skip = [
 
     # many crates haven't updated to syn 2.0 yet.
     { name = "syn", version = "=1.0.103" },
-    { name = "heck", version = "=0.4.0" }, # paperclip
+    { name = "heck", version = "=0.4.0" },
 
     # ubiquituous dependencies that are prone to duplication due to frequent "breaking" releases.
     { name = "windows-sys", version = "<0.60" },
