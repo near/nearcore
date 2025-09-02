@@ -92,7 +92,7 @@ where
     R: serde::de::DeserializeOwned + 'static,
 {
     let client = client.clone();
-    let url = format!("{}/{}", server_addr, method);
+    let url = format!("{}{}", server_addr, method);
 
     async move {
         let response = client.get(&url).send().await.map_err(|err| err.to_string())?;
