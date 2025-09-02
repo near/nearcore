@@ -61,7 +61,6 @@ use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use num_rational::Rational32;
-use std::borrow::Cow;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -399,10 +398,12 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
 
-    /// Location (within `home_dir`) where to store a cache of compiled contracts.
+    /// Location where to store a cache of compiled contracts.
     ///
     /// This cache can be manually emptied occasionally to keep storage usage down and does not
     /// need to be included into snapshots or dumps.
+    ///
+    /// Path is interpreted relative to `home_dir`.
     ///
     /// Use [`Self::contract_cache_path()`] to access this field.
     pub(crate) contract_cache_path: Option<PathBuf>,
@@ -600,12 +601,12 @@ impl Config {
         )
     }
 
-    pub fn contract_cache_path(&self) -> Cow<'_, Path> {
+    pub fn contract_cache_path(&self) -> PathBuf {
         if let Some(explicit) = &self.contract_cache_path {
-            explicit.into()
+            explicit.clone()
         } else {
             let store_path = self.store.path.as_deref().unwrap_or_else(|| "data".as_ref());
-            Cow::Owned([store_path, "contract.cache".as_ref()].into_iter().collect())
+            [store_path, "contract.cache".as_ref()].into_iter().collect()
         }
     }
 }
