@@ -133,4 +133,7 @@ skip = [
     { name = "sync_wrapper", version = "=0.1.2" },
     { name = "tower", version = "=0.4.13" },
     { name = "bytesize", version = "=1.1.0" },
+    { name = "cookie", version = "=0.16.0" },
+    { name = "num-bigint", version = "=0.3.3" },
+    { name = "num-rational", version = "=0.3.2" },
 ]
