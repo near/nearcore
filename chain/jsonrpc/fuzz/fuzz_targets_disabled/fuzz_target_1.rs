@@ -108,12 +108,8 @@ where
         "params": params
     });
 
-    let response = client
-        .post(server_addr)
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let response =
+        client.post(server_addr).json(&request).send().await.map_err(|e| e.to_string())?;
 
     let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
 
@@ -167,9 +163,7 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
                 NODE_ADDR.as_ref().unwrap().to_string()
             };
             let result_or_error =
-                call_method::<serde_json::Value>(&client, &addr, method, params)
-                    .await
-                    .unwrap();
+                call_method::<serde_json::Value>(&client, &addr, method, params).await.unwrap();
             eprintln!("RESPONSE: {:#?}", result_or_error);
             assert!(result_or_error["error"] != serde_json::json!(null));
         }
