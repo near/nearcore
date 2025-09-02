@@ -1,8 +1,6 @@
 #![no_main]
 use actix::System;
 use libfuzzer_sys::{arbitrary, fuzz_target};
-use near_async::ActorSystem;
-use near_time::Clock;
 use serde::ser::{Serialize, Serializer};
 use serde_json::json;
 use tokio;
@@ -93,6 +91,41 @@ impl Serialize for Base64String {
     }
 }
 
+/// Simple call_method function for the fuzz target
+async fn call_method<T>(
+    client: &reqwest::Client,
+    server_addr: &str,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<T, String>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "test",
+        "method": method,
+        "params": params
+    });
+
+    let response = client
+        .post(server_addr)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+
+    if let Some(result) = json.get("result") {
+        serde_json::from_value(result.clone()).map_err(|e| e.to_string())
+    } else if let Some(error) = json.get("error") {
+        Err(format!("RPC Error: {}", error))
+    } else {
+        Err("Invalid JSON-RPC response".to_string())
+    }
+}
+
 static RUNTIME: std::sync::LazyLock<parking_lot::Mutex<tokio::runtime::Runtime>> =
     std::sync::LazyLock::new(|| {
         parking_lot::Mutex::new(
@@ -104,13 +137,10 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
     NODE_INIT.call_once(|| {
         std::thread::spawn(|| {
             System::new().block_on(async {
-                let actor_system = ActorSystem::new();
-                let (_view_client_addr, addr, _runtime_temp_dir) = test_utils::start_all(
-                    Clock::real(),
+                let setup = test_utils::create_test_setup_with_node_type(
                     test_utils::NodeType::NonValidator,
-                    &actor_system,
                 );
-                unsafe { NODE_ADDR = Some(addr.to_string()) }
+                unsafe { NODE_ADDR = Some(setup.server_addr.to_string()) }
             });
         });
     });
@@ -137,7 +167,7 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
                 NODE_ADDR.as_ref().unwrap().to_string()
             };
             let result_or_error =
-                test_utils::call_method::<serde_json::Value>(&client, &addr, method, params)
+                call_method::<serde_json::Value>(&client, &addr, method, params)
                     .await
                     .unwrap();
             eprintln!("RESPONSE: {:#?}", result_or_error);

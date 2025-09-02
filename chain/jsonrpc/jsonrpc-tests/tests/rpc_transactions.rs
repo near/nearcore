@@ -10,7 +10,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;
 use near_primitives::views::{FinalExecutionStatus, TxExecutionStatus};
 
-use near_jsonrpc_tests::util::{
+use near_jsonrpc_tests::{
     NodeType, create_test_setup_with_accounts_and_validity, create_test_setup_with_node_type,
 };
 
