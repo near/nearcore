@@ -61,6 +61,7 @@ use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use num_rational::Rational32;
+use std::borrow::Cow;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -382,11 +383,6 @@ pub struct Config {
     ///
     /// Each loaded contract will increase the baseline memory use of the node appreciably.
     pub max_loaded_contracts: usize,
-    /// Location (within `home_dir`) where to store a cache of compiled contracts.
-    ///
-    /// This cache can be manually emptied occasionally to keep storage usage down and does not
-    /// need to be included into snapshots or dumps.
-    pub contract_cache_path: PathBuf,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
     /// This option can cause extra load on the database and is not recommended for production use.
@@ -402,6 +398,14 @@ pub struct Config {
     /// If set to Next, node will exit only if the next epoch's protocol version is not supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
+
+    /// Location (within `home_dir`) where to store a cache of compiled contracts.
+    ///
+    /// This cache can be manually emptied occasionally to keep storage usage down and does not
+    /// need to be included into snapshots or dumps.
+    ///
+    /// Use [`Self::contract_cache_path()`] to access this field.
+    pub(crate) contract_cache_path: Option<PathBuf>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -410,10 +414,6 @@ fn is_false(value: &bool) -> bool {
 impl Default for Config {
     fn default() -> Self {
         let store = near_store::StoreConfig::default();
-        let contract_cache_path =
-            [store.path.as_deref().unwrap_or_else(|| "data".as_ref()), "contract.cache".as_ref()]
-                .into_iter()
-                .collect();
         Config {
             genesis_file: GENESIS_CONFIG_FILENAME.to_string(),
             genesis_records_file: None,
@@ -464,7 +464,7 @@ impl Default for Config {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
-            contract_cache_path,
+            contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
@@ -598,6 +598,15 @@ impl Config {
             &self.tracked_shadow_validator,
             &self.tracked_accounts,
         )
+    }
+
+    pub fn contract_cache_path(&self) -> Cow<'_, Path> {
+        if let Some(explicit) = &self.contract_cache_path {
+            explicit.into()
+        } else {
+            let store_path = self.store.path.as_deref().unwrap_or_else(|| "data".as_ref());
+            Cow::Owned([store_path, "contract.cache".as_ref()].into_iter().collect())
+        }
     }
 }
 
@@ -788,7 +797,7 @@ impl NightshadeRuntime {
         let contract_cache = FilesystemContractRuntimeCache::with_memory_cache(
             home_dir,
             config.config.store.path.as_ref(),
-            &config.config.contract_cache_path,
+            &config.config.contract_cache_path(),
             config.config.max_loaded_contracts,
         )?;
         Ok(NightshadeRuntime::new(
