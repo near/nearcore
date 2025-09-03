@@ -11,7 +11,7 @@ pub mod tokio;
 
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, spawn_multithread_actor};
 use crate::tokio::TokioRuntimeHandle;
-use crate::tokio::runtime_handle::spawn_tokio_actor;
+use crate::tokio::runtime_handle::{TokioRuntimeBuilder, spawn_tokio_actor};
 pub use near_time as time;
 use parking_lot::Mutex;
 use std::any::type_name;
@@ -95,6 +95,15 @@ impl ActorSystem {
         spawn_tokio_actor(actor, self.tokio_cancellation_signal.clone())
     }
 
+    /// A more granular way to build a tokio runtime. It allows spawning futures and getting a handle
+    /// before the actor is constructed (so that the actor can be constructed with the handle,
+    /// for sending messages to itself).
+    pub fn new_tokio_builder<A: messaging::Actor + Send + 'static>(
+        &self,
+    ) -> TokioRuntimeBuilder<A> {
+        TokioRuntimeBuilder::new(self.tokio_cancellation_signal.clone())
+    }
+
     /// Spawns a multi-threaded actor which handles messages in a synchronous thread pool.
     /// Used similarly to `spawn_tokio_actor`, but this actor is intended for CPU-bound tasks,
     /// can run multiple threads, and does not support futures, timers, or delayed messages.
@@ -127,7 +136,7 @@ pub fn shutdown_all_actors() {
             panic!("shutdown_all_actors should not be used when there are multiple ActorSystems");
         }
         if let Some(system) = systems.first() {
-            system.tokio_cancellation_signal.cancel();
+            system.stop();
         }
     }
 }
