@@ -118,15 +118,15 @@ impl GasCounter {
         let promises_gas = gas_used.checked_sub(gas_burnt).unwrap();
         let new_promises_gas =
             self.promises_gas.checked_add(promises_gas).ok_or(HostError::IntegerOverflow)?;
-        let new_burnt_gas = self
+        let new_burnt_gas = Gas::from_gas(self
             .fast_counter
-            .burnt_gas
-            .checked_add(gas_burnt.as_gas())
+            .burnt_gas)
+            .checked_add(gas_burnt)
             .ok_or(HostError::IntegerOverflow)?;
-        let new_used_gas = Gas::from_gas(new_burnt_gas)
+        let new_used_gas = new_burnt_gas
             .checked_add(new_promises_gas)
             .ok_or(HostError::IntegerOverflow)?;
-        if Gas::from_gas(new_burnt_gas) <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
+        if new_burnt_gas <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
             use std::cmp::min;
             if promises_gas != Gas::ZERO && !self.is_view {
                 self.fast_counter.gas_limit = min(
@@ -134,11 +134,11 @@ impl GasCounter {
                     self.prepaid_gas.checked_sub(new_promises_gas).unwrap().as_gas(),
                 );
             }
-            self.fast_counter.burnt_gas = new_burnt_gas;
+            self.fast_counter.burnt_gas = new_burnt_gas.as_gas();
             self.promises_gas = new_promises_gas;
             Ok(())
         } else {
-            Err(self.process_gas_limit(Gas::from_gas(new_burnt_gas), new_used_gas).into())
+            Err(self.process_gas_limit(new_burnt_gas, new_used_gas).into())
         }
     }
 
@@ -146,13 +146,13 @@ impl GasCounter {
     ///
     /// Return an error if there are arithmetic overflows.
     pub(crate) fn burn_gas(&mut self, gas_burnt: Gas) -> Result<()> {
-        let new_burnt_gas = self
+        let new_burnt_gas = Gas::from_gas(self
             .fast_counter
-            .burnt_gas
-            .checked_add(gas_burnt.as_gas())
+            .burnt_gas)
+            .checked_add(gas_burnt)
             .ok_or(HostError::IntegerOverflow)?;
-        if new_burnt_gas <= self.fast_counter.gas_limit {
-            self.fast_counter.burnt_gas = new_burnt_gas;
+        if new_burnt_gas <= Gas::from_gas(self.fast_counter.gas_limit) {
+            self.fast_counter.burnt_gas = new_burnt_gas.as_gas();
             Ok(())
         } else {
             // In the past `new_used_gas` would be computed using an implicit wrapping addition,
@@ -163,8 +163,8 @@ impl GasCounter {
             //
             // [CONTINUATION IN THE NEXT COMMENT]
             let new_used_gas =
-                Gas::from_gas(new_burnt_gas.wrapping_add(self.promises_gas.as_gas()));
-            Err(self.process_gas_limit(Gas::from_gas(new_burnt_gas), new_used_gas).into())
+                Gas::from_gas(new_burnt_gas.as_gas().wrapping_add(self.promises_gas.as_gas()));
+            Err(self.process_gas_limit(new_burnt_gas, new_used_gas).into())
         }
     }
 

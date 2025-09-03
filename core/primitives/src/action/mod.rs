@@ -9,12 +9,10 @@ use near_primitives_core::{
     types::{AccountId, Balance, Gas},
 };
 use near_schema_checker_lib::ProtocolSchema;
-
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
 use std::sync::Arc;
-
 use crate::trie_key::GlobalContractCodeIdentifier;
 
 pub fn base64(s: &[u8]) -> String {

@@ -30,17 +30,17 @@ impl DataArray {
 }
 
 impl ProfileDataV2 {
-    pub fn get_ext_cost(&self, ext: ExtCosts) -> u64 {
-        self[ext]
+    pub fn get_ext_cost(&self, ext: ExtCosts) -> Gas {
+        Gas::from_gas(self[ext])
     }
 
-    pub fn get_wasm_cost(&self) -> u64 {
+    pub fn get_wasm_cost(&self) -> Gas {
         // ProfileV2Cost::WasmInstruction => 62,
-        self.data[62]
+        Gas::from_gas(self.data[62])
     }
 
-    fn host_gas(&self) -> u64 {
-        ExtCosts::iter().map(|a| self.get_ext_cost(a)).fold(0, u64::saturating_add)
+    fn host_gas(&self) -> Gas {
+        ExtCosts::iter().map(|a| self.get_ext_cost(a)).fold(Gas::ZERO, |sum, elem| sum.checked_add(elem).unwrap())
     }
 
     /// List action cost in the old way, which conflated several action parameters into one.
@@ -61,12 +61,11 @@ impl ProfileDataV2 {
         ]
     }
 
-    pub fn action_gas(&self) -> u64 {
+    pub fn action_gas(&self) -> Gas {
         self.legacy_action_costs()
             .iter()
             .map(|(_name, cost)| *cost)
             .fold(Gas::ZERO, |acc: Gas, cost: Gas| acc.saturating_add(cost))
-            .as_gas()
     }
 
     /// Test instance with unique numbers in each field.
@@ -94,13 +93,13 @@ impl fmt::Debug for ProfileDataV2 {
         writeln!(f, "------ Host functions --------")?;
         for cost in ExtCosts::iter() {
             let d = self.get_ext_cost(cost);
-            if d != 0 {
+            if d != Gas::ZERO {
                 writeln!(
                     f,
                     "{} -> {} [{}% host]",
                     cost,
                     d,
-                    Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
+                    Ratio::new(d.checked_mul(100).unwrap().as_gas(), core::cmp::max(host_gas.as_gas(), 1)).to_integer(),
                 )?;
             }
         }

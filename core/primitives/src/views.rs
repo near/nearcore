@@ -1702,14 +1702,14 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
                 costs.push(CostGasUsed::wasm_host(
                     "WASM_INSTRUCTION".to_string(),
-                    Gas::from_gas(profile_data.get_wasm_cost()),
+                    profile_data.get_wasm_cost(),
                 ));
 
                 // ext costs are 1-to-1, except for those added later which we will display as 0
                 for ext_cost in ExtCosts::iter() {
                     costs.push(CostGasUsed::wasm_host(
                         format!("{:?}", ext_cost).to_ascii_uppercase(),
-                        Gas::from_gas(profile_data.get_ext_cost(ext_cost)),
+                        profile_data.get_ext_cost(ext_cost),
                     ));
                 }
 

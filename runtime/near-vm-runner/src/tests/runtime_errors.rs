@@ -16,7 +16,7 @@ static INFINITE_INITIALIZER_CONTRACT: &str = r#"
 fn test_infinite_initializer() {
     test_builder()
         .wat(INFINITE_INITIALIZER_CONTRACT)
-        .gas(Gas::from_gas(10u64.pow(10)))
+        .gas(Gas::from_giga(10))
         .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
             Err: Exceeded the prepaid gas.
@@ -401,7 +401,7 @@ fn test_memory_grow() {
   )
 )"#,
         )
-        .gas(Gas::from_gas(10u64.pow(10)))
+        .gas(Gas::from_giga(10))
         .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
             Err: Exceeded the prepaid gas.

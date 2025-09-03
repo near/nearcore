@@ -24,6 +24,7 @@ use near_gas::NearGas;
     Default,
     Hash,
 )]
+#[repr(transparent)]
 pub struct Gas(NearGas);
 
 impl Gas {

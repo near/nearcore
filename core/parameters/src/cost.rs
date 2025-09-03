@@ -44,6 +44,14 @@ impl Fee {
     pub fn min_send_and_exec_fee(&self) -> Gas {
         std::cmp::min(self.send_sir, self.send_not_sir).checked_add(self.execution).unwrap()
     }
+
+    fn test_value(value: u64) -> Self {
+        Self {
+            send_sir: Gas::from_gas(value),
+            send_not_sir: Gas::from_gas(value),
+            execution: Gas::from_gas(value),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -496,25 +504,25 @@ impl RuntimeFeesConfig {
                 Gas::ZERO
             },
             action_fees: enum_map::enum_map! {
-                ActionCosts::create_account => Fee::new(3_850_000_000_000, 3_850_000_000_000, 3_850_000_000_000),
-                ActionCosts::delete_account => Fee::new(147489000000, 147489000000, 147489000000),
-                ActionCosts::deploy_contract_base => Fee::new(184765750000, 184765750000, 184765750000),
-                ActionCosts::deploy_contract_byte => Fee::new(6812999, 6812999, 6812999),
-                ActionCosts::function_call_base => Fee::new(2319861500000, 2319861500000, 2319861500000),
-                ActionCosts::function_call_byte => Fee::new(2235934, 2235934, 2235934),
-                ActionCosts::transfer => Fee::new(115123062500, 115123062500, 115123062500),
+                ActionCosts::create_account => Fee::test_value(3_850_000_000_000),
+                ActionCosts::delete_account => Fee::test_value(147489000000),
+                ActionCosts::deploy_contract_base => Fee::test_value(184765750000),
+                ActionCosts::deploy_contract_byte => Fee::test_value(6812999),
+                ActionCosts::function_call_base => Fee::test_value(2319861500000),
+                ActionCosts::function_call_byte => Fee::test_value(2235934),
+                ActionCosts::transfer => Fee::test_value(115123062500),
                 ActionCosts::stake => Fee::new(141715687500, 141715687500, 102217625000),
-                ActionCosts::add_full_access_key => Fee::new(101765125000, 101765125000, 101765125000),
-                ActionCosts::add_function_call_key_base => Fee::new(102217625000, 102217625000, 102217625000),
-                ActionCosts::add_function_call_key_byte => Fee::new(1925331, 1925331, 1925331),
-                ActionCosts::delete_key => Fee::new(94946625000, 94946625000, 94946625000),
-                ActionCosts::new_action_receipt => Fee::new(108059500000, 108059500000, 108059500000),
-                ActionCosts::new_data_receipt_base => Fee::new(4697339419375, 4697339419375, 4697339419375),
-                ActionCosts::new_data_receipt_byte => Fee::new(59357464, 59357464, 59357464),
-                ActionCosts::delegate => Fee::new(200_000_000_000, 200_000_000_000, 200_000_000_000),
-                ActionCosts::deploy_global_contract_base => Fee::new(184_765_750_000, 184_765_750_000, 184_765_750_000),
+                ActionCosts::add_full_access_key => Fee::test_value(101765125000),
+                ActionCosts::add_function_call_key_base => Fee::test_value(102217625000),
+                ActionCosts::add_function_call_key_byte => Fee::test_value(1925331),
+                ActionCosts::delete_key => Fee::test_value(94946625000),
+                ActionCosts::new_action_receipt => Fee::test_value(108059500000),
+                ActionCosts::new_data_receipt_base => Fee::test_value(4697339419375),
+                ActionCosts::new_data_receipt_byte => Fee::test_value(59357464),
+                ActionCosts::delegate => Fee::test_value(200_000_000_000),
+                ActionCosts::deploy_global_contract_base => Fee::test_value(184_765_750_000),
                 ActionCosts::deploy_global_contract_byte => Fee::new(6_812_999, 6_812_999, 70_000_000),
-                ActionCosts::use_global_contract_base => Fee::new(184_765_750_000, 184_765_750_000, 184_765_750_000),
+                ActionCosts::use_global_contract_base => Fee::test_value(184_765_750_000),
                 ActionCosts::use_global_contract_byte => Fee::new(6_812_999, 47_683_715, 64_572_944),
             },
         }

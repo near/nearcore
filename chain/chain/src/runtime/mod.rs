@@ -282,13 +282,7 @@ impl NightshadeRuntime {
             })?;
         let elapsed = instant.elapsed();
 
-        let total_gas_burnt = Gas::from_gas(
-            apply_result
-                .outcomes
-                .iter()
-                .map(|tx_result| tx_result.outcome.gas_burnt.as_gas())
-                .sum(),
-        );
+        let total_gas_burnt = apply_result.outcomes.iter().fold(Gas::ZERO, |a, tx_result| a.checked_add(tx_result.outcome.gas_burnt).unwrap());
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());

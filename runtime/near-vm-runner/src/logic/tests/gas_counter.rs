@@ -869,7 +869,7 @@ fn test_memory_copy_aggregate_accounting() {
               )
             )"#,
         )
-        .gas(Gas::from_gas(10u64.pow(10)))
+        .gas(Gas::from_giga(10))
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
         .expects(&[expect![[r#"
@@ -890,7 +890,7 @@ fn test_memory_copy_aggregate_accounting() {
               )
             )"#,
         )
-        .gas(Gas::from_gas(10u64.pow(10)))
+        .gas(Gas::from_giga(10))
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
         .expects(&[expect![[r#"
