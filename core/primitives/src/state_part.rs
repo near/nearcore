@@ -4,9 +4,7 @@ use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 
 use crate::state::PartialState;
-
-// TODO(cloud_archival) make it configurable
-const STATE_PARTS_COMPRESSION_LEVEL: i32 = 3;
+use crate::state_sync::STATE_PART_MEMORY_LIMIT;
 
 // to specify a part we always specify both part_id and num_parts together
 #[derive(Copy, Clone, Debug)]
@@ -54,17 +52,29 @@ impl StatePartV0 {
 }
 
 impl StatePartV1 {
-    fn from_partial_state(partial_state: PartialState) -> Self {
+    fn from_partial_state(partial_state: PartialState, compression_lvl: i32) -> Self {
         let bytes =
             borsh::to_vec(&partial_state).expect("serializing partial state should not fail");
-        let bytes_compressed = zstd::encode_all(bytes.as_slice(), STATE_PARTS_COMPRESSION_LEVEL)
+        let bytes_compressed = zstd::encode_all(bytes.as_slice(), compression_lvl)
             .expect("state part compression should not fail");
         Self { bytes_compressed }
     }
 
     fn to_partial_state(&self) -> borsh::io::Result<PartialState> {
-        let bytes_decompressed = &zstd::decode_all(self.bytes_compressed.as_slice())?;
-        PartialState::try_from_slice(bytes_decompressed)
+        let part_size_limit = STATE_PART_MEMORY_LIMIT.as_u64();
+        let decoder = zstd::stream::read::Decoder::new(self.bytes_compressed.as_slice())?;
+        // We add +1 so we can detect when decompressed size exceeds the limit
+        let mut decoder_with_limit = std::io::Read::take(decoder, part_size_limit + 1);
+
+        let mut decoded = Vec::new();
+        std::io::Read::read_to_end(&mut decoder_with_limit, &mut decoded)?;
+        if decoded.len() > part_size_limit as usize {
+            return Err(borsh::io::Error::new(
+                borsh::io::ErrorKind::InvalidData,
+                "decompression limit exceeded",
+            ));
+        }
+        PartialState::try_from_slice(&decoded)
     }
 }
 
@@ -72,9 +82,10 @@ impl StatePart {
     pub fn from_partial_state(
         partial_state: PartialState,
         protocol_version: ProtocolVersion,
+        compression_lvl: i32,
     ) -> Self {
         if ProtocolFeature::StatePartsCompression.enabled(protocol_version) {
-            Self::V1(StatePartV1::from_partial_state(partial_state))
+            Self::V1(StatePartV1::from_partial_state(partial_state, compression_lvl))
         } else {
             Self::V0(StatePartV0::from_partial_state(partial_state))
         }
@@ -95,7 +106,6 @@ impl StatePart {
         protocol_version: ProtocolVersion,
     ) -> borsh::io::Result<Self> {
         if ProtocolFeature::StatePartsCompression.enabled(protocol_version) {
-            // TODO: protect from decompression bomb.
             BorshDeserialize::try_from_slice(&bytes)
         } else {
             Ok(Self::V0(StatePartV0(bytes)))
@@ -129,6 +139,7 @@ mod tests {
 
     use crate::state::PartialState;
     use crate::state_part::StatePart;
+    use crate::state_sync::STATE_PART_MEMORY_LIMIT;
 
     // Some values with low entropy, to benefit from compression.
     fn dummy_partial_state() -> PartialState {
@@ -141,13 +152,13 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_state_parts() {
+    fn test_legacy_state_part() {
         let new_protocol_version = ProtocolFeature::StatePartsCompression.protocol_version();
         let old_protocol_version = new_protocol_version - 1;
 
         let partial_state = dummy_partial_state();
         let state_part_v0 =
-            StatePart::from_partial_state(partial_state.clone(), old_protocol_version);
+            StatePart::from_partial_state(partial_state.clone(), old_protocol_version, 1);
         assert!(matches!(state_part_v0, StatePart::V0(_)));
         let partial_state_reconstructed = state_part_v0.to_partial_state().unwrap();
         assert_eq!(partial_state, partial_state_reconstructed);
@@ -163,15 +174,15 @@ mod tests {
     }
 
     #[test]
-    fn test_state_parts_compression() {
+    fn test_state_part_compression() {
         let new_protocol_version = ProtocolFeature::StatePartsCompression.protocol_version();
         let old_protocol_version = new_protocol_version - 1;
         let partial_state = dummy_partial_state();
 
         let state_part_v0 =
-            StatePart::from_partial_state(partial_state.clone(), old_protocol_version);
+            StatePart::from_partial_state(partial_state.clone(), old_protocol_version, 1);
         let state_part_v1 =
-            StatePart::from_partial_state(partial_state.clone(), new_protocol_version);
+            StatePart::from_partial_state(partial_state.clone(), new_protocol_version, 1);
         assert!(state_part_v1.payload_length() < state_part_v0.payload_length());
 
         let partial_state_reconstructed_from_state_part_v1 =
@@ -186,5 +197,22 @@ mod tests {
         // Compressed state parts are not backward compatible, i.e. cannot be used for sync to
         // epoch which does not have `StatePartsCompression` enabled yet.
         assert!(std::panic::catch_unwind(|| state_part_v1.to_bytes(old_protocol_version)).is_err());
+    }
+
+    #[test]
+    fn test_state_part_compression_bomb() {
+        let part_size_limit = STATE_PART_MEMORY_LIMIT.as_u64() as usize;
+        let protocol_version = ProtocolFeature::StatePartsCompression.protocol_version();
+        let big_value = Arc::from(vec![b'a'; 2 * part_size_limit].into_boxed_slice());
+        let partial_state = PartialState::TrieValues(vec![big_value]);
+
+        let state_part = StatePart::from_partial_state(partial_state, protocol_version, 1);
+        assert!(state_part.payload_length() < part_size_limit / 2);
+
+        let decompression_result = state_part.to_partial_state();
+        // Although the compressed size is less than half of the limit, after decompression is twice the limit.
+        let err = decompression_result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(err.to_string(), "decompression limit exceeded");
     }
 }
