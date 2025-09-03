@@ -24,10 +24,9 @@ use global_contracts::{
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
-use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::Account;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
@@ -62,8 +61,8 @@ use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_account,
+    get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
     set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
@@ -74,7 +73,6 @@ use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
-use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -1529,73 +1527,86 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
         let tx_vec = signed_txs.into_nonexpired_transactions();
-        let len = tx_vec.len();
+        let _len = tx_vec.len();
         let chunk_count_target = rayon::current_num_threads() * TARGET_CHUNKS_PER_THREAD;
-        let chunk_size =
+        let _chunk_size =
             (tx_vec.len() / chunk_count_target).clamp(MIN_CHUNK_SIZE, ValidBitmask::BITS as _);
         let protocol_version = processing_state.protocol_version;
-        let (valid_masks, (accounts, access_keys)) = rayon::join(
-            || {
-                tx_vec
-                    .par_chunks(chunk_size)
-                    .map(|txs| {
-                        let mut valid_mask: ValidBitmask = 0;
-                        for (idx, tx) in txs.iter().enumerate() {
-                            let tx_hash = tx.hash();
-                            let v = validate_transaction(
-                                &apply_state.config,
-                                tx.clone(),
-                                protocol_version,
-                            );
-                            if let Err((err, _)) = v {
-                                tracing::debug!(?tx_hash, ?err, "transaction invalid");
-                                continue;
-                            }
-                            valid_mask |= 1 << idx;
-                        }
-                        valid_mask
-                    })
-                    .collect::<Vec<_>>()
-            },
-            || {
-                type AccountV = Result<Option<Account>, StorageError>;
-                type AccessKeyV = Result<Option<AccessKey>, StorageError>;
-                let accounts = dashmap::DashMap::<&AccountId, AccountV>::with_capacity(len);
-                let access_keys =
-                    dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(len);
-                tx_vec.par_chunks(chunk_size).for_each(|txs| {
-                    for tx in txs {
-                        let signer_id = tx.transaction.signer_id();
-                        let pubkey = tx.transaction.public_key();
-                        accounts
-                            .entry(signer_id)
-                            .or_insert_with(|| get_account(state_update, signer_id));
-                        access_keys
-                            .entry((signer_id, pubkey))
-                            .or_insert_with(|| get_access_key(state_update, signer_id, pubkey));
-                    }
-                });
-                (accounts, access_keys)
-            },
-        );
+        //let (valid_masks, (accounts, access_keys)) = rayon::join(
+        //    || {
+        //        tx_vec
+        //            .par_chunks(chunk_size)
+        //            .map(|txs| {
+        //                let mut valid_mask: ValidBitmask = 0;
+        //                for (idx, tx) in txs.iter().enumerate() {
+        //                    let tx_hash = tx.hash();
+        //                    let v = validate_transaction(
+        //                        &apply_state.config,
+        //                        tx.clone(),
+        //                        protocol_version,
+        //                    );
+        //                    if let Err((err, _)) = v {
+        //                        tracing::debug!(?tx_hash, ?err, "transaction invalid");
+        //                        continue;
+        //                    }
+        //                    valid_mask |= 1 << idx;
+        //                }
+        //                valid_mask
+        //            })
+        //            .collect::<Vec<_>>()
+        //    },
+        //    || {
+        //        type AccountV = Result<Option<Account>, StorageError>;
+        //        type AccessKeyV = Result<Option<AccessKey>, StorageError>;
+        //        let accounts = dashmap::DashMap::<&AccountId, AccountV>::with_capacity(len);
+        //        let access_keys =
+        //            dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(len);
+        //        tx_vec.par_chunks(chunk_size).for_each(|txs| {
+        //            for tx in txs {
+        //                let signer_id = tx.transaction.signer_id();
+        //                let pubkey = tx.transaction.public_key();
+        //                accounts
+        //                    .entry(signer_id)
+        //                    .or_insert_with(|| get_account(state_update, signer_id));
+        //                access_keys
+        //                    .entry((signer_id, pubkey))
+        //                    .or_insert_with(|| get_access_key(state_update, signer_id, pubkey));
+        //            }
+        //        });
+        //        (accounts, access_keys)
+        //    },
+        //);
 
-        let valid_mask_iterator = valid_masks
-            .into_iter()
-            .flat_map(|mask| (0..chunk_size).map(move |idx| ((mask >> idx) & 1) == 1));
+        //let valid_mask_iterator = valid_masks
+        //    .into_iter()
+        //    .flat_map(|mask| (0..chunk_size).map(move |idx| ((mask >> idx) & 1) == 1));
 
         let default_hash = CryptoHash::default();
-        let mut last_tx_hash = &default_hash;
-        for (tx, is_valid) in tx_vec.iter().zip(valid_mask_iterator) {
+        let mut last_tx_hash = default_hash;
+
+        for tx in tx_vec {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
-            if !is_valid {
+            let v = validate_transaction(&apply_state.config, tx, protocol_version);
+            let Ok(validated_tx) = v else {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 continue;
-            }
-            last_tx_hash = tx.hash();
+            };
+            let tx = validated_tx.to_signed_tx();
+            let tx_hash = tx.hash();
+            let (mut account, mut access_key) =
+                match get_signer_and_access_key(state_update, &validated_tx) {
+                    Ok((a, ak)) => (a, ak),
+                    _ => {
+                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                        tracing::debug!(%tx_hash, "transaction signed by unknown account or key");
+                        continue;
+                    }
+                };
+
+            last_tx_hash = *tx.hash();
             let signer_id = tx.transaction.signer_id();
             let pubkey = tx.transaction.public_key();
             let gas_price = apply_state.gas_price;
-            let tx_hash = tx.hash();
             let block_height = apply_state.block_height;
 
             let cost =
@@ -1610,28 +1621,28 @@ impl Runtime {
                 };
 
             let verification_result = {
-                let mut account = accounts.get_mut(signer_id);
-                let mut account = match account.as_deref_mut() {
-                    Some(Ok(Some(a))) => a,
-                    Some(Ok(None)) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, "transaction signed by unknown account");
-                        continue;
-                    }
-                    Some(Err(e)) => return Err(e.clone().into()),
-                    None => unreachable!("accounts should've been prefetched"),
-                };
-                let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
-                let mut access_key = match access_key.as_deref_mut() {
-                    Some(Ok(Some(ak))) => ak,
-                    Some(Ok(None)) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
-                        continue;
-                    }
-                    Some(Err(e)) => return Err(e.clone().into()),
-                    None => unreachable!("access keys should've been prefetched"),
-                };
+                //let mut account = accounts.get_mut(signer_id);
+                //let mut account = match account.as_deref_mut() {
+                //    Some(Ok(Some(a))) => a,
+                //    Some(Ok(None)) => {
+                //        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                //        tracing::debug!(%tx_hash, "transaction signed by unknown account");
+                //        continue;
+                //    }
+                //    Some(Err(e)) => return Err(e.clone().into()),
+                //    None => unreachable!("accounts should've been prefetched"),
+                //};
+                //let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
+                //let mut access_key = match access_key.as_deref_mut() {
+                //    Some(Ok(Some(ak))) => ak,
+                //    Some(Ok(None)) => {
+                //        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                //        tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
+                //        continue;
+                //    }
+                //    Some(Err(e)) => return Err(e.clone().into()),
+                //    None => unreachable!("access keys should've been prefetched"),
+                //};
                 match verify_and_charge_tx_ephemeral(
                     &apply_state.config,
                     &mut account,
@@ -1649,6 +1660,7 @@ impl Runtime {
                     }
                 }
             };
+            set_tx_state_changes(state_update, &validated_tx, &account, &access_key);
 
             let (receipt, outcome) = {
                 let receipt_id =
@@ -1720,18 +1732,18 @@ impl Runtime {
 
         processing_state.metrics.tx_processing_done(total.gas, total.compute);
 
-        for (id, account) in accounts {
-            if let Ok(Some(account)) = account {
-                set_account(state_update, id.clone(), &account);
-            }
-        }
-        for ((id, pk), ak) in access_keys {
-            if let Ok(Some(ak)) = ak {
-                set_access_key(state_update, id.clone(), pk.clone(), &ak);
-            }
-        }
+        //for (id, account) in accounts {
+        //    if let Ok(Some(account)) = account {
+        //        set_account(state_update, id.clone(), &account);
+        //    }
+        //}
+        //for ((id, pk), ak) in access_keys {
+        //    if let Ok(Some(ak)) = ak {
+        //        set_access_key(state_update, id.clone(), pk.clone(), &ak);
+        //    }
+        //}
 
-        state_update.commit(StateChangeCause::TransactionProcessing { tx_hash: *last_tx_hash });
+        state_update.commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
 
         Ok(())
     }
