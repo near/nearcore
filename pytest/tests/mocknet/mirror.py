@@ -8,15 +8,13 @@ import pathlib
 import json
 import random
 import shutil
-import subprocess
 from rc import pmap
 import re
 import sys
 import time
 import numpy as np
+from functools import wraps
 from typing import Optional
-import tempfile
-import os
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -225,6 +223,7 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
     args = ctx.args
     nodes = ctx.nodes
     traffic_generator = ctx.traffic_generator
+    upgrade_by_epoch = getattr(args, 'upgrade_by_epoch', False)
     prompt_init_flags(args)
 
     if args.neard_upgrade_binary_url is not None and args.neard_upgrade_binary_url != '':
@@ -248,6 +247,7 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
             })
 
         node_config = {
+            "upgrade_by_epoch": upgrade_by_epoch,
             "run_id": run_id,
             "is_traffic_generator": False,
             "binaries": node_binaries,
@@ -275,21 +275,8 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
         all_nodes.append(traffic_generator)
         all_configs.append(traffic_generator_config)
 
-    source_temp_dir = tempfile.mkdtemp(prefix="neard_runner_shared_")
-    try:
-        for file in [
-                'neard_runner.py', 'requirements.txt', 'setup-near-cli.sh',
-                'send-stake-proposal.sh'
-        ]:
-            shutil.copy2(f'tests/mocknet/helpers/{file}',
-                         os.path.join(source_temp_dir, file))
-
-        pmap(
-            lambda x: x[0].init_neard_runner(x[1], source_temp_dir,
-                                             remove_home_dir),
-            zip(all_nodes, all_configs))
-    finally:
-        shutil.rmtree(source_temp_dir)
+    pmap(lambda x: x[0].init_neard_runner(x[1], remove_home_dir),
+         zip(all_nodes, all_configs))
 
 
 def init_cmd(ctx: CommandContext):
@@ -318,10 +305,7 @@ def restart_cmd(ctx: CommandContext):
     targeted = ctx.get_targeted()
     pmap(lambda node: node.stop_neard_runner(), targeted)
     if ctx.args.upload_program:
-        pmap(
-            lambda node: node.upload_file(
-                'tests/mocknet/helpers/neard_runner.py', node.neard_runner_home
-            ), targeted)
+        pmap(lambda node: node.upload_neard_runner(), targeted)
     pmap(lambda node: node.start_neard_runner(), targeted)
 
 
@@ -440,17 +424,11 @@ def new_test_cmd(ctx: CommandContext):
     targeted = nodes + to_list(traffic_generator)
 
     logger.info(f'resetting/initializing home dirs')
-
-    if traffic_generator:
-        rpc_ip = traffic_generator.ip_addr()
-    else:
-        rpc_ip = '0.0.0.0'
     test_keys = pmap(
-        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id(), rpc_ip),
-        targeted)
+        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id()), targeted)
 
     stake_distribution = build_stake_distribution(
-        getattr(args, 'stake_distribution', None), 100)
+        getattr(args, 'stake_distribution', None), args.num_seats)
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
                                                args.num_validators,
                                                stake_distribution)
@@ -587,6 +565,7 @@ def update_config_cmd(ctx: CommandContext):
 
 def start_nodes_cmd(ctx: CommandContext):
     nodes = ctx.nodes
+    binary_idx = getattr(ctx.args, 'binary_idx', None)
     if not all(pmap(lambda node: node.neard_runner_ready(), nodes)):
         logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
@@ -594,7 +573,7 @@ def start_nodes_cmd(ctx: CommandContext):
         return
     pmap(
         lambda node: node.with_schedule_ctx(ctx.schedule_ctx).
-        neard_runner_start(), nodes)
+        neard_runner_start(binary_idx=binary_idx), nodes)
     # Wait for the nodes to be up if not scheduling
     if not ctx.is_scheduled():
         pmap(lambda node: node.wait_node_up(), nodes)
@@ -718,7 +697,7 @@ def clear_scheduled_cmds(ctx: CommandContext):
     logger.info(
         f'Clearing scheduled commands matching "{filter}" from {",".join([h.name() for h in targeted])}'
     )
-    cmd = f'systemctl --user stop "{filter}"; systemctl --user reset-failed "{filter}"'
+    cmd = f'systemctl --user stop "{filter}"'
     _run_remote(targeted, cmd)
 
 
@@ -872,6 +851,12 @@ def register_base_commands(subparsers):
     ''')
     init_parser.add_argument('--neard-binary-url', type=str)
     init_parser.add_argument('--neard-upgrade-binary-url', type=str)
+    init_parser.add_argument('--upgrade-by-epoch',
+                             action='store_true',
+                             help='''
+    If this is set, the upgrade binary will be started at a random epoch height between 1 and 4.
+    Otherwise, the upgrade needs to be triggered with the start-nodes command.
+    ''')
     init_parser.set_defaults(func=init_cmd)
 
     restart_parser = subparsers.add_parser(
@@ -889,6 +874,12 @@ def register_base_commands(subparsers):
         help='''Stops neard and clears all test state on all nodes.''')
     hard_reset_parser.add_argument('--neard-binary-url', type=str)
     hard_reset_parser.add_argument('--neard-upgrade-binary-url', type=str)
+    hard_reset_parser.add_argument('--upgrade-by-epoch',
+                                   action='store_true',
+                                   help='''
+    If this is set, the upgrade binary will be started at a random epoch height between 1 and 4.
+    Otherwise, the upgrade needs to be triggered with the start-nodes command.
+    ''')
     hard_reset_parser.add_argument('--yes', action='store_true')
     hard_reset_parser.set_defaults(func=hard_reset_cmd)
 
@@ -1002,6 +993,13 @@ def register_subcommands(subparsers):
     start_nodes_parser = subparsers.add_parser(
         'start-nodes',
         help='Starts all nodes, but does not start the traffic generator.')
+    start_nodes_parser.add_argument(
+        '--binary-idx',
+        type=int,
+        help='''The index of the neard binary to start.
+        If not provided, the current binary will be started.
+        If the binary index is different from the current binary index, the nodes will be restarted with the binary at the given index.
+        ''')
     start_nodes_parser.set_defaults(func=start_nodes_cmd)
 
     stop_parser = subparsers.add_parser('stop-nodes',

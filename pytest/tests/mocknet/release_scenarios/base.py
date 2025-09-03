@@ -7,6 +7,7 @@ import pathlib
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 
 from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
@@ -104,23 +105,13 @@ class TestSetup:
             f"Initializing environment for test case {self.args.test_case}")
         # Load test state orchestrator
         init_args = copy.deepcopy(self.args)
-        # why?
-        # init_args.neard_upgrade_binary_url = ''
+        init_args.neard_binary_url = self.neard_binary_url
+        init_args.neard_upgrade_binary_url = self.neard_upgrade_binary_url
+        # We are using schedule to start the nodes, so we don't need to upgrade by epoch.
+        init_args.upgrade_by_epoch = False
         init_args.yes = True
         init_args.gcs_state_sync = self.has_state_dumper
         hard_reset_cmd(CommandContext(init_args))
-
-        # Traffic node should always run the latest binary to avoid restarting it.
-        if self._needs_upgrade():
-            logger.info(
-                f"Amending binaries on traffic node with url: {self.neard_upgrade_binary_url}"
-            )
-            amend_binaries_args = copy.deepcopy(self.args)
-            amend_binaries_args.binary_idx = 0
-            amend_binaries_args.epoch_height = None
-            amend_binaries_args.neard_binary_url = self.neard_upgrade_binary_url
-            amend_binaries_args.host_type = 'traffic'
-            amend_binaries_cmd(CommandContext(amend_binaries_args))
 
         # Clear scheduled commands.
         logger.info(f"Clearing scheduled commands.")
@@ -172,7 +163,6 @@ class TestSetup:
         new_test_args.gcs_state_sync = self.has_state_dumper
         new_test_args.state_source = 'dump'
         new_test_args.patches_path = None
-        new_test_args.stake_distribution = 'mainnet'
 
         new_test_cmd(CommandContext(new_test_args))
 
@@ -187,7 +177,7 @@ class TestSetup:
             if len(not_ready_nodes) == 0:
                 break
             logger.info(
-                f"Waiting for network to be ready. {len(not_ready_nodes)} nodes not ready: {not_ready_nodes[:5]}..."
+                f"Waiting for network to be ready. {len(not_ready_nodes)} nodes not ready."
             )
             time.sleep(1)
         logger.info("Network is ready.")
@@ -228,35 +218,14 @@ class TestSetup:
         run_cmd_args.cmd = cmd_traffic
         run_remote_cmd(CommandContext(run_cmd_args))
 
-        jq_cmd = f"""-type f -name "80.json" -exec sh -c 'jq ".num_chunk_validator_seats = 500" $1 > $1.tmp && mv $1.tmp $1' _ {{}} \;"""
-        cmd_node = f"find ~/.near/epoch_configs/ {jq_cmd}"
-        cmd_traffic = f"find ~/.near/target/epoch_configs/ {jq_cmd}"
-        run_cmd_args = copy.deepcopy(self.args)
-        run_cmd_args.host_type = 'nodes'
-        run_cmd_args.cmd = cmd_node
-        run_remote_cmd(CommandContext(run_cmd_args))
-        run_cmd_args.host_type = 'traffic'
-        run_cmd_args.cmd = cmd_traffic
-        run_remote_cmd(CommandContext(run_cmd_args))
-
-    def _reduce_chunk_validators_stake(self):
-        """
-        Reduce the stake of the chunk validators to avoid accidentally becoming the block producers.
-        """
-        # TODO: install the near validator tools and setup the environment.
-        # TODO: run the validator tools to reduce the stake of the chunk validators.
-        pass
-
     def amend_epoch_config(self):
         if self._needs_upgrade():
             # We need to share the epoch configs before the upgrade.
+            # TODO: use the binary on the host to generate the new epoch configs.
             self._share_epoch_configs()
         self._amend_epoch_config(
-            f".num_chunk_validator_seats = 300 | "  # HACK FOR UPGRADE TEST
-            f".block_producer_kickout_threshold = 0 | "
-            f".chunk_producer_kickout_threshold = 0 | "
-            f".chunk_validator_only_kickout_threshold = 0")
-        self._reduce_chunk_validators_stake()
+            f".num_chunk_validator_seats = {self.node_hardware_config.num_chunk_validator_seats}"
+        )
 
     def amend_configs_before_test_start(self):
         """
@@ -276,36 +245,24 @@ class TestSetup:
     def _schedule_upgrade_nodes_every_n_minutes(self, minutes):
         """
         Make 4 batches of upgrades.
-        Stop the nodes, amend the binaries, and start the nodes.
+        The nodes should already have the upgrade binary on index 1.
         """
         if self.neard_upgrade_binary_url == '':
             return
 
+        def time_to_str(time):
+            return time.astimezone(
+                timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+
+        now = datetime.now()
         for i in range(1, 5):
-            stop_nodes_args = copy.deepcopy(self.args)
-            stop_nodes_args.host_type = 'nodes'
-            stop_nodes_args.select_partition = (i, 4)
-            stop_nodes_args.on = ScheduleMode(mode="active",
-                                              value=f"{(i * minutes)}m")
-            stop_nodes_args.schedule_id = f"up-stop-{i}"
-            stop_nodes_cmd(CommandContext(stop_nodes_args))
-
-            amend_binaries_args = copy.deepcopy(self.args)
-            amend_binaries_args.binary_idx = 0
-            amend_binaries_args.epoch_height = None
-            amend_binaries_args.neard_binary_url = self.neard_upgrade_binary_url
-            amend_binaries_args.host_type = 'nodes'
-            amend_binaries_args.select_partition = (i, 4)
-            amend_binaries_args.on = ScheduleMode(
-                mode="active", value=f"{(i * minutes * 60 + 20)}")
-            amend_binaries_args.schedule_id = f"up-change-{i}"
-            amend_binaries_cmd(CommandContext(amend_binaries_args))
-
+            restart_time = now + timedelta(minutes=i * minutes)
             start_nodes_args = copy.deepcopy(self.args)
             start_nodes_args.host_type = 'nodes'
             start_nodes_args.select_partition = (i, 4)
-            start_nodes_args.on = ScheduleMode(mode="active",
-                                               value=f"{(i*minutes + 1)}m")
+            start_nodes_args.binary_idx = 1
+            start_nodes_args.on = ScheduleMode(mode="calendar",
+                                               value=time_to_str(restart_time))
             start_nodes_args.schedule_id = f"up-start-{i}"
             start_nodes_cmd(CommandContext(start_nodes_args))
 

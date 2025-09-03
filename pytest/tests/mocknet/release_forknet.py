@@ -4,7 +4,6 @@ This script is used to run a release tests on a forknet.
 
 from argparse import ArgumentParser
 import sys
-import copy
 import pathlib
 import subprocess
 from enum import Enum
@@ -13,7 +12,6 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 
 from release_scenarios import get_test_case, get_available_test_cases
-from mirror import CommandContext, ScheduleMode, update_config_cmd, run_remote_cmd, start_nodes_cmd
 
 CHAIN_ID = "mainnet"
 MOCKNET_STORE_PATH = "gs://near-mocknet-artefact-store"
@@ -53,7 +51,6 @@ def call_gh_workflow(action: Action,
     if tracing_server != None:
         cmd += f"-f tracing_server={'true' if tracing_server else 'false'} "
     logger.info(f"Calling GH workflow with command: {cmd}")
-    # exit(0)
     result = subprocess.run(cmd, shell=True)
     logger.info(
         f"GH workflow call completed with return code: {result.returncode}")
@@ -100,13 +97,6 @@ def handle_destroy(args):
 def handle_start_test(args):
     logger.info("🚀 Starting test...")
     test_setup = get_test_case(args.test_case, args)
-
-    # stake_cmd_args = copy.deepcopy(test_setup.args)
-    # stake_cmd_args.host_filter = '-cv-'
-    # stake_cmd_args.cmd = "bash ~/.near/neard-runner/send-stake-proposal.sh"
-    # run_remote_cmd(CommandContext(stake_cmd_args))
-    # exit(0)
-
     logger.info("🔄 Initializing environment...")
     test_setup.init_env()
     logger.info("🔄 Running before test setup...")
