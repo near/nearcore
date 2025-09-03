@@ -275,6 +275,11 @@ pub enum InvalidTxError {
         /// The number of blocks since the last included chunk of the shard.
         missed_chunks: u64,
     } = 17,
+    /// Computation of the total gas burnt by the chunk overflows
+    BurntGasOverflow {
+        /// amount of gas burnt by the failed transaction alone
+        burnt_amount: u128,
+    } = 18,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -766,6 +771,12 @@ impl Display for InvalidTxError {
                 write!(
                     f,
                     "Shard {shard_id} missed {missed_chunks} chunks and rejects new transactions."
+                )
+            }
+            InvalidTxError::BurntGasOverflow { burnt_amount } => {
+                write!(
+                    f,
+                    "transaction burnt gas amount of {burnt_amount} which resulted in total chunk gas burnt calculation overflow"
                 )
             }
         }

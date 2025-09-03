@@ -120,6 +120,11 @@ fn slow_test_send_money_over_balance_testnet() {
 }
 
 #[test]
+fn slow_test_transaction_signature_error_testnet() {
+    run_testnet_test!(test_transaction_signature_error);
+}
+
+#[test]
 fn slow_test_refund_on_send_money_to_non_existent_account_testnet() {
     run_testnet_test!(test_refund_on_send_money_to_non_existent_account);
 }

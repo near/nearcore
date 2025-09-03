@@ -4,7 +4,7 @@ mod runtime;
 use assert_matches::assert_matches;
 use near_chain_configs::NEAR_BASE;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives::account::{
@@ -255,7 +255,27 @@ pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
 pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
-    node_user.send_money(account_id.clone(), bob_account(), TESTING_INIT_BALANCE + 1).unwrap_err();
+    let result = node_user.send_money(account_id.clone(), bob_account(), TESTING_INIT_BALANCE + 1);
+    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
+        // depending on user (rpc or runtime) the result is either outcome with Failure status or CommitError
+        match result {
+            Ok(outcome) => assert_matches!(
+                outcome.status,
+                FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                    InvalidTxError::NotEnoughBalance { .. }
+                ))
+            ),
+            Err(err) => assert_matches!(
+                err,
+                CommitError::Server(ServerError::TxExecutionError(
+                    TxExecutionError::InvalidTxError(InvalidTxError::NotEnoughBalance { .. })
+                ))
+            ),
+        }
+    } else {
+        result.unwrap_err();
+    }
+
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 0);
 }
 
@@ -344,6 +364,24 @@ pub fn test_redeploy_contract(node: impl Node) {
     assert_ne!(root, new_root);
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.code_hash, hash(test_binary));
+}
+
+pub fn test_transaction_signature_error(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let node_user = node.user();
+    let mut tx = node_user.make_signed_transaction(
+        account_id.clone(),
+        bob_account(),
+        vec![Action::Transfer(TransferAction { deposit: 1 })],
+    );
+    tx.signature = Signature::from_parts(KeyType::ED25519, &[0u8; 64]).unwrap();
+    let result = node_user.commit_transaction(tx);
+    assert_matches!(
+        result.unwrap_err(),
+        CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidSignature
+        )))
+    );
 }
 
 pub fn test_send_money(node: impl Node) {
@@ -547,7 +585,30 @@ pub fn test_send_money_over_balance(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let money_used = TESTING_INIT_BALANCE + 1;
-    node_user.send_money(account_id.clone(), bob_account(), money_used).unwrap_err();
+
+    let result0 = node_user.send_money(account_id.clone(), bob_account(), money_used);
+
+    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
+        match result0 {
+            Ok(outcome) => {
+                assert_matches!(
+                    outcome.status,
+                    FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                        InvalidTxError::NotEnoughBalance { .. }
+                    ))
+                );
+            }
+            Err(err) => assert_matches!(
+                err,
+                CommitError::Server(ServerError::TxExecutionError(
+                    TxExecutionError::InvalidTxError(InvalidTxError::NotEnoughBalance { .. })
+                ))
+            ),
+        }
+    } else {
+        result0.unwrap_err();
+    }
+
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.locked),
@@ -1125,10 +1186,22 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(Arc::new(signer2));
 
-    let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
-        .unwrap_err();
-    assert_eq!(transaction_result, CommitError::OutcomeNotFound);
+    let transaction_result = node_user.function_call(
+        account_id.clone(),
+        bob_account(),
+        "run_test",
+        vec![],
+        10u64.pow(14),
+        0,
+    );
+
+    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
+        let transaction_result = transaction_result.unwrap();
+        assert_matches!(transaction_result.status, FinalExecutionStatus::Failure(_));
+    } else {
+        let transaction_result = transaction_result.unwrap_err();
+        assert_eq!(transaction_result, CommitError::OutcomeNotFound);
+    }
 }
 
 pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
@@ -1146,17 +1219,22 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(Arc::new(signer2));
 
-    let transaction_result = node_user
-        .function_call(
-            account_id.clone(),
-            eve_dot_alice_account(),
-            "run_test",
-            vec![],
-            10u64.pow(14),
-            0,
-        )
-        .unwrap_err();
-    assert_eq!(transaction_result, CommitError::OutcomeNotFound);
+    let transaction_result = node_user.function_call(
+        account_id.clone(),
+        eve_dot_alice_account(),
+        "run_test",
+        vec![],
+        10u64.pow(14),
+        0,
+    );
+
+    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
+        let transaction_result = transaction_result.unwrap();
+        assert_matches!(transaction_result.status, FinalExecutionStatus::Failure(_));
+    } else {
+        let transaction_result = transaction_result.unwrap_err();
+        assert_eq!(transaction_result, CommitError::OutcomeNotFound);
+    }
 }
 
 pub fn test_access_key_reject_non_function_call(node: impl Node) {
@@ -1174,9 +1252,22 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(Arc::new(signer2));
 
-    let transaction_result =
-        node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap_err();
-    assert_eq!(transaction_result, CommitError::OutcomeNotFound);
+    let transaction_result = node_user.delete_key(account_id.clone(), node.signer().public_key());
+
+    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
+        let transaction_result = transaction_result.unwrap();
+        assert_matches!(transaction_result.status, FinalExecutionStatus::Failure(_));
+
+        assert_matches!(
+            transaction_result.status,
+            FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess)
+            ))
+        );
+    } else {
+        let transaction_result = transaction_result.unwrap_err();
+        assert_eq!(transaction_result, CommitError::OutcomeNotFound);
+    }
 }
 
 pub fn test_increase_stake(node: impl Node) {
@@ -1255,7 +1346,14 @@ pub fn test_fail_not_enough_balance_for_storage(node: impl Node) {
     let account_id = bob_account();
     let signer = Arc::new(InMemorySigner::test_signer(&account_id));
     node_user.set_signer(signer);
-    node_user.send_money(account_id, alice_account(), 10).unwrap_err();
+    let transaction_result = node_user.send_money(account_id, alice_account(), 10);
+
+    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
+        let transaction_result = transaction_result.unwrap();
+        assert_matches!(transaction_result.status, FinalExecutionStatus::Failure(_));
+    } else {
+        transaction_result.unwrap_err();
+    }
 }
 
 pub fn test_delete_account_ok(node: impl Node) {

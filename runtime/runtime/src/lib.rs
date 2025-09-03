@@ -31,6 +31,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, EpochError, IntegerOverflowError, RuntimeError, TxExecutionError,
 };
@@ -44,7 +45,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-    TransferAction,
+    SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -56,7 +57,7 @@ use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
     create_receipt_id_from_transaction,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
@@ -79,7 +80,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
-use verifier::ValidateReceiptMode;
+use verifier::{ValidateReceiptMode, validate_actions};
 
 mod actions;
 pub mod adapter;
@@ -1483,59 +1484,270 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
+    /// Process a single transaction.
+    /// Transactions that fail to validate are going to have `ExecutionStatus::Failure` status.
+    /// `RuntimeError` indicates processing errors.
+    fn process_transaction<'a>(
+        &self,
+        tx: &'a SignedTransaction,
+        is_valid: Option<InvalidTxError>,
+        accounts: &dashmap::DashMap<&AccountId, Result<Option<Account>, StorageError>>,
+        access_keys: &dashmap::DashMap<
+            (&'a AccountId, &'a PublicKey),
+            Result<Option<AccessKey>, StorageError>,
+        >,
+        processing_state: &mut ApplyProcessingReceiptState,
+        receipt_sink: &mut ReceiptSink,
+    ) -> Result<ExecutionOutcome, RuntimeError> {
+        metrics::TRANSACTION_PROCESSED_TOTAL.inc();
+        if let Some(err) = is_valid {
+            metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+            return Ok(ExecutionOutcome {
+                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)),
+                logs: Default::default(),
+                receipt_ids: Default::default(),
+                gas_burnt: 0,
+                compute_usage: None,
+                tokens_burnt: 0,
+                executor_id: tx.transaction.signer_id().clone(),
+                metadata: ExecutionMetadata::V1,
+            });
+        }
+        let signer_id = tx.transaction.signer_id();
+        let pubkey = tx.transaction.public_key();
+        let apply_state = &mut processing_state.apply_state;
+        let gas_price = apply_state.gas_price;
+        let tx_hash = tx.hash();
+        let block_height = apply_state.block_height;
+        let protocol_version = processing_state.protocol_version;
+        let state_update = &mut processing_state.state_update;
+        let total = &mut processing_state.total;
+
+        let cost = match tx_cost(&apply_state.config, &tx.transaction, gas_price, protocol_version)
+        {
+            Ok(c) => c,
+            Err(error) => {
+                let tx_error = match error {
+                    IntegerOverflowError => InvalidTxError::CostOverflow,
+                };
+                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                let error = &error as &dyn std::error::Error;
+                tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
+                return Ok(ExecutionOutcome {
+                    status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(tx_error)),
+                    logs: Default::default(),
+                    receipt_ids: Default::default(),
+                    gas_burnt: 0,
+                    compute_usage: None,
+                    tokens_burnt: 0,
+                    executor_id: tx.transaction.signer_id().clone(),
+                    metadata: ExecutionMetadata::V1,
+                });
+            }
+        };
+
+        let verification_result = {
+            let mut account = accounts.get_mut(signer_id);
+            let mut account = match account.as_deref_mut() {
+                Some(Ok(Some(a))) => a,
+                Some(Ok(None)) => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    tracing::debug!(%tx_hash, "transaction signed by unknown account");
+                    return Ok(ExecutionOutcome {
+                        status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                            InvalidTxError::InvalidSignerId { signer_id: signer_id.to_string() },
+                        )),
+                        logs: Default::default(),
+                        receipt_ids: Default::default(),
+                        gas_burnt: 0,
+                        compute_usage: None,
+                        tokens_burnt: 0,
+                        executor_id: tx.transaction.signer_id().clone(),
+                        metadata: ExecutionMetadata::V1,
+                    });
+                }
+                Some(Err(e)) => return Err(e.clone().into()),
+                None => unreachable!("accounts should've been prefetched"),
+            };
+            let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
+            let mut access_key = match access_key.as_deref_mut() {
+                Some(Ok(Some(ak))) => ak,
+                Some(Ok(None)) => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
+                    return Ok(ExecutionOutcome {
+                        status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                            InvalidTxError::InvalidAccessKeyError(
+                                near_primitives::errors::InvalidAccessKeyError::AccessKeyNotFound {
+                                    account_id: signer_id.clone(),
+                                    public_key: Box::new(pubkey.clone()),
+                                },
+                            ),
+                        )),
+                        logs: Default::default(),
+                        receipt_ids: Default::default(),
+                        gas_burnt: 0,
+                        compute_usage: None,
+                        tokens_burnt: 0,
+                        executor_id: tx.transaction.signer_id().clone(),
+                        metadata: ExecutionMetadata::V1,
+                    });
+                }
+                Some(Err(e)) => return Err(e.clone().into()),
+                None => unreachable!("access keys should've been prefetched"),
+            };
+            match verify_and_charge_tx_ephemeral(
+                &apply_state.config,
+                &mut account,
+                &mut access_key,
+                &tx.transaction,
+                &cost,
+                Some(block_height),
+            ) {
+                Ok(v) => v,
+                Err(error) => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
+                    return Ok(ExecutionOutcome {
+                        status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                        logs: Default::default(),
+                        receipt_ids: Default::default(),
+                        gas_burnt: 0,
+                        compute_usage: None,
+                        tokens_burnt: 0,
+                        executor_id: tx.transaction.signer_id().clone(),
+                        metadata: ExecutionMetadata::V1,
+                    });
+                }
+            }
+        };
+
+        let (receipt, outcome) = {
+            let receipt_id = create_receipt_id_from_transaction(tx_hash, apply_state.block_height);
+            let receipt = Receipt::V0(ReceiptV0 {
+                predecessor_id: signer_id.clone(),
+                receiver_id: tx.transaction.receiver_id().clone(),
+                receipt_id,
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: signer_id.clone(),
+                    signer_public_key: pubkey.clone(),
+                    gas_price: verification_result.receipt_gas_price,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: tx.transaction.actions().to_vec(),
+                }),
+            });
+            let gas_burnt = verification_result.gas_burnt;
+            let compute_usage = gas_burnt;
+            let outcome = ExecutionOutcome {
+                status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
+                logs: vec![],
+                receipt_ids: vec![*receipt.receipt_id()],
+                gas_burnt,
+                compute_usage: Some(compute_usage),
+                tokens_burnt: verification_result.burnt_amount,
+                executor_id: signer_id.clone(),
+                metadata: ExecutionMetadata::V1,
+            };
+            (receipt, outcome)
+        };
+
+        match safe_add_balance(
+            processing_state.stats.balance.tx_burnt_amount,
+            verification_result.burnt_amount,
+        ) {
+            Ok(new_balance) => {
+                processing_state.stats.balance.tx_burnt_amount = new_balance;
+            }
+            Err(err) => {
+                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                tracing::debug!(
+                    target: "runtime",
+                    tx_hash=?tx.hash(),
+                    ?err,
+                    "invalid transaction ignored (burnt gas overflow)",
+                );
+                let gas_burnt = verification_result.gas_burnt;
+                let compute_usage = gas_burnt;
+                return Ok(ExecutionOutcome {
+                    status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                        InvalidTxError::BurntGasOverflow {
+                            burnt_amount: verification_result.burnt_amount,
+                        },
+                    )),
+                    logs: vec![],
+                    receipt_ids: vec![*receipt.receipt_id()],
+                    gas_burnt,
+                    compute_usage: Some(compute_usage),
+                    tokens_burnt: verification_result.burnt_amount,
+                    executor_id: signer_id.clone(),
+                    metadata: ExecutionMetadata::V1,
+                });
+            }
+        }
+
+        if receipt.receiver_id() == signer_id {
+            processing_state.local_receipts.push_back(receipt);
+        } else {
+            receipt_sink.forward_or_buffer_receipt(receipt, apply_state, state_update)?;
+        }
+        let compute_usage =
+            outcome.compute_usage.expect("`process_transaction` must populate compute usage");
+        total.add(outcome.gas_burnt, compute_usage)?;
+        metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+        Ok(outcome)
+    }
+
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
     /// transactions.
     ///
-    /// Any transactions that fail to validate (e.g. invalid nonces, unknown signing keys,
-    /// insufficient NEAR balance, etc.) will be skipped, producing no receipts.
+    /// Depending on InvalidTxGenerateOutcomes feature status:
+    /// enabled => : Every transaction will result in an outcome registered in the processing state. Transaction that failed processing
+    /// will have `ExecutionStatus::Failure` status.
+    /// disabled => : Any transactions that fail to validate (e.g. invalid nonces, unknown signing keys,
+    /// insufficient NEAR balance, etc.) will be skipped, producing no receipts or outcomes
+    ///
+    /// In case processing any transaction results in `Err()` the chunk is dropped and
+    /// `RuntimeError` returned.
     fn process_transactions(
         &self,
         processing_state: &mut ApplyProcessingReceiptState,
-        signed_txs: SignedValidPeriodTransactions,
+        tx_vec: SignedValidPeriodTransactions,
         receipt_sink: &mut ReceiptSink,
     ) -> Result<(), RuntimeError> {
-        /// We track the transaction validity in a bit vector of this size. This type informs the
-        /// maximum size of the transactions' chunk processed with each rayon job.
-        type ValidBitmask = u32;
-        /// Avoid the overhead of inter-thread scheduling by processing at least this many
-        /// transactions for each instance of this overhead. This can reduce the number of
-        /// transaction chunks for smaller lists of transactions, however.
-        const MIN_CHUNK_SIZE: usize = 8;
-        /// Avoid splitting transactions into just $NUM_THREADS chunks, as that can result in an
-        /// increased tail latency when one of the threads is slower at processing its chunk
-        /// compared to others (whatever reason may be for that.) Splitting into smaller chunks
-        /// allows the load to be distributed across threads more evenly and any tail latency
-        /// reduced due to the last chunk(s) being smaller.
-        const TARGET_CHUNKS_PER_THREAD: usize = 4;
-        let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
-        let state_update = &mut processing_state.state_update;
-        let tx_vec = signed_txs.into_nonexpired_transactions();
+        let state_update = &processing_state.state_update;
         let len = tx_vec.len();
-        let chunk_count_target = rayon::current_num_threads() * TARGET_CHUNKS_PER_THREAD;
-        let chunk_size =
-            (tx_vec.len() / chunk_count_target).clamp(MIN_CHUNK_SIZE, ValidBitmask::BITS as _);
+        const CHUNK_SIZE: usize = 32;
         let protocol_version = processing_state.protocol_version;
         let (valid_masks, (accounts, access_keys)) = rayon::join(
             || {
-                tx_vec
-                    .par_chunks(chunk_size)
-                    .map(|txs| {
-                        let mut valid_mask: ValidBitmask = 0;
-                        for (idx, tx) in txs.iter().enumerate() {
+                let tx_chunks = tx_vec.transactions.par_chunks(CHUNK_SIZE);
+                let validity_chunks =
+                    tx_vec.transaction_validity_check_passed.par_chunks(CHUNK_SIZE);
+                tx_chunks
+                    .zip(validity_chunks)
+                    .map(|(txs, validities)| {
+                        let mut valid_mask: [Option<InvalidTxError>; CHUNK_SIZE] =
+                            core::array::from_fn(|_| None);
+                        for (idx, (tx, is_valid)) in txs.iter().zip(validities.iter()).enumerate() {
                             let tx_hash = tx.hash();
-                            let v = validate_transaction(
-                                &apply_state.config,
-                                tx.clone(),
-                                protocol_version,
-                            );
-                            if let Err((err, _)) = v {
-                                tracing::debug!(?tx_hash, ?err, "transaction invalid");
+                            if !is_valid {
+                                valid_mask[idx] = Some(InvalidTxError::Expired);
                                 continue;
                             }
-                            valid_mask |= 1 << idx;
+                            valid_mask[idx] = if let Err(err) = validate_actions(
+                                &apply_state.config.wasm_config.limit_config,
+                                tx.transaction.actions(),
+                                protocol_version,
+                            ) {
+                                tracing::debug!(?tx_hash, ?err, "transaction invalid");
+                                Some(InvalidTxError::ActionsValidation(err))
+                            } else {
+                                None
+                            }
                         }
                         valid_mask
                     })
@@ -1547,7 +1759,7 @@ impl Runtime {
                 let accounts = dashmap::DashMap::<&AccountId, AccountV>::with_capacity(len);
                 let access_keys =
                     dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(len);
-                tx_vec.par_chunks(chunk_size).for_each(|txs| {
+                tx_vec.transactions.par_chunks(CHUNK_SIZE).for_each(|txs| {
                     for tx in txs {
                         let signer_id = tx.transaction.signer_id();
                         let pubkey = tx.transaction.public_key();
@@ -1563,147 +1775,45 @@ impl Runtime {
             },
         );
 
-        let valid_mask_iterator = valid_masks
-            .into_iter()
-            .flat_map(|mask| (0..chunk_size).map(move |idx| ((mask >> idx) & 1) == 1));
+        let valid_mask_iterator = valid_masks.into_iter().flatten();
 
         let default_hash = CryptoHash::default();
         let mut last_tx_hash = &default_hash;
-        for (tx, is_valid) in tx_vec.iter().zip(valid_mask_iterator) {
-            metrics::TRANSACTION_PROCESSED_TOTAL.inc();
-            if !is_valid {
-                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                continue;
-            }
-            last_tx_hash = tx.hash();
-            let signer_id = tx.transaction.signer_id();
-            let pubkey = tx.transaction.public_key();
-            let gas_price = apply_state.gas_price;
-            let tx_hash = tx.hash();
-            let block_height = apply_state.block_height;
-
-            let cost =
-                match tx_cost(&apply_state.config, &tx.transaction, gas_price, protocol_version) {
-                    Ok(c) => c,
-                    Err(error) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        let error = &error as &dyn std::error::Error;
-                        tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
-                        continue;
-                    }
-                };
-
-            let verification_result = {
-                let mut account = accounts.get_mut(signer_id);
-                let mut account = match account.as_deref_mut() {
-                    Some(Ok(Some(a))) => a,
-                    Some(Ok(None)) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, "transaction signed by unknown account");
-                        continue;
-                    }
-                    Some(Err(e)) => return Err(e.clone().into()),
-                    None => unreachable!("accounts should've been prefetched"),
-                };
-                let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
-                let mut access_key = match access_key.as_deref_mut() {
-                    Some(Ok(Some(ak))) => ak,
-                    Some(Ok(None)) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
-                        continue;
-                    }
-                    Some(Err(e)) => return Err(e.clone().into()),
-                    None => unreachable!("access keys should've been prefetched"),
-                };
-                match verify_and_charge_tx_ephemeral(
-                    &apply_state.config,
-                    &mut account,
-                    &mut access_key,
-                    &tx.transaction,
-                    &cost,
-                    Some(block_height),
-                ) {
-                    Ok(v) => v,
-                    Err(error) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        let error = &error as &dyn std::error::Error;
-                        tracing::debug!(%tx_hash, error, "transaction failed verify/charge");
-                        continue;
-                    }
-                }
-            };
-
-            let (receipt, outcome) = {
-                let receipt_id =
-                    create_receipt_id_from_transaction(tx_hash, apply_state.block_height);
-                let receipt = Receipt::V0(ReceiptV0 {
-                    predecessor_id: signer_id.clone(),
-                    receiver_id: tx.transaction.receiver_id().clone(),
-                    receipt_id,
-                    receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: signer_id.clone(),
-                        signer_public_key: pubkey.clone(),
-                        gas_price: verification_result.receipt_gas_price,
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: tx.transaction.actions().to_vec(),
-                    }),
-                });
-                let gas_burnt = verification_result.gas_burnt;
-                let compute_usage = gas_burnt;
-                let outcome = ExecutionOutcomeWithId {
-                    id: tx.get_hash(),
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
-                        logs: vec![],
-                        receipt_ids: vec![*receipt.receipt_id()],
-                        gas_burnt,
-                        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                        compute_usage: Some(compute_usage),
-                        tokens_burnt: verification_result.burnt_amount,
-                        executor_id: signer_id.clone(),
-                        // TODO: profile data is only counted in apply_action, which only happened at process_receipt
-                        // VerificationResult needs updates to incorporate profile data to support profile data of txns
-                        metadata: ExecutionMetadata::V1,
-                    },
-                };
-                (receipt, outcome)
-            };
-
-            match safe_add_balance(
-                processing_state.stats.balance.tx_burnt_amount,
-                verification_result.burnt_amount,
-            ) {
-                Ok(new_balance) => {
-                    processing_state.stats.balance.tx_burnt_amount = new_balance;
-                }
-                Err(err) => {
-                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::debug!(
-                        target: "runtime",
-                        tx_hash=?tx.hash(),
-                        ?err,
-                        "invalid transaction ignored (burnt gas overflow)",
-                    );
-                    continue;
-                }
-            }
-
-            if receipt.receiver_id() == signer_id {
-                processing_state.local_receipts.push_back(receipt);
+        for (tx, is_valid) in tx_vec.transactions.iter().zip(valid_mask_iterator) {
+            let outcome = self.process_transaction(
+                tx,
+                is_valid,
+                &accounts,
+                &access_keys,
+                processing_state,
+                receipt_sink,
+            )?;
+            if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
+                processing_state
+                    .outcomes
+                    .push(ExecutionOutcomeWithId { id: tx.get_hash(), outcome });
+                last_tx_hash = tx.hash();
             } else {
-                receipt_sink.forward_or_buffer_receipt(receipt, apply_state, state_update)?;
+                // the old behavior is that invalid transactions are silently dropped and produce no outcome whatsoever
+                match outcome.status {
+                    ExecutionStatus::Failure(_) => {
+                        continue;
+                    }
+                    _ => {
+                        processing_state
+                            .outcomes
+                            .push(ExecutionOutcomeWithId { id: tx.get_hash(), outcome });
+                        last_tx_hash = tx.hash();
+                    }
+                }
             }
-            let compute = outcome.outcome.compute_usage;
-            let compute = compute.expect("`process_transaction` must populate compute usage");
-            total.add(outcome.outcome.gas_burnt, compute)?;
-            processing_state.outcomes.push(outcome);
-            metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
         }
 
-        processing_state.metrics.tx_processing_done(total.gas, total.compute);
+        processing_state
+            .metrics
+            .tx_processing_done(processing_state.total.gas, processing_state.total.compute);
 
+        let state_update = &mut processing_state.state_update;
         for (id, account) in accounts {
             if let Ok(Some(account)) = account {
                 set_account(state_update, id.clone(), &account);
