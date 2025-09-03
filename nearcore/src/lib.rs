@@ -566,17 +566,15 @@ pub fn start_with_config_and_synchronization(
 
     #[cfg(feature = "rosetta_rpc")]
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
-        rpc_servers.push((
-            "Rosetta RPC",
-            near_rosetta_rpc::start_rosetta_rpc(
-                rosetta_rpc_config,
-                config.genesis,
-                genesis_block.header().hash(),
-                client_actor.clone(),
-                view_client_addr.clone(),
-                rpc_handler.clone(),
-            ),
-        ));
+        near_rosetta_rpc::start_rosetta_rpc(
+            rosetta_rpc_config,
+            config.genesis,
+            genesis_block.header().hash(),
+            client_actor.clone(),
+            view_client_addr.clone(),
+            rpc_handler.clone(),
+            actor_system.future_spawner().as_ref(),
+        );
     }
 
     rpc_servers.shrink_to_fit();
