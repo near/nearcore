@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-web.workspace = true
 axum.workspace = true
 bs58.workspace = true
 easy-ext.workspace = true
