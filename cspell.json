@@ -177,7 +177,6 @@
         "kmerge",
         "libc",
         "libcore",
-        "libfuzzer",
         "librocksdb",
         "lightbeam",
         "lightclient",

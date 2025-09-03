@@ -1405,16 +1405,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d48d8f76bd9331f19fe2aaf3821a9f9fb32c3963e1e3d6ce82a8c09cef7444a"
 
 [[package]]
-name = "cpu-time"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9e393a7668fe1fad3075085b86c781883000b4ede868f43627b34a87c8b7ded"
-dependencies = [
- "libc",
- "winapi",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3668,17 +3658,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543"
 
 [[package]]
-name = "libfuzzer-sys"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "336244aaeab6a12df46480dc585802aa743a72d66b11937844c61bbca84c991d"
-dependencies = [
- "arbitrary",
- "cc",
- "once_cell",
-]
-
-[[package]]
 name = "libloading"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4692,24 +4671,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-jsonrpc-fuzz"
-version = "0.0.0"
-dependencies = [
- "actix",
- "arbitrary",
- "libfuzzer-sys",
- "near-jsonrpc-primitives",
- "near-jsonrpc-tests",
- "near-primitives",
- "near-time",
- "parking_lot 0.12.1",
- "reqwest 0.12.4",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "near-jsonrpc-openapi-spec"
 version = "0.0.0"
 dependencies = [
@@ -5578,17 +5539,6 @@ dependencies = [
  "wasmtime",
  "wat",
  "zeropool-bn",
-]
-
-[[package]]
-name = "near-vm-runner-fuzz"
-version = "0.0.0"
-dependencies = [
- "libfuzzer-sys",
- "near-parameters",
- "near-primitives",
- "near-test-contracts",
- "near-vm-runner",
 ]
 
 [[package]]
@@ -7305,43 +7255,6 @@ dependencies = [
  "tracing-span-tree",
  "tracing-subscriber",
  "wat",
-]
-
-[[package]]
-name = "runtime-tester"
-version = "0.0.0"
-dependencies = [
- "bolero",
- "cpu-time",
- "integration-tests",
- "libfuzzer-sys",
- "near-chain",
- "near-chain-configs",
- "near-client",
- "near-client-primitives",
- "near-crypto",
- "near-epoch-manager",
- "near-o11y",
- "near-parameters",
- "near-primitives",
- "near-store",
- "near-test-contracts",
- "near-vm-runner",
- "nearcore",
- "serde",
- "serde_json",
- "tempfile",
- "testlib",
- "tracing",
-]
-
-[[package]]
-name = "runtime-tester-fuzz"
-version = "0.0.0"
-dependencies = [
- "libfuzzer-sys",
- "runtime-tester",
- "serde_json",
 ]
 
 [[package]]
