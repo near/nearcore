@@ -416,7 +416,7 @@ tracing = { version = "0.1.40", features = ["std"] }
 tracing-appender = "0.2.3"
 tracing-opentelemetry = "0.31"
 tracing-span-tree = "0.1"
-tracing-subscriber = { version = "0.3.18", features = [
+tracing-subscriber = { version = "0.3.20", features = [
     "env-filter",
     "fmt",
     "registry",
