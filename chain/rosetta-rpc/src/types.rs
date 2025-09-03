@@ -1,9 +1,5 @@
 use std::fmt;
 
-use utoipa::openapi::RefOr;
-use utoipa::openapi::schema::{Object, Schema, SchemaType, Type};
-use utoipa::{PartialSchema, ToSchema};
-
 #[derive(
     Eq,
     Ord,
@@ -27,11 +23,3 @@ impl fmt::Debug for AccountId {
         fmt::Debug::fmt(&self.0, f)
     }
 }
-
-impl PartialSchema for AccountId {
-    fn schema() -> RefOr<Schema> {
-        RefOr::T(Schema::Object(Object::with_type(SchemaType::Type(Type::String))))
-    }
-}
-
-impl ToSchema for AccountId {}
