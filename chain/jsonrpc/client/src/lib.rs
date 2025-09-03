@@ -142,7 +142,7 @@ impl JsonRpcClient {
     }
 
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView> {
-        call_method(&self.client, &self.server_addr, "chunk", id)
+        call_method(&self.client, &self.server_addr, "chunk", [id])
     }
 
     pub fn gas_price(&self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView> {
