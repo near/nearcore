@@ -335,10 +335,10 @@ okapi = { git = "https://github.com/near/near-okapi-fork.git", rev = "fd7de89e13
 object_store = { version = "0.12", features = ["gcp"] }
 oneshot = { version = "0.1.11", features = ["std"] }
 openssl-probe = "0.1.4"
-opentelemetry = { version = "0.22.0", features = ["trace"] }
-opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.15.0", default-features = false, features = ["http-proto", "reqwest-client", "trace"] }
-opentelemetry-semantic-conventions = "0.14.0"
+opentelemetry = { version = "0.30", features = ["trace"] }
+opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.30", default-features = false, features = ["http-proto", "reqwest-client", "trace"] }
+opentelemetry-semantic-conventions = "0.30" 
 ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
 parking_lot = "0.12.1"
 percent-encoding = "2.2.0"
@@ -414,7 +414,7 @@ toml = "0.5.8"
 tqdm = "0.4.4"
 tracing = { version = "0.1.40", features = ["std"] }
 tracing-appender = "0.2.3"
-tracing-opentelemetry = "0.23.0"
+tracing-opentelemetry = "0.31"
 tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
