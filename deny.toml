@@ -129,4 +129,5 @@ skip = [
 
     { name = "sync_wrapper", version = "=0.1.2" },
     { name = "tower", version = "=0.4.13" },
+    { name = "regex-syntax", version = "=0.6.28" },
 ]
