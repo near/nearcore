@@ -174,6 +174,7 @@ imports! {
     promise_batch_create<[account_id_len: u64, account_id_ptr: u64] -> [u64]>,
     promise_batch_then<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> [u64]>,
     #[deterministic_account_ids] promise_set_refund_to<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
+    #[deterministic_account_ids] promise_batch_action_state_init<[promise_idx: u64, state_init_len: u64, state_init_ptr: u64, amount_ptr: u64] -> []>,
     // #######################
     // # Promise API actions #
     // #######################

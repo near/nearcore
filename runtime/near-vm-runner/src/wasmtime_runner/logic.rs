@@ -18,6 +18,7 @@ use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
+use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
 use wasmtime::{Caller, Extern, Memory};
@@ -2598,6 +2599,76 @@ fn promise_batch_action_use_global_contract_impl(
     )?;
 
     ctx.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+    Ok(())
+}
+
+pub fn promise_batch_action_state_init(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    state_init_len: u64,
+    state_init_ptr: u64,
+    amount_ptr: u64,
+) -> Result<()> {
+    let memory = caller.data().memory;
+    let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
+        return Err(HostError::MemoryAccessViolation.into());
+    };
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "promise_batch_action_state_init".to_string(),
+        }
+        .into());
+    }
+
+    let amount = get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?;
+
+    let serialized = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        state_init_ptr,
+        state_init_len,
+    )?;
+    let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
+    let len = serialized.len() as u64;
+
+    // Note: There is no fee for parsing the state init struct here. This is
+    // not quite consistent with other code, where we charge for decoding
+    // utf8 for account ids passed as parameter. But this practice is
+    // somewhat questionable, at least in this case.
+    // Including the cost in the action-per-byte cost works better here.
+    // Sending an action from a transaction also involves deserializing the
+    // state init struct, so the is already included in the action send fee.
+    let state_init: DeterministicAccountStateInit = borsh::from_slice(&serialized)
+        .map_err(|_| HostError::DeterministicAccountStateInitMalformed)?;
+
+    let entries = state_init.data().len() as u64;
+    pay_action_base(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::deterministic_state_init_base,
+        sir,
+    )?;
+    pay_action_per_byte(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::deterministic_state_init_byte,
+        len,
+        sir,
+    )?;
+    pay_action_per_byte(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::deterministic_state_init_entry,
+        entries,
+        sir,
+    )?;
+
+    ctx.result_state.deduct_balance(amount)?;
+    ctx.ext.append_action_deterministic_state_init(receipt_idx, state_init, amount)?;
+
     Ok(())
 }
 
