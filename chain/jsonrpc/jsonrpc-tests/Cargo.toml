@@ -56,5 +56,3 @@ nightly = [
     "near-store/nightly",
 ]
 sandbox = ["near-jsonrpc/sandbox", "near-o11y/sandbox"]
-
-[package.metadata.cargo-machete]

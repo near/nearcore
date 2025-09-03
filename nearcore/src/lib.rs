@@ -226,7 +226,6 @@ pub struct NearNode {
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
     pub arbiters: Vec<ArbiterHandle>,
-    pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
@@ -524,7 +523,6 @@ pub fn start_with_config_and_synchronization(
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
-    let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
         storage.into_inner(near_store::Temperature::Hot),
@@ -577,7 +575,6 @@ pub fn start_with_config_and_synchronization(
         );
     }
 
-    rpc_servers.shrink_to_fit();
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
@@ -600,7 +597,6 @@ pub fn start_with_config_and_synchronization(
         rpc_handler,
         #[cfg(feature = "tx_generator")]
         tx_generator,
-        rpc_servers,
         arbiters,
         cold_store_loop_handle,
         state_sync_dumper,
