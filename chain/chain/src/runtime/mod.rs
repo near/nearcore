@@ -75,7 +75,7 @@ pub struct NightshadeRuntime {
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
     gc_num_epochs_to_keep: u64,
-    state_parts_compression_lvl: Option<i32>,
+    state_parts_compression_lvl: i32,
 }
 
 impl NightshadeRuntime {
@@ -90,7 +90,7 @@ impl NightshadeRuntime {
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
-        state_parts_compression_lvl: Option<i32>,
+        state_parts_compression_lvl: i32,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,

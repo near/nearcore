@@ -1,4 +1,4 @@
-use near_chain_configs::{DumpConfig, ExternalStorageLocation, SyncConfig};
+use near_chain_configs::{DumpConfig, ExternalStorageLocation, StateSyncConfig, SyncConfig};
 use near_config_utils::{ValidationError, ValidationErrors};
 use std::collections::HashSet;
 use std::path::Path;
@@ -36,10 +36,7 @@ impl<'a> ConfigValidator<'a> {
         self.validate_tracked_shards_config();
 
         if let Some(state_sync) = &self.config.state_sync {
-            if let Some(dump_config) = &state_sync.dump {
-                self.validate_state_dumper_config(dump_config);
-            }
-            self.validate_state_sync_config(&state_sync.sync);
+            self.validate_state_sync_config(&state_sync);
         }
 
         if self.config.consensus.min_block_production_delay
@@ -144,19 +141,20 @@ impl<'a> ConfigValidator<'a> {
                 self.validation_errors.push_config_semantics_error(error_message);
             }
         }
-
-        if let Some(parts_compression_lvl) = dump_config.parts_compression_lvl {
-            if parts_compression_lvl < -22 || parts_compression_lvl > 22 {
-                let error_message = format!(
-                    "'config.state_sync.dump.parts_compression_lvl' should be an integer between -22 and 22."
-                );
-                self.validation_errors.push_config_semantics_error(error_message);
-            }
-        }
     }
 
-    fn validate_state_sync_config(&mut self, state_sync: &SyncConfig) {
-        match &state_sync {
+    fn validate_state_sync_config(&mut self, state_sync: &StateSyncConfig) {
+        if let Some(dump_config) = &state_sync.dump {
+            self.validate_state_dumper_config(dump_config);
+        }
+        if state_sync.parts_compression_lvl < -22 || state_sync.parts_compression_lvl > 22 {
+            let error_message = format!(
+                "'config.state_sync.dump.parts_compression_lvl': {}, should be an integer between -22 and 22.",
+                state_sync.parts_compression_lvl,
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+        match &state_sync.sync {
             SyncConfig::Peers => {}
             SyncConfig::ExternalStorage(config) => {
                 match &config.location {
@@ -355,6 +353,30 @@ mod tests {
     fn test_tx_routing_height_horizon_too_high() {
         let mut config = Config::default();
         config.tx_routing_height_horizon = 1_000_000_000;
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: 'config.state_sync.dump.parts_compression_lvl': -100, should be an integer between -22 and 22."
+    )]
+    fn test_state_part_compression_level_too_low() {
+        let mut config = Config::default();
+        let mut state_sync_config = StateSyncConfig::default();
+        state_sync_config.parts_compression_lvl = -100;
+        config.state_sync = Some(state_sync_config);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: 'config.state_sync.dump.parts_compression_lvl': 23, should be an integer between -22 and 22."
+    )]
+    fn test_state_part_compression_level_too_high() {
+        let mut config = Config::default();
+        let mut state_sync_config = StateSyncConfig::default();
+        state_sync_config.parts_compression_lvl = 23;
+        config.state_sync = Some(state_sync_config);
         validate_config(&config).unwrap();
     }
 }

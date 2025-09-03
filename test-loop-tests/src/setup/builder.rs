@@ -314,7 +314,6 @@ impl<'a> NodeStateBuilder<'a> {
                 location: external_storage_location.clone(),
                 credentials_file: None,
                 restart_dump_for_shards: None,
-                parts_compression_lvl: None,
             }),
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location: external_storage_location,
@@ -327,6 +326,7 @@ impl<'a> NodeStateBuilder<'a> {
                 external_storage_fallback_threshold: 0,
             }),
             concurrency: Default::default(),
+            parts_compression_lvl: Default::default(),
         };
 
         if let Some(config_modifier) = self.config_modifier {

@@ -360,7 +360,6 @@ fn ultra_slow_test_sync_state_dump() {
                 restart_dump_for_shards: None,
                 iteration_delay: Some(Duration::milliseconds(500)),
                 credentials_file: None,
-                parts_compression_lvl: None,
             });
             near1.config.store.enable_state_snapshot();
 

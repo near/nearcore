@@ -44,6 +44,10 @@ pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u8 = 5
 /// before giving up and downloading it from external storage.
 pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 3;
 
+/// We haven't observed meaningful gains from higher compression levels. Even `-5` produced a result close to
+/// levels 1–3. Therefore we keep 1 as the default.
+pub const DEFAULT_STATE_PARTS_COMPRESSION_LEVEL: i32 = 1;
+
 /// Describes the expected behavior of the node regarding shard tracking.
 /// If the node is an active validator, it will also track the shards it is responsible for as a validator.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -208,6 +212,10 @@ pub enum ExternalStorageLocation {
     },
 }
 
+fn default_state_parts_compression_level() -> i32 {
+    DEFAULT_STATE_PARTS_COMPRESSION_LEVEL
+}
+
 /// Configures how to dump state to external storage.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -228,10 +236,6 @@ pub struct DumpConfig {
     /// Location of a json file with credentials allowing write access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<PathBuf>,
-    /// Optional Zstd compression level for state parts.
-    /// If `None`, a default value will be used internally.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parts_compression_lvl: Option<i32>,
 }
 
 /// Configures how to fetch state parts during state sync.
@@ -312,6 +316,9 @@ pub struct StateSyncConfig {
         default = "SyncConcurrency::default"
     )]
     pub concurrency: SyncConcurrency,
+    /// Zstd compression level for state parts.
+    #[serde(default = "default_state_parts_compression_level")]
+    pub parts_compression_lvl: i32,
 }
 
 impl StateSyncConfig {

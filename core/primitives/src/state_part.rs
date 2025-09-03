@@ -6,11 +6,6 @@ use near_schema_checker_lib::ProtocolSchema;
 use crate::state::PartialState;
 use crate::state_sync::STATE_PART_MEMORY_LIMIT;
 
-/// We haven't observed meaningful gains from higher compression levels.
-/// Even `-5` produced a result close to levels 1–3.
-/// Therefore we keep 1 as the default.
-const DEFAULT_STATE_PARTS_COMPRESSION_LEVEL: i32 = 1;
-
 // to specify a part we always specify both part_id and num_parts together
 #[derive(Copy, Clone, Debug)]
 pub struct PartId {
@@ -87,10 +82,9 @@ impl StatePart {
     pub fn from_partial_state(
         partial_state: PartialState,
         protocol_version: ProtocolVersion,
-        compression_lvl: Option<i32>,
+        compression_lvl: i32,
     ) -> Self {
         if ProtocolFeature::StatePartsCompression.enabled(protocol_version) {
-            let compression_lvl = compression_lvl.unwrap_or(DEFAULT_STATE_PARTS_COMPRESSION_LEVEL);
             Self::V1(StatePartV1::from_partial_state(partial_state, compression_lvl))
         } else {
             Self::V0(StatePartV0::from_partial_state(partial_state))
@@ -164,7 +158,7 @@ mod tests {
 
         let partial_state = dummy_partial_state();
         let state_part_v0 =
-            StatePart::from_partial_state(partial_state.clone(), old_protocol_version, None);
+            StatePart::from_partial_state(partial_state.clone(), old_protocol_version, 1);
         assert!(matches!(state_part_v0, StatePart::V0(_)));
         let partial_state_reconstructed = state_part_v0.to_partial_state().unwrap();
         assert_eq!(partial_state, partial_state_reconstructed);
@@ -186,9 +180,9 @@ mod tests {
         let partial_state = dummy_partial_state();
 
         let state_part_v0 =
-            StatePart::from_partial_state(partial_state.clone(), old_protocol_version, None);
+            StatePart::from_partial_state(partial_state.clone(), old_protocol_version, 1);
         let state_part_v1 =
-            StatePart::from_partial_state(partial_state.clone(), new_protocol_version, None);
+            StatePart::from_partial_state(partial_state.clone(), new_protocol_version, 1);
         assert!(state_part_v1.payload_length() < state_part_v0.payload_length());
 
         let partial_state_reconstructed_from_state_part_v1 =
@@ -212,7 +206,7 @@ mod tests {
         let big_value = Arc::from(vec![b'a'; 2 * part_size_limit].into_boxed_slice());
         let partial_state = PartialState::TrieValues(vec![big_value]);
 
-        let state_part = StatePart::from_partial_state(partial_state, protocol_version, None);
+        let state_part = StatePart::from_partial_state(partial_state, protocol_version, 1);
         assert!(state_part.payload_length() < part_size_limit / 2);
 
         let decompression_result = state_part.to_partial_state();
