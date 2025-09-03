@@ -77,15 +77,14 @@ class NodeHandle:
     def download_file(self, src, dst):
         return self.node.download_file(src, dst)
 
+    # TODO: send `config` as JSON RPC parameters and do all the work below via
+    # a script uploaded to the node. Using `ssh` to send every command is
+    # too slow.
     def init_neard_runner(self, config, source_dir, remove_home_dir=False):
         self.node.stop_neard_runner()
         self.node.init()
         self.node.mk_neard_runner_home(remove_home_dir)
         self.node.upload_neard_runner(source_dir)
-        # TODO: this config file should just be replaced by parameters to the new-test
-        # rpc method. This was originally made a config file instead because the rpc port
-        # was open to the internet, but now that we call it via ssh instead (which we should
-        # have done from the beginning), it's not really necessary and just an arbitrary difference
         self.node.upload_neard_runner_config(config)
         self.node.init_python()
         self.node.start_neard_runner()

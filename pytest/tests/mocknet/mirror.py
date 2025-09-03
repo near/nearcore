@@ -276,10 +276,19 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
         all_nodes.append(traffic_generator)
         all_configs.append(traffic_generator_config)
 
+    # Upload the helper scripts to all the nodes.
     source_temp_dir = tempfile.mkdtemp(prefix="neard_runner_shared_")
     try:
+        # TODO: consider uploading the whole `helpers/` dir, as we do in
+        # sharded benchmark scenario.
         for file in [
-                'neard_runner.py', 'requirements.txt', 'setup-near-cli.sh',
+                # Defines the interaction between the node with neard and the user.
+                'neard_runner.py',
+                # Python dependencies for the node.
+                'requirements.txt',
+                # Script to setup near-cli for the node.
+                'setup-near-cli.sh',
+                # Script for the validator node to send a stake proposal.
                 'send-stake-proposal.sh'
         ]:
             shutil.copy2(f'tests/mocknet/helpers/{file}',
