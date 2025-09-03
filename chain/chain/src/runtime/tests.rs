@@ -8,8 +8,8 @@ use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, MutableConfigValue, NEAR_BASE,
-    default_produce_chunk_add_transactions_time_limit,
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, Genesis,
+    MutableConfigValue, NEAR_BASE, default_produce_chunk_add_transactions_time_limit,
 };
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::EpochManager;
@@ -140,6 +140,7 @@ impl TestEnv {
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
             StateSnapshotConfig::enabled(dir.path(), "data", "state_snapshot"),
+            DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let genesis_hash = hash(&[0]);

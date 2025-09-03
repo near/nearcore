@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
+use near_async::messaging::IntoMultiSender;
 use near_config_utils::DownloadConfigType;
 use nearcore::NearNode;
 use tokio::sync::mpsc;
@@ -17,10 +18,10 @@ pub use near_indexer_primitives::{
 };
 
 use near_async::ActorSystem;
-use near_async::tokio::TokioRuntimeHandle;
-use near_client::client_actor::ClientActorInner;
 use near_epoch_manager::shard_tracker::ShardTracker;
 pub use streamer::build_streamer_message;
+
+use crate::streamer::{IndexerClientFetcher, IndexerViewClientFetcher};
 
 mod streamer;
 
@@ -119,8 +120,8 @@ impl IndexerConfig {
 pub struct Indexer {
     indexer_config: IndexerConfig,
     near_config: nearcore::NearConfig,
-    view_client: actix::Addr<near_client::ViewClientActor>,
-    client: TokioRuntimeHandle<ClientActorInner>,
+    view_client: IndexerViewClientFetcher,
+    client: IndexerClientFetcher,
     shard_tracker: ShardTracker,
 }
 
@@ -136,7 +137,13 @@ impl Indexer {
         let nearcore::NearNode { client, view_client, shard_tracker, .. } =
             Self::start_near_node(&indexer_config, near_config.clone())
                 .with_context(|| "failed to start near node as part of indexer")?;
-        Ok(Self { view_client, client, near_config, indexer_config, shard_tracker })
+        Ok(Self {
+            view_client: IndexerViewClientFetcher::new(view_client.into_multi_sender()),
+            client: IndexerClientFetcher::new(client.into_multi_sender()),
+            near_config,
+            indexer_config,
+            shard_tracker,
+        })
     }
 
     pub fn start_near_node(
@@ -152,8 +159,10 @@ impl Indexer {
         near_node: &NearNode,
     ) -> Self {
         Self {
-            view_client: near_node.view_client.clone(),
-            client: near_node.client.clone(),
+            view_client: IndexerViewClientFetcher::new(
+                near_node.view_client.clone().into_multi_sender(),
+            ),
+            client: IndexerClientFetcher::new(near_node.client.clone().into_multi_sender()),
             near_config,
             indexer_config,
             shard_tracker: near_node.shard_tracker.clone(),
