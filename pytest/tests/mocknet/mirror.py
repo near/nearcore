@@ -13,8 +13,9 @@ import re
 import sys
 import time
 import numpy as np
-from functools import wraps
 from typing import Optional
+import os
+import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -275,8 +276,21 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
         all_nodes.append(traffic_generator)
         all_configs.append(traffic_generator_config)
 
-    pmap(lambda x: x[0].init_neard_runner(x[1], remove_home_dir),
-         zip(all_nodes, all_configs))
+    source_temp_dir = tempfile.mkdtemp(prefix="neard_runner_shared_")
+    try:
+        for file in [
+                'neard_runner.py', 'requirements.txt', 'setup-near-cli.sh',
+                'send-stake-proposal.sh'
+        ]:
+            shutil.copy2(f'tests/mocknet/helpers/{file}',
+                         os.path.join(source_temp_dir, file))
+
+        pmap(
+            lambda x: x[0].init_neard_runner(x[1], source_temp_dir,
+                                             remove_home_dir),
+            zip(all_nodes, all_configs))
+    finally:
+        shutil.rmtree(source_temp_dir)
 
 
 def init_cmd(ctx: CommandContext):
@@ -305,7 +319,10 @@ def restart_cmd(ctx: CommandContext):
     targeted = ctx.get_targeted()
     pmap(lambda node: node.stop_neard_runner(), targeted)
     if ctx.args.upload_program:
-        pmap(lambda node: node.upload_neard_runner(), targeted)
+        pmap(
+            lambda node: node.upload_file(
+                'tests/mocknet/helpers/neard_runner.py', node.neard_runner_home
+            ), targeted)
     pmap(lambda node: node.start_neard_runner(), targeted)
 
 
@@ -424,8 +441,14 @@ def new_test_cmd(ctx: CommandContext):
     targeted = nodes + to_list(traffic_generator)
 
     logger.info(f'resetting/initializing home dirs')
+
+    if traffic_generator:
+        rpc_ip = traffic_generator.ip_addr()
+    else:
+        rpc_ip = '0.0.0.0'
     test_keys = pmap(
-        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id()), targeted)
+        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id(), rpc_ip),
+        targeted)
 
     stake_distribution = build_stake_distribution(
         getattr(args, 'stake_distribution', None), args.num_seats)
@@ -697,7 +720,7 @@ def clear_scheduled_cmds(ctx: CommandContext):
     logger.info(
         f'Clearing scheduled commands matching "{filter}" from {",".join([h.name() for h in targeted])}'
     )
-    cmd = f'systemctl --user stop "{filter}"'
+    cmd = f'systemctl --user stop "{filter}"; systemctl --user reset-failed "{filter}"'
     _run_remote(targeted, cmd)
 
 
