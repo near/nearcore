@@ -528,8 +528,8 @@ impl ReceiptManager {
             promise_yield_receipt_index: _,
         } = self;
         let gas_weight_sum: u128 = gas_weights.iter().map(|(_, gv)| u128::from(gv.0)).sum();
-        if gas_weight_sum == 0 || unused_gas == Gas::from_gas(0) {
-            return Ok(Gas::from_gas(0));
+        if gas_weight_sum == 0 || unused_gas == Gas::ZERO {
+            return Ok(Gas::ZERO);
         }
         let mut distributed = 0u64;
         let mut gas_weight_iterator = gas_weights.iter().peekable();
@@ -544,8 +544,8 @@ impl ReceiptManager {
                     "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
                 );
             };
-            let to_assign = (Into::<u128>::into(unused_gas.as_gas()) * weight.0 as u128
-                / gas_weight_sum) as u64;
+            let to_assign =
+                (u128::from(unused_gas.as_gas()) * weight.0 as u128 / gas_weight_sum) as u64;
             action.gas =
                 action.gas.checked_add(Gas::from_gas(to_assign)).ok_or(IntegerOverflowError)?;
             distributed = distributed
@@ -600,7 +600,7 @@ mod tests {
         };
 
         // Assert expected amount of gas was associated with the action
-        let mut function_call_gas = Gas::from_gas(0);
+        let mut function_call_gas = Gas::ZERO;
         let mut function_calls_iter = function_calls.iter();
         for receipt in receipt_manager.action_receipts {
             for action in receipt.actions {
@@ -631,21 +631,21 @@ mod tests {
         // and the gas limit is `10_000_000_000`
 
         // Single function call
-        function_call_weight_check(&[(Gas::from_gas(0), 1, Gas::from_giga(10))]);
+        function_call_weight_check(&[(Gas::ZERO, 1, Gas::from_giga(10))]);
 
         // Single function with static gas
         function_call_weight_check(&[(Gas::from_gas(888), 1, Gas::from_giga(10))]);
 
         // Large weight
-        function_call_weight_check(&[(Gas::from_gas(0), 88888, Gas::from_giga(10))]);
+        function_call_weight_check(&[(Gas::ZERO, 88888, Gas::from_giga(10))]);
 
         // Weight larger than gas limit
-        function_call_weight_check(&[(Gas::from_gas(0), 11u64.pow(14), Gas::from_giga(10))]);
+        function_call_weight_check(&[(Gas::ZERO, 11u64.pow(14), Gas::from_giga(10))]);
 
         // Split two
         function_call_weight_check(&[
-            (Gas::from_gas(0), 3, Gas::from_giga(6)),
-            (Gas::from_gas(0), 2, Gas::from_giga(4)),
+            (Gas::ZERO, 3, Gas::from_giga(6)),
+            (Gas::ZERO, 2, Gas::from_giga(4)),
         ]);
 
         // Split two with static gas
@@ -658,28 +658,25 @@ mod tests {
         function_call_weight_check(&[
             (Gas::from_gas(1_000_000), 3, Gas::from_gas(2_699_800_000)),
             (Gas::from_gas(3_000_000), 2, Gas::from_gas(1_802_200_000)),
-            (Gas::from_gas(0), 1, Gas::from_gas(899_600_000)),
+            (Gas::ZERO, 1, Gas::from_gas(899_600_000)),
             (Gas::from_giga(1), 0, Gas::from_giga(1)),
-            (Gas::from_gas(0), 4, Gas::from_gas(3_598_400_000)),
+            (Gas::ZERO, 4, Gas::from_gas(3_598_400_000)),
         ]);
 
         // Weight over u64 bounds
         function_call_weight_check(&[
-            (Gas::from_gas(0), u64::MAX, Gas::from_gas(9_999_999_999)),
-            (Gas::from_gas(0), 1000, Gas::from_gas(1)),
+            (Gas::ZERO, u64::MAX, Gas::from_gas(9_999_999_999)),
+            (Gas::ZERO, 1000, Gas::from_gas(1)),
         ]);
 
         // Weight over gas limit with three function calls
         function_call_weight_check(&[
-            (Gas::from_gas(0), 10_000_000_000, Gas::from_gas(4_999_999_999)),
-            (Gas::from_gas(0), 1, Gas::from_gas(0)),
-            (Gas::from_gas(0), 10_000_000_000, Gas::from_gas(5_000_000_001)),
+            (Gas::ZERO, 10_000_000_000, Gas::from_gas(4_999_999_999)),
+            (Gas::ZERO, 1, Gas::ZERO),
+            (Gas::ZERO, 10_000_000_000, Gas::from_gas(5_000_000_001)),
         ]);
 
         // Weights with one zero and one non-zero
-        function_call_weight_check(&[
-            (Gas::from_gas(0), 0, Gas::from_gas(0)),
-            (Gas::from_gas(0), 1, Gas::from_giga(10)),
-        ])
+        function_call_weight_check(&[(Gas::ZERO, 0, Gas::ZERO), (Gas::ZERO, 1, Gas::from_giga(10))])
     }
 }

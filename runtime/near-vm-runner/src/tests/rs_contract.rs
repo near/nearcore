@@ -128,7 +128,7 @@ fn run_test_ext(
         .run(&mut fake_external, &context, Arc::clone(&fees))
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
-    assert_eq!(outcome.profile.action_gas(), Gas::from_gas(0));
+    assert_eq!(outcome.profile.action_gas(), Gas::ZERO);
 
     if let ReturnData::Value(value) = outcome.return_data {
         assert_eq!(&value, &expected);
@@ -270,7 +270,7 @@ fn attach_unspent_gas_but_use_all_gas() {
 
         match &external.action_log[..] {
             [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }, _] => {
-                assert_eq!(*gas, Gas::from_gas(0))
+                assert_eq!(*gas, Gas::ZERO)
             }
             other => panic!("unexpected actions: {other:?}"),
         }

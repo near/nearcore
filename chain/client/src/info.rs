@@ -91,7 +91,7 @@ impl InfoHelper {
             started: clock.now(),
             num_blocks_processed: 0,
             num_chunks_in_blocks_processed: 0,
-            gas_used: Gas::from_gas(0),
+            gas_used: Gas::ZERO,
             telemetry_sender,
             log_summary_style: client_config.log_summary_style,
             boot_time_seconds: clock.now_utc().unix_timestamp(),
@@ -473,7 +473,7 @@ impl InfoHelper {
         self.started = self.clock.now();
         self.num_blocks_processed = 0;
         self.num_chunks_in_blocks_processed = 0;
-        self.gas_used = Gas::from_gas(0);
+        self.gas_used = Gas::ZERO;
 
         let telemetry_event = TelemetryEvent {
             content: self.telemetry_info(

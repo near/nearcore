@@ -450,19 +450,10 @@ mod tests {
 
         let group = ReceiptGroup::new(ByteSize::kb(50), Gas::from_gas(50));
 
-        assert_eq!(
-            config.should_start_new_group(&group, ByteSize::kb(10), Gas::from_gas(0)),
-            false
-        );
-        assert_eq!(
-            config.should_start_new_group(&group, ByteSize::kb(50), Gas::from_gas(0)),
-            false
-        );
-        assert_eq!(
-            config.should_start_new_group(&group, ByteSize::kb(100), Gas::from_gas(0)),
-            true
-        );
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(0)), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(10), Gas::ZERO), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(50), Gas::ZERO), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(100), Gas::ZERO), true);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::ZERO), false);
 
         assert_eq!(
             config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(10)),
@@ -476,7 +467,7 @@ mod tests {
             config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(100)),
             true
         );
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(0)), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::ZERO), false);
 
         assert_eq!(
             config.should_start_new_group(&group, ByteSize::kb(10), Gas::from_gas(30)),
@@ -610,8 +601,7 @@ mod tests {
                     } else {
                         self.groups.push_back(TestReceiptGroup {
                             total_size: last_group.total_size + receipt_size.as_u64() as u128,
-                            total_gas: last_group.total_gas
-                                + Into::<u128>::into(receipt_gas.as_gas()),
+                            total_gas: last_group.total_gas + u128::from(receipt_gas.as_gas()),
                             receipts_num: last_group.receipts_num + 1,
                         });
                     }
@@ -623,7 +613,7 @@ mod tests {
         pub fn update_on_receipt_popped(&mut self, receipt_size: ByteSize, receipt_gas: Gas) {
             let mut first_group = self.groups.pop_front().unwrap();
             first_group.total_size -= receipt_size.as_u64() as u128;
-            first_group.total_gas -= Into::<u128>::into(receipt_gas.as_gas());
+            first_group.total_gas -= u128::from(receipt_gas.as_gas());
             first_group.receipts_num -= 1;
 
             if first_group.receipts_num > 0 {
@@ -712,10 +702,8 @@ mod tests {
             let total_gas = groups_queue.total_gas();
             let expected_total_size: u64 =
                 buffered_receipts.iter().map(|(size, _)| size.as_u64()).sum();
-            let expected_total_gas = buffered_receipts
-                .iter()
-                .map(|(_, gas)| Into::<u128>::into(gas.as_gas()))
-                .sum::<u128>();
+            let expected_total_gas =
+                buffered_receipts.iter().map(|(_, gas)| u128::from(gas.as_gas())).sum::<u128>();
             assert_eq!(total_size, expected_total_size);
             assert_eq!(total_gas, expected_total_gas);
             assert_eq!(groups_queue.total_receipts_num(), buffered_receipts.len() as u64);

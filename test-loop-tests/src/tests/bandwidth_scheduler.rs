@@ -751,7 +751,7 @@ fn make_send_receipt_transaction(
             actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: method_name.clone(),
                 args: Vec::new(),
-                gas: Gas::from_gas(0),
+                gas: Gas::ZERO,
                 deposit: 0,
             }))],
         }),

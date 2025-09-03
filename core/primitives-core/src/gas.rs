@@ -29,6 +29,9 @@ pub struct Gas(NearGas);
 impl Gas {
     /// Maximum value for Gas (u64::MAX)
     pub const MAX: Gas = Gas::from_gas(u64::MAX);
+    /// Zero value for Gas
+    pub const ZERO: Gas = Gas::from_gas(0);
+
     /// Creates a new `Gas` from the specified number of whole tera Gas.
     ///
     /// # Examples
@@ -133,7 +136,7 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     ///
-    /// assert_eq!(Gas::from_gas(2).checked_sub(Gas::from_gas(2)), Some(Gas::from_gas(0)));
+    /// assert_eq!(Gas::from_gas(2).checked_sub(Gas::from_gas(2)), Some(Gas::ZERO));
     /// assert_eq!(Gas::from_gas(2).checked_sub(Gas::from_gas(3)), None);
     /// ```
     pub const fn checked_sub(self, rhs: Gas) -> Option<Self> {
@@ -184,7 +187,7 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     /// assert_eq!(Gas::from_gas(5).saturating_sub(Gas::from_gas(2)), Gas::from_gas(3));
-    /// assert_eq!(Gas::from_gas(1).saturating_sub(Gas::from_gas(2)), Gas::from_gas(0));
+    /// assert_eq!(Gas::from_gas(1).saturating_sub(Gas::from_gas(2)), Gas::ZERO);
     /// ```
     pub const fn saturating_sub(self, rhs: Gas) -> Gas {
         Self(self.0.saturating_sub(rhs.0))
@@ -209,11 +212,11 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     /// assert_eq!(Gas::from_gas(10).saturating_div(2), Gas::from_gas(5));
-    /// assert_eq!(Gas::from_gas(10).saturating_div(0), Gas::from_gas(0))
+    /// assert_eq!(Gas::from_gas(10).saturating_div(0), Gas::ZERO)
     /// ```
     pub const fn saturating_div(self, rhs: u64) -> Gas {
         if rhs == 0 {
-            return Gas::from_gas(0);
+            return Gas::ZERO;
         }
         Self(self.0.saturating_div(rhs))
     }

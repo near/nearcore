@@ -286,9 +286,9 @@ impl NonNegativeTolerance {
 
     fn tolerates(&self, pos: &GasCost, neg: &GasCost) -> bool {
         match self {
-            NonNegativeTolerance::Strict => neg.to_gas() == Gas::from_gas(0),
+            NonNegativeTolerance::Strict => neg.to_gas() == Gas::ZERO,
             NonNegativeTolerance::RelativeTolerance(rel_tolerance) => {
-                pos.to_gas() > Gas::from_gas(0)
+                pos.to_gas() > Gas::ZERO
                     && Ratio::new(neg.to_gas().as_gas(), pos.to_gas().as_gas()).to_f64().unwrap()
                         <= *rel_tolerance
             }
@@ -321,7 +321,7 @@ fn least_squares_method_gas_cost_pos_neg(
     if let Some(first) = ys.get(0) {
         if first.qemu.is_some() {
             assert!(
-                ys.iter().all(|y| y.qemu.is_some() || y.to_gas() == Gas::from_gas(0)),
+                ys.iter().all(|y| y.qemu.is_some() || y.to_gas() == Gas::ZERO),
                 "least square expects homogenous data"
             );
 
@@ -338,7 +338,7 @@ fn least_squares_method_gas_cost_pos_neg(
         }
         if first.time_ns.is_some() {
             assert!(
-                ys.iter().all(|y| y.time_ns.is_some() || y.to_gas() == Gas::from_gas(0)),
+                ys.iter().all(|y| y.time_ns.is_some() || y.to_gas() == Gas::ZERO),
                 "least square expects homogenous data"
             );
             let time_ys =
@@ -351,7 +351,7 @@ fn least_squares_method_gas_cost_pos_neg(
         }
     }
 
-    if neg_base.to_gas() == Gas::from_gas(0) && neg_factor.to_gas() == Gas::from_gas(0) {
+    if neg_base.to_gas() == Gas::ZERO && neg_factor.to_gas() == Gas::ZERO {
         if verbose {
             eprintln!("Least-squares output: {pos_base:?} + N * {pos_factor:?}",);
         }
@@ -512,7 +512,7 @@ impl GasCost {
         } else if let Some(ns) = self.time_ns {
             Gas::from_gas((GAS_IN_NS * ns).to_integer())
         } else {
-            Gas::from_gas(0)
+            Gas::ZERO
         }
     }
 }
@@ -714,7 +714,7 @@ mod tests {
                         .ceil()
                         .to_integer(),
                 ),
-                Gas::from_gas(0),
+                Gas::ZERO,
             ),
             false,
         );
@@ -743,7 +743,7 @@ mod tests {
             &xs,
             &ys,
             abs_tolerance(
-                Gas::from_gas(0),
+                Gas::ZERO,
                 Gas::from_gas(
                     (GAS_IN_INSTR * 1 + IO_READ_BYTE_COST * 2 + IO_WRITE_BYTE_COST * 3)
                         .ceil()

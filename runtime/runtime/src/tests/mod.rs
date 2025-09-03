@@ -5,7 +5,7 @@ use near_primitives::action::{Action, AddKeyAction, CreateAccountAction, Transfe
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::account_new;
-use near_primitives::types::{AccountId, Balance, Gas, MerkleHash, StateChangeCause};
+use near_primitives::types::{AccountId, Balance, Compute, Gas, MerkleHash, StateChangeCause};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardUId, get_account, set_account};
 use std::sync::Arc;
@@ -85,7 +85,8 @@ fn set_sha256_cost(
     compute_cost: u64,
 ) -> ParameterCost {
     let mut free_config = RuntimeConfig::free();
-    let sha256_cost = ParameterCost { gas: Gas::from_gas(gas_cost), compute: compute_cost };
+    let sha256_cost =
+        ParameterCost { gas: Gas::from_gas(gas_cost), compute: Compute::from(compute_cost) };
     let wasm_config = Arc::make_mut(&mut free_config.wasm_config);
     wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
     apply_state.config = Arc::new(free_config);

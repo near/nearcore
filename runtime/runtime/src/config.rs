@@ -48,10 +48,6 @@ pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, Inte
     gas_price.checked_mul(Balance::from(gas.as_gas())).ok_or(IntegerOverflowError {})
 }
 
-pub fn safe_mul_gas(a: Gas, b: u64) -> Result<Gas, IntegerOverflowError> {
-    a.checked_mul(b).ok_or(IntegerOverflowError {})
-}
-
 pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverflowError> {
     a.checked_add(b).ok_or(IntegerOverflowError {})
 }
@@ -67,7 +63,7 @@ pub fn total_send_fees(
     actions: &[Action],
     receiver_id: &AccountId,
 ) -> Result<Gas, IntegerOverflowError> {
-    let mut result = Gas::from_gas(0);
+    let mut result = Gas::ZERO;
     let fees = &config.fees;
 
     for action in actions {
@@ -186,7 +182,7 @@ pub fn total_prepaid_send_fees(
     config: &RuntimeConfig,
     actions: &[Action],
 ) -> Result<Gas, IntegerOverflowError> {
-    let mut result = Gas::from_gas(0);
+    let mut result = Gas::ZERO;
     for action in actions {
         use Action::*;
         let delta = match action {
@@ -201,7 +197,7 @@ pub fn total_prepaid_send_fees(
                     &delegate_action.receiver_id,
                 )?
             }
-            _ => Gas::from_gas(0),
+            _ => Gas::ZERO,
         };
         result = result.checked_add_result(delta)?;
     }
@@ -344,7 +340,7 @@ pub fn total_prepaid_exec_fees(
     actions: &[Action],
     receiver_id: &AccountId,
 ) -> Result<Gas, IntegerOverflowError> {
-    let mut result = Gas::from_gas(0);
+    let mut result = Gas::ZERO;
     let fees = &config.fees;
     for action in actions {
         let mut delta;
@@ -392,7 +388,7 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
 
 /// Get the total sum of prepaid gas for given actions.
 pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError> {
-    let mut total_gas = Gas::from_gas(0);
+    let mut total_gas = Gas::ZERO;
     for action in actions {
         let action_gas;
         if let Action::Delegate(signed_delegate_action) = action {

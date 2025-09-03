@@ -254,9 +254,9 @@ impl ActionResult {
 impl Default for ActionResult {
     fn default() -> Self {
         Self {
-            gas_burnt: Gas::from_gas(0),
-            gas_burnt_for_function_call: Gas::from_gas(0),
-            gas_used: Gas::from_gas(0),
+            gas_burnt: Gas::ZERO,
+            gas_burnt_for_function_call: Gas::ZERO,
+            gas_used: Gas::ZERO,
             compute_usage: 0,
             result: Ok(ReturnData::None),
             logs: vec![],
@@ -656,7 +656,7 @@ impl Runtime {
         };
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas =
-            if receipt.predecessor_id().is_system() { Gas::from_gas(0) } else { result.gas_burnt };
+            if receipt.predecessor_id().is_system() { Gas::ZERO } else { result.gas_burnt };
         // `price_deficit` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?
             - gas_refund_result.price_deficit;
@@ -667,15 +667,17 @@ impl Runtime {
         let tokens_burnt = tx_burnt_amount;
 
         // Adding burnt gas reward for function calls if the account exists.
-        let receiver_gas_reward = result.gas_burnt_for_function_call.as_gas()
-            * *apply_state.config.fees.burnt_gas_reward.numer() as u64
-            / *apply_state.config.fees.burnt_gas_reward.denom() as u64;
+        let receiver_gas_reward = result
+            .gas_burnt_for_function_call
+            .checked_mul(*apply_state.config.fees.burnt_gas_reward.numer() as u64)
+            .unwrap()
+            .checked_div(*apply_state.config.fees.burnt_gas_reward.denom() as u64)
+            .unwrap();
         // The balance that the current account should receive as a reward for function call
         // execution.
         let receiver_reward = if apply_state.config.fees.refund_gas_price_changes {
             // Use current gas price for reward calculation
-            let full_reward =
-                safe_gas_to_balance(apply_state.gas_price, Gas::from_gas(receiver_gas_reward))?;
+            let full_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?;
             // Pre NEP-536:
             // When refunding the gas price difference, if we run a deficit,
             // subtract it from contract rewards. This is a (arguably weird) bit
@@ -689,7 +691,7 @@ impl Runtime {
             full_reward.saturating_sub(gas_refund_result.price_deficit)
         } else {
             // Use receipt gas price for reward calculation
-            safe_gas_to_balance(action_receipt.gas_price, Gas::from_gas(receiver_gas_reward))?
+            safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?
             // Post NEP-536:
             // No shenanigans here. We are not refunding gas price differences,
             // we just use the receipt gas price and call it the correct price.

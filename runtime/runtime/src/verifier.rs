@@ -465,7 +465,7 @@ fn validate_function_call_action(
     limit_config: &LimitConfig,
     action: &FunctionCallAction,
 ) -> Result<(), ActionsValidationError> {
-    if action.gas == Gas::from_gas(0) {
+    if action.gas == Gas::ZERO {
         return Err(ActionsValidationError::FunctionCallZeroAttachedGas);
     }
 
@@ -904,7 +904,7 @@ mod tests {
         )
         .expect("valid transaction");
         // Should not be free. Burning for sending
-        assert!(verification_result.gas_burnt > Gas::from_gas(0));
+        assert!(verification_result.gas_burnt > Gas::ZERO);
         // All burned gas goes to the validators at current gas price
         assert_eq!(
             verification_result.burnt_amount,
@@ -1237,8 +1237,8 @@ mod tests {
             PROTOCOL_VERSION,
         )
         .unwrap();
-        assert_eq!(verification_result.gas_burnt, Gas::from_gas(0));
-        assert_eq!(verification_result.gas_remaining, Gas::from_gas(0));
+        assert_eq!(verification_result.gas_burnt, Gas::ZERO);
+        assert_eq!(verification_result.gas_remaining, Gas::ZERO);
         assert_eq!(verification_result.burnt_amount, 0);
     }
 
@@ -1820,7 +1820,7 @@ mod tests {
                 &Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "new".to_string(),
                     args: vec![],
-                    gas: Gas::from_gas(0),
+                    gas: Gas::ZERO,
                     deposit: 0,
                 })),
                 PROTOCOL_VERSION,

@@ -285,7 +285,7 @@ impl GenesisBuilder {
                 &state_root,
                 CryptoHash::default(),
                 vec![],
-                Gas::from_gas(0),
+                Gas::ZERO,
                 self.genesis.config.gas_limit,
                 0,
                 Some(congestion_info),

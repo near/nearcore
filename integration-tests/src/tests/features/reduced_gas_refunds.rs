@@ -125,7 +125,7 @@ fn generated_refunds_after_fn_call(
         .unwrap()
         .iter()
         .map(|cost_entry| cost_entry.gas_used)
-        .fold(Gas::from_gas(0), |acc, gas| acc.checked_add(gas).unwrap());
+        .fold(Gas::ZERO, |acc, gas| acc.checked_add(gas).unwrap());
 
     let expected_cost = fee_helper.function_call_cost(bytes, actual_fn_call_gas_burnt.as_gas());
 

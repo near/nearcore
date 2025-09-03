@@ -3063,7 +3063,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         self.result_state.gas_counter.pay_base(base)?;
         let return_val = get_memory_or_register!(self, value_ptr, value_len)?;
-        let mut burn_gas = Gas::from_gas(0);
+        let mut burn_gas = Gas::ZERO;
         let num_bytes = return_val.len() as u64;
         if num_bytes > self.config.limit_config.max_length_returned_data {
             return Err(HostError::ReturnedValueLengthExceeded {
@@ -3691,8 +3691,8 @@ impl VMOutcome {
             // Note: Fields below are added or merged when processing the
             // outcome. With 0 or the empty set, those are no-ops.
             return_data: ReturnData::None,
-            burnt_gas: Gas::from_gas(0),
-            used_gas: Gas::from_gas(0),
+            burnt_gas: Gas::ZERO,
+            used_gas: Gas::ZERO,
             compute_usage: 0,
             logs: Vec::new(),
             profile: ProfileDataV3::default(),

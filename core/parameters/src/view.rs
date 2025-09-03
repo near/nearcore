@@ -591,8 +591,8 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             bls12381_p2_decompress_element: config
                 .gas_cost(ExtCosts::bls12381_p2_decompress_element),
             // removed parameters
-            contract_compile_base: Gas::from_gas(0),
-            contract_compile_bytes: Gas::from_gas(0),
+            contract_compile_base: Gas::ZERO,
+            contract_compile_bytes: Gas::ZERO,
         }
     }
 }

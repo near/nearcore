@@ -395,7 +395,7 @@ impl Testbed<'_> {
                 .collect(),
         };
 
-        let mut total_burnt_gas = Gas::from_gas(0);
+        let mut total_burnt_gas = Gas::ZERO;
         if !allow_failures {
             for outcome in &apply_result.outcomes {
                 total_burnt_gas = total_burnt_gas.checked_add(outcome.outcome.gas_burnt).unwrap();

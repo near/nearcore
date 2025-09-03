@@ -546,14 +546,13 @@ fn test_apply_delayed_receipts_local_tx() {
         Gas::from_gas(1),
     );
 
-    let receipt_exec_gas_fee = 1000;
+    let receipt_exec_gas_fee = Gas::from_gas(1000);
     let mut free_config = RuntimeConfig::free();
     let fees = Arc::make_mut(&mut free_config.fees);
-    fees.action_fees[ActionCosts::new_action_receipt].execution =
-        Gas::from_gas(receipt_exec_gas_fee);
+    fees.action_fees[ActionCosts::new_action_receipt].execution = receipt_exec_gas_fee;
     apply_state.config = Arc::new(free_config);
     // This allows us to execute 3 receipts per apply.
-    apply_state.gas_limit = Some(Gas::from_gas(receipt_exec_gas_fee * 3));
+    apply_state.gas_limit = Some(receipt_exec_gas_fee.checked_mul(3).unwrap());
 
     let num_receipts = 6;
     let receipts = generate_receipts(small_transfer, num_receipts);
@@ -2689,10 +2688,7 @@ fn test_congestion_delayed_receipts_accounting() {
     );
     let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
 
-    assert_eq!(
-        Into::<u128>::into(expected_delayed_gas.as_gas()),
-        congestion.delayed_receipts_gas()
-    );
+    assert_eq!(u128::from(expected_delayed_gas.as_gas()), congestion.delayed_receipts_gas());
     assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
 }
 
@@ -2814,7 +2810,7 @@ fn test_congestion_buffering() {
     // Check congestion is 1.0
     let congestion = apply_state.congestion_control(receiver_shard, 0);
     assert_eq!(congestion.congestion_level(), 1.0);
-    assert_eq!(congestion.outgoing_gas_limit(local_shard), Gas::from_gas(0));
+    assert_eq!(congestion.outgoing_gas_limit(local_shard), Gas::ZERO);
 
     // release congestion to just below 1.0, which should allow one receipt
     // to be forwarded per round

@@ -65,7 +65,7 @@ impl ProfileDataV2 {
         self.legacy_action_costs()
             .iter()
             .map(|(_name, cost)| *cost)
-            .fold(Gas::from_gas(0), |acc: Gas, cost: Gas| acc.saturating_add(cost))
+            .fold(Gas::ZERO, |acc: Gas, cost: Gas| acc.saturating_add(cost))
             .as_gas()
     }
 
@@ -106,7 +106,7 @@ impl fmt::Debug for ProfileDataV2 {
         }
         writeln!(f, "------ Actions --------")?;
         for (cost, gas) in self.legacy_action_costs() {
-            if gas != Gas::from_gas(0) {
+            if gas != Gas::ZERO {
                 writeln!(f, "{} -> {}", cost.to_ascii_lowercase(), gas.as_gas())?;
             }
         }

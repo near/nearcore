@@ -145,7 +145,7 @@ fn test_cost_sanity() {
                 .map(|cost| {
                     if is_nondeterministic_cost(&cost.cost) {
                         // Ignore `gas_used` of nondeterministic costs.
-                        CostGasUsed { gas_used: Gas::from_gas(0), ..cost }
+                        CostGasUsed { gas_used: Gas::ZERO, ..cost }
                     } else {
                         cost
                     }

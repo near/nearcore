@@ -156,8 +156,8 @@ impl HighLoadStatsCommand {
             anyhow::anyhow!("Block header not found for {height} with {block_hash_vec:?}")
         })?;
 
-        let mut gas_used = vec![Gas::from_gas(0); 4];
-        let mut gas_used_by_account = vec![Gas::from_gas(0); 4];
+        let mut gas_used = vec![Gas::ZERO; 4];
+        let mut gas_used_by_account = vec![Gas::ZERO; 4];
         let mut tx_by_account = vec![0; 4];
         let mut receipts_by_account = vec![0; 4];
 

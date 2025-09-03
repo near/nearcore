@@ -328,7 +328,7 @@ fn test_wallet_contract_interaction() {
     let runtime_config = env.get_runtime_config(0, tip.epoch_id);
     let gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
     let refund_penalty =
-        Into::<u128>::into(runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas())
+        u128::from(runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas())
             * gas_price;
 
     assert_eq!(final_receiver_balance - init_receiver_balance, transfer_amount);

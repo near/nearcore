@@ -86,7 +86,7 @@ impl CongestionControl {
             if sender_shard == ShardId::from(self.info.allowed_shard()) {
                 self.config.allowed_shard_outgoing_gas
             } else {
-                Gas::from_gas(0)
+                Gas::ZERO
             }
         } else {
             Gas::from_gas(mix(
@@ -635,7 +635,7 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(1.0, control.congestion_level());
             // fully congested, no more forwarding allowed
-            assert_eq!(Gas::from_gas(0), control.outgoing_gas_limit(ShardId::new(1)));
+            assert_eq!(Gas::ZERO, control.outgoing_gas_limit(ShardId::new(1)));
             assert!(control.shard_accepts_transactions().is_no());
             // processing to other shards is not restricted by memory congestion
             assert_eq!(config.max_tx_gas, control.process_tx_limit());
@@ -692,7 +692,7 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(1.0, control.congestion_level());
             // fully congested, no more forwarding allowed
-            assert_eq!(Gas::from_gas(0), control.outgoing_gas_limit(ShardId::new(1)));
+            assert_eq!(Gas::ZERO, control.outgoing_gas_limit(ShardId::new(1)));
             assert!(control.shard_accepts_transactions().is_no());
             // processing to other shards is restricted by own incoming congestion
             assert_eq!(config.min_tx_gas, control.process_tx_limit());
@@ -752,7 +752,7 @@ mod tests {
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(1.0, control.congestion_level());
         // fully congested, no more forwarding allowed
-        assert_eq!(Gas::from_gas(0), control.outgoing_gas_limit(ShardId::new(1)));
+        assert_eq!(Gas::ZERO, control.outgoing_gas_limit(ShardId::new(1)));
         assert!(control.shard_accepts_transactions().is_no());
         // processing to other shards is not restricted by own outgoing congestion
         assert_eq!(config.max_tx_gas, control.process_tx_limit());
@@ -894,7 +894,7 @@ mod tests {
             if shard == ShardId::from(control.info.allowed_shard()) {
                 assert_eq!(control.outgoing_gas_limit(shard), config.allowed_shard_outgoing_gas);
             } else {
-                assert_eq!(control.outgoing_gas_limit(shard), Gas::from_gas(0));
+                assert_eq!(control.outgoing_gas_limit(shard), Gas::ZERO);
             }
         }
     }

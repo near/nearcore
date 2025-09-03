@@ -1168,7 +1168,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                         1,
                         method_name,
                         args,
-                        Gas::from_tera(285),
+                        Gas::from_gas(GAS_BURNT_PER_CALL).checked_add(Gas::from_tera(10)).unwrap(),
                         tip.last_block_hash,
                     );
                     store_and_submit_tx(

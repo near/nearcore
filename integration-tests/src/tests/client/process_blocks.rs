@@ -1582,7 +1582,7 @@ fn test_gas_price_change() {
         .unwrap()
         .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee())
         .unwrap();
-    let min_gas_price = target_num_tokens_left / Into::<u128>::into(send_money_total_gas.as_gas());
+    let min_gas_price = target_num_tokens_left / u128::from(send_money_total_gas.as_gas());
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Ratio::new(1, 10);
 
@@ -1601,7 +1601,7 @@ fn test_gas_price_change() {
         &signer,
         TESTING_INIT_BALANCE
             - target_num_tokens_left
-            - Into::<u128>::into(send_money_total_gas.as_gas()) * min_gas_price,
+            - u128::from(send_money_total_gas.as_gas()) * min_gas_price,
         genesis_hash,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -2479,7 +2479,7 @@ fn test_execution_metadata() {
                 .unwrap_or_default()
                 .into_iter()
                 .map(|it| it.gas_used)
-                .fold(Gas::from_gas(0), |acc, gas| acc.checked_add(gas).unwrap()),
+                .fold(Gas::ZERO, |acc, gas| acc.checked_add(gas).unwrap()),
         )
         .unwrap()
         .as_gas();

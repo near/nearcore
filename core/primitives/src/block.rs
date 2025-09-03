@@ -131,11 +131,11 @@ impl Block {
         // Collect aggregate of validators and gas usage/limits from chunks.
 
         let mut prev_validator_proposals = vec![];
-        let mut gas_used = Gas::from_gas(0);
+        let mut gas_used = Gas::ZERO;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
         let mut balance_burnt = 0;
-        let mut gas_limit = Gas::from_gas(0);
+        let mut gas_limit = Gas::ZERO;
         for chunk in &chunks {
             if chunk.height_included() == height {
                 prev_validator_proposals.extend(chunk.prev_validator_proposals());
@@ -311,7 +311,7 @@ impl Block {
         max_gas_price: Balance,
     ) -> Balance {
         // If block was skipped, the price does not change.
-        if gas_limit == Gas::from_gas(0) {
+        if gas_limit == Gas::ZERO {
             return gas_price;
         }
 
@@ -647,12 +647,11 @@ impl<'a> Chunks<'a> {
 
     pub fn compute_gas_used(&self) -> Gas {
         self.iter_new()
-            .fold(Gas::from_gas(0), |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
+            .fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
     }
 
     pub fn compute_gas_limit(&self) -> Gas {
-        self.iter_new()
-            .fold(Gas::from_gas(0), |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
+        self.iter_new().fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
     }
 }
 

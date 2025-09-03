@@ -3465,7 +3465,7 @@ pub fn value_return(caller: &mut Caller<'_, Ctx>, value_len: u64, value_ptr: u64
         value_ptr,
         value_len,
     )?;
-    let mut burn_gas: Gas = Gas::from_gas(0);
+    let mut burn_gas: Gas = Gas::ZERO;
     let num_bytes = return_val.len() as u64;
     if num_bytes > ctx.config.limit_config.max_length_returned_data {
         return Err(HostError::ReturnedValueLengthExceeded {

@@ -506,7 +506,7 @@ fn test_initializer_no_gas() {
   (start $f)
 )"#,
         )
-        .gas(Gas::from_gas(0))
+        .gas(Gas::ZERO)
         .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: Exceeded the prepaid gas.

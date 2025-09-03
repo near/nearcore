@@ -493,7 +493,7 @@ impl RuntimeFeesConfig {
             {
                 Gas::from_tera(1)
             } else {
-                Gas::from_gas(0)
+                Gas::ZERO
             },
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee::new(3_850_000_000_000, 3_850_000_000_000, 3_850_000_000_000),
@@ -530,7 +530,7 @@ impl RuntimeFeesConfig {
             pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
             refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
             gas_refund_penalty: Rational32::from_integer(0),
-            min_gas_refund_penalty: Gas::from_gas(0),
+            min_gas_refund_penalty: Gas::ZERO,
         }
     }
 
@@ -551,7 +551,7 @@ impl RuntimeFeesConfig {
     /// Must return a value smaller or equal to the `gas_refund` parameter.
     pub fn gas_penalty_for_gas_refund(&self, gas_refund: Gas) -> Gas {
         let relative_cost = Gas::from_gas(
-            (Into::<u128>::into(gas_refund.as_gas()) * *self.gas_refund_penalty.numer() as u128
+            (u128::from(gas_refund.as_gas()) * *self.gas_refund_penalty.numer() as u128
                 / *self.gas_refund_penalty.denom() as u128)
                 .try_into()
                 .unwrap(),

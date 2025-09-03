@@ -196,10 +196,8 @@ impl ReplayController {
                 total_gas_burnt = Some(gas_burnt);
             }
         }
-        self.progress_reporter.inc_and_report_progress(
-            self.next_height,
-            total_gas_burnt.map(|g| g.as_gas()).unwrap_or(0),
-        );
+        self.progress_reporter
+            .inc_and_report_progress(self.next_height, total_gas_burnt.unwrap_or(Gas::ZERO));
         self.next_height += 1;
         Ok(self.next_height <= self.end_height)
     }
@@ -233,7 +231,7 @@ impl ReplayController {
         let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
 
         let chunks = block.chunks();
-        let mut total_gas_burnt = Gas::from_gas(0);
+        let mut total_gas_burnt = Gas::ZERO;
         // TODO: Parallelize this loop.
         for shard_id in 0..chunks.len() {
             let chunk_header = &chunks[shard_id];

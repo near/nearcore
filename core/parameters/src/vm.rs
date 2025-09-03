@@ -202,7 +202,7 @@ impl Config {
     pub fn make_free(&mut self) {
         self.ext_costs = ExtCostsConfig {
             costs: near_primitives_core::enum_map::enum_map! {
-                _ => ParameterCost { gas: Gas::from_gas(0), compute: 0 }
+                _ => ParameterCost { gas: Gas::ZERO, compute: 0 }
             },
         };
         self.grow_mem_cost = 0;

@@ -93,14 +93,14 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
         costs: enum_map::enum_map! {
             // TODO: storage_iter_* operations below are deprecated, so just hardcode zero price,
             // and remove those operations ASAP.
-            ExtCosts::storage_iter_create_prefix_base => Gas::from_gas(0),
-            ExtCosts::storage_iter_create_prefix_byte => Gas::from_gas(0),
-            ExtCosts::storage_iter_create_range_base => Gas::from_gas(0),
-            ExtCosts::storage_iter_create_from_byte => Gas::from_gas(0),
-            ExtCosts::storage_iter_create_to_byte => Gas::from_gas(0),
-            ExtCosts::storage_iter_next_base => Gas::from_gas(0),
-            ExtCosts::storage_iter_next_key_byte => Gas::from_gas(0),
-            ExtCosts::storage_iter_next_value_byte => Gas::from_gas(0),
+            ExtCosts::storage_iter_create_prefix_base => Gas::ZERO,
+            ExtCosts::storage_iter_create_prefix_byte => Gas::ZERO,
+            ExtCosts::storage_iter_create_range_base => Gas::ZERO,
+            ExtCosts::storage_iter_create_from_byte => Gas::ZERO,
+            ExtCosts::storage_iter_create_to_byte => Gas::ZERO,
+            ExtCosts::storage_iter_next_base => Gas::ZERO,
+            ExtCosts::storage_iter_next_key_byte => Gas::ZERO,
+            ExtCosts::storage_iter_next_value_byte => Gas::ZERO,
             // TODO: accurately price host functions that expose validator information.
             ExtCosts::validator_stake_base => Gas::from_gas(303944908800),
             ExtCosts::validator_total_stake_base => Gas::from_gas(303944908800),

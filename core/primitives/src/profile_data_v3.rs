@@ -27,9 +27,9 @@ impl ProfileDataV3 {
     #[inline]
     pub fn new() -> Self {
         Self {
-            actions_profile: enum_map! { _ => Gas::from_gas(0) },
-            wasm_ext_profile: enum_map! { _ => Gas::from_gas(0) },
-            wasm_gas: Gas::from_gas(0),
+            actions_profile: enum_map! { _ => Gas::ZERO },
+            wasm_ext_profile: enum_map! { _ => Gas::ZERO },
+            wasm_gas: Gas::ZERO,
         }
     }
 
@@ -103,7 +103,7 @@ impl ProfileDataV3 {
             .as_slice()
             .iter()
             .copied()
-            .fold(Gas::from_gas(0), |acc: Gas, gas: Gas| acc.saturating_add(gas))
+            .fold(Gas::ZERO, |acc: Gas, gas: Gas| acc.saturating_add(gas))
     }
 
     pub fn action_gas(&self) -> Gas {
@@ -111,7 +111,7 @@ impl ProfileDataV3 {
             .as_slice()
             .iter()
             .copied()
-            .fold(Gas::from_gas(0), |acc: Gas, gas: Gas| acc.saturating_add(gas))
+            .fold(Gas::ZERO, |acc: Gas, gas: Gas| acc.saturating_add(gas))
     }
 
     /// Returns total compute usage of host calls.
@@ -125,19 +125,17 @@ impl ProfileDataV3 {
                 // the total gas usage.
                 // We don't have such costs at the moment, so this case is not implemented.
                 debug_assert!(
-                    key.gas(ext_costs_config) > Gas::from_gas(0)
-                        || key.compute(ext_costs_config) == 0
+                    key.gas(ext_costs_config) > Gas::ZERO || key.compute(ext_costs_config) == 0
                 );
 
-                if *value == Gas::from_gas(0) {
+                if *value == Gas::ZERO {
                     return (*value).as_gas();
                 }
                 // If the `value` is non-zero, the gas cost also must be non-zero.
-                debug_assert!(key.gas(ext_costs_config) != Gas::from_gas(0));
-                (Into::<u128>::into((*value).as_gas())
-                    .saturating_mul(Into::<u128>::into(key.compute(ext_costs_config)))
-                    / (Into::<u128>::into(key.gas(ext_costs_config).as_gas())))
-                    as u64
+                debug_assert!(key.gas(ext_costs_config) != Gas::ZERO);
+                (u128::from((*value).as_gas())
+                    .saturating_mul(u128::from(key.compute(ext_costs_config)))
+                    / (u128::from(key.gas(ext_costs_config).as_gas()))) as u64
             })
             .fold(0, Compute::saturating_add);
 
@@ -172,13 +170,13 @@ impl BorshDeserialize for ProfileDataV3 {
 
 impl BorshSerialize for ProfileDataV3 {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        let mut actions_costs: Vec<Gas> = vec![Gas::from_gas(0); ActionCosts::LENGTH];
+        let mut actions_costs: Vec<Gas> = vec![Gas::ZERO; ActionCosts::LENGTH];
         for (cost, gas) in &self.actions_profile {
             actions_costs[borsh_action_index(cost)] = *gas;
         }
         BorshSerialize::serialize(&actions_costs, writer)?;
 
-        let mut ext_costs: Vec<Gas> = vec![Gas::from_gas(0); ExtCosts::LENGTH];
+        let mut ext_costs: Vec<Gas> = vec![Gas::ZERO; ExtCosts::LENGTH];
         for (cost, gas) in &self.wasm_ext_profile {
             ext_costs[borsh_ext_index(cost)] = *gas;
         }
@@ -228,7 +226,7 @@ impl fmt::Debug for ProfileDataV3 {
         writeln!(f, "------ Host functions --------")?;
         for cost in ExtCosts::iter() {
             let d = self.get_ext_cost(cost);
-            if d != Gas::from_gas(0) {
+            if d != Gas::ZERO {
                 writeln!(
                     f,
                     "{} -> {} [{}% host]",
@@ -245,7 +243,7 @@ impl fmt::Debug for ProfileDataV3 {
         writeln!(f, "------ Actions --------")?;
         for cost in ActionCosts::iter() {
             let d = self.get_action_cost(cost);
-            if d != Gas::from_gas(0) {
+            if d != Gas::ZERO {
                 writeln!(f, "{} -> {}", cost, d.as_gas())?;
             }
         }
@@ -470,11 +468,11 @@ mod test {
 
         assert_eq!(Gas::from_gas(50), profile.get_action_cost(ActionCosts::create_account));
         assert_eq!(Gas::from_gas(60), profile.get_action_cost(ActionCosts::delete_account));
-        assert_eq!(Gas::from_gas(0), profile.get_action_cost(ActionCosts::deploy_contract_base));
+        assert_eq!(Gas::ZERO, profile.get_action_cost(ActionCosts::deploy_contract_base));
 
         assert_eq!(Gas::from_gas(100), profile.get_ext_cost(ExtCosts::base));
         assert_eq!(Gas::from_gas(200), profile.get_ext_cost(ExtCosts::contract_loading_base));
-        assert_eq!(Gas::from_gas(0), profile.get_ext_cost(ExtCosts::contract_loading_bytes));
+        assert_eq!(Gas::ZERO, profile.get_ext_cost(ExtCosts::contract_loading_bytes));
     }
 
     #[test]

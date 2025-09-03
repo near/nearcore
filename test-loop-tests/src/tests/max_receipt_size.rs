@@ -179,7 +179,7 @@ fn test_max_receipt_size_promise_return() {
             actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "noop".into(),
                 args: vec![],
-                gas: Gas::from_gas(0),
+                gas: Gas::ZERO,
                 deposit: 0,
             }))],
         }),

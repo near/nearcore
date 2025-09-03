@@ -102,7 +102,7 @@ fn test_chunk_by_hash() {
         assert_eq!(chunk.header.encoded_length, 8);
         assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
         assert_eq!(chunk.header.gas_limit, Gas::from_gas(1000000));
-        assert_eq!(chunk.header.gas_used, Gas::from_gas(0));
+        assert_eq!(chunk.header.gas_used, Gas::ZERO);
         assert_eq!(chunk.header.height_created, 0);
         assert_eq!(chunk.header.height_included, 0);
         assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
@@ -678,7 +678,7 @@ fn test_get_chunk_with_object_in_params() {
         assert_eq!(chunk.header.encoded_length, 8);
         assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
         assert_eq!(chunk.header.gas_limit, Gas::from_gas(1000000));
-        assert_eq!(chunk.header.gas_used, Gas::from_gas(0));
+        assert_eq!(chunk.header.gas_used, Gas::ZERO);
         assert_eq!(chunk.header.height_created, 0);
         assert_eq!(chunk.header.height_included, 0);
         assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);

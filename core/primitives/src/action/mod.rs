@@ -351,7 +351,7 @@ impl Action {
     pub fn get_prepaid_gas(&self) -> Gas {
         match self {
             Action::FunctionCall(a) => a.gas,
-            _ => Gas::from_gas(0),
+            _ => Gas::ZERO,
         }
     }
     pub fn get_deposit_balance(&self) -> Balance {

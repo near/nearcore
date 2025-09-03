@@ -507,7 +507,7 @@ fn test_eth_implicit_accounts() {
     // The only tokens lost in the transaction are due to gas and refund penalty
     let max_gas_cost = ONE_NEAR / 500;
     let max_refund_cost =
-        Into::<u128>::into(runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas())
+        u128::from(runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas())
             * gas_price;
     let tx_cost =
         (alice_init_balance + bob_init_balance) - (alice_final_balance + bob_final_balance);

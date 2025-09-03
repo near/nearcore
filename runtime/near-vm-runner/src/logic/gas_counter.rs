@@ -98,7 +98,7 @@ impl GasCounter {
                 opcode_cost: opcode_cost as u64,
             },
             max_gas_burnt,
-            promises_gas: Gas::from_gas(0),
+            promises_gas: Gas::ZERO,
             prepaid_gas,
             is_view,
             profile: Default::default(),
@@ -128,7 +128,7 @@ impl GasCounter {
             .ok_or(HostError::IntegerOverflow)?;
         if Gas::from_gas(new_burnt_gas) <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
             use std::cmp::min;
-            if promises_gas != Gas::from_gas(0) && !self.is_view {
+            if promises_gas != Gas::ZERO && !self.is_view {
                 self.fast_counter.gas_limit = min(
                     self.max_gas_burnt.as_gas(),
                     self.prepaid_gas.checked_sub(new_promises_gas).unwrap().as_gas(),
@@ -338,7 +338,7 @@ impl GasCounter {
     }
 
     pub(crate) fn prepay_gas(&mut self, use_gas: Gas) -> Result<()> {
-        self.deduct_gas(Gas::from_gas(0), use_gas)
+        self.deduct_gas(Gas::ZERO, use_gas)
     }
 
     pub(crate) fn burnt_gas(&self) -> Gas {

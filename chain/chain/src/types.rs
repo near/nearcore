@@ -618,7 +618,7 @@ mod tests {
                 status: ExecutionStatus::SuccessValue(vec![1]),
                 logs: vec!["outcome2".to_string()],
                 receipt_ids: vec![],
-                gas_burnt: Gas::from_gas(0),
+                gas_burnt: Gas::ZERO,
                 compute_usage: Some(0),
                 tokens_burnt: 0,
                 executor_id: "bob".parse().unwrap(),

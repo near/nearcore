@@ -154,7 +154,7 @@ impl ChunkTestFixture {
             Default::default(),
             mock_height,
             mock_shard_id,
-            Gas::from_gas(0),
+            Gas::ZERO,
             Gas::from_gas(1000),
             0,
             Vec::new(),
