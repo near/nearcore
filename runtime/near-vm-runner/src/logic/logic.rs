@@ -3187,6 +3187,45 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         Ok(self.context.promise_results.len() as _)
     }
 
+    /// A method to check how much memory [`Self::promise_result()`] would return.
+    ///
+    /// If the current function is invoked by a callback, we can access the length of execution
+    /// results of the promises that caused the callback. It can be used to prevent out-of-gas
+    /// failures when reading too long execution result via [`Self::promise_result()`].
+    ///
+    /// # Returns
+    ///
+    /// * If promise result is complete and successful returns the length in bytes of the promise result;
+    /// * If promise result is not complete or failed returns `0`;
+    ///
+    /// # Errors
+    ///
+    /// * If `result_idx` does not correspond to an existing result returns [`HostError::InvalidPromiseResultIndex`];
+    /// * If called as view function returns [`HostError::ProhibitedInView`].
+    ///
+    /// # Cost
+    ///
+    /// `base` - the base cost for a simple host function call
+    pub fn promise_result_length(&mut self, result_idx: u64) -> Result<u64> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_result_length".to_string(),
+            }
+            .into());
+        }
+        match self
+            .context
+            .promise_results
+            .get(result_idx as usize)
+            .ok_or(HostError::InvalidPromiseResultIndex { result_idx })?
+        {
+            PromiseResult::Successful(data) => Ok(data.len() as u64),
+            PromiseResult::NotReady => Ok(0),
+            PromiseResult::Failed => Ok(0),
+        }
+    }
+
     /// If the current function is invoked by a callback we can access the execution results of the
     /// promises that caused the callback. This function returns the result in blob format and
     /// places it into the register.
@@ -3439,6 +3478,12 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.checked_push_log(format!("ABORT: {}", message))?;
 
         Err(HostError::GuestPanic { panic_msg: message }.into())
+    }
+
+    pub fn current_contract_code(&mut self, _register_id: u64) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        // TODO(sharded_contracts): implement this host function (done in a separate commit as it is a bit more involved than the other new host functions)
+        todo!()
     }
 
     // ###############
@@ -3722,6 +3767,41 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
 
         self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
         Ok(res? as u64)
+    }
+
+    /// Write the protocol storage configuration parameter value for `storage_amount_per_byte` to
+    /// the location defined by `balance_ptr`.
+    ///
+    /// # Cost
+    ///
+    /// `base` - the base cost for a simple host function call
+    /// `write_memory_base` + 16 * `write_memory_byte` - the cost of writing a `u128` to guest memory
+    pub fn storage_config_byte_cost(&mut self, balance_ptr: u64) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        let cost_per_byte = self.fees_config.storage_usage_config.storage_amount_per_byte;
+        self.memory.set_u128(&mut self.result_state.gas_counter, balance_ptr, cost_per_byte)
+    }
+
+    /// Returns the protocol storage configuration parameter value for `num_bytes_account`.
+    ///
+    /// # Cost
+    ///
+    /// `base` - the base cost for a simple host function call
+    pub fn storage_config_num_bytes_account(&mut self) -> Result<u64> {
+        self.result_state.gas_counter.pay_base(base)?;
+        let bytes = self.fees_config.storage_usage_config.num_bytes_account;
+        Ok(bytes)
+    }
+
+    /// Returns the protocol storage configuration parameter value for `num_extra_bytes_record`.
+    ///
+    /// # Cost
+    ///
+    /// `base` - the base cost for a simple host function call
+    pub fn storage_config_num_extra_bytes_record(&mut self) -> Result<u64> {
+        self.result_state.gas_counter.pay_base(base)?;
+        let bytes = self.fees_config.storage_usage_config.num_extra_bytes_record;
+        Ok(bytes)
     }
 
     /// Debug print given utf-8 string to node log. It's only available in Sandbox node

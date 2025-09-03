@@ -2793,6 +2793,30 @@ pub fn set_state_init_data_entry(
     Ok(())
 }
 
+// TODO(sharded_contracts): copy-paste the final implementation of the host
+// functions and adjust to wasmtime runner
+
+pub fn promise_result_length(_caller: &mut Caller<'_, Ctx>, _result_idx: u64) -> Result<u64> {
+    // TODO(sharded_contracts)
+    todo!()
+}
+pub fn current_contract_code(_caller: &mut Caller<'_, Ctx>, _register_id: u64) -> Result<()> {
+    // TODO(sharded_contracts)
+    todo!()
+}
+pub fn storage_config_byte_cost(_caller: &mut Caller<'_, Ctx>, _balance_ptr: u64) -> Result<()> {
+    // TODO(sharded_contracts)
+    todo!()
+}
+pub fn storage_config_num_bytes_account(_caller: &mut Caller<'_, Ctx>) -> Result<u64> {
+    // TODO(sharded_contracts)
+    todo!()
+}
+pub fn storage_config_num_extra_bytes_record(_caller: &mut Caller<'_, Ctx>) -> Result<u64> {
+    // TODO(sharded_contracts)
+    todo!()
+}
+
 /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by
 /// `promise_idx`.
 ///
