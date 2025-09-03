@@ -8,6 +8,12 @@
 ### Non-protocol Changes
 **No Changes**
 
+## [2.8.0]
+
+### Protocol Changes
+
+* Increase number of validators from 300 to 500. To maintain the chain safety, we increase the number of mandates per shard to 105.
+
 ## [2.7.1]
 
 ### Non-protocol changes
