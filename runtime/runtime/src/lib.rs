@@ -226,14 +226,12 @@ impl ActionResult {
             next_result.gas_burnt,
             next_result.gas_used
         );
-        self.gas_burnt =
-            self.gas_burnt.checked_add(next_result.gas_burnt).ok_or(IntegerOverflowError)?;
+        self.gas_burnt = self.gas_burnt.checked_add_result(next_result.gas_burnt)?;
         self.gas_burnt_for_function_call = self
             .gas_burnt_for_function_call
             .checked_add(next_result.gas_burnt_for_function_call)
             .ok_or(IntegerOverflowError)?;
-        self.gas_used =
-            self.gas_used.checked_add(next_result.gas_used).ok_or(IntegerOverflowError)?;
+        self.gas_used = self.gas_used.checked_add_result(next_result.gas_used)?;
         self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
         self.profile.merge(&next_result.profile);
         self.result = next_result.result;

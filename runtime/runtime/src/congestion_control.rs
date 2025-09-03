@@ -690,12 +690,11 @@ pub(crate) fn compute_receipt_congestion_gas(
                     .ok_or(IntegerOverflowError)?;
             // account for gas guaranteed to be used for creating new receipts
             let prepaid_send_gas = total_prepaid_send_fees(config, &action_receipt.actions)?;
-            let prepaid_gas =
-                prepaid_exec_gas.checked_add(prepaid_send_gas).ok_or(IntegerOverflowError)?;
+            let prepaid_gas = prepaid_exec_gas.checked_add_result(prepaid_send_gas)?;
 
             // account for gas potentially used for dynamic execution
             let gas_attached_to_fns = total_prepaid_gas(&action_receipt.actions)?;
-            let gas = gas_attached_to_fns.checked_add(prepaid_gas).ok_or(IntegerOverflowError)?;
+            let gas = gas_attached_to_fns.checked_add_result(prepaid_gas)?;
 
             Ok(gas)
         }

@@ -1,3 +1,4 @@
+use crate::errors::IntegerOverflowError;
 use near_gas::NearGas;
 
 /// Wrapper type over [`near_gas::NearGas`], which itself is a wrapper type over u64.
@@ -120,6 +121,10 @@ impl Gas {
     /// ```
     pub const fn checked_add(self, rhs: Gas) -> Option<Self> {
         if let Some(result) = self.0.checked_add(rhs.0) { Some(Self(result)) } else { None }
+    }
+
+    pub fn checked_add_result(self, rhs: Gas) -> Result<Self, IntegerOverflowError> {
+        self.checked_add(rhs).ok_or(IntegerOverflowError)
     }
 
     /// Checked integer subtraction. Computes self - rhs, returning None if overflow occurred.

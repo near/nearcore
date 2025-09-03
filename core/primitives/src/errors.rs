@@ -825,16 +825,7 @@ impl Display for InvalidAccessKeyError {
 
 impl std::error::Error for InvalidAccessKeyError {}
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
-pub struct IntegerOverflowError;
-
-impl std::fmt::Display for IntegerOverflowError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        f.write_str(&format!("{:?}", self))
-    }
-}
-
-impl std::error::Error for IntegerOverflowError {}
+pub use near_primitives_core::errors::IntegerOverflowError;
 
 impl From<IntegerOverflowError> for InvalidTxError {
     fn from(_: IntegerOverflowError) -> Self {

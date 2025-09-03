@@ -120,8 +120,7 @@ using a loop rather than those methods, for example:
 // GOOD
 for outcome_with_id in result? {
     *total_gas_burnt = total_gas_burnt
-        .checked_add(outcome_with_id.outcome.gas_burnt)
-        .ok_or(IntegerOverflowError)?;
+        .checked_add_result(outcome_with_id.outcome.gas_burnt)?;
     outcomes.push(outcome_with_id);
 }
 
@@ -129,8 +128,7 @@ for outcome_with_id in result? {
 result?.into_iter().try_for_each(
     |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
         *total_gas_burnt = total_gas_burnt
-            .checked_add(outcome_with_id.outcome.gas_burnt)
-            .ok_or(IntegerOverflowError)?;
+            .checked_add_result(outcome_with_id.outcome.gas_burnt)?;
         outcomes.push(outcome_with_id);
         Ok(())
     },

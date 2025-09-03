@@ -172,7 +172,7 @@ pub fn total_send_fees(
                     .unwrap()
             }
         };
-        result = result.checked_add(delta).ok_or(IntegerOverflowError)?;
+        result = result.checked_add_result(delta)?;
     }
     Ok(result)
 }
@@ -203,7 +203,7 @@ pub fn total_prepaid_send_fees(
             }
             _ => Gas::from_gas(0),
         };
-        result = result.checked_add(delta).ok_or(IntegerOverflowError)?;
+        result = result.checked_add_result(delta)?;
     }
     Ok(result)
 }
@@ -310,24 +310,27 @@ pub fn tx_cost(
     let sender_is_receiver = tx.receiver_id() == tx.signer_id();
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
-    gas_burnt = gas_burnt
-        .checked_add(total_send_fees(config, sender_is_receiver, tx.actions(), tx.receiver_id())?)
-        .ok_or(IntegerOverflowError)?;
+    gas_burnt = gas_burnt.checked_add_result(total_send_fees(
+        config,
+        sender_is_receiver,
+        tx.actions(),
+        tx.receiver_id(),
+    )?)?;
     let prepaid_gas = total_prepaid_gas(&tx.actions())?
-        .checked_add(total_prepaid_send_fees(config, &tx.actions())?)
-        .ok_or(IntegerOverflowError)?;
+        .checked_add_result(total_prepaid_send_fees(config, &tx.actions())?)?;
     let receipt_gas_price = if ProtocolFeature::ReducedGasRefunds.enabled(protocol_version) {
         gas_price
     } else {
         pessimistic_gas_price(gas_price, sender_is_receiver, fees, prepaid_gas.as_gas())?
     };
 
-    let mut gas_remaining = prepaid_gas
-        .checked_add(fees.fee(ActionCosts::new_action_receipt).exec_fee())
-        .ok_or(IntegerOverflowError)?;
-    gas_remaining = gas_remaining
-        .checked_add(total_prepaid_exec_fees(config, tx.actions(), tx.receiver_id())?)
-        .ok_or(IntegerOverflowError)?;
+    let mut gas_remaining =
+        prepaid_gas.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
+    gas_remaining = gas_remaining.checked_add_result(total_prepaid_exec_fees(
+        config,
+        tx.actions(),
+        tx.receiver_id(),
+    )?)?;
     let burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
@@ -353,21 +356,18 @@ pub fn total_prepaid_exec_fees(
                 &actions,
                 &signed_delegate_action.delegate_action.receiver_id,
             )?;
-            delta = delta
-                .checked_add(exec_fee(
-                    config,
-                    action,
-                    &signed_delegate_action.delegate_action.receiver_id,
-                ))
-                .ok_or(IntegerOverflowError)?;
-            delta = delta
-                .checked_add(fees.fee(ActionCosts::new_action_receipt).exec_fee())
-                .ok_or(IntegerOverflowError)?;
+            delta = delta.checked_add_result(exec_fee(
+                config,
+                action,
+                &signed_delegate_action.delegate_action.receiver_id,
+            ))?;
+            delta =
+                delta.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
         } else {
             delta = exec_fee(config, action, receiver_id);
         }
 
-        result = result.checked_add(delta).ok_or(IntegerOverflowError)?;
+        result = result.checked_add_result(delta)?;
     }
     Ok(result)
 }
@@ -402,7 +402,7 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
             action_gas = action.get_prepaid_gas();
         }
 
-        total_gas = total_gas.checked_add(action_gas).ok_or(IntegerOverflowError)?;
+        total_gas = total_gas.checked_add_result(action_gas)?;
     }
     Ok(total_gas)
 }
