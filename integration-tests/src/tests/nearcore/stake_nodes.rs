@@ -12,7 +12,7 @@ use crate::utils::genesis_helpers::genesis_hash;
 use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
-use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActor};
+use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActorInner};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
@@ -25,6 +25,7 @@ use nearcore::{NearConfig, load_test_config, start_with_config};
 
 use near_async::ActorSystem;
 use near_async::messaging::CanSendAsync;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::ClientActorInner;
 use near_client_primitives::types::Status;
@@ -37,7 +38,7 @@ struct TestNode {
     signer: Arc<Signer>,
     config: NearConfig,
     client: TokioRuntimeHandle<ClientActorInner>,
-    view_client: Addr<ViewClientActor>,
+    view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
     tx_processor: Addr<RpcHandlerActor>,
     genesis_hash: CryptoHash,
 }
@@ -250,7 +251,7 @@ fn slow_test_validator_kickout() {
                         if res.unwrap().validators == expected {
                             for i in 0..num_nodes / 2 {
                                 let mark = finalized_mark1[i as usize].clone();
-                                let actor = test_node1.view_client.send(Query::new(
+                                let actor = test_node1.view_client.send_async(Query::new(
                                     BlockReference::latest(),
                                     QueryRequest::ViewAccount {
                                         account_id: test_nodes[i as usize].account_id.clone(),
@@ -273,7 +274,7 @@ fn slow_test_validator_kickout() {
                             for i in num_nodes / 2..num_nodes {
                                 let mark = finalized_mark1[i as usize].clone();
 
-                                let actor = test_node1.view_client.send(Query::new(
+                                let actor = test_node1.view_client.send_async(Query::new(
                                     BlockReference::latest(),
                                     QueryRequest::ViewAccount {
                                         account_id: test_nodes[i as usize].account_id.clone(),
@@ -397,7 +398,7 @@ fn ultra_slow_test_validator_join() {
                             return future::ready(());
                         }
                         if res.unwrap().validators == expected {
-                            let actor = test_node1.view_client.send(Query::new(
+                            let actor = test_node1.view_client.send_async(Query::new(
                                 BlockReference::latest(),
                                 QueryRequest::ViewAccount {
                                     account_id: test_nodes[1].account_id.clone(),
@@ -413,7 +414,7 @@ fn ultra_slow_test_validator_join() {
                                 _ => panic!("wrong return result"),
                             });
                             actix::spawn(actor);
-                            let actor = test_node1.view_client.send(Query::new(
+                            let actor = test_node1.view_client.send_async(Query::new(
                                 BlockReference::latest(),
                                 QueryRequest::ViewAccount {
                                     account_id: test_nodes[2].account_id.clone(),
@@ -479,7 +480,7 @@ fn slow_test_inflation() {
                 Box::new(move |_ctx| {
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                     let actor =
-                        test_nodes[0].view_client.send(GetBlock::latest());
+                        test_nodes[0].view_client.send_async(GetBlock::latest());
                     let actor = actor.then(move |res| {
                         if let Ok(Ok(block)) = res {
                             if block.header.height >= 2 && block.header.height <= epoch_length {
@@ -497,7 +498,7 @@ fn slow_test_inflation() {
                     let view_client = test_nodes[0].view_client.clone();
                     actix::spawn(async move {
                         if let Ok(Ok(block)) =
-                            view_client.send(GetBlock::latest()).await
+                            view_client.send_async(GetBlock::latest()).await
                         {
                             if block.header.height > epoch_length
                                 && block.header.height < epoch_length * 2
@@ -505,7 +506,7 @@ fn slow_test_inflation() {
                                 tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "Step2: epoch2");
                                 let base_reward = {
                                     let genesis_block_view = view_client
-                                        .send(
+                                        .send_async(
                                             GetBlock(BlockReference::BlockId(BlockId::Height(0)))
                                                 ,
                                         )
@@ -513,7 +514,7 @@ fn slow_test_inflation() {
                                         .unwrap()
                                         .unwrap();
                                     let epoch_end_block_view = view_client
-                                        .send(
+                                        .send_async(
                                             GetBlock(BlockReference::BlockId(BlockId::Height(
                                                 epoch_length,
                                             )))

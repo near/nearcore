@@ -826,6 +826,7 @@ impl From<near_chain_primitives::error::Error> for GetExecutionOutcomeError {
     }
 }
 
+#[derive(Debug)]
 pub struct GetExecutionOutcomeResponse {
     pub outcome_proof: ExecutionOutcomeWithIdView,
     pub outcome_root_proof: MerklePath,
