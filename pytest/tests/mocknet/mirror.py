@@ -23,7 +23,7 @@ import local_test_node
 import node_config
 import remote_node
 from node_handle import NodeHandle
-from utils import ScheduleContext, ScheduleMode
+from utils import ScheduleContext, ScheduleMode, build_stake_distribution
 
 
 def to_list(item):
@@ -315,20 +315,18 @@ def stop_runner_cmd(ctx: CommandContext):
 
 
 # returns boot nodes and validators we want for the new test network
-def get_network_nodes(new_test_rpc_responses, num_validators):
+def get_network_nodes(new_test_rpc_responses, num_validators,
+                      stake_distribution):
     validators = []
     non_validators = []
     boot_nodes = []
     for node, response in new_test_rpc_responses:
         if len(validators) < num_validators:
             if node.can_validate:
-                if node.role() == 'validator':
-                    amount = 10**32
-                else:
-                    amount = 10**33
-
                 # We assume that if node validates a chain, it has account id
                 # and public key.
+                amount = stake_distribution.get_stake(node)
+
                 validators.append({
                     'account_id': response['validator_account_id'],
                     'public_key': response['validator_public_key'],
@@ -429,8 +427,11 @@ def new_test_cmd(ctx: CommandContext):
     test_keys = pmap(
         lambda node: node.neard_runner_new_test(ctx.get_mocknet_id()), targeted)
 
+    stake_distribution = build_stake_distribution(
+        getattr(args, 'stake_distribution', None), args.num_seats)
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
-                                               args.num_validators)
+                                               args.num_validators,
+                                               stake_distribution)
     logger.info("""Setting validators: {0}
 Run `status` to check if the nodes are ready. After they're ready,
  you can run `start-nodes` and `start-traffic`""".format(validators))
@@ -904,6 +905,13 @@ def register_base_commands(subparsers):
         """Enable state dumper nodes to sync state to GCS. On localnet, it will dump locally."""
     )
     new_test_parser.add_argument('--yes', action='store_true')
+    new_test_parser.add_argument('--stake-distribution',
+                                 type=str,
+                                 default='static',
+                                 choices=['static', 'mainnet'],
+                                 help='''
+                                 Stake distribution to use for the mocknet.
+                                 ''')
     new_test_parser.set_defaults(func=new_test_cmd)
 
     status_parser = subparsers.add_parser(

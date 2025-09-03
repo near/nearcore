@@ -22,8 +22,6 @@ dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
 hex.workspace = true
-hyper-tls.workspace = true
-hyper.workspace = true
 indicatif.workspace = true
 itertools.workspace = true
 num-rational.workspace = true
@@ -39,6 +37,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tracing.workspace = true
+url.workspace = true
 xz2.workspace = true
 
 near-async.workspace = true
@@ -70,6 +69,7 @@ near-config-utils.workspace = true
 [dev-dependencies]
 bencher.workspace = true
 primitive-types.workspace = true
+wiremock.workspace = true
 
 near-actix-test-utils.workspace = true
 near-jsonrpc-primitives.workspace = true
