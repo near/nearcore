@@ -78,6 +78,7 @@ fn get_context() -> VMContext {
         account_balance: 100,
         storage_usage: 0,
         account_locked_balance: 50,
+        account_contract: near_primitives_core::account::AccountContract::None,
         attached_deposit: 10,
         prepaid_gas: 10u64.pow(14),
         random_seed: vec![0, 1, 2],

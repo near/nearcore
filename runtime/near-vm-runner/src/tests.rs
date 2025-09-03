@@ -59,6 +59,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         account_balance: 2u128,
         account_locked_balance: 0,
         storage_usage: 12,
+        account_contract: near_primitives_core::account::AccountContract::None,
         attached_deposit: 2u128,
         prepaid_gas: 10_u64.pow(14),
         random_seed: vec![0, 1, 2],

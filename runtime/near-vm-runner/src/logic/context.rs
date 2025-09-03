@@ -1,4 +1,5 @@
 use super::types::{PromiseResult, PublicKey};
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
@@ -40,6 +41,8 @@ pub struct VMContext {
     pub account_locked_balance: Balance,
     /// The account's storage usage before the contract execution
     pub storage_usage: StorageUsage,
+    /// The account's current contract code
+    pub account_contract: AccountContract,
     /// The balance that was attached to the call that will be immediately deposited before the
     /// contract execution starts.
     pub attached_deposit: Balance,
