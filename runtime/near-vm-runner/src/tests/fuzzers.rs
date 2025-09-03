@@ -53,6 +53,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         account_balance: Balance::from_yoctonear(2),
         account_locked_balance: Balance::ZERO,
         storage_usage: 12,
+        account_contract: near_primitives_core::account::AccountContract::None,
         attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: near_primitives_core::types::Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],

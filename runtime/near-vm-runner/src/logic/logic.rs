@@ -18,6 +18,7 @@ use near_parameters::vm::Config;
 use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{
@@ -3480,10 +3481,57 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         Err(HostError::GuestPanic { panic_msg: message }.into())
     }
 
-    pub fn current_contract_code(&mut self, _register_id: u64) -> Result<()> {
+    /// Writes the code deployed on current contract being executed to the register.
+    ///
+    /// The output data in the register will either be empty, `CryptoHash`, or `AccountId`,
+    /// depending on the return value.
+    ///
+    /// # Returns
+    ///
+    /// Returns a different number depending on the type of contract that is stored on the account
+    ///  (and has been written to the register).
+    ///
+    /// * 0 if the contract code is None
+    /// * 1 if the contract code is Local(CryptoHash)
+    /// * 2 if the contract code is Global(CryptoHash)
+    /// * 3 if the contract code is GlobalByAccount(AccountId)
+    ///
+    /// # Cost
+    ///
+    /// `base` - the base cost for a simple host function call `write_memory_base` + 16 *
+    /// `write_memory_byte` - the cost of writing the data to the register
+    pub fn current_contract_code(&mut self, register_id: u64) -> Result<u64> {
         self.result_state.gas_counter.pay_base(base)?;
-        // TODO(sharded_contracts): implement this host function (done in a separate commit as it is a bit more involved than the other new host functions)
-        todo!()
+        match &self.context.account_contract {
+            AccountContract::None => Ok(0),
+            AccountContract::Local(crypto_hash) => {
+                self.registers.set(
+                    &mut self.result_state.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    crypto_hash.0,
+                )?;
+                Ok(1)
+            }
+            AccountContract::Global(crypto_hash) => {
+                self.registers.set(
+                    &mut self.result_state.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    crypto_hash.0,
+                )?;
+                Ok(2)
+            }
+            AccountContract::GlobalByAccount(account_id) => {
+                self.registers.set(
+                    &mut self.result_state.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    account_id.as_bytes(),
+                )?;
+                Ok(3)
+            }
+        }
     }
 
     // ###############

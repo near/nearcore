@@ -2800,7 +2800,7 @@ pub fn promise_result_length(_caller: &mut Caller<'_, Ctx>, _result_idx: u64) ->
     // TODO(sharded_contracts)
     todo!()
 }
-pub fn current_contract_code(_caller: &mut Caller<'_, Ctx>, _register_id: u64) -> Result<()> {
+pub fn current_contract_code(_caller: &mut Caller<'_, Ctx>, _register_id: u64) -> Result<u64> {
     // TODO(sharded_contracts)
     todo!()
 }

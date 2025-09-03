@@ -81,6 +81,7 @@ pub(crate) fn execute_function_call(
         account_balance: runtime_ext.account().amount(),
         account_locked_balance: runtime_ext.account().locked(),
         storage_usage: runtime_ext.account().storage_usage(),
+        account_contract: runtime_ext.account().contract().into_owned(),
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
