@@ -456,7 +456,7 @@ impl Block {
 
         let outcome_root = self.chunks().compute_outcome_root();
         if self.header().outcome_root() != &outcome_root {
-            return Err(InvalidTransactionRoot);
+            return Err(InvalidReceiptRoot);
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
