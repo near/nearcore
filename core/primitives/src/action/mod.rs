@@ -1,5 +1,6 @@
 pub mod delegate;
 
+use crate::trie_key::GlobalContractCodeIdentifier;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
@@ -13,7 +14,6 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
 use std::sync::Arc;
-use crate::trie_key::GlobalContractCodeIdentifier;
 
 pub fn base64(s: &[u8]) -> String {
     use base64::Engine;

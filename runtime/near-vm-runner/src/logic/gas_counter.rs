@@ -118,14 +118,11 @@ impl GasCounter {
         let promises_gas = gas_used.checked_sub(gas_burnt).unwrap();
         let new_promises_gas =
             self.promises_gas.checked_add(promises_gas).ok_or(HostError::IntegerOverflow)?;
-        let new_burnt_gas = Gas::from_gas(self
-            .fast_counter
-            .burnt_gas)
+        let new_burnt_gas = Gas::from_gas(self.fast_counter.burnt_gas)
             .checked_add(gas_burnt)
             .ok_or(HostError::IntegerOverflow)?;
-        let new_used_gas = new_burnt_gas
-            .checked_add(new_promises_gas)
-            .ok_or(HostError::IntegerOverflow)?;
+        let new_used_gas =
+            new_burnt_gas.checked_add(new_promises_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
             use std::cmp::min;
             if promises_gas != Gas::ZERO && !self.is_view {
@@ -146,9 +143,7 @@ impl GasCounter {
     ///
     /// Return an error if there are arithmetic overflows.
     pub(crate) fn burn_gas(&mut self, gas_burnt: Gas) -> Result<()> {
-        let new_burnt_gas = Gas::from_gas(self
-            .fast_counter
-            .burnt_gas)
+        let new_burnt_gas = Gas::from_gas(self.fast_counter.burnt_gas)
             .checked_add(gas_burnt)
             .ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= Gas::from_gas(self.fast_counter.gas_limit) {

@@ -72,8 +72,10 @@ pub fn total_send_fees(
             CreateAccount(_) => fees.fee(ActionCosts::create_account).send_fee(sender_is_receiver),
             DeployContract(DeployContractAction { code }) => {
                 let num_bytes = code.len() as u64;
-                let base_fee = fees.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver);
-                let byte_fee = fees.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver);
+                let base_fee =
+                    fees.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver);
+                let byte_fee =
+                    fees.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver);
                 let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
 
                 base_fee.checked_add(all_bytes_fee).unwrap()
@@ -81,8 +83,10 @@ pub fn total_send_fees(
             FunctionCall(function_call_action) => {
                 let num_bytes = function_call_action.method_name.as_bytes().len() as u64
                     + function_call_action.args.len() as u64;
-                let base_fee = fees.fee(ActionCosts::function_call_base).send_fee(sender_is_receiver);
-                let byte_fee = fees.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver);
+                let base_fee =
+                    fees.fee(ActionCosts::function_call_base).send_fee(sender_is_receiver);
+                let byte_fee =
+                    fees.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver);
                 let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
 
                 base_fee.checked_add(all_bytes_fee).unwrap()
@@ -106,12 +110,14 @@ pub fn total_send_fees(
                         // Account for null-terminating characters.
                         .map(|name| name.as_bytes().len() as u64 + 1)
                         .sum::<u64>();
-                    let base_fee = fees.fee(ActionCosts::add_function_call_key_base)
-                    .send_fee(sender_is_receiver);
-                    let byte_fee = fees.fee(ActionCosts::add_function_call_key_byte)
-                    .send_fee(sender_is_receiver);
+                    let base_fee = fees
+                        .fee(ActionCosts::add_function_call_key_base)
+                        .send_fee(sender_is_receiver);
+                    let byte_fee = fees
+                        .fee(ActionCosts::add_function_call_key_byte)
+                        .send_fee(sender_is_receiver);
                     let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-                    
+
                     base_fee.checked_add(all_bytes_fee).unwrap()
                 }
                 AccessKeyPermission::FullAccess => {
@@ -136,22 +142,22 @@ pub fn total_send_fees(
             DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {
                 let num_bytes = code.len() as u64;
 
-                let base_fee = fees.fee(ActionCosts::deploy_global_contract_base)
-                    .send_fee(sender_is_receiver);
-                let byte_fee = fees.fee(ActionCosts::deploy_global_contract_byte)
-                    .send_fee(sender_is_receiver);
+                let base_fee =
+                    fees.fee(ActionCosts::deploy_global_contract_base).send_fee(sender_is_receiver);
+                let byte_fee =
+                    fees.fee(ActionCosts::deploy_global_contract_byte).send_fee(sender_is_receiver);
                 let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-                
+
                 base_fee.checked_add(all_bytes_fee).unwrap()
             }
             UseGlobalContract(action) => {
                 let num_bytes = action.contract_identifier.len() as u64;
-                let base_fee = fees.fee(ActionCosts::use_global_contract_base)
-                    .send_fee(sender_is_receiver);
-                let byte_fee = fees.fee(ActionCosts::use_global_contract_byte)
-                            .send_fee(sender_is_receiver);
+                let base_fee =
+                    fees.fee(ActionCosts::use_global_contract_base).send_fee(sender_is_receiver);
+                let byte_fee =
+                    fees.fee(ActionCosts::use_global_contract_byte).send_fee(sender_is_receiver);
                 let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-        
+
                 base_fee.checked_add(all_bytes_fee).unwrap()
             }
         };
@@ -201,18 +207,16 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             let base_fee = fees.fee(ActionCosts::deploy_contract_base).exec_fee();
             let byte_fee = fees.fee(ActionCosts::deploy_contract_byte).exec_fee();
             let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-                    
+
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
         FunctionCall(function_call_action) => {
             let num_bytes = function_call_action.method_name.as_bytes().len() as u64
                 + function_call_action.args.len() as u64;
-            let base_fee = fees.fee(ActionCosts::function_call_base)
-                .exec_fee();
-            let byte_fee = fees.fee(ActionCosts::function_call_byte)
-                        .exec_fee();
+            let base_fee = fees.fee(ActionCosts::function_call_base).exec_fee();
+            let byte_fee = fees.fee(ActionCosts::function_call_byte).exec_fee();
             let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-        
+
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
         Transfer(_) => {
@@ -233,12 +237,11 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                     // Account for null-terminating characters.
                     .map(|name| name.as_bytes().len() as u64 + 1)
                     .sum::<u64>();
-                
+
                 let base_fee = fees.fee(ActionCosts::add_function_call_key_base).exec_fee();
-                let byte_fee = fees.fee(ActionCosts::add_function_call_key_byte)
-                            .exec_fee();
+                let byte_fee = fees.fee(ActionCosts::add_function_call_key_byte).exec_fee();
                 let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-        
+
                 base_fee.checked_add(all_bytes_fee).unwrap()
             }
             AccessKeyPermission::FullAccess => {
@@ -250,22 +253,18 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         Delegate(_) => fees.fee(ActionCosts::delegate).exec_fee(),
         DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {
             let num_bytes = code.len() as u64;
-            let base_fee = fees.fee(ActionCosts::deploy_global_contract_base)
-                .exec_fee();
-            let byte_fee = fees.fee(ActionCosts::deploy_global_contract_byte)
-                        .exec_fee();
+            let base_fee = fees.fee(ActionCosts::deploy_global_contract_base).exec_fee();
+            let byte_fee = fees.fee(ActionCosts::deploy_global_contract_byte).exec_fee();
             let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-        
+
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
         UseGlobalContract(action) => {
             let num_bytes = action.contract_identifier.len() as u64;
-            let base_fee = fees.fee(ActionCosts::use_global_contract_base)
-                .exec_fee();
-            let byte_fee = fees.fee(ActionCosts::use_global_contract_byte)
-                        .exec_fee();
+            let base_fee = fees.fee(ActionCosts::use_global_contract_base).exec_fee();
+            let byte_fee = fees.fee(ActionCosts::use_global_contract_byte).exec_fee();
             let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-        
+
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
     }
@@ -399,8 +398,11 @@ fn pessimistic_gas_price(
     let receipt_gas_price = if gas_price == 0 {
         0
     } else {
-        let maximum_depth =
-            if minimum_new_receipt_gas > 0 { prepaid_gas.checked_div(minimum_new_receipt_gas).unwrap().as_gas() } else { 0 };
+        let maximum_depth = if minimum_new_receipt_gas > 0 {
+            prepaid_gas.checked_div(minimum_new_receipt_gas).unwrap().as_gas()
+        } else {
+            0
+        };
         let inflation_exponent = u8::try_from(initial_receipt_hop + maximum_depth)
             .map_err(|_| IntegerOverflowError {})?;
         safe_gas_price_inflated(

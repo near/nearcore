@@ -89,11 +89,7 @@ impl CongestionControl {
                 Gas::ZERO
             }
         } else {
-            mix_gas(
-                self.config.max_outgoing_gas,
-                self.config.min_outgoing_gas,
-                congestion,
-            )
+            mix_gas(self.config.max_outgoing_gas, self.config.min_outgoing_gas, congestion)
         }
     }
 
@@ -118,11 +114,7 @@ impl CongestionControl {
     /// How much gas we accept for executing new transactions going to any
     /// uncongested shards.
     pub fn process_tx_limit(&self) -> Gas {
-        mix_gas(
-            self.config.max_tx_gas,
-            self.config.min_tx_gas,
-            self.incoming_congestion(),
-        )
+        mix_gas(self.config.max_tx_gas, self.config.min_tx_gas, self.incoming_congestion())
     }
 
     /// Whether we can accept new transaction with the receiver set to this shard.
@@ -654,11 +646,7 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(0.8, control.congestion_level());
             assert_eq!(
-                mix_gas(
-                    config.max_outgoing_gas,
-                    config.min_outgoing_gas,
-                    0.8
-                ),
+                mix_gas(config.max_outgoing_gas, config.min_outgoing_gas, 0.8),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 80%, still no new transactions are allowed
@@ -671,11 +659,7 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(0.1, control.congestion_level());
             assert_eq!(
-                mix_gas(
-                    config.max_outgoing_gas,
-                    config.min_outgoing_gas,
-                    0.1
-                ),
+                mix_gas(config.max_outgoing_gas, config.min_outgoing_gas, 0.1),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 12.5%, new transactions are allowed (threshold is 0.25)
@@ -712,11 +696,7 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(0.8, control.congestion_level());
             assert_eq!(
-                mix_gas(
-                    config.max_outgoing_gas,
-                    config.min_outgoing_gas,
-                    0.8
-                ),
+                mix_gas(config.max_outgoing_gas, config.min_outgoing_gas, 0.8),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 80%, still no new transactions are allowed
@@ -732,11 +712,7 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(0.1, control.congestion_level());
             assert_eq!(
-                mix_gas(
-                    config.max_outgoing_gas,
-                    config.min_outgoing_gas,
-                    0.1
-                ),
+                mix_gas(config.max_outgoing_gas, config.min_outgoing_gas, 0.1),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 10%, new transactions are allowed (threshold is 80%)
@@ -770,11 +746,7 @@ mod tests {
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.8, control.congestion_level());
         assert_eq!(
-            mix_gas(
-                config.max_outgoing_gas,
-                config.min_outgoing_gas,
-                0.8
-            ),
+            mix_gas(config.max_outgoing_gas, config.min_outgoing_gas, 0.8),
             control.outgoing_gas_limit(ShardId::new(1))
         );
         // at 80%, still no new transactions to us are allowed
@@ -787,11 +759,7 @@ mod tests {
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.1, control.congestion_level());
         assert_eq!(
-            mix_gas(
-                config.max_outgoing_gas,
-                config.min_outgoing_gas,
-                0.1
-            ),
+            mix_gas(config.max_outgoing_gas, config.min_outgoing_gas, 0.1),
             control.outgoing_gas_limit(ShardId::new(1))
         );
         // at 10%, new transactions are allowed

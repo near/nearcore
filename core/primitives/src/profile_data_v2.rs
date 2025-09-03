@@ -40,7 +40,9 @@ impl ProfileDataV2 {
     }
 
     fn host_gas(&self) -> Gas {
-        ExtCosts::iter().map(|a| self.get_ext_cost(a)).fold(Gas::ZERO, |sum, elem| sum.checked_add(elem).unwrap())
+        ExtCosts::iter()
+            .map(|a| self.get_ext_cost(a))
+            .fold(Gas::ZERO, |sum, elem| sum.checked_add(elem).unwrap())
     }
 
     /// List action cost in the old way, which conflated several action parameters into one.
@@ -99,7 +101,11 @@ impl fmt::Debug for ProfileDataV2 {
                     "{} -> {} [{}% host]",
                     cost,
                     d,
-                    Ratio::new(d.checked_mul(100).unwrap().as_gas(), core::cmp::max(host_gas.as_gas(), 1)).to_integer(),
+                    Ratio::new(
+                        d.checked_mul(100).unwrap().as_gas(),
+                        core::cmp::max(host_gas.as_gas(), 1)
+                    )
+                    .to_integer(),
                 )?;
             }
         }
