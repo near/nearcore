@@ -67,7 +67,7 @@ pub fn start_all_with_validity_period(
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
-        actor_system.future_spawner().as_ref(),
+        actor_system.new_future_spawner().as_ref(),
     );
     // setup_no_network_with_validity_period should use runtime_tempdir together with real runtime.
     (actor_handles.view_client_actor, addr, actor_handles.runtime_tempdir.unwrap())

@@ -560,7 +560,7 @@ pub fn start_with_config_and_synchronization(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
-            actor_system.future_spawner().as_ref(),
+            actor_system.new_future_spawner().as_ref(),
         );
     }
 
