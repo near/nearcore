@@ -16,8 +16,8 @@ use near_chain_configs::{
     GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ReshardingConfig, StateSyncConfig,
-    TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig, default_chunk_wait_mult,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
+    StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig, default_chunk_wait_mult,
     default_enable_multiline_logging, default_epoch_sync,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
@@ -52,7 +52,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::{
-    ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig, StateSnapshotType,
+    ArchivalConfig, ArchivalStoreConfig, STATE_SNAPSHOT_DIR, SplitStorageConfig, StateSnapshotType,
 };
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
@@ -369,6 +369,12 @@ pub struct Config {
     /// as a large number of incoming witnesses could cause denial of service.
     pub save_latest_witnesses: bool,
     pub transaction_request_handler_threads: usize,
+    /// If set to NextNext, node will exit if the next next epoch's protocol version is not supported.
+    /// This is the default and is a stricter check, which avoids persisting a potentially incorrect
+    /// EpochInfo, which can complicate node recovery if the node misses the protocol upgrade.
+    /// If set to Next, node will exit only if the next epoch's protocol version is not supported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -426,6 +432,7 @@ impl Default for Config {
             max_loaded_contracts: 256,
             save_latest_witnesses: false,
             transaction_request_handler_threads: 4,
+            protocol_version_check_config_override: None,
         }
     }
 }
@@ -623,6 +630,9 @@ impl NearConfig {
                 orphan_state_witness_max_size: config.orphan_state_witness_max_size,
                 save_latest_witnesses: config.save_latest_witnesses,
                 transaction_request_handler_threads: config.transaction_request_handler_threads,
+                protocol_version_check: config
+                    .protocol_version_check_config_override
+                    .unwrap_or(ProtocolVersionCheckConfig::NextNext),
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
@@ -691,7 +701,7 @@ impl NightshadeRuntime {
                 StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
                     home_dir,
                     config.config.store.path.as_ref().unwrap_or(&"data".into()),
-                    "state_snapshot",
+                    STATE_SNAPSHOT_DIR,
                 ),
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };

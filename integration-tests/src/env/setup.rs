@@ -17,8 +17,8 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{
-    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue, ReshardingConfig,
-    ReshardingHandle, TrackedShardsConfig,
+    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
+    ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle, TrackedShardsConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -423,6 +423,7 @@ pub fn setup_client_with_runtime(
     rng_seed: RngSeed,
     archive: bool,
     save_trie_changes: bool,
+    protocol_version_check: ProtocolVersionCheckConfig,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: Arc<ValidatorSigner>,
@@ -430,6 +431,7 @@ pub fn setup_client_with_runtime(
 ) -> Client {
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
+    config.protocol_version_check = protocol_version_check;
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let mut client = Client::new(
@@ -488,6 +490,7 @@ pub fn setup_synchronous_shards_manager(
                 ReshardingConfig::default(),
                 "resharding_config",
             ),
+            protocol_version_check: Default::default(),
         }, // irrelevant
         None,
         Arc::new(RayonAsyncComputationSpawner),
