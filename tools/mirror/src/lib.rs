@@ -27,6 +27,7 @@ use near_primitives::views::{
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, ShardId};
+use nearcore::NearNode;
 use parking_lot::{Mutex, RwLock};
 use rocksdb::DB;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1763,29 +1764,32 @@ impl<T: ChainAccess> TxMirror<T> {
         target_height: Arc<RwLock<BlockHeight>>,
         target_head: Arc<RwLock<CryptoHash>>,
     ) -> anyhow::Result<()> {
-        let target_indexer = Indexer::new(near_indexer::IndexerConfig {
+        let indexer_config = near_indexer::IndexerConfig {
             home_dir,
             sync_mode: near_indexer::SyncModeEnum::FromInterruption,
             await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
             finality: Finality::Final,
             validate_genesis: false,
-        })
-        .context("failed to start target chain indexer")?;
-        let (target_view_client, target_client, rpc_handler) = target_indexer.client_actors();
+        };
+        let near_config = indexer_config.derive_near_config();
+        let near_node = Indexer::start_near_node(&indexer_config, near_config.clone())
+            .context("failed to start near node")?;
+        let target_indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
         let mut target_stream = target_indexer.streamer();
+        let NearNode { client, view_client, rpc_handler, .. } = near_node;
         let (first_target_height, first_target_head) = Self::index_target_chain(
             &tracker,
             &tx_block_queue,
             &mut target_stream,
             db.as_ref(),
-            &target_view_client,
-            &target_client,
+            &view_client,
+            &client,
         )
         .await?;
         *target_height.write() = first_target_height;
         *target_head.write() = first_target_head;
         clients_tx
-            .send((target_client.clone(), target_view_client.clone(), rpc_handler.clone()))
+            .send((client.clone(), view_client.clone(), rpc_handler.clone()))
             .map_err(|_| ())
             .unwrap();
 
@@ -1802,7 +1806,7 @@ impl<T: ChainAccess> TxMirror<T> {
             }
             for access_key_update in target_block_info.access_key_updates {
                 let nonce = crate::fetch_access_key_nonce(
-                    &target_view_client,
+                    &view_client,
                     &access_key_update.account_id,
                     &access_key_update.public_key,
                 )
