@@ -5251,7 +5251,6 @@ dependencies = [
  "strum",
  "thiserror 2.0.16",
  "tokio",
- "tower 0.5.2",
  "tower-http",
  "utoipa",
  "utoipa-swagger-ui",
@@ -5836,7 +5835,6 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
- "actix-web",
  "anyhow",
  "bencher",
  "borsh",
@@ -5901,7 +5899,6 @@ dependencies = [
  "anyhow",
  "clap",
  "cold-store-tool",
- "futures",
  "near-amend-genesis",
  "near-async",
  "near-chain-configs",

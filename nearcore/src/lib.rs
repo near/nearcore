@@ -575,7 +575,6 @@ pub fn start_with_config_and_synchronization(
         );
     }
 
-
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
     let mut arbiters = vec![trie_metrics_arbiter];
