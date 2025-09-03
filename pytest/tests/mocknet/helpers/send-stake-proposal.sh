@@ -2,6 +2,8 @@
 # This script is used to send a stake proposal to the mocknet cluster.
 
 # Read validator data from validators.json
+# TODO: consider querying near-cli to get validator balance, it should be
+# simpler.
 validators_file="$HOME/.near/neard-runner/validators.json"
 
 if [ ! -f "$validators_file" ]; then
