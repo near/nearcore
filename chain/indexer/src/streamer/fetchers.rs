@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use futures::StreamExt;
-use near_async::messaging::{AsyncSender, SendAsync};
+use near_async::messaging::{AsyncSender, IntoMultiSender, SendAsync};
 use near_chain_configs::ProtocolConfigView;
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetReceipt,
@@ -24,7 +24,7 @@ use crate::INDEXER;
 use crate::streamer::errors::FailedToFetchData;
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
-pub struct IndexerViewClientSender {
+struct IndexerViewClientSender {
     pub get_block_sender: AsyncSender<GetBlock, Result<BlockView, GetBlockError>>,
     pub get_chunk_sender: AsyncSender<GetChunk, Result<ChunkView, GetChunkError>>,
     pub get_protocol_config_sender:
@@ -46,7 +46,7 @@ pub struct IndexerViewClientFetcher {
 }
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
-pub struct IndexerClientSender {
+struct IndexerClientSender {
     pub status_sender: AsyncSender<SpanWrapped<Status>, Result<StatusResponse, StatusError>>,
 }
 
@@ -56,10 +56,6 @@ pub struct IndexerClientFetcher {
 }
 
 impl IndexerViewClientFetcher {
-    pub(crate) fn new(sender: IndexerViewClientSender) -> Self {
-        Self { sender }
-    }
-
     pub(crate) async fn fetch_block(
         &self,
         hash: CryptoHash,
@@ -210,16 +206,24 @@ impl IndexerViewClientFetcher {
     }
 }
 
-impl IndexerClientFetcher {
-    pub(crate) fn new(sender: IndexerClientSender) -> Self {
-        Self { sender }
+impl<T: IntoMultiSender<IndexerViewClientSender>> From<T> for IndexerViewClientFetcher {
+    fn from(value: T) -> Self {
+        Self { sender: value.into_multi_sender() }
     }
+}
 
+impl IndexerClientFetcher {
     pub(crate) async fn fetch_status(&self) -> Result<StatusResponse, FailedToFetchData> {
         tracing::debug!(target: INDEXER, "fetch status");
         self.sender
             .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
             .await?
             .map_err(|err| FailedToFetchData::String(err.to_string()))
+    }
+}
+
+impl<T: IntoMultiSender<IndexerClientSender>> From<T> for IndexerClientFetcher {
+    fn from(value: T) -> Self {
+        Self { sender: value.into_multi_sender() }
     }
 }
