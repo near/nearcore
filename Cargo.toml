@@ -330,7 +330,7 @@ oneshot = { version = "0.1.11", features = ["std"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.30", features = ["trace"] }
 opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.30", default-features = false, features = ["http-proto", "reqwest-client", "trace"] }
+opentelemetry-otlp = { version = "0.30", default-features = false, features = ["grpc-tonic", "trace"] }
 opentelemetry-semantic-conventions = "0.30" 
 ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
 parking_lot = "0.12.1"
