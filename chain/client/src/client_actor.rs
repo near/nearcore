@@ -632,15 +632,16 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
         let shard_id = state_response.shard_id();
 
         match state_response {
-            StateResponse::Ack(_) => {
-                trace!(target: "sync", "Received state request ACK shard_id: {} sync_hash: {:?} part_id: {:?}",
+            StateResponse::Ack(ref ack) => {
+                trace!(target: "sync", "Received state request ack shard_id: {} sync_hash: {:?} part_id: {:?} ack: {:?}",
                     shard_id,
                     hash,
                     state_response.part_id_or_header(),
+                    ack.body,
                 );
             }
             StateResponse::State(ref state) => {
-                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part_id: {:?}, size: {:?}",
+                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part_id: {:?} size: {:?}",
                     shard_id,
                     hash,
                     state_response.part_id_or_header(),
