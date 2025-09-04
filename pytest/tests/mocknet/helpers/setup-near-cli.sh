@@ -50,13 +50,10 @@ echo "Wrote near-cli config to $CONFIG_FILE (network_name=$NETWORK_ID, ip=$TRAFF
 # to automate this.
 mkdir -p $CREDENTIALS_DIR/$NETWORK_ID
 
-jq -n \
-  --arg account_id "$(jq -r .account_id $VALIDATOR_KEY_FILE)" \
-  --arg private_key "$(jq -r .secret_key $VALIDATOR_KEY_FILE)" \
-  --arg public_key "$(jq -r .public_key $VALIDATOR_KEY_FILE)" \
-  '{
-     account_id: $account_id,
-     private_key: $private_key,
-     public_key: $public_key
-   }' \
-  > $CREDENTIALS_DIR/$NETWORK_ID/$(jq -r .account_id $VALIDATOR_KEY_FILE).json
+CREDENTIALS_FILE="$CREDENTIALS_DIR/$NETWORK_ID/$(jq -r .account_id $VALIDATOR_KEY_FILE).json"
+
+jq '{
+  account_id,
+  private_key: .secret_key,
+  public_key
+}' "$VALIDATOR_KEY_FILE" > $CREDENTIALS_FILE
