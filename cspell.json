@@ -359,6 +359,7 @@
         "structs",
         "subaccount",
         "subcmd",
+        "subcompactions",
         "subhandler",
         "sublinear",
         "subpaths",
