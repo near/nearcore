@@ -88,7 +88,7 @@ class LocalTestNeardRunner:
         # handled by local_test_setup_cmd()
         return
 
-    def upload_neard_runner(self, source_dir):
+    def upload_neard_runner(self):
         return
 
     def upload_neard_runner_config(self, config):

@@ -276,30 +276,8 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
         all_nodes.append(traffic_generator)
         all_configs.append(traffic_generator_config)
 
-    # Upload the helper scripts to all the nodes.
-    source_temp_dir = tempfile.mkdtemp(prefix="neard_runner_shared_")
-    try:
-        # TODO: consider uploading the whole `helpers/` dir, as we do in
-        # sharded benchmark scenario.
-        for file in [
-                # Defines the interaction between the node with neard and the user.
-                'neard_runner.py',
-                # Python dependencies for the node.
-                'requirements.txt',
-                # Script to setup near-cli for the node.
-                'setup-near-cli.sh',
-                # Script for the validator node to send a stake proposal.
-                'send-stake-proposal.sh'
-        ]:
-            shutil.copy2(f'tests/mocknet/helpers/{file}',
-                         os.path.join(source_temp_dir, file))
-
-        pmap(
-            lambda x: x[0].init_neard_runner(x[1], source_temp_dir,
-                                             remove_home_dir),
-            zip(all_nodes, all_configs))
-    finally:
-        shutil.rmtree(source_temp_dir)
+    pmap(lambda x: x[0].init_neard_runner(x[1], remove_home_dir),
+         zip(all_nodes, all_configs))
 
 
 def init_cmd(ctx: CommandContext):
@@ -328,10 +306,7 @@ def restart_cmd(ctx: CommandContext):
     targeted = ctx.get_targeted()
     pmap(lambda node: node.stop_neard_runner(), targeted)
     if ctx.args.upload_program:
-        pmap(
-            lambda node: node.upload_file(
-                'tests/mocknet/helpers/neard_runner.py', node.neard_runner_home
-            ), targeted)
+        pmap(lambda node: node.upload_neard_runner(), targeted)
     pmap(lambda node: node.start_neard_runner(), targeted)
 
 

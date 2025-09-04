@@ -2,6 +2,12 @@
 # This script is used to setup the near and near-validator CLI for the
 # mocknet cluster.
 
+# First argument is the network id.
+NETWORK_ID="${1:-mocknet}"
+# Second argument is the traffic node address, which will be used to send
+# transactions to the network.
+TRAFFIC_NODE_ADDR="${2:-127.0.0.1:3030}"
+
 # Check if near CLI is already installed
 if [ -x /home/ubuntu/.cargo/bin/near ]; then
     echo "near CLI is already installed at: /home/ubuntu/.cargo/bin/near"
@@ -27,8 +33,6 @@ CONFIG_DIR="$HOME/.config/near-cli"
 VALIDATOR_KEY_FILE="$HOME/.near/validator_key.json"
 CREDENTIALS_DIR="$HOME/.near-credentials"
 CONFIG_FILE="$CONFIG_DIR/config.toml"
-NETWORK_ID="${1:-mocknet}"
-TRAFFIC_NODE_ADDR="${2:-127.0.0.1:3030}"
 mkdir -p "$CONFIG_DIR"
 
 cat > "$CONFIG_FILE" <<EOF

@@ -50,17 +50,18 @@ class RemoteNeardRunner:
         cmd_utils.run_cmd(self.node, cmd)
 
     def upload_neard_runner(self):
-        files=[
-                # Defines the interaction between the node with neard and the user.
-                'neard_runner.py',
-                # Python dependencies for the node.
-                'requirements.txt',
-                # Script to setup near-cli for the node.
-                'setup-near-cli.sh',
-                # Script for the validator node to send a stake proposal.
-                'send-stake-proposal.sh'
+        files = [
+            # Defines the interaction between the node with neard and the user.
+            'neard_runner.py',
+            # Python dependencies for the node.
+            'requirements.txt',
+            # Script to setup near-cli for the node.
+            'setup-near-cli.sh',
+            # Script for the validator node to send a stake proposal.
+            'send-stake-proposal.sh'
         ]
-        source=f"""--files-from=<(printf '%s\n' {" ".join(files)}) tests/mocknet/helpers"""
+        files_desc = f"""<(printf '%s\n' {" ".join(files)})"""
+        source = f"--files-from={files_desc} tests/mocknet/helpers"
         self.node.machine.upload(source,
                                  self.neard_runner_home,
                                  switch_user='ubuntu')
