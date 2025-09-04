@@ -1,4 +1,4 @@
-use crate::client::{StateRequestHeader, StateRequestPart, StateRequestResult};
+use crate::client::{StateRequestHeader, StateRequestPart, StatePartOrHeader};
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
     Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
@@ -466,8 +466,8 @@ pub struct PeerManagerSenderForNetwork {
 #[multi_send_message_derive(Debug)]
 #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateRequestSenderForNetwork {
-    pub state_request_header: AsyncSender<StateRequestHeader, Option<StateRequestResult>>,
-    pub state_request_part: AsyncSender<StateRequestPart, Option<StateRequestResult>>,
+    pub state_request_header: AsyncSender<StateRequestHeader, Option<StatePartOrHeader>>,
+    pub state_request_part: AsyncSender<StateRequestPart, Option<StatePartOrHeader>>,
 }
 
 #[cfg(test)]

@@ -59,7 +59,7 @@ pub struct BlockHeadersResponse(pub Vec<Arc<BlockHeader>>, pub PeerId);
 
 /// State request header.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "Option<StateRequestResult>")]
+#[rtype(result = "Option<StatePartOrHeader>")]
 pub struct StateRequestHeader {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
@@ -67,7 +67,7 @@ pub struct StateRequestHeader {
 
 /// State request part.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "Option<StateRequestResult>")]
+#[rtype(result = "Option<StatePartOrHeader>")]
 pub struct StateRequestPart {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
@@ -76,7 +76,7 @@ pub struct StateRequestPart {
 
 /// Outgoing response to received state request.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StateRequestResult(pub Box<StateResponseInfo>);
+pub struct StatePartOrHeader(pub Box<StateResponseInfo>);
 
 /// Incoming response to a prior outgoing state request.
 #[derive(Debug, Clone, PartialEq, Eq)]
