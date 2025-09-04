@@ -268,6 +268,32 @@ impl EncodedChunksCache {
             true
         }
     }
+
+    pub fn stats(&self) -> EncodedChunksCacheStats {
+        let mut total_parts: usize = 0;
+        let mut total_receipts: usize = 0;
+        for entry in self.encoded_chunks.values() {
+            total_parts += entry.parts.len();
+            total_receipts += entry.receipts.len();
+        }
+        EncodedChunksCacheStats {
+            encoded_chunks_len: self.encoded_chunks.len(),
+            height_map_len: self.height_map.len(),
+            height_to_shard_to_chunk_len: self.height_to_shard_to_chunk.len(),
+            incomplete_chunks_len: self.incomplete_chunks.len(),
+            total_parts,
+            total_receipts,
+        }
+    }
+}
+
+pub struct EncodedChunksCacheStats {
+    pub encoded_chunks_len: usize,
+    pub height_map_len: usize,
+    pub height_to_shard_to_chunk_len: usize,
+    pub incomplete_chunks_len: usize,
+    pub total_parts: usize,
+    pub total_receipts: usize,
 }
 
 #[cfg(test)]

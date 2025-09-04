@@ -294,7 +294,8 @@ pub struct ShardsManagerActor {
 
 impl messaging::Actor for ShardsManagerActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        self.periodically_resend_chunk_requests(ctx)
+        self.periodically_resend_chunk_requests(ctx);
+        self.periodically_log_caches(ctx);
     }
 }
 
@@ -420,6 +421,35 @@ impl ShardsManagerActor {
                 this.periodically_resend_chunk_requests(delayed_action_runner);
             },
         )
+    }
+
+    pub fn periodically_log_caches(
+        &mut self,
+        delayed_action_runner: &mut dyn DelayedActionRunner<Self>,
+    ) {
+        const LOG_PERIOD: Duration = Duration::seconds(10);
+        delayed_action_runner.run_later(
+            "log_shards_manager_caches",
+            LOG_PERIOD,
+            move |this, delayed_action_runner| {
+                this.log_caches_once();
+                this.periodically_log_caches(delayed_action_runner);
+            },
+        )
+    }
+
+    fn log_caches_once(&self) {
+        let stats = self.encoded_chunks.stats();
+        let requested = self.requested_partial_encoded_chunks.len();
+        warn!(target: "client",
+            encoded_chunks = stats.encoded_chunks_len,
+            height_map = stats.height_map_len,
+            height_to_shard_to_chunk = stats.height_to_shard_to_chunk_len,
+            incomplete_chunks = stats.incomplete_chunks_len,
+            total_parts = stats.total_parts,
+            total_receipts = stats.total_receipts,
+            requested_pool = requested,
+            "ShardsManager caches");
     }
 
     fn update_chain_heads(&mut self, head: Tip, header_head: Tip) {
