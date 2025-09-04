@@ -553,7 +553,12 @@ pub fn test_transaction_invalid_signature(node: impl Node) {
     );
     tx.signature = Signature::from_parts(KeyType::ED25519, &[0u8; 64]).unwrap();
     let result = node_user.commit_transaction(tx);
-    assert_matches!(result, Err(_));
+    assert_matches!(
+        result,
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidSignature
+        )))) | Err(CommitError::OutcomeNotFound)
+    );
 }
 
 pub fn test_send_money_over_balance(node: impl Node) {
