@@ -48,7 +48,7 @@ echo "Wrote near-cli config to $CONFIG_FILE (network_name=$NETWORK_ID, ip=$TRAFF
 # We can't use `near account import-account` directly because it always
 # requests account id in the interactive mode. `expect` tool would be required
 # to automate this.
-mkdir -p $CREDENTIALS_DIR/$NETWORK_ID
+mkdir -p "$CREDENTIALS_DIR/$NETWORK_ID"
 
 CREDENTIALS_FILE="$CREDENTIALS_DIR/$NETWORK_ID/$(jq -r .account_id $VALIDATOR_KEY_FILE).json"
 
