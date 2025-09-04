@@ -656,12 +656,7 @@ mod tests {
 
         check_uncertainty(&xs, &ys, Default::default(), true);
         check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
-        check_uncertainty(
-            &xs,
-            &ys,
-            abs_tolerance(Gas::ONE, Gas::from_gas(1_000_000)),
-            false,
-        );
+        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::from_gas(1_000_000)), false);
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
     }
 

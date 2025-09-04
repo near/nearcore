@@ -769,11 +769,7 @@ mod tests {
 
                 let new_receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
                 buffered_receipts.push_back(new_receipt_size);
-                test_queue.update_on_receipt_pushed(
-                    new_receipt_size,
-                    Gas::ONE,
-                    &groups_config,
-                );
+                test_queue.update_on_receipt_pushed(new_receipt_size, Gas::ONE, &groups_config);
             }
         }
     }

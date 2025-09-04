@@ -1236,12 +1236,8 @@ fn test_contract_precompilation() {
 
 #[test]
 fn test_compute_usage_limit() {
-    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        Gas::ONE,
-    );
+    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), Gas::ONE);
 
     let shard_uid = ShardUId::single_shard();
 
@@ -2283,12 +2279,8 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
 // Tests the case in which a function call is made to an account with no contract deployed.
 #[test]
 fn test_call_account_without_contract() {
-    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        Gas::ONE,
-    );
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), Gas::ONE);
 
     apply_state.config = Arc::new(RuntimeConfig::free());
 
@@ -2323,12 +2315,8 @@ fn test_call_account_without_contract() {
 /// Tests that we do not record the contract accesses when validating the chunk.
 #[test]
 fn test_contract_accesses_when_validating_chunk() {
-    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        Gas::ONE,
-    );
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), Gas::ONE);
 
     apply_state.config = Arc::new(RuntimeConfig::free());
 
