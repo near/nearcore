@@ -23,12 +23,12 @@ use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::utils::ONE_NEAR;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
 };
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions;
-use crate::utils::{ONE_NEAR, retrieve_all_clients};
 
 const GAS_PRICE: Balance = 1;
 
