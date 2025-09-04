@@ -91,7 +91,7 @@ impl fmt::Debug for ProfileDataV2 {
         let action_gas = self.action_gas();
 
         writeln!(f, "------------------------------")?;
-        writeln!(f, "Action gas: {}", action_gas)?;
+        writeln!(f, "Action gas: {}", action_gas.as_gas())?;
         writeln!(f, "------ Host functions --------")?;
         for cost in ExtCosts::iter() {
             let d = self.get_ext_cost(cost);
@@ -100,7 +100,7 @@ impl fmt::Debug for ProfileDataV2 {
                     f,
                     "{} -> {} [{}% host]",
                     cost,
-                    d,
+                    d.as_gas(),
                     Ratio::new(
                         d.checked_mul(100).unwrap().as_gas(),
                         core::cmp::max(host_gas.as_gas(), 1)
