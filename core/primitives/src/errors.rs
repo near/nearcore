@@ -10,6 +10,7 @@ use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
+pub use near_primitives_core::errors::IntegerOverflowError;
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -824,8 +825,6 @@ impl Display for InvalidAccessKeyError {
 }
 
 impl std::error::Error for InvalidAccessKeyError {}
-
-pub use near_primitives_core::errors::IntegerOverflowError;
 
 impl From<IntegerOverflowError> for InvalidTxError {
     fn from(_: IntegerOverflowError) -> Self {
