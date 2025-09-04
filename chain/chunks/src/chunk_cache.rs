@@ -118,6 +118,10 @@ impl EncodedChunksCache {
         self.encoded_chunks.get(chunk_hash)
     }
 
+    pub fn get_mut(&mut self, chunk_hash: &ChunkHash) -> Option<&mut EncodedChunksCacheEntry> {
+        self.encoded_chunks.get_mut(chunk_hash)
+    }
+
     /// Mark an entry as complete, which means it has all parts and receipts needed
     pub fn mark_entry_complete(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
