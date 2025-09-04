@@ -372,7 +372,8 @@ pub fn setup_client(
         ApplyChunksSpawner::Custom(Arc::new(
             test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
         )),
-        client_config.clone(),
+        client_config.save_latest_witnesses,
+        client_config.save_invalid_witnesses,
     );
 
     let spice_chunk_validator_sender = test_loop.data.register_actor(

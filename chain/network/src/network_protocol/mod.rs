@@ -1517,6 +1517,13 @@ impl StateResponseInfo {
         }
     }
 
+    pub fn payload_length(&self) -> Option<usize> {
+        match self {
+            Self::V1(info) => info.state_response.payload_length(),
+            Self::V2(info) => info.state_response.payload_length(),
+        }
+    }
+
     pub fn take_state_response(self) -> ShardStateSyncResponse {
         match self {
             Self::V1(info) => ShardStateSyncResponse::V1(info.state_response),

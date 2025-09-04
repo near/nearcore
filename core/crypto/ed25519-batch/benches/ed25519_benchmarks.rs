@@ -20,17 +20,17 @@ mod ed25519_benches {
     use ed25519_dalek::Signer;
     use ed25519_dalek::SigningKey;
     use near_crypto_ed25519_batch::safe_verify_batch;
+    use near_crypto_ed25519_batch::test_utils::MESSAGE_TO_SIGN;
     use rand::prelude::ThreadRng;
     use rand::thread_rng;
 
     fn verify(c: &mut Criterion) {
         let mut csprng: ThreadRng = thread_rng();
         let keypair: SigningKey = SigningKey::generate(&mut csprng);
-        let msg: &[u8] = b"";
-        let sig: Signature = keypair.sign(msg);
+        let sig: Signature = keypair.sign(MESSAGE_TO_SIGN);
 
         c.bench_function("Ed25519 signature verification", move |b| {
-            b.iter(|| keypair.verify(msg, &sig))
+            b.iter(|| keypair.verify(MESSAGE_TO_SIGN, &sig))
         });
     }
 
@@ -46,9 +46,9 @@ mod ed25519_benches {
                 let mut csprng: ThreadRng = thread_rng();
                 let keypairs: Vec<SigningKey> =
                     (0..size).map(|_| SigningKey::generate(&mut csprng)).collect();
-                let msg: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-                let messages: Vec<&[u8]> = (0..size).map(|_| msg).collect();
-                let signatures: Vec<Signature> = keypairs.iter().map(|key| key.sign(msg)).collect();
+                let messages: Vec<&[u8]> = (0..size).map(|_| MESSAGE_TO_SIGN).collect();
+                let signatures: Vec<Signature> =
+                    keypairs.iter().map(|key| key.sign(MESSAGE_TO_SIGN)).collect();
                 let verifying_keys: Vec<_> =
                     keypairs.iter().map(|key| key.verifying_key()).collect();
 

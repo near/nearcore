@@ -1,16 +1,15 @@
-use actix::Addr;
-
 use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_parameters::RuntimeConfig;
 use near_primitives::types::ProtocolVersion;
 use near_primitives::views;
 use node_runtime::config::tx_cost;
 
+use crate::streamer::IndexerViewClientFetcher;
+
 use super::errors::FailedToFetchData;
-use super::fetchers::fetch_block;
 
 pub(crate) async fn convert_transactions_sir_into_local_receipts(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &IndexerViewClientFetcher,
     runtime_config: &RuntimeConfig,
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
@@ -19,7 +18,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     if txs.is_empty() {
         return Ok(vec![]);
     }
-    let prev_block = fetch_block(&client, block.header.prev_hash).await?;
+    let prev_block = client.fetch_block(block.header.prev_hash).await?;
     let prev_block_gas_price = prev_block.header.gas_price;
 
     let local_receipts: Vec<views::ReceiptView> = txs

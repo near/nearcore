@@ -70,14 +70,13 @@ use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
-use tracing::{debug, debug_span, error, info, warn};
+use tracing::{debug, debug_span, error, info, instrument, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -280,6 +279,7 @@ impl Client {
             save_tx_outcomes: config.save_tx_outcomes,
             background_migration_threads: config.client_background_migration_threads,
             resharding_config: config.resharding_config.clone(),
+            protocol_version_check: config.protocol_version_check,
         };
         let chain = Chain::new(
             clock.clone(),
@@ -564,17 +564,6 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(&prev_header.hash()).unwrap();
         let next_block_proposer = self.epoch_manager.get_block_producer(&epoch_id, height)?;
 
-        let protocol_version = self
-            .epoch_manager
-            .get_epoch_protocol_version(&epoch_id)
-            .expect("Epoch info should be ready at this point");
-        if protocol_version > PROTOCOL_VERSION {
-            panic!(
-                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
-                PROTOCOL_VERSION, protocol_version
-            );
-        }
-
         if !self.can_produce_block(
             &prev_header,
             height,
@@ -811,16 +800,6 @@ impl Client {
             .epoch_manager
             .get_epoch_id_from_prev_block(&prev_hash)
             .expect("Epoch hash should exist at this point");
-        let protocol_version = self
-            .epoch_manager
-            .get_epoch_protocol_version(&epoch_id)
-            .expect("Epoch info should be ready at this point");
-        if protocol_version > PROTOCOL_VERSION {
-            panic!(
-                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
-                PROTOCOL_VERSION, protocol_version
-            );
-        }
 
         let approvals = self
             .epoch_manager
@@ -931,9 +910,9 @@ impl Client {
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let core_statements = if cfg!(feature = "protocol_feature_spice") {
-            self.chain.spice_core_processor.core_statement_for_next_block(&prev_header)?
+            Some(self.chain.spice_core_processor.core_statement_for_next_block(&prev_header)?)
         } else {
-            vec![]
+            None
         };
 
         let block = Arc::new(Block::produce(
@@ -1684,15 +1663,16 @@ impl Client {
     }
 
     // Produce new chunks
+    #[instrument(target = "client", level = "debug", "produce_chunks", skip_all, fields(
+        height = block.header().height() + 1, // next_height, the height of produced chunk
+        prev_block_hash = ?block.hash(),
+        tag_block_production = true,
+        validator_id = ?signer.validator_id(),
+        tag_block_production = true,
+        tag_chunk_distribution = true,
+    ))]
     fn produce_chunks(&mut self, block: &Block, signer: &Arc<ValidatorSigner>) {
         let validator_id = signer.validator_id().clone();
-        let _span = debug_span!(
-            target: "client",
-            "produce_chunks",
-            ?validator_id,
-            block_height = block.header().height())
-        .entered();
-
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
@@ -1757,6 +1737,13 @@ impl Client {
         }
     }
 
+    #[instrument(target = "client", level = "debug", "persist_and_distribute_encoded_chunk", skip_all, fields(
+        height = %chunk.to_shard_chunk().height_created(),
+        shard_id = %chunk.to_shard_chunk().shard_id(),
+        chunk_hash = ?chunk.to_shard_chunk().chunk_hash(),
+        tag_block_production = true,
+        tag_chunk_distribution = true,
+    ))]
     pub fn persist_and_distribute_encoded_chunk(
         &mut self,
         chunk: ShardChunkWithEncoding,

@@ -26,6 +26,7 @@ use near_network::client::StateResponse;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::state_part::StatePart;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::ShardId;
 use near_store::Store;
@@ -144,6 +145,7 @@ impl StateSync {
                 let fallback_source = Arc::new(StateSyncDownloadSourceExternal {
                     clock: clock.clone(),
                     store: store.clone(),
+                    epoch_manager: epoch_manager.clone(),
                     chain_id: chain_id.to_string(),
                     conn: external,
                     timeout: external_timeout,
@@ -315,7 +317,7 @@ pub(self) trait StateSyncDownloadSource: Send + Sync + 'static {
         part_id: u64,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<Vec<u8>, near_chain::Error>>;
+    ) -> BoxFuture<Result<StatePart, near_chain::Error>>;
 }
 
 /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.

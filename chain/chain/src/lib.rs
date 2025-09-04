@@ -1,7 +1,7 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 pub use block_processing_utils::BlockProcessingArtifact;
-pub use chain::{Chain, check_known, collect_receipts};
+pub use chain::{Chain, collect_receipts};
 pub use chain_update::ChainUpdate;
 pub use doomslug::{
     ChunksReadiness, Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode,

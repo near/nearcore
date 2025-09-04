@@ -629,17 +629,26 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
     fn handle(&mut self, msg: SpanWrapped<StateResponseReceived>) {
         let StateResponseReceived { peer_id, state_response } = msg.span_unwrap();
         let hash = state_response.sync_hash();
+        let shard_id = state_response.shard_id();
 
-        let response_type = match state_response {
-            StateResponse::Ack(_) => "ack",
-            StateResponse::State(_) => "state",
-        };
-        trace!(target: "sync", "Received state response {:?} shard_id: {:?} sync_hash: {:?} part_id: {:?}",
-            response_type,
-            state_response.shard_id(),
-            hash,
-            state_response.part_id_or_header(),
-        );
+        match state_response {
+            StateResponse::Ack(_) => {
+                trace!(target: "sync", "Received state request ACK shard_id: {} sync_hash: {:?} part_id: {:?}",
+                    shard_id,
+                    hash,
+                    state_response.part_id_or_header(),
+                );
+            }
+            StateResponse::State(ref state) => {
+                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part_id: {:?}, size: {:?}",
+                    shard_id,
+                    hash,
+                    state_response.part_id_or_header(),
+                    state.payload_length(),
+                );
+            }
+        }
+
         // Get the download that matches the shard_id and hash
 
         // ... It could be that the state was requested by the state sync
@@ -1930,6 +1939,15 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActorInner {
         let msg = msg.span_unwrap();
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "chunk_completed",
+                    height = partial_chunk.height_created(),
+                    shard_id = %partial_chunk.shard_id(),
+                    chunk_hash = ?partial_chunk.chunk_hash(),
+                    tag_chunk_distribution = true,
+                )
+                .entered();
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
@@ -1943,6 +1961,15 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActorInner {
                 chunk_header,
                 chunk_producer,
             } => {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "chunk_header_ready_for_inclusion",
+                    height = chunk_header.height_created(),
+                    shard_id = %chunk_header.shard_id(),
+                    chunk_hash = ?chunk_header.chunk_hash(),
+                    tag_chunk_distribution = true,
+                )
+                .entered();
                 self.client
                     .chunk_inclusion_tracker
                     .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);

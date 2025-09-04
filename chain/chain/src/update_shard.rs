@@ -127,6 +127,8 @@ pub fn apply_new_chunk(
         chunk_hash = ?chunk_header.chunk_hash(),
         block_type = ?block.block_type,
         ?apply_reason,
+        transactions_num = transactions.len(),
+        incoming_receipts_num = receipts.len(),
         tag_block_production = true)
     .entered();
     let gas_limit = chunk_header.gas_limit();

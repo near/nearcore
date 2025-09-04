@@ -11,7 +11,7 @@ from typing import Optional, Self
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
-from cmd_utils import ScheduleContext
+from utils import ScheduleContext
 
 
 class NodeHandle:
@@ -133,11 +133,14 @@ class NodeHandle:
             )
         return response.get('result', None)
 
-    def neard_runner_start(self, batch_interval_millis=None):
-        if batch_interval_millis is None:
-            params = []
-        else:
-            params = {'batch_interval_millis': batch_interval_millis}
+    def neard_runner_start(self, batch_interval_millis=None, binary_idx=None):
+        params = []
+        if batch_interval_millis is not None:
+            params.append(('batch_interval_millis', batch_interval_millis))
+        if binary_idx is not None:
+            params.append(('binary_idx', binary_idx))
+        if len(params) != 0:
+            params = dict(params)
         return self.neard_runner_jsonrpc('start', params=params)
 
     def neard_runner_stop(self):

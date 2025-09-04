@@ -756,3 +756,12 @@ pub(crate) static CHUNK_ENDORSEMENTS_REJECTED: LazyLock<IntCounterVec> = LazyLoc
     )
     .unwrap()
 });
+
+pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_cold_store_copy_result",
+        "The result of a cold store copy iteration in the cold store loop.",
+        &["result"],
+    )
+    .unwrap()
+});
