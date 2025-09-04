@@ -71,7 +71,7 @@ pub fn setup_client(
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
 
-    let homedir = tempdir.path().join(format!("{}", identifier));
+    let homedir = NodeExecutionData::homedir(tempdir, identifier);
     std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
 
     let store_config = StoreConfig {
