@@ -3,6 +3,7 @@ use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
 use opentelemetry::KeyValue;
 use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::trace::{BatchSpanProcessor, RandomIdGenerator, Sampler, SdkTracerProvider};
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
@@ -54,7 +55,7 @@ where
     // In OpenTelemetry 0.30, the environment variables OTEL_BSP_MAX_QUEUE_SIZE and
     // OTEL_BSP_MAX_CONCURRENT_EXPORTS are automatically respected by the BatchConfig::default()
     // We can use the builder pattern with with_batch_exporter which handles the configuration
-    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder().with_http().build().unwrap();
+    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder().with_tonic().build().unwrap();
     let batch_processor = BatchSpanProcessor::builder(otlp_exporter).build();
 
     let tracer_provider = SdkTracerProvider::builder()
