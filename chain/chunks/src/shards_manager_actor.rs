@@ -1775,7 +1775,7 @@ impl ShardsManagerActor {
             }
         }
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
-        let entry = self.encoded_chunks.get_mut(&chunk_hash).unwrap();
+        let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
         let cares_about_shard = self
             .shard_tracker
@@ -1785,12 +1785,10 @@ impl ShardsManagerActor {
         if !cares_about_shard && have_all_parts && have_all_receipts {
             // If we don't care about the shard, we only need the parts and the receipts that we
             // own, before marking the chunk as completed.
-            let parts_iter = entry.parts.drain().map(|(_, p)| p);
-            let receipts_iter = entry.receipts.drain().map(|(_, r)| r);
             let partial_chunk = make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
                 header.clone(),
-                parts_iter,
-                receipts_iter,
+                entry.parts.values().cloned(),
+                entry.receipts.values().cloned(),
                 me,
                 self.epoch_manager.as_ref(),
                 &self.shard_tracker,
@@ -1807,8 +1805,10 @@ impl ShardsManagerActor {
                 header.clone(),
                 self.epoch_manager.num_total_parts(),
             );
-            for (part_ord, part_entry) in entry.parts.drain() {
-                encoded_chunk.content_mut().parts[part_ord as usize] = Some(part_entry.part);
+
+            for (part_ord, part_entry) in &entry.parts {
+                encoded_chunk.content_mut().parts[*part_ord as usize] =
+                    Some(part_entry.part.clone());
             }
 
             let (shard_chunk, partial_chunk) = self
