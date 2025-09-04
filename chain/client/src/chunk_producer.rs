@@ -307,7 +307,7 @@ impl ChunkProducer {
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.adversarial.produce_invalid_chunks {
-            gas_used.checked_add(near_primitives::types::Gas::from_gas(1)).unwrap()
+            gas_used.checked_add(near_primitives::types::Gas::ONE).unwrap()
         } else {
             gas_used
         };

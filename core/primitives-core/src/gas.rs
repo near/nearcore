@@ -32,6 +32,8 @@ impl Gas {
     pub const MAX: Gas = Gas::from_gas(u64::MAX);
     /// Zero value for Gas
     pub const ZERO: Gas = Gas::from_gas(0);
+    /// Value 1 for Gas
+    pub const ONE: Gas = Gas::from_gas(1);
 
     /// Creates a new `Gas` from the specified number of whole tera Gas.
     ///
@@ -176,7 +178,7 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     /// assert_eq!(Gas::from_gas(5).saturating_add(Gas::from_gas(5)), Gas::from_gas(10));
-    /// assert_eq!(Gas::MAX.saturating_add(Gas::from_gas(1)), Gas::MAX);
+    /// assert_eq!(Gas::MAX.saturating_add(Gas::ONE), Gas::MAX);
     /// ```
     pub const fn saturating_add(self, rhs: Gas) -> Gas {
         Self(self.0.saturating_add(rhs.0))
@@ -188,7 +190,7 @@ impl Gas {
     /// ```
     /// use near_primitives_core::gas::Gas;
     /// assert_eq!(Gas::from_gas(5).saturating_sub(Gas::from_gas(2)), Gas::from_gas(3));
-    /// assert_eq!(Gas::from_gas(1).saturating_sub(Gas::from_gas(2)), Gas::ZERO);
+    /// assert_eq!(Gas::ONE.saturating_sub(Gas::from_gas(2)), Gas::ZERO);
     /// ```
     pub const fn saturating_sub(self, rhs: Gas) -> Gas {
         Self(self.0.saturating_sub(rhs.0))

@@ -593,7 +593,7 @@ mod tests {
 
         // Also check applied tolerance strategies, in  this case they should always be certain as the solution is positive
         check_uncertainty(&xs, &ys, Default::default(), false);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas(1), Gas::from_gas(1)), false);
+        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), false);
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
     }
 
@@ -628,11 +628,11 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas(1), Gas::from_gas(1)), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
         check_uncertainty(
             &xs,
             &ys,
-            abs_tolerance(Gas::from_gas((GAS_IN_NS * 50).to_integer()), Gas::from_gas(1)),
+            abs_tolerance(Gas::from_gas((GAS_IN_NS * 50).to_integer()), Gas::ONE),
             false,
         );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
@@ -655,11 +655,11 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas(1), Gas::from_gas(1)), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
         check_uncertainty(
             &xs,
             &ys,
-            abs_tolerance(Gas::from_gas(1), Gas::from_gas(1_000_000)),
+            abs_tolerance(Gas::ONE, Gas::from_gas(1_000_000)),
             false,
         );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
@@ -682,7 +682,7 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), false);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas(1), Gas::from_gas(1)), false);
+        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), false);
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
     }
 
@@ -703,7 +703,7 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas(1), Gas::from_gas(1)), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
         check_uncertainty(
             &xs,
@@ -737,7 +737,7 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas(1), Gas::from_gas(1)), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
         check_uncertainty(
             &xs,
@@ -771,7 +771,7 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::from_gas(1), Gas::from_gas(1)), true);
+        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
         check_uncertainty(
             &xs,
             &ys,

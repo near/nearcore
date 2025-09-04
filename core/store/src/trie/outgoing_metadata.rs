@@ -740,13 +740,13 @@ mod tests {
             for _ in 0..initial_receipts_num {
                 let receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
                 buffered_receipts.push_back(receipt_size);
-                test_queue.update_on_receipt_pushed(receipt_size, Gas::from_gas(1), &groups_config);
+                test_queue.update_on_receipt_pushed(receipt_size, Gas::ONE, &groups_config);
             }
 
             let pop_push_num = rng.gen_range(0..100);
             for _ in 0..pop_push_num {
                 let popped_receipt_size = buffered_receipts.pop_front().unwrap();
-                test_queue.update_on_receipt_popped(popped_receipt_size, Gas::from_gas(1));
+                test_queue.update_on_receipt_popped(popped_receipt_size, Gas::ONE);
 
                 // Ideal bandwidth request produced from individual receipt sizes.
                 let ideal_bandwidth_request = BandwidthRequest::make_from_receipt_sizes(
@@ -771,7 +771,7 @@ mod tests {
                 buffered_receipts.push_back(new_receipt_size);
                 test_queue.update_on_receipt_pushed(
                     new_receipt_size,
-                    Gas::from_gas(1),
+                    Gas::ONE,
                     &groups_config,
                 );
             }

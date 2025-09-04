@@ -650,7 +650,7 @@ fn test_gas_exceed_loading() {
     test_builder()
         .wat(SIMPLE_CONTRACT)
         .method("non_empty_non_existing")
-        .gas(Gas::from_gas(1))
+        .gas(Gas::ONE)
         .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1 used gas 1
             Err: Exceeded the prepaid gas.

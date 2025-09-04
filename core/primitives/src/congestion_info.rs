@@ -607,14 +607,14 @@ mod tests {
                     .outgoing_gas_limit(ShardId::new(0))
                     .saturating_sub(config.max_outgoing_gas)
             };
-        assert!(diff <= Gas::from_gas(1));
+        assert!(diff <= Gas::ONE);
 
         let diff = if config.max_tx_gas > congestion_control.process_tx_limit() {
             config.max_tx_gas.saturating_sub(congestion_control.process_tx_limit())
         } else {
             congestion_control.process_tx_limit().saturating_sub(config.max_tx_gas)
         };
-        assert!(diff <= Gas::from_gas(1));
+        assert!(diff <= Gas::ONE);
         assert!(congestion_control.shard_accepts_transactions().is_yes());
     }
 

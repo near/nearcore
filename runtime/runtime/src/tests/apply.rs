@@ -329,7 +329,7 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     let receipt_gas_cost = apply_state
@@ -382,7 +382,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     let receipt_gas_cost = apply_state
@@ -543,7 +543,7 @@ fn test_apply_delayed_receipts_local_tx() {
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     let receipt_exec_gas_fee = Gas::from_gas(1000);
@@ -1240,7 +1240,7 @@ fn test_compute_usage_limit() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     let shard_uid = ShardUId::single_shard();
@@ -1349,7 +1349,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );
@@ -1437,7 +1437,7 @@ fn test_main_storage_proof_size_soft_limit() {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: Gas::from_gas(1),
+                gas: Gas::ONE,
                 deposit: 0,
             }))],
         )
@@ -1554,7 +1554,7 @@ fn test_exclude_contract_code_from_witness() {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: Vec::new(),
-                gas: Gas::from_gas(1),
+                gas: Gas::ONE,
                 deposit: 0,
             }))],
         )
@@ -1732,7 +1732,7 @@ fn test_deploy_and_call_different_contracts() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -1755,7 +1755,7 @@ fn test_deploy_and_call_different_contracts() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );
@@ -1774,7 +1774,7 @@ fn test_deploy_and_call_different_contracts() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );
@@ -1836,7 +1836,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
@@ -1880,7 +1880,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );
@@ -1942,7 +1942,7 @@ fn test_deploy_and_call_in_apply() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -1965,7 +1965,7 @@ fn test_deploy_and_call_in_apply() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );
@@ -1984,7 +1984,7 @@ fn test_deploy_and_call_in_apply() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );
@@ -2019,7 +2019,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
@@ -2063,7 +2063,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );
@@ -2118,7 +2118,7 @@ fn test_deploy_existing_contract_to_different_account() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );
@@ -2160,7 +2160,7 @@ fn test_deploy_existing_contract_to_different_account() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );
@@ -2194,7 +2194,7 @@ fn test_deploy_and_call_in_same_receipt() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2208,7 +2208,7 @@ fn test_deploy_and_call_in_same_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: Gas::from_gas(1),
+                gas: Gas::ONE,
                 deposit: 0,
             })),
         ],
@@ -2241,7 +2241,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
@@ -2257,7 +2257,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: Gas::from_gas(1),
+                gas: Gas::ONE,
                 deposit: 0,
             })),
         ],
@@ -2287,7 +2287,7 @@ fn test_call_account_without_contract() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2298,7 +2298,7 @@ fn test_call_account_without_contract() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );
@@ -2327,7 +2327,7 @@ fn test_contract_accesses_when_validating_chunk() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_gas(1),
+        Gas::ONE,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2346,7 +2346,7 @@ fn test_contract_accesses_when_validating_chunk() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::from_gas(1),
+            gas: Gas::ONE,
             deposit: 0,
         }))],
     );

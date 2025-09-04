@@ -13,7 +13,7 @@ use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 #[test]
 fn test_burn_all_gas() {
     let attached_gas = Gas::from_tera(100);
-    let burn_gas = attached_gas.checked_add(Gas::from_gas(1)).unwrap();
+    let burn_gas = attached_gas.checked_add(Gas::ONE).unwrap();
     let deposit = 0;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -28,7 +28,7 @@ fn test_burn_all_gas() {
 #[test]
 fn test_deposit_refund() {
     let attached_gas = Gas::from_tera(100);
-    let burn_gas = attached_gas.checked_add(Gas::from_gas(1)).unwrap();
+    let burn_gas = attached_gas.checked_add(Gas::ONE).unwrap();
     let deposit = 10;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);

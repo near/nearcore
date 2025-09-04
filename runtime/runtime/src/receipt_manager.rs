@@ -666,7 +666,7 @@ mod tests {
         // Weight over u64 bounds
         function_call_weight_check(&[
             (Gas::ZERO, u64::MAX, Gas::from_gas(9_999_999_999)),
-            (Gas::ZERO, 1000, Gas::from_gas(1)),
+            (Gas::ZERO, 1000, Gas::ONE),
         ]);
 
         // Weight over gas limit with three function calls
