@@ -22,7 +22,7 @@ pub enum OpenTelemetryLevel {
 
 /// Constructs an OpenTelemetryConfig which sends span data to an external collector.
 //
-// NB: this function is `async` because `install_batch(Tokio)` requires a tokio context to
+// NB: this function is `async` because `tonic` (gRPC server) requires a tokio context to
 // register timers and channels and whatnot.
 pub(crate) async fn add_opentelemetry_layer<S>(
     opentelemetry_level: OpenTelemetryLevel,
