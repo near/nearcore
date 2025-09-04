@@ -111,7 +111,6 @@ skip = [
     { name = "reqwest", version = "^0.11" },
     { name = "winreg", version = "^0.50" },
     { name = "socket2", version = "^0.4" },
-    { name = "socket2", version = "^0.5" },
     { name = "rustls-pemfile", version = "^1" },
     { name = "nix", version = "^0.24" },
     { name = "mio", version = "^0.8" },
