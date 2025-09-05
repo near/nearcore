@@ -406,7 +406,7 @@ impl Database for RocksDB {
                 target = "store::db::rocksdb",
                 message = "making a write batch took a very long time, make smaller transactions!",
                 ?elapsed,
-                // backtrace = %std::backtrace::Backtrace::force_capture()
+                backtrace = %std::backtrace::Backtrace::force_capture()
             );
         }
         self.db.write(batch).map_err(io::Error::other)

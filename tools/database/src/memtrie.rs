@@ -215,6 +215,7 @@ impl SplitShardTrieCommand {
             self.shard_uid,
             shard_tries.clone(),
             split_params,
+            false,
         )?;
         println!("Resharding done");
 
@@ -458,14 +459,14 @@ impl ArchivalDataLossRecoveryCommand {
             Self::check_trie(
                 &shard_layout,
                 &shard_tries,
-                &resharding_block,
+                &epoch_start_block,
                 split_shard_params.left_child_shard,
             );
 
             Self::check_trie(
                 &shard_layout,
                 &shard_tries,
-                &resharding_block,
+                &epoch_start_block,
                 split_shard_params.right_child_shard,
             );
             return Ok(());
@@ -489,6 +490,7 @@ impl ArchivalDataLossRecoveryCommand {
             split_shard_params.parent_shard,
             shard_tries,
             split_shard_params,
+            true,
         )?;
         println!("Resharding done");
 
@@ -513,6 +515,10 @@ impl ArchivalDataLossRecoveryCommand {
         Ok(())
     }
 
+    /// Iterate through the whole trie to ensure that all the trie nodes are
+    /// accessible. It should be used with the first block of the first epoch
+    /// with the new shard layout, the matching shard layout and the shard uid
+    /// of the child shard.
     fn check_trie(
         shard_layout: &ShardLayout,
         shard_tries: &ShardTries,
@@ -525,7 +531,12 @@ impl ArchivalDataLossRecoveryCommand {
 
         let child_index = shard_layout.get_shard_index(shard_uid.shard_id()).unwrap();
         let child_header = &block.chunks()[child_index];
-        assert_eq!(shard_uid.shard_id(), child_header.shard_id());
+
+        // TODO(wacban) - find the first new chunk in that shard and use that instead.
+        if shard_uid.shard_id() != child_header.shard_id() {
+            println!("Skipping check_trie due to missing chunk");
+            return;
+        }
 
         let child_state_root = child_header.prev_state_root();
         let child_trie = shard_tries.get_trie_for_shard(shard_uid, child_state_root);

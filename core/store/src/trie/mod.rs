@@ -887,7 +887,6 @@ impl Trie {
             }
             Err(err) => {
                 writeln!(f, "Error when reading: {}", err).expect("write failed");
-                panic!("MissingTrieValue");
             }
         };
     }
@@ -1043,8 +1042,7 @@ impl Trie {
         let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, true, opts) {
             Ok(Some((bytes, raw_node))) => (bytes, raw_node.node, raw_node.memory_usage),
             Ok(None) => return writeln!(f, "{spaces}EmptyNode"),
-            // Err(err) => return writeln!(f, "{spaces}error {err}"),
-            Err(err) => panic!("Error retrieving raw node: {err}"),
+            Err(err) => return writeln!(f, "{spaces}error {err}"),
         };
 
         let children = match raw_node {

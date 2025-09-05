@@ -88,7 +88,14 @@ impl ReshardingManager {
             ReshardingEventType::from_shard_layout(&next_shard_layout, block_info)?;
         match resharding_event_type {
             Some(ReshardingEventType::SplitShard(split_shard_event)) => {
-                self.split_shard(chain_store_update, block, shard_uid, tries, split_shard_event)?;
+                self.split_shard(
+                    chain_store_update,
+                    block,
+                    shard_uid,
+                    tries,
+                    split_shard_event,
+                    false,
+                )?;
             }
             None => {
                 tracing::warn!(target: "resharding", ?resharding_event_type, "unsupported resharding event type, skipping");
@@ -104,6 +111,7 @@ impl ReshardingManager {
         shard_uid: ShardUId,
         tries: ShardTries,
         split_shard_event: ReshardingSplitShardParams,
+        allow_resharding_without_memtries: bool,
     ) -> Result<SplitShardTrieChanges, Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
@@ -137,6 +145,7 @@ impl ReshardingManager {
             block,
             tries,
             &split_shard_event,
+            allow_resharding_without_memtries,
         )?;
 
         // Trigger resharding by sending the event to the resharding actor.
@@ -171,6 +180,7 @@ impl ReshardingManager {
         block: &Block,
         tries: ShardTries,
         split_shard_event: &ReshardingSplitShardParams,
+        allow_resharding_without_memtries: bool,
     ) -> Result<SplitShardTrieChanges, Error> {
         let block_hash = block.hash();
         let block_height = block.header().height();
@@ -199,16 +209,15 @@ impl ReshardingManager {
                 .get_trie_for_shard(*parent_shard_uid, *parent_chunk_extra.state_root())
                 .recording_reads_new_recorder();
 
-            // TODO(wacban) - nocommit - do it properly
-            // if !parent_trie.has_memtries() {
-            //     tracing::error!(
-            //         "Memtrie not loaded. Cannot process memtrie resharding storage
-            //          update for block {:?}, shard {:?}",
-            //         block_hash,
-            //         parent_shard_uid,
-            //     );
-            //     return Err(Error::Other("Memtrie not loaded".to_string()));
-            // }
+            if !allow_resharding_without_memtries && !parent_trie.has_memtries() {
+                tracing::error!(
+                    "Memtrie not loaded. Cannot process memtrie resharding storage
+                     update for block {:?}, shard {:?}",
+                    block_hash,
+                    parent_shard_uid,
+                );
+                return Err(Error::Other("Memtrie not loaded".to_string()));
+            }
 
             tracing::info!(
                 target: "resharding", ?new_shard_uid, ?retain_mode,
@@ -266,10 +275,14 @@ impl ReshardingManager {
             split_shard_trie_changes.trie_changes.insert(*new_shard_uid, trie_changes);
         }
 
-        // TODO(wacban) - nocommit - do it properly
-        // After committing the split changes, the parent trie has the state root of both the children.
-        // Now we can freeze the parent memtrie and copy it to the children.
-        // tries.freeze_parent_memtrie(*parent_shard_uid, split_shard_event.children_shards())?;
+        // After committing the split changes, the parent trie has the state
+        // root of both the children. Now we can freeze the parent memtrie and
+        // copy it to the children.
+        let parent_trie =
+            tries.get_trie_for_shard(*parent_shard_uid, *parent_chunk_extra.state_root());
+        if parent_trie.has_memtries() {
+            tries.freeze_parent_memtrie(*parent_shard_uid, split_shard_event.children_shards())?;
+        }
 
         chain_store_update.merge(store_update.into());
         chain_store_update.commit()?;
