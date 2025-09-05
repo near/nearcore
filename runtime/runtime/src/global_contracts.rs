@@ -229,26 +229,38 @@ fn forward_distribution_next_shard(
 }
 
 pub(crate) trait AccountContractStoreExt {
+    type LocalAccountId;
     fn hash(&self, store: &TrieUpdate) -> Result<CryptoHash, StorageError>;
     fn code(
         &self,
-        local_account_id: impl FnOnce() -> AccountId,
+        local_account_id: &Self::LocalAccountId,
         store: &TrieUpdate,
     ) -> Result<Option<ContractCode>, StorageError>;
 }
 
 impl AccountContractStoreExt for AccountContract {
+    type LocalAccountId = AccountId;
     fn code(
         &self,
-        local_account_id: impl FnOnce() -> AccountId,
+        local_account_id: &Self::LocalAccountId,
         store: &TrieUpdate,
     ) -> Result<Option<ContractCode>, StorageError> {
+        match self {
+            AccountContract::Global(h) => {
+                return GlobalContractIdentifier::CodeHash(*h).code(&(), store);
+            }
+            AccountContract::GlobalByAccount(a) => {
+                return GlobalContractIdentifier::AccountId(a.clone()).code(&(), store);
+            }
+            _ => {}
+        }
         let Some(key) = TrieKey::for_account_contract_code(local_account_id, self) else {
             return Ok(None);
         };
         let code_hash = match self {
-            AccountContract::None | AccountContract::GlobalByAccount(_) => None,
-            AccountContract::Local(hash) | AccountContract::Global(hash) => Some(*hash),
+            AccountContract::None => None,
+            AccountContract::Local(hash) => Some(*hash),
+            AccountContract::GlobalByAccount(_) | AccountContract::Global(_) => unreachable!(),
         };
         store
             .get(&key, AccessOptions::DEFAULT)
@@ -258,24 +270,50 @@ impl AccountContractStoreExt for AccountContract {
     fn hash(&self, store: &TrieUpdate) -> Result<CryptoHash, StorageError> {
         let hash = match self {
             AccountContract::None => CryptoHash::default(),
-            AccountContract::Local(code_hash) | AccountContract::Global(code_hash) => *code_hash,
+            AccountContract::Local(code_hash) => *code_hash,
+            AccountContract::Global(code_hash) => {
+                GlobalContractIdentifier::CodeHash(*code_hash).hash(store)?
+            }
             AccountContract::GlobalByAccount(account_id) => {
-                let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
-                let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
-                let value_ref = store
-                    .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
-                    .ok_or_else(|| {
-                        let TrieKey::GlobalContractCode { identifier } = key else {
-                            unreachable!()
-                        };
-                        StorageError::StorageInconsistentState(format!(
-                            "Global contract identifier not found {:?}",
-                            identifier
-                        ))
-                    })?;
-                value_ref.value_hash()
+                GlobalContractIdentifier::AccountId(account_id.clone()).hash(store)?
             }
         };
         Ok(hash)
+    }
+}
+
+impl AccountContractStoreExt for GlobalContractIdentifier {
+    type LocalAccountId = ();
+
+    fn hash(&self, store: &TrieUpdate) -> Result<CryptoHash, StorageError> {
+        if let GlobalContractIdentifier::CodeHash(crypto_hash) = self {
+            return Ok(*crypto_hash);
+        }
+        let key = TrieKey::GlobalContractCode { identifier: self.clone().into() };
+        let value_ref = store
+            .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
+            .ok_or_else(|| {
+                let TrieKey::GlobalContractCode { identifier } = key else { unreachable!() };
+                StorageError::StorageInconsistentState(format!(
+                    "Global contract identifier not found {:?}",
+                    identifier
+                ))
+            })?;
+        Ok(value_ref.value_hash())
+    }
+
+    fn code(
+        &self,
+        _: &Self::LocalAccountId,
+        store: &TrieUpdate,
+    ) -> Result<Option<ContractCode>, StorageError> {
+        let key = TrieKey::GlobalContractCode { identifier: self.clone().into() };
+        let code_hash = match self {
+            GlobalContractIdentifier::AccountId(_) => None,
+            GlobalContractIdentifier::CodeHash(hash) => Some(*hash),
+        };
+        store
+            .get(&key, AccessOptions::DEFAULT)
+            .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
     }
 }

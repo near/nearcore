@@ -489,12 +489,14 @@ impl TrieKey {
     }
 
     pub fn for_account_contract_code(
-        local_account_id: impl FnOnce() -> AccountId,
+        local_account_id: &AccountId,
         account_contract: &AccountContract,
     ) -> Option<Self> {
         let trie_key = match account_contract {
             AccountContract::None => return None,
-            AccountContract::Local(_) => Self::ContractCode { account_id: local_account_id() },
+            AccountContract::Local(_) => {
+                Self::ContractCode { account_id: local_account_id.clone() }
+            }
             AccountContract::Global(code_hash) => Self::GlobalContractCode {
                 identifier: GlobalContractCodeIdentifier::CodeHash(*code_hash),
             },
