@@ -7,7 +7,7 @@ use crate::analyze_high_load::HighLoadStatsCommand;
 use crate::compact::RunCompactionCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
-use crate::memtrie::{LoadMemTrieCommand, SplitShardTrieCommand};
+use crate::memtrie::{ArchivalDataLossRecoveryCommand, LoadMemTrieCommand, SplitShardTrieCommand};
 use crate::rollback_to_26::RollbackTo26Command;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::set_version::SetVersionCommand;
@@ -56,6 +56,8 @@ enum SubCommand {
     /// Splits given shard on a given boundary account and prints approximate
     /// RAM usage of the child shards.
     SplitShardTrie(SplitShardTrieCommand),
+    /// Recover the archival data that was lost during resharding.
+    ArchivalDataLossRecovery(ArchivalDataLossRecoveryCommand),
 
     /// Write CryptoHash to DB
     WriteCryptoHash(WriteCryptoHashCommand),
@@ -95,6 +97,7 @@ impl DatabaseCommand {
             SubCommand::StatePerf(cmd) => cmd.run(home),
             SubCommand::LoadMemTrie(cmd) => cmd.run(home, genesis_validation),
             SubCommand::SplitShardTrie(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::ArchivalDataLossRecovery(cmd) => cmd.run(home, genesis_validation),
             SubCommand::WriteCryptoHash(cmd) => cmd.run(home, genesis_validation),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
