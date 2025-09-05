@@ -351,7 +351,7 @@ impl ChunkExecutorActor {
             // If we don't care about shard we wouldn't have relevant incoming receipts.
             if !self.shard_tracker.should_apply_chunk(
                 ApplyChunksMode::IsCaughtUp,
-                block_hash,
+                prev_hash,
                 shard_id,
             ) {
                 continue;
