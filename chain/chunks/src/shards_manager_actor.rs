@@ -921,6 +921,16 @@ impl ShardsManagerActor {
         request: PartialEncodedChunkRequestMsg,
     ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
         let (src, mut response_msg) = self.prepare_partial_encoded_chunk_response_unsorted(request);
+        match src {
+            PartialEncodedChunkResponseSource::InMemoryCache => {
+                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_CACHE_HIT.inc();
+            }
+            PartialEncodedChunkResponseSource::None
+            | PartialEncodedChunkResponseSource::PartialChunkOnDisk
+            | PartialEncodedChunkResponseSource::ShardChunkOnDisk => {
+                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_CACHE_MISS.inc();
+            }
+        }
         // Note that the PartialChunks column is a write-once column, and needs
         // the values to be deterministic.
         response_msg.receipts.sort();
@@ -1534,6 +1544,7 @@ impl ShardsManagerActor {
                 .encoded_chunks
                 .height_within_horizon(partial_encoded_chunk.header.height_created())
             {
+                metrics::PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON.inc();
                 return Err(Error::ChainError(near_chain::Error::InvalidChunkHeight));
             }
             // We shouldn't process un-requested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
