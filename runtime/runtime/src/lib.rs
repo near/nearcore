@@ -1523,64 +1523,40 @@ impl Runtime {
         let chunk_size =
             (tx_vec.len() / chunk_count_target).clamp(MIN_CHUNK_SIZE, ValidBitmask::BITS as _);
         let protocol_version = processing_state.protocol_version;
-        let (valid_masks, (accounts, access_keys)) = rayon::join(
-            || {
-                tx_vec
-                    .par_chunks(chunk_size)
-                    .map(|txs| {
-                        TRANSACTION_BATCH_SIGNATURE_VERIFY_TOTAL.inc();
-                        if validate_transaction_batch(&apply_state.config, txs, protocol_version)
-                            .is_ok()
-                        {
-                            TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS.inc();
-                            // Ok to set all bits: if there are fewer transactions than bits,
-                            // higher bits are simply unused.
-                            return !0;
-                        }
-                        // Batch verification did not succeed, fall back to individual verification
-                        let mut valid_mask: ValidBitmask = 0;
-                        for (idx, tx) in txs.iter().enumerate() {
-                            let tx_hash = tx.hash();
-                            let v = validate_transaction(
-                                &apply_state.config,
-                                tx.clone(),
-                                protocol_version,
-                            );
-                            if let Err((err, _)) = v {
-                                tracing::debug!(?tx_hash, ?err, "transaction invalid");
-                                continue;
-                            }
-                            valid_mask |= 1 << idx;
-                        }
-                        valid_mask
-                    })
-                    .collect::<Vec<_>>()
-            },
-            || {
-                type AccountV = Result<Option<Account>, StorageError>;
-                type AccessKeyV = Result<Option<AccessKey>, StorageError>;
-                let accounts = dashmap::DashMap::<&AccountId, AccountV>::with_capacity(len);
-                let access_keys =
-                    dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(len);
-                tx_vec.par_chunks(chunk_size).for_each(|txs| {
-                    for tx in txs {
-                        let signer_id = tx.transaction.signer_id();
-                        let pubkey = tx.transaction.public_key();
-                        accounts
-                            .entry(signer_id)
-                            .or_insert_with(|| get_account(state_update, signer_id));
-                        access_keys
-                            .entry((signer_id, pubkey))
-                            .or_insert_with(|| get_access_key(state_update, signer_id, pubkey));
+        let valid_masks = tx_vec
+            .par_chunks(chunk_size)
+            .map(|txs| {
+                TRANSACTION_BATCH_SIGNATURE_VERIFY_TOTAL.inc();
+                if validate_transaction_batch(&apply_state.config, txs, protocol_version).is_ok() {
+                    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS.inc();
+                    // Ok to set all bits: if there are fewer transactions than bits,
+                    // higher bits are simply unused.
+                    return !0;
+                }
+                // Batch verification did not succeed, fall back to individual verification
+                let mut valid_mask: ValidBitmask = 0;
+                for (idx, tx) in txs.iter().enumerate() {
+                    let tx_hash = tx.hash();
+                    let v = validate_transaction(&apply_state.config, tx.clone(), protocol_version);
+                    if let Err((err, _)) = v {
+                        tracing::debug!(?tx_hash, ?err, "transaction invalid");
+                        continue;
                     }
-                });
-                (accounts, access_keys)
-            },
-        );
+                    valid_mask |= 1 << idx;
+                }
+                valid_mask
+            })
+            .collect::<Vec<_>>();
 
         let valid_mask_iterator = valid_masks
             .into_iter()
             .flat_map(|mask| (0..chunk_size).map(move |idx| ((mask >> idx) & 1) == 1));
+
+        type AccountV = Result<Option<Account>, StorageError>;
+        type AccessKeyV = Result<Option<AccessKey>, StorageError>;
+        let accounts = dashmap::DashMap::<&AccountId, AccountV>::with_capacity(len);
+        let access_keys =
+            dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(len);
 
         let default_hash = CryptoHash::default();
         let mut last_tx_hash = &default_hash;
@@ -1609,27 +1585,29 @@ impl Runtime {
                 };
 
             let verification_result = {
-                let mut account = accounts.get_mut(signer_id);
-                let mut account = match account.as_deref_mut() {
-                    Some(Ok(Some(a))) => a,
-                    Some(Ok(None)) => {
+                let mut account = accounts
+                    .entry(signer_id)
+                    .or_insert_with(|| get_account(state_update, signer_id));
+                let mut account = match account.value_mut() {
+                    Ok(Some(a)) => a,
+                    Ok(None) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                         tracing::debug!(%tx_hash, "transaction signed by unknown account");
                         continue;
                     }
-                    Some(Err(e)) => return Err(e.clone().into()),
-                    None => unreachable!("accounts should've been prefetched"),
+                    Err(e) => return Err(e.clone().into()),
                 };
-                let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
-                let mut access_key = match access_key.as_deref_mut() {
-                    Some(Ok(Some(ak))) => ak,
-                    Some(Ok(None)) => {
+                let mut access_key = access_keys
+                    .entry((signer_id, pubkey))
+                    .or_insert_with(|| get_access_key(state_update, signer_id, pubkey));
+                let mut access_key = match access_key.value_mut() {
+                    Ok(Some(ak)) => ak,
+                    Ok(None) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                         tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
                         continue;
                     }
-                    Some(Err(e)) => return Err(e.clone().into()),
-                    None => unreachable!("access keys should've been prefetched"),
+                    Err(e) => return Err(e.clone().into()),
                 };
                 match verify_and_charge_tx_ephemeral(
                     &apply_state.config,
