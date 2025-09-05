@@ -8,14 +8,17 @@ use {
 /// this function computes the mandate price to use. It works by using a binary search.
 pub fn compute_mandate_price(config: ValidatorMandatesConfig, stakes: &[Balance]) -> Balance {
     let ValidatorMandatesConfig { target_mandates_per_shard, num_shards } = config;
-    let total_stake = saturating_sum(stakes.iter().copied());
+    let total_stake =
+        stakes.iter().copied().fold(Balance::ZERO, |sum, item| sum.saturating_add(item));
 
     // The target number of mandates cannot be larger than the total amount of stake.
     // In production the total stake is _much_ higher than
     // `num_shards * target_mandates_per_shard`, but in tests validators are given
     // low staked numbers, so we need to have this condition in place.
-    let target_mandates: u128 =
-        min(num_shards.saturating_mul(target_mandates_per_shard) as u128, total_stake);
+    let target_mandates: u128 = min(
+        num_shards.saturating_mul(target_mandates_per_shard) as u128,
+        total_stake.as_yoctonear(),
+    );
 
     // Note: the reason to have the binary search look for the largest mandate price
     // which obtains the target number of whole mandates is because the largest value
@@ -28,8 +31,12 @@ pub fn compute_mandate_price(config: ValidatorMandatesConfig, stakes: &[Balance]
     // are assuming is equal to our target value for some range of `m` values.
     // When we use a larger `m` value, `T / m` decreases but we need the LHS
     // to remain constant, therefore `\sum r_i` must also decrease.
-    binary_search(1, total_stake, target_mandates, |mandate_price| {
-        saturating_sum(stakes.iter().map(|s| *s / mandate_price))
+    binary_search(Balance::from_yoctonear(1), total_stake, target_mandates, |mandate_price| {
+        stakes
+            .iter()
+            .map(|s: &Balance| s.checked_div(mandate_price.as_yoctonear()).unwrap())
+            .fold(Balance::ZERO, |sum: Balance, item| sum.saturating_add(item))
+            .as_yoctonear()
     })
 }
 
@@ -54,8 +61,8 @@ where
         return high;
     }
 
-    while high - low > 1 {
-        let mid = low + (high - low) / 2;
+    while high.checked_sub(low).unwrap() > Balance::from_yoctonear(1) {
+        let mid = low.checked_add(high.checked_sub(low).unwrap().checked_div(2).unwrap()).unwrap();
         let f_mid = f(mid);
 
         match f_mid.cmp(&target) {
@@ -84,8 +91,8 @@ where
     let mut low = low;
     let mut high = high;
 
-    while high - low > 1 {
-        let mid = low + (high - low) / 2;
+    while high.checked_sub(low).unwrap() > Balance::from_yoctonear(1) {
+        let mid = low.checked_add(high.checked_sub(low).unwrap().checked_div(2).unwrap()).unwrap();
         let f_mid = f(mid);
 
         match f_mid.cmp(&target) {

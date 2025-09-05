@@ -30,7 +30,7 @@ use crate::utils::account::{
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions;
 
-const GAS_PRICE: Balance = 1;
+const GAS_PRICE = Balance::from_yoctonear(1);
 
 #[test]
 fn test_global_contract_by_hash() {
@@ -79,7 +79,7 @@ fn test_use_non_existent_global_contract() {
 
 #[test]
 fn test_global_contract_update() {
-    let mut env = GlobalContractsTestEnv::setup(1000 * ONE_NEAR);
+    let mut env = GlobalContractsTestEnv::setup(Balance::from_near(1000));
     let use_accounts = [env.account_shard_0.clone(), env.account_shard_1.clone()];
 
     env.deploy_trivial_global_contract(GlobalContractDeployMode::AccountId);
@@ -127,7 +127,7 @@ fn test_global_contract_by_hash_rpc_calls() {
 }
 
 fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
-    const INITIAL_BALANCE: Balance = 1000 * ONE_NEAR;
+    const INITIAL_BALANCE = Balance::from_near(1000);
     let mut env = GlobalContractsTestEnv::setup(INITIAL_BALANCE);
 
     env.deploy_global_contract(deploy_mode.clone());
@@ -162,7 +162,7 @@ fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
 }
 
 fn test_global_contract_rpc_calls(deploy_mode: GlobalContractDeployMode) {
-    let mut env = GlobalContractsTestEnv::setup(1000 * ONE_NEAR);
+    let mut env = GlobalContractsTestEnv::setup(Balance::from_near(1000));
     env.deploy_global_contract(deploy_mode.clone());
     let target_account = env.account_shard_0.clone();
     let identifier = env.global_contract_identifier(&deploy_mode);
@@ -192,7 +192,7 @@ fn test_use_global_contract_by_account_id_delegate() {
 }
 
 fn test_use_global_contract_delegate(deploy_mode: GlobalContractDeployMode) {
-    let mut env = GlobalContractsTestEnv::setup(1000 * ONE_NEAR);
+    let mut env = GlobalContractsTestEnv::setup(Balance::from_near(1000));
     env.deploy_global_contract(deploy_mode.clone());
 
     let user_account = env.zero_balance_account.clone();

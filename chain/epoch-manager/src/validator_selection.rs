@@ -205,7 +205,7 @@ pub fn proposals_to_epoch_info(
     for OrderedValidatorStake(p) in &validator_roles.unselected_proposals {
         let stake = p.stake();
         let account_id = p.account_id();
-        *stake_change.get_mut(account_id).unwrap() = 0;
+        *stake_change.get_mut(account_id).unwrap() = Balance::ZERO;
         if prev_epoch_info.account_is_validator(account_id) {
             debug_assert!(stake < threshold);
             validator_kickout.insert(
@@ -298,7 +298,7 @@ fn apply_epoch_update_to_proposals(
         let account_id = p.account_id();
         if validator_kickout.contains_key(account_id) {
             let account_id = p.take_account_id();
-            stake_change.insert(account_id, 0);
+            stake_change.insert(account_id, Balance::ZERO);
         } else if let Some(ValidatorKickoutReason::ProtocolVersionTooOld { .. }) =
             prev_epoch_info.validator_kickout().get(account_id)
         {
@@ -314,12 +314,12 @@ fn apply_epoch_update_to_proposals(
     for r in prev_epoch_info.validators_iter() {
         let account_id = r.account_id().clone();
         if validator_kickout.contains_key(&account_id) {
-            stake_change.insert(account_id, 0);
+            stake_change.insert(account_id, Balance::ZERO);
             continue;
         }
         let p = proposals_by_account.entry(account_id).or_insert(r);
         if let Some(reward) = validator_reward.get(p.account_id()) {
-            *p.stake_mut() += *reward;
+            *p.stake_mut() = (*p.stake_mut()).checked_add(*reward).unwrap();
         }
         stake_change.insert(p.account_id().clone(), p.stake());
     }
@@ -358,14 +358,14 @@ fn select_validators(
     max_number_selected: usize,
     min_stake_ratio: Ratio<u128>,
 ) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
-    let mut total_stake = 0;
+    let mut total_stake = Balance::ZERO;
     let n = cmp::min(max_number_selected, proposals.len());
     let mut validators = Vec::with_capacity(n);
     for _ in 0..n {
         let p = proposals.pop().unwrap().0;
         let p_stake = p.stake();
-        let total_stake_with_p = total_stake + p_stake;
-        if total_stake_with_p > 0 && Ratio::new(p_stake, total_stake_with_p) > min_stake_ratio {
+        let total_stake_with_p = total_stake.checked_add(p_stake).unwrap();
+        if total_stake_with_p > Balance::ZERO && Ratio::new(p_stake.as_yoctonear(), total_stake_with_p.as_yoctonear()) > min_stake_ratio {
             validators.push(p);
             total_stake = total_stake_with_p;
         } else {
@@ -377,15 +377,15 @@ fn select_validators(
     let threshold = if validators.len() == max_number_selected {
         // all slots were filled, so the threshold stake is 1 more than the current
         // smallest stake
-        validators.last().unwrap().stake() + 1
+        validators.last().unwrap().stake().checked_add(Balance::from_yoctonear(1)).unwrap()
     } else {
         // the stake ratio condition prevented all slots from being filled,
         // or there were fewer proposals than available slots,
         // so the threshold stake is whatever amount pass the stake ratio condition
-        (min_stake_ratio * Ratio::from_integer(total_stake)
+        Balance::from_yoctonear((min_stake_ratio * Ratio::from_integer(total_stake.as_yoctonear())
             / (Ratio::from_integer(1u128) - min_stake_ratio))
             .ceil()
-            .to_integer()
+            .to_integer())
     };
     (validators, proposals, threshold)
 }

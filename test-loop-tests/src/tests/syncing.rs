@@ -24,7 +24,7 @@ fn slow_test_sync_from_genesis() {
         ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)

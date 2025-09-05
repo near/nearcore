@@ -167,7 +167,7 @@ class SimpleTransferBetweenAccounts:
             account_key = key.Key.from_random(account_id)
             account_keys.append(account_key)
 
-            tx_hash = self.create_account(account_key, 1000 * ONE_NEAR,
+            tx_hash = self.create_account(account_key, Balance::from_near(1000),
                                           signer_key)
             create_account_tx_list.append((signer_key.account_id, tx_hash))
             logger.info(

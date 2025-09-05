@@ -234,7 +234,7 @@ pub fn create_account(
     rpc_id: &AccountId,
     originator: &AccountId,
     new_account_id: &AccountId,
-    amount: u128,
+    amount: Balance,
     nonce: u64,
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);

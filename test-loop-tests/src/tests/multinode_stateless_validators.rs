@@ -50,7 +50,7 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .transaction_validity_period(1000)
         .build();

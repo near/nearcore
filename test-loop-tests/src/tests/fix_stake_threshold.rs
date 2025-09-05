@@ -21,7 +21,7 @@ fn slow_test_fix_validator_stake_threshold() {
     let test_loop_builder = TestLoopBuilder::new();
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let epoch_length = 10;
-    let initial_balance = 1_000_000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(1_000_000);
     let accounts =
         (0..6).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().cloned().collect_vec();
@@ -29,17 +29,17 @@ fn slow_test_fix_validator_stake_threshold() {
         AccountInfo {
             account_id: accounts[0].clone(),
             public_key: create_test_signer(accounts[0].as_str()).public_key(),
-            amount: 300_000 * 62_500 * ONE_NEAR,
+            amount: Balance::from_near(300_000 * 62_500),
         },
         AccountInfo {
             account_id: accounts[1].clone(),
             public_key: create_test_signer(accounts[1].as_str()).public_key(),
-            amount: 300_000 * 62_500 * ONE_NEAR,
+            amount: Balance::from_near(300_000 * 62_500),
         },
         AccountInfo {
             account_id: accounts[2].clone(),
             public_key: create_test_signer(accounts[2].as_str()).public_key(),
-            amount: 100_000 * ONE_NEAR,
+            amount: Balance::from_near(100_000),
         },
     ];
     let validators_spec = ValidatorsSpec::raw(validators, 3, 3, 3);

@@ -41,7 +41,7 @@ pub(crate) fn test_protocol_upgrade(
     let epoch_length = 10;
     let accounts =
         (0..20).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let initial_balance = 10000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(10000);
     let clients = accounts.iter().take(num_clients).cloned().collect_vec();
 
     // TODO - support different shard layouts, is there a way to make missing chunks generic?

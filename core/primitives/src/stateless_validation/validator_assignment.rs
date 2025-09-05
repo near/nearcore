@@ -22,7 +22,13 @@ fn has_enough_stake(total_stake: Balance, endorsed_stake: Balance) -> bool {
 }
 
 fn required_stake(total_stake: Balance) -> Balance {
-    total_stake * 2 / 3 + 1
+    total_stake
+        .checked_mul(2)
+        .unwrap()
+        .checked_div(3)
+        .unwrap()
+        .checked_add(Balance::from_yoctonear(1))
+        .unwrap()
 }
 
 #[derive(Debug, Default)]
@@ -57,15 +63,15 @@ impl ChunkValidatorAssignments {
         &self,
         mut validator_signatures: HashMap<&AccountId, Signature>,
     ) -> ChunkEndorsementsState {
-        let mut total_stake = 0;
-        let mut endorsed_stake = 0;
+        let mut total_stake = Balance::ZERO;
+        let mut endorsed_stake = Balance::ZERO;
         let mut endorsed_validators_count = 0;
         let mut signatures = vec![];
         for (account_id, stake) in &self.assignments {
-            total_stake += stake;
+            total_stake = total_stake.checked_add(*stake).unwrap();
             match validator_signatures.remove(account_id) {
                 Some(signature) => {
-                    endorsed_stake += stake;
+                    endorsed_stake = endorsed_stake.checked_add(*stake).unwrap();
                     endorsed_validators_count += 1;
                     signatures.push(Some(Box::new(signature)));
                 }

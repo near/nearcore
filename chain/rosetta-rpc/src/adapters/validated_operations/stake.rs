@@ -1,8 +1,9 @@
 use super::ValidatedOperation;
+use near_primitives::types::Balance;
 
 pub(crate) struct StakeOperation {
     pub(crate) account: crate::models::AccountIdentifier,
-    pub(crate) amount: near_primitives::types::Balance,
+    pub(crate) amount: Balance,
     pub(crate) public_key: crate::models::PublicKey,
 }
 
@@ -44,7 +45,7 @@ impl TryFrom<crate::models::Operation> for StakeOperation {
         Self::validate_operation_type(operation.type_)?;
         let amount = operation.amount.ok_or_else(required_fields_error)?;
         let amount = if amount.value.is_positive() {
-            amount.value.absolute_difference()
+            Balance::from_yoctonear(amount.value.absolute_difference())
         } else {
             return Err(required_fields_error());
         };

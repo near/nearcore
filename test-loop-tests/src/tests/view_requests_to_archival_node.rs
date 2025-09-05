@@ -70,7 +70,7 @@ fn slow_test_view_requests_to_archival_node() {
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout.clone())
         .validators_spec(ValidatorsSpec::desired_roles(&validators, &[]))
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(GENESIS_HEIGHT)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);

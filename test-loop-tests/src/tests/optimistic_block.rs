@@ -39,7 +39,7 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients)

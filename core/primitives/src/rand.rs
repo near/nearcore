@@ -23,14 +23,14 @@ pub struct WeightedIndex {
 // cspell:words bigs
 impl WeightedIndex {
     pub fn new(weights: Vec<Balance>) -> Self {
-        let n = Balance::from(weights.len() as u64);
+        let n = weights.len() as u64;
         let mut aliases = Aliases::new(weights.len());
 
         let mut no_alias_odds = weights;
-        let mut weight_sum: Balance = 0;
+        let mut weight_sum = Balance::ZERO;
         for w in &mut no_alias_odds {
-            weight_sum += *w;
-            *w *= n;
+            weight_sum = weight_sum.checked_add(*w).unwrap();
+            *w = (*w).checked_mul(n.into()).unwrap();
         }
 
         for (index, &odds) in no_alias_odds.iter().enumerate() {
@@ -46,7 +46,11 @@ impl WeightedIndex {
             let b = aliases.pop_big();
 
             aliases.set_alias(s, b);
-            no_alias_odds[b] = no_alias_odds[b] - weight_sum + no_alias_odds[s];
+            no_alias_odds[b] = no_alias_odds[b]
+                .checked_sub(weight_sum)
+                .unwrap()
+                .checked_add(no_alias_odds[s])
+                .unwrap();
 
             if no_alias_odds[b] < weight_sum {
                 aliases.push_small(b);
@@ -70,7 +74,7 @@ impl WeightedIndex {
         let usize_seed = Self::copy_8_bytes(&seed[0..8]);
         let balance_seed = Self::copy_16_bytes(&seed[8..24]);
         let uniform_index = usize::from_le_bytes(usize_seed) % self.aliases.len();
-        let uniform_weight = Balance::from_le_bytes(balance_seed) % self.weight_sum;
+        let uniform_weight = Balance::from_yoctonear(u128::from_le_bytes(balance_seed) % self.weight_sum.as_yoctonear());
 
         if uniform_weight < self.no_alias_odds[uniform_index] {
             uniform_index

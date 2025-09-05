@@ -12,10 +12,10 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 pub mod runtime_group_tools;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
+pub const TESTING_INIT_BALANCE = Balance::from_near(1_000_000_000);
 
 /// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
+pub const NEAR_BASE = Balance::from_near(1);
 
 const GAS_1: Gas = Gas::from_teragas(900);
 const GAS_2: Gas = GAS_1.checked_div(3).unwrap();

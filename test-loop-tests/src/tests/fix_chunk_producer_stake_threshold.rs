@@ -25,25 +25,25 @@ fn slow_test_fix_cp_stake_threshold() {
         AccountInfo {
             account_id: accounts[0].clone(),
             public_key: create_test_signer(accounts[0].as_str()).public_key(),
-            amount: 30 * 62500 * ONE_NEAR,
+            amount: Balance::from_near(30 * 62500),
         },
         AccountInfo {
             account_id: accounts[1].clone(),
             public_key: create_test_signer(accounts[1].as_str()).public_key(),
-            amount: 30 * 62500 * ONE_NEAR,
+            amount: Balance::from_near(30 * 62500),
         },
         AccountInfo {
             account_id: accounts[2].clone(),
             public_key: create_test_signer(accounts[2].as_str()).public_key(),
             // cp min stake ratio was `(1 / 62500) / num_shards` before the fix
             // stake is right at threshold, and proposal should not be approved
-            amount: ((30 + 30) * 62500 / 62500 / num_shards) as u128 * ONE_NEAR,
+            amount: Balance::from_near(((30 + 30) * 62500 / 62500 / num_shards)),
         },
         AccountInfo {
             account_id: accounts[3].clone(),
             public_key: create_test_signer(accounts[3].as_str()).public_key(),
             // stake is above threshold, so proposal should be approved
-            amount: ((30 + 30) * 62500 / 62500 / num_shards + 1) as u128 * ONE_NEAR,
+            amount: Balance::from_near(((30 + 30) * 62500 / 62500 / num_shards + 1) as u128),
         },
     ];
     let validators_spec = ValidatorsSpec::raw(validators, 5, 5, 5);
@@ -51,7 +51,7 @@ fn slow_test_fix_cp_stake_threshold() {
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let TestLoopEnv { test_loop, node_datas, shared_state } = TestLoopBuilder::new()

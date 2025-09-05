@@ -1,5 +1,5 @@
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockHeight, Nonce};
+use near_primitives::types::{Balance, BlockHeight, Nonce};
 use utoipa::ToSchema;
 
 use crate::utils::{BlobInHexString, BorshInHexString, SignedDiff};
@@ -119,7 +119,7 @@ pub(crate) struct Amount {
     /// arbitrary-sized signed integer.  For example, 1 BTC would be represented
     /// by a value of 100000000.
     #[schema(value_type = String)]
-    pub value: crate::utils::SignedDiff<near_primitives::types::Balance>,
+    pub value: crate::utils::SignedDiff<u128>,
 
     pub currency: Currency,
     /* Rosetta Spec also optionally provides:
@@ -138,12 +138,12 @@ impl std::ops::Neg for Amount {
 }
 
 impl Amount {
-    pub(crate) fn from_yoctonear(amount: near_primitives::types::Balance) -> Self {
-        Self { value: amount.into(), currency: Currency::near() }
+    pub(crate) fn from_yoctonear(amount: Balance) -> Self {
+        Self { value: crate::utils::SignedDiff::from(amount.as_yoctonear()), currency: Currency::near() }
     }
 
     pub(crate) fn from_yoctonear_diff(
-        amount: crate::utils::SignedDiff<near_primitives::types::Balance>,
+        amount: crate::utils::SignedDiff<u128>,
     ) -> Self {
         Self { value: amount, currency: Currency::near() }
     }

@@ -129,7 +129,7 @@ const NUM_PARENTS_TO_CHECK_FINALITY: usize = 20;
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
-const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+const NEAR_BASE: Balance = Balance::from_near(1);
 
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors know that it's time to finish processing the blocks that
@@ -1858,7 +1858,7 @@ impl Chain {
             let mut block_producers_count = 0;
             let mut chunk_producers_count = 0;
             let mut chunk_validators_count = 0;
-            let mut stake = 0;
+            let mut stake = Balance::ZERO;
 
             // Get block producers count
             if let Ok(block_producers) =
@@ -1869,7 +1869,7 @@ impl Chain {
 
             // Get chunk producers count and total stake
             if let Ok(producers) = self.epoch_manager.get_epoch_chunk_producers(&tip.epoch_id) {
-                stake += producers.iter().map(|info| info.stake()).sum::<Balance>();
+                stake = stake.checked_add(producers.iter().map(|info| info.stake()).fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap())).unwrap();
                 chunk_producers_count += producers.len();
             }
 
@@ -1879,8 +1879,8 @@ impl Chain {
                 chunk_validators_count = epoch_info.validators_len();
             }
 
-            stake /= NEAR_BASE;
-            metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
+            stake = stake.checked_div(NEAR_BASE.as_yoctonear()).unwrap();
+            metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake.as_yoctonear()).unwrap_or(i64::MAX));
             metrics::VALIDATOR_ACTIVE_TOTAL
                 .set(i64::try_from(chunk_producers_count).unwrap_or(i64::MAX));
             metrics::VALIDATOR_BLOCK_PRODUCERS_TOTAL

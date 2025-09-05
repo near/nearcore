@@ -316,7 +316,7 @@ class CongestionControlTest(unittest.TestCase):
 
         create_account_tx_list = []
         for account in accounts:
-            tx_hash = self.__create_account(node, account, 1000 * ONE_NEAR)
+            tx_hash = self.__create_account(node, account, Balance::from_near(1000))
 
             create_account_tx_list.append((node.signer_key.account_id, tx_hash))
 

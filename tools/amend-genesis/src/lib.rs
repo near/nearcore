@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use near_chain_configs::{Genesis, GenesisValidationMode, NEAR_BASE};
+use near_chain_configs::{Genesis, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_primitives::account::AccountContract;
 use near_primitives::shard_layout::ShardLayout;
@@ -40,9 +40,9 @@ struct AccountRecords {
 
 // set the total balance to what's in src, keeping the locked amount the same
 fn set_total_balance(dst: &mut Account, src: &Account) {
-    let total = src.amount() + src.locked();
+    let total = src.amount().checked_add(src.locked()).unwrap();
     if total > dst.locked() {
-        dst.set_amount(total - dst.locked());
+        dst.set_amount(total.checked_sub(dst.locked()).unwrap());
     }
 }
 
@@ -55,7 +55,7 @@ impl AccountRecords {
 
     fn new_validator(stake: Balance, num_bytes_account: u64) -> Self {
         let mut ret = Self::default();
-        ret.set_account(0, stake, num_bytes_account);
+        ret.set_account(Balance::ZERO, stake, num_bytes_account);
         ret.amount_needed = true;
         ret
     }
@@ -80,8 +80,8 @@ impl AccountRecords {
             }
             None => {
                 let mut account = existing.clone();
-                account.set_amount(account.amount() + account.locked());
-                account.set_locked(0);
+                account.set_amount(account.amount().checked_add(account.locked()).unwrap());
+                account.set_locked(Balance::ZERO);
                 self.account = Some(account);
             }
         }
@@ -118,9 +118,9 @@ impl AccountRecords {
                     })?;
                 }
                 if self.amount_needed {
-                    account.set_amount(10_000 * NEAR_BASE);
+                    account.set_amount(Balance::from_near(10_000));
                 }
-                *total_supply += account.amount() + account.locked();
+                *total_supply = (*total_supply).checked_add(account.amount()).unwrap().checked_add(account.locked()).unwrap();
                 seq.serialize_element(&StateRecord::Account { account_id, account })?;
                 for record in &self.extra_records {
                     seq.serialize_element(record)?;
@@ -301,7 +301,7 @@ pub fn amend_genesis(
 
     let validators = parse_validators(validators)?;
     let mut wanted = wanted_records(&validators, extra_records, num_bytes_account)?;
-    let mut total_supply = 0;
+    let mut total_supply = Balance::ZERO;
 
     near_chain_configs::stream_records_from_file(reader, |mut r| {
         match &mut r {
@@ -317,11 +317,11 @@ pub fn amend_genesis(
                 if let Some(acc) = wanted.get_mut(account_id) {
                     acc.update_from_existing(account);
                 } else {
-                    if account.locked() != 0 {
-                        account.set_amount(account.amount() + account.locked());
-                        account.set_locked(0);
+                    if account.locked() != Balance::ZERO {
+                        account.set_amount(account.amount().checked_add(account.locked()).unwrap());
+                        account.set_locked(Balance::ZERO);
                     }
-                    total_supply += account.amount() + account.locked();
+                    total_supply = total_supply.checked_add(account.amount().checked_add(account.locked()).unwrap()).unwrap();
                     records_seq.serialize_element(&r).unwrap();
                 }
             }
@@ -706,19 +706,19 @@ mod test {
                 TestAccountInfo {
                     account_id: "foo0",
                     public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf",
-                    amount: 1_000_000,
+                    amount: Balance::from_yoctonear(1_000_000),
                 },
                 TestAccountInfo {
                     account_id: "foo1",
                     public_key: "ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF",
-                    amount: 2_000_000,
+                    amount: Balance::from_yoctonear(2_000_000),
                 },
             ],
             records_in: &[
                 TestStateRecord::Account {
                     account_id: "foo0",
-                    amount: 1_000_000,
-                    locked: 1_000_000,
+                    amount: Balance::from_yoctonear(1_000_000),
+                    locked: Balance::from_yoctonear(1_000_000),
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -727,8 +727,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "foo1",
-                    amount: 1_000_000,
-                    locked: 2_000_000,
+                    amount: Balance::from_yoctonear(1_000_000),
+                    locked: Balance::from_yoctonear(2_000_000),
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -737,8 +737,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "asdf.near",
-                    amount: 1_234_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(1_234_000),
+                    locked: Balance::from_yoctonear(0),
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -750,30 +750,30 @@ mod test {
                 TestAccountInfo {
                     account_id: "foo0",
                     public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf",
-                    amount: 1_000_000,
+                    amount: Balance::from_yoctonear(1_000_000),
                 },
                 TestAccountInfo {
                     account_id: "foo1",
                     public_key: "ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF",
-                    amount: 2_000_000,
+                    amount: Balance::from_yoctonear(2_000_000),
                 },
                 TestAccountInfo {
                     account_id: "foo2",
                     public_key: "ed25519:Eo9W44tRMwcYcoua11yM7Xfr1DjgR4EWQFM3RU27MEX8",
-                    amount: 3_000_000,
+                    amount: Balance::from_yoctonear(3_000_000),
                 },
             ],
             extra_records: &[
                 TestStateRecord::Account {
                     account_id: "foo0",
-                    amount: 100_000_000,
-                    locked: 50_000_000,
+                    amount: Balance::from_yoctonear(100_000_000),
+                    locked: Balance::from_yoctonear(50_000_000),
                     storage_usage: 0,
                 },
                 TestStateRecord::Account {
                     account_id: "extra-account.near",
-                    amount: 9_000_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(9_000_000),
+                    locked: Balance::ZERO,
                     storage_usage: 0,
                 },
                 TestStateRecord::AccessKey {
@@ -784,8 +784,8 @@ mod test {
             wanted_records: &[
                 TestStateRecord::Account {
                     account_id: "foo0",
-                    amount: 149_000_000,
-                    locked: 1_000_000,
+                    amount: Balance::from_yoctonear(149_000_000),
+                    locked: Balance::from_yoctonear(1_000_000),
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -794,8 +794,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "foo1",
-                    amount: 1_000_000,
-                    locked: 2_000_000,
+                    amount: Balance::from_yoctonear(1_000_000),
+                    locked: Balance::from_yoctonear(2_000_000),
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -804,8 +804,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "foo2",
-                    amount: 10_000 * NEAR_BASE,
-                    locked: 3_000_000,
+                    amount: Balance::from_near(10_000),
+                    locked: Balance::from_yoctonear(3_000_000),
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -814,8 +814,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "asdf.near",
-                    amount: 1_234_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(1_234_000),
+                    locked: Balance::ZERO,
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -824,8 +824,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "extra-account.near",
-                    amount: 9_000_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(9_000_000),
+                    locked: Balance::ZERO,
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -840,31 +840,31 @@ mod test {
                 TestAccountInfo {
                     account_id: "foo0",
                     public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf",
-                    amount: 1_000_000,
+                    amount: Balance::from_yoctonear(1_000_000),
                 },
                 TestAccountInfo {
                     account_id: "foo1",
                     public_key: "ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF",
-                    amount: 2_000_000,
+                    amount: Balance::from_yoctonear(2_000_000),
                 },
             ],
             validators_in: &[
                 TestAccountInfo {
                     account_id: "foo2",
                     public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf",
-                    amount: 1_000_000,
+                    amount: Balance::from_yoctonear(1_000_000),
                 },
                 TestAccountInfo {
                     account_id: "foo3",
                     public_key: "ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF",
-                    amount: 2_000_000,
+                    amount: Balance::from_yoctonear(2_000_000),
                 },
             ],
             records_in: &[
                 TestStateRecord::Account {
                     account_id: "foo0",
-                    amount: 1_000_000,
-                    locked: 1_000_000,
+                    amount: Balance::from_yoctonear(1_000_000),
+                    locked: Balance::from_yoctonear(1_000_000),
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -873,8 +873,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "foo1",
-                    amount: 1_000_000,
-                    locked: 2_000_000,
+                    amount: Balance::from_yoctonear(1_000_000),
+                    locked: Balance::from_yoctonear(2_000_000),
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -883,8 +883,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "asdf.near",
-                    amount: 1_234_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(1_234_000),
+                    locked: Balance::ZERO,
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -895,14 +895,14 @@ mod test {
             extra_records: &[
                 TestStateRecord::Account {
                     account_id: "foo0",
-                    amount: 100_000_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(100_000_000),
+                    locked: Balance::ZERO,
                     storage_usage: 0,
                 },
                 TestStateRecord::Account {
                     account_id: "foo2",
                     amount: 300_000_000,
-                    locked: 0,
+                    locked: Balance::ZERO,
                     storage_usage: 0,
                 },
                 TestStateRecord::AccessKey {
@@ -915,8 +915,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "extra-account.near",
-                    amount: 9_000_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(9_000_000),
+                    locked: Balance::ZERO,
                     storage_usage: 0,
                 },
                 TestStateRecord::AccessKey {
@@ -927,8 +927,8 @@ mod test {
             wanted_records: &[
                 TestStateRecord::Account {
                     account_id: "foo0",
-                    amount: 100_000_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(100_000_000),
+                    locked: Balance::ZERO,
                     storage_usage: 264,
                 },
                 TestStateRecord::AccessKey {
@@ -941,8 +941,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "foo1",
-                    amount: 3_000_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(3_000_000),
+                    locked: Balance::ZERO,
                     storage_usage: 264,
                 },
                 TestStateRecord::AccessKey {
@@ -955,8 +955,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "foo2",
-                    amount: 299_000_000,
-                    locked: 1_000_000,
+                    amount: Balance::from_yoctonear(299_000_000),
+                    locked: Balance::from_yoctonear(1_000_000),
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -965,8 +965,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "foo3",
-                    amount: 10_000 * NEAR_BASE,
-                    locked: 2_000_000,
+                    amount: Balance::from_near(10_000),
+                    locked: Balance::from_yoctonear(2_000_000),
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -975,8 +975,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "asdf.near",
-                    amount: 1_234_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(1_234_000),
+                    locked: Balance::ZERO,
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -985,8 +985,8 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "extra-account.near",
-                    amount: 9_000_000,
-                    locked: 0,
+                    amount: Balance::from_yoctonear(9_000_000),
+                    locked: Balance::ZERO,
                     storage_usage: 182,
                 },
                 TestStateRecord::AccessKey {
@@ -1000,18 +1000,18 @@ mod test {
             initial_validators: &[TestAccountInfo {
                 account_id: "foo0",
                 public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf",
-                amount: 1_000_000,
+                amount: Balance::from_yoctonear(1_000_000),
             }],
             validators_in: &[TestAccountInfo {
                 account_id: "foo0",
                 public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf",
-                amount: 1_000_000,
+                amount: Balance::from_yoctonear(1_000_000),
             }],
             records_in: &[
                 TestStateRecord::Account {
                     account_id: "foo0",
-                    amount: 1_000_000,
-                    locked: 1_000_000,
+                    amount: Balance::from_yoctonear(1_000_000),
+                    locked: Balance::from_yoctonear(1_000_000),
                     storage_usage: 183,
                 },
                 TestStateRecord::AccessKey {
@@ -1022,15 +1022,15 @@ mod test {
             ],
             extra_records: &[TestStateRecord::Account {
                 account_id: "foo0",
-                amount: 100_000_000,
-                locked: 0,
+                amount: Balance::from_yoctonear(100_000_000),
+                locked: Balance::ZERO,
                 storage_usage: 0,
             }],
             wanted_records: &[
                 TestStateRecord::Account {
                     account_id: "foo0",
-                    amount: 99_000_000,
-                    locked: 1_000_000,
+                    amount: Balance::from_yoctonear(99_000_000),
+                    locked: Balance::from_yoctonear(1_000_000),
                     storage_usage: 183,
                 },
                 TestStateRecord::AccessKey {

@@ -43,7 +43,7 @@ pub fn standard_setup_1() -> TestLoopEnv {
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 10_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
         .genesis_height(10000)
         .transaction_validity_period(1000)
         .build();

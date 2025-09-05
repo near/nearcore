@@ -185,8 +185,8 @@ impl DoomslugApprovalsTracker {
         account_id_to_stakes: HashMap<AccountId, (Balance, Balance)>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
-        let total_stake_this_epoch = account_id_to_stakes.values().map(|(x, _)| x).sum::<Balance>();
-        let total_stake_next_epoch = account_id_to_stakes.values().map(|(_, x)| x).sum::<Balance>();
+        let total_stake_this_epoch = account_id_to_stakes.values().map(|(x, _)| x).fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
+        let total_stake_next_epoch = account_id_to_stakes.values().map(|(_, x)| x).fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap());
 
         DoomslugApprovalsTracker {
             clock,
@@ -194,8 +194,8 @@ impl DoomslugApprovalsTracker {
             account_id_to_stakes,
             total_stake_this_epoch,
             total_stake_next_epoch,
-            approved_stake_this_epoch: 0,
-            approved_stake_next_epoch: 0,
+            approved_stake_this_epoch: Balance::ZERO,
+            approved_stake_next_epoch: Balance::ZERO,
             time_passed_threshold: None,
             threshold_mode,
         }
@@ -218,9 +218,9 @@ impl DoomslugApprovalsTracker {
         });
 
         if increment_approved_stake {
-            let stakes = self.account_id_to_stakes.get(&approval.account_id).map_or((0, 0), |x| *x);
-            self.approved_stake_this_epoch += stakes.0;
-            self.approved_stake_next_epoch += stakes.1;
+            let stakes = self.account_id_to_stakes.get(&approval.account_id).map_or((Balance::ZERO, Balance::ZERO), |x| *x);
+            self.approved_stake_this_epoch = self.approved_stake_this_epoch.checked_add(stakes.0).unwrap();
+            self.approved_stake_next_epoch = self.approved_stake_next_epoch.checked_add(stakes.1).unwrap();
         }
 
         // We call to `get_block_production_readiness` here so that if the number of approvals crossed
@@ -237,9 +237,9 @@ impl DoomslugApprovalsTracker {
             Some(approval) => approval.0,
         };
 
-        let stakes = self.account_id_to_stakes.get(&approval.account_id).map_or((0, 0), |x| *x);
-        self.approved_stake_this_epoch -= stakes.0;
-        self.approved_stake_next_epoch -= stakes.1;
+        let stakes = self.account_id_to_stakes.get(&approval.account_id).map_or((Balance::ZERO, Balance::ZERO), |x| *x);
+        self.approved_stake_this_epoch = self.approved_stake_this_epoch.checked_sub(stakes.0).unwrap();
+        self.approved_stake_next_epoch = self.approved_stake_next_epoch.checked_sub(stakes.1).unwrap();
     }
 
     /// Returns whether the block has enough approvals, and if yes, since what moment it does.
@@ -249,9 +249,9 @@ impl DoomslugApprovalsTracker {
     /// `ReadySince` if the block has enough approvals to pass the threshold, and since when it
     ///     does
     fn get_block_production_readiness(&mut self) -> DoomslugBlockProductionReadiness {
-        if (self.approved_stake_this_epoch > self.total_stake_this_epoch * 2 / 3
-            && (self.approved_stake_next_epoch > self.total_stake_next_epoch * 2 / 3
-                || self.total_stake_next_epoch == 0))
+        if (self.approved_stake_this_epoch > self.total_stake_this_epoch.checked_mul(2).unwrap().checked_div(3).unwrap()
+            && (self.approved_stake_next_epoch > self.total_stake_next_epoch.checked_mul(2).unwrap().checked_div(3).unwrap()
+                || self.total_stake_next_epoch == Balance::ZERO))
             || self.threshold_mode == DoomslugThresholdMode::NoApprovals
         {
             if self.time_passed_threshold == None {
@@ -572,23 +572,23 @@ impl Doomslug {
             return true;
         }
 
-        let threshold1 = stakes.iter().map(|(x, _)| x).sum::<Balance>() * 2 / 3;
-        let threshold2 = stakes.iter().map(|(_, x)| x).sum::<Balance>() * 2 / 3;
+        let threshold1 = stakes.iter().map(|(x, _)| x).fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()).checked_mul(2).unwrap().checked_div(3).unwrap();
+        let threshold2 = stakes.iter().map(|(_, x)| x).fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()).checked_mul(2).unwrap().checked_div(3).unwrap();
 
         let approved_stake1 = approvals
             .iter()
             .zip(stakes.iter())
-            .map(|(approval, (stake, _))| if approval.is_some() { *stake } else { 0 })
-            .sum::<Balance>();
+            .map(|(approval, (stake, _))| if approval.is_some() { *stake } else { Balance::ZERO })
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap());
 
         let approved_stake2 = approvals
             .iter()
             .zip(stakes.iter())
-            .map(|(approval, (_, stake))| if approval.is_some() { *stake } else { 0 })
-            .sum::<Balance>();
+            .map(|(approval, (_, stake))| if approval.is_some() { *stake } else { Balance::ZERO })
+            .fold(Balance::ZERO, |sum, item| sum.checked_add(item).unwrap());
 
-        (approved_stake1 > threshold1 || threshold1 == 0)
-            && (approved_stake2 > threshold2 || threshold2 == 0)
+        (approved_stake1 > threshold1 || threshold1 == Balance::ZERO)
+            && (approved_stake2 > threshold2 || threshold2 == Balance::ZERO)
     }
 
     pub fn get_witness(

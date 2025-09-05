@@ -549,7 +549,7 @@ mod tests {
     use std::collections::{BTreeMap, HashSet};
     use std::sync::Arc;
 
-    const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
+    const DEFAULT_TOTAL_SUPPLY: Balance = Balance::from_yoctonear(1_000_000_000_000);
     const EPOCH_LENGTH: usize = 5;
 
     // Initializes an epoch manager, optionally including epoch configs for two reshardings.

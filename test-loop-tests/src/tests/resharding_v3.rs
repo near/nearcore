@@ -267,7 +267,7 @@ impl TestReshardingParametersBuilder {
             client_index,
             archivals,
             new_boundary_account,
-            initial_balance: self.initial_balance.unwrap_or(1_000_000 * ONE_NEAR),
+            initial_balance: self.initial_balance.unwrap_or(Balance::from_near(1_000_000)),
             epoch_length,
             chunk_ranges_to_drop: self.chunk_ranges_to_drop.unwrap_or_default(),
             shuffle_shard_assignment_for_chunk_producers: self
@@ -530,7 +530,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &client_account_id,
             &new_boundary_account,
             &params.temporary_account_id,
-            10 * ONE_NEAR,
+            Balance::from_near(10),
             2,
         );
         test_setup_transactions.push(create_account_tx);

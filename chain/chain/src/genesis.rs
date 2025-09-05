@@ -18,7 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV2};
-use near_primitives::types::{EpochId, Gas, ShardId, StateRoot};
+use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{Store, get_genesis_state_roots};
@@ -173,7 +173,7 @@ impl Chain {
             vec![],
             Gas::ZERO,
             gas_limit,
-            0,
+            Balance::ZERO,
             congestion_info,
             BandwidthRequests::empty(),
         )
@@ -186,7 +186,7 @@ impl Chain {
             validator_proposals: vec![],
             gas_used: Gas::ZERO,
             gas_limit,
-            balance_burnt: 0,
+            balance_burnt: Balance::ZERO,
         })
     }
 

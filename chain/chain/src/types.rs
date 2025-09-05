@@ -160,7 +160,7 @@ impl BlockEconomicsConfig {
     }
 
     pub fn max_gas_price(&self) -> Balance {
-        std::cmp::min(self.genesis_max_gas_price, Self::MAX_GAS_MULTIPLIER * self.min_gas_price())
+        std::cmp::min(self.genesis_max_gas_price, self.min_gas_price().checked_mul(Self::MAX_GAS_MULTIPLIER).unwrap())
     }
 
     pub fn gas_price_adjustment_rate(&self) -> Rational32 {

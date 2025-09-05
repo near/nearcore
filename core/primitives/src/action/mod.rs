@@ -390,7 +390,7 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
-            _ => 0,
+            _ => Balance::ZERO,
         }
     }
 }

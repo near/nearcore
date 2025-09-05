@@ -20,7 +20,7 @@ fn test_cross_shard_token_transfer() {
     let boundary_accounts = create_account_ids(["account01"]).to_vec();
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let user_accounts = create_account_ids(["account0", "account1"]);
-    let initial_balance = 1_000_000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(1_000_000);
     let validators_spec = create_validators_spec(shard_layout.num_shards() as usize, 0);
     let clients = validators_spec_clients_with_rpc(&validators_spec);
     let genesis = TestLoopBuilder::new_genesis_builder()
@@ -38,7 +38,7 @@ fn test_cross_shard_token_transfer() {
 
     let sender_account = &user_accounts[0];
     let receiver_account = &user_accounts[1];
-    let transfer_amount = 42 * ONE_NEAR;
+    let transfer_amount = Balance::from_near(42);
 
     let block_hash = rpc_node.head(env.test_loop_data()).last_block_hash;
     let nonce = 1;

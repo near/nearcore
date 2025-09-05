@@ -19,13 +19,13 @@ impl FeeHelper {
     }
 
     pub fn gas_to_balance_inflated(&self, gas: Gas) -> Balance {
-        gas.as_gas() as Balance
-            * (self.gas_price * (*self.cfg().pessimistic_gas_price_inflation_ratio.numer() as u128)
-                / (*self.cfg().pessimistic_gas_price_inflation_ratio.denom() as u128))
+        Balance::from_yoctonear(gas.as_gas().into())
+            .checked_mul(self.gas_price.as_yoctonear() * (*self.cfg().pessimistic_gas_price_inflation_ratio.numer() as u128)
+                / (*self.cfg().pessimistic_gas_price_inflation_ratio.denom() as u128)).unwrap()
     }
 
     pub fn gas_to_balance(&self, gas: Gas) -> Balance {
-        gas.as_gas() as Balance * self.gas_price
+        self.gas_price.checked_mul(gas.as_gas().into()).unwrap()
     }
 
     pub fn gas_burnt_to_reward(&self, gas_burnt: Gas) -> Balance {
@@ -151,7 +151,7 @@ impl FeeHelper {
             .unwrap()
             .checked_add(add_full_access_key_send_fee)
             .unwrap();
-        self.gas_to_balance(send_gas) + self.gas_to_balance_inflated(exec_gas)
+        self.gas_to_balance(send_gas).checked_add(self.gas_to_balance_inflated(exec_gas)).unwrap()
     }
 
     pub fn create_account_transfer_full_key_cost_fail_on_create_account(&self) -> Balance {
@@ -407,6 +407,6 @@ impl FeeHelper {
     }
 
     pub fn gas_refund_cost(&self, gas: Gas) -> Balance {
-        self.cfg().gas_penalty_for_gas_refund(gas).as_gas() as Balance * self.gas_price
+        self.gas_price.checked_mul(self.cfg().gas_penalty_for_gas_refund(gas).as_gas().into()).unwrap()
     }
 }

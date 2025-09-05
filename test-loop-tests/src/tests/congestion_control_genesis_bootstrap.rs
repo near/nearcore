@@ -41,7 +41,7 @@ fn test_congestion_control_genesis_bootstrap() {
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&clients, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&clients, Balance::from_near(1_000_000))
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .minimum_validators_per_shard(1)
@@ -79,7 +79,7 @@ fn test_missing_genesis_congestion_infos_bootstrap() {
     let genesis = TestLoopBuilder::new_genesis_builder()
         .protocol_version(PROTOCOL_VERSION)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
-        .add_user_accounts_simple(&["test0".parse().unwrap()], 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&["test0".parse().unwrap()], Balance::from_near(1_000_000))
         .build();
 
     // Step 1: Initialize genesis to get state roots

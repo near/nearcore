@@ -40,7 +40,7 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
-const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
+const MAX_GAS_PRICE: Balance = Balance::from_millinear(10);
 
 fn default_online_min_threshold() -> Rational32 {
     Rational32::new(90, 100)
@@ -954,10 +954,10 @@ impl From<ProtocolConfig> for ProtocolConfigView {
 }
 
 pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
-    let mut total_supply = 0;
+    let mut total_supply = Balance::ZERO;
     for record in records {
         if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount() + account.locked();
+            total_supply = total_supply.checked_add(account.amount().checked_add(account.locked()).unwrap()).unwrap();
         }
     }
     total_supply

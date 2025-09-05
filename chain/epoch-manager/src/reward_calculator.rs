@@ -88,13 +88,13 @@ impl RewardCalculator {
             * U256::from(*protocol_reward_rate.numer() as u64)
             / U256::from(*protocol_reward_rate.denom() as u64))
         .as_u128();
-        res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
+        res.insert(self.protocol_treasury_account.clone(), Balance::from_yoctonear(epoch_protocol_treasury));
         if num_validators == 0 {
-            return (res, 0);
+            return (res, Balance::ZERO);
         }
         let epoch_validator_reward = epoch_total_reward - epoch_protocol_treasury;
-        let mut epoch_actual_reward = epoch_protocol_treasury;
-        let total_stake: Balance = validator_stake.values().sum();
+        let mut epoch_actual_reward = Balance::from_yoctonear(epoch_protocol_treasury);
+        let total_stake: Balance = validator_stake.values().fold(Balance::ZERO, |sum, stake| sum.checked_add(*stake).unwrap());
         for (account_id, stats) in validator_block_chunk_stats {
             let production_ratio =
                 get_validator_online_ratio(&stats, online_thresholds.endorsement_cutoff_threshold);
@@ -114,7 +114,7 @@ impl RewardCalculator {
                 < online_min_numer * average_produced_denom
                 || (expected_chunks == 0 && expected_blocks == 0 && expected_endorsements == 0)
             {
-                0
+                Balance::ZERO
             } else {
                 // cspell:ignore denum
                 let stake = *validator_stake
@@ -134,13 +134,13 @@ impl RewardCalculator {
                 // Apply min between 1. and computed uptime.
                 uptime_numer =
                     if uptime_numer > uptime_denum { uptime_denum } else { uptime_numer };
-                (U512::from(epoch_validator_reward) * U512::from(uptime_numer) * U512::from(stake)
+                Balance::from_yoctonear((U512::from(epoch_validator_reward) * U512::from(uptime_numer) * U512::from(stake.as_yoctonear())
                     / U512::from(uptime_denum)
-                    / U512::from(total_stake))
-                .as_u128()
+                    / U512::from(total_stake.as_yoctonear()))
+                .as_u128())
             };
             res.insert(account_id, reward);
-            epoch_actual_reward += reward;
+            epoch_actual_reward = epoch_actual_reward.checked_add(reward).unwrap();
         }
         (res, epoch_actual_reward)
     }

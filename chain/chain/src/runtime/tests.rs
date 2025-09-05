@@ -438,7 +438,7 @@ fn test_validator_rotation() {
         &signer,
         CryptoHash::default(),
     );
-    let test2_stake_amount = 3600 * NEAR_BASE;
+    let test2_stake_amount = Balance::from_near(3600);
     let transactions = {
         // With the new validator selection algorithm, test2 needs to have less stake to
         // become a fisherman.
@@ -1010,7 +1010,7 @@ fn test_fishermen_stake() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
-    let fishermen_stake = 3300 * NEAR_BASE + 1;
+    let fishermen_stake = Balance::from_near(3300).checked_add(Balance::from_yoctonear(1)).unwrap();
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
@@ -1074,7 +1074,7 @@ fn test_fishermen_unstake() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
-    let fishermen_stake = 3300 * NEAR_BASE + 1;
+    let fishermen_stake = Balance::from_near(3300).checked_add(Balance::from_yoctonear(1)).unwrap();
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
     env.step_default(vec![staking_transaction]);
@@ -1210,7 +1210,7 @@ fn test_insufficient_stake() {
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
-    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 100 * NEAR_BASE);
+    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], Balance::from_near(100));
     env.step_default(vec![staking_transaction1, staking_transaction2]);
     assert!(env.last_proposals.is_empty());
     let staking_transaction3 = stake(3, &signers[1], &block_producers[1], 0);

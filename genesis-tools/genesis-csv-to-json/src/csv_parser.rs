@@ -30,13 +30,13 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 impl Row {
     pub fn verify(&self) -> Result<()> {
-        if self.validator_stake > 0 && self.validator_key.is_none() {
+        if self.validator_stake > Balance::ZERO && self.validator_key.is_none() {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Validator key must be specified if validator stake is not 0.",
             )));
         }
-        if self.validator_stake == 0 && self.validator_key.is_some() {
+        if self.validator_stake == Balance::ZERO && self.validator_key.is_some() {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Validator stake should be greater than 0 if validator stake is specified.",
@@ -269,7 +269,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                     method_name: "init".to_string(),
                     args,
                     gas: INIT_GAS,
-                    deposit: 0,
+                    deposit: Balance::ZERO,
                 }))],
             }),
         });
@@ -315,7 +315,7 @@ mod tests {
                 vesting_start: timestamp(22, 0, 0),
                 vesting_end: timestamp(23, 30, 0),
                 vesting_cliff: timestamp(22, 30, 20),
-                validator_stake: 100,
+                validator_stake: Balance::from_yoctonear(100),
                 validator_key: Some(PublicKey::empty(KeyType::ED25519)),
                 peer_info: Some(PeerInfo {
                     id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
@@ -339,7 +339,7 @@ mod tests {
                 vesting_start: None,
                 vesting_end: None,
                 vesting_cliff: None,
-                validator_stake: 0,
+                validator_stake: Balance::ZERO,
                 validator_key: None,
                 peer_info: None,
                 is_treasury: true,

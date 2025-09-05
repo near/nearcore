@@ -12,10 +12,10 @@ use std::mem::size_of;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
 /// Initial balance used in tests.
-const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
+const TESTING_INIT_BALANCE = Balance::from_near(1_000_000_000);
 
 /// One NEAR, divisible by 10^24.
-const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
+const NEAR_BASE = Balance::from_near(1);
 
 /// Max prepaid amount of gas.
 const MAX_GAS: Gas = Gas::from_teragas(300);

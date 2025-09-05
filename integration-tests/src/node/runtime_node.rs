@@ -73,7 +73,7 @@ impl RuntimeNode {
     pub fn free(account_id: &AccountId) -> Self {
         let mut genesis =
             Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
-        genesis.config.min_gas_price = 0;
+        genesis.config.min_gas_price = Balance::ZERO;
         add_test_contract(&mut genesis, &bob_account());
         Self::new_from_genesis_and_config(account_id, genesis, RuntimeConfig::free())
     }

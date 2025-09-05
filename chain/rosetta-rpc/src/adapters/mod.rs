@@ -2,6 +2,7 @@ use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::Genesis;
 use near_client::ViewClientActorInner;
+use near_primitives::types::Balance;
 use validated_operations::ValidatedOperation;
 
 pub(crate) mod nep141;
@@ -48,7 +49,7 @@ async fn convert_genesis_records_to_transaction(
         let account_balances =
             crate::utils::RosettaAccountBalances::from_account(&account, &runtime_config);
 
-        if account_balances.liquid != 0 {
+        if account_balances.liquid != Balance::ZERO {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
@@ -64,7 +65,7 @@ async fn convert_genesis_records_to_transaction(
             });
         }
 
-        if account_balances.liquid_for_storage != 0 {
+        if account_balances.liquid_for_storage != Balance::ZERO {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
@@ -82,7 +83,7 @@ async fn convert_genesis_records_to_transaction(
             });
         }
 
-        if account_balances.locked != 0 {
+        if account_balances.locked != Balance::ZERO {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
@@ -383,7 +384,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     let attached_amount = crate::models::Amount::from_yoctonear(action.deposit);
 
                     let mut related_operations = vec![];
-                    if action.deposit > 0 {
+                    if action.deposit > Balance::ZERO {
                         let fund_transfer_operation_id =
                             crate::models::OperationIdentifier::new(&operations);
                         operations.push(
@@ -629,7 +630,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     }
                     actions.push(
                         near_primitives::transaction::TransferAction {
-                            deposit: receiver_transfer_operation.amount.value.absolute_difference(),
+                            deposit: Balance::from_yoctonear(receiver_transfer_operation.amount.value.absolute_difference()),
                         }
                         .into(),
                     )
@@ -686,13 +687,13 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         )?;
                     sender_account_id.try_set(&initiate_function_call_operation.sender_account)?;
 
-                    if function_call_operation.attached_amount > 0 {
+                    if function_call_operation.attached_amount > Balance::ZERO {
                         let transfer_operation =
                             validated_operations::TransferOperation::try_from_option(
                                 operations.next(),
                             )?;
                         if transfer_operation.amount.value.is_positive()
-                            || transfer_operation.amount.value.absolute_difference()
+                            || Balance::from_yoctonear(transfer_operation.amount.value.absolute_difference())
                                 != function_call_operation.attached_amount
                         {
                             return Err(crate::errors::ErrorKind::InvalidInput(
@@ -861,7 +862,7 @@ mod tests {
         ];
         let transfer_actions = vec![
             near_primitives::transaction::TransferAction {
-                deposit: near_primitives::types::Balance::MAX,
+                deposit: Balance::MAX,
             }
             .into(),
         ];
@@ -891,7 +892,7 @@ mod tests {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
                 gas: Gas::from_gas(100500),
-                deposit: near_primitives::types::Balance::MAX,
+                deposit: Balance::MAX,
             }
             .into(),
         ];

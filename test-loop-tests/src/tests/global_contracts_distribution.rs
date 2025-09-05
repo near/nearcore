@@ -139,7 +139,7 @@ impl GlobalContractsReshardingTestEnv {
             .validators_spec(validators_spec)
             .shard_layout(base_shard_layout.clone())
             .epoch_length(EPOCH_LENGTH)
-            .add_user_accounts_simple(&users, 1000_000 * ONE_NEAR)
+            .add_user_accounts_simple(&users, Balance::from_near(1000_000))
             .build();
 
         let base_epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();

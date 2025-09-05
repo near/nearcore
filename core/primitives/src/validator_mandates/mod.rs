@@ -109,7 +109,7 @@ impl ValidatorMandates {
         let mut partials = Vec::with_capacity(validators.len());
         for i in 0..validators.len() {
             let partial_weight = validators[i].partial_mandate_weight(stake_per_mandate);
-            if partial_weight > 0 {
+            if partial_weight > Balance::ZERO {
                 partials.push((i as ValidatorId, partial_weight));
             }
         }
@@ -162,7 +162,10 @@ mod validator_mandates_sample {
                 // `i % num_shards == shard_id`.
                 for idx in (shard_id..shuffled_mandates.len()).step_by(self.config.num_shards) {
                     let validator_id = shuffled_mandates[idx];
-                    *mandates_assignment.entry(validator_id).or_default() += stake_per_mandate;
+                    let current_shard_validator_stake: &mut Balance =
+                        mandates_assignment.entry(validator_id).or_default();
+                    *current_shard_validator_stake =
+                        (*current_shard_validator_stake).checked_add(stake_per_mandate).unwrap();
                 }
 
                 // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
@@ -173,7 +176,10 @@ mod validator_mandates_sample {
                 // `i % num_shards == shard_id`.
                 for idx in (shard_id..shuffled_partials.len()).step_by(self.config.num_shards) {
                     let (validator_id, partial_weight) = shuffled_partials[idx];
-                    *partials_assignment.entry(validator_id).or_default() += partial_weight;
+                    let current_shard_validator_stake: &mut Balance =
+                        partials_assignment.entry(validator_id).or_default();
+                    *current_shard_validator_stake =
+                        (*current_shard_validator_stake).checked_add(partial_weight).unwrap();
                 }
             }
 

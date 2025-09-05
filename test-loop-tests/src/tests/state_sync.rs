@@ -107,7 +107,7 @@ fn setup_initial_blockchain(
                 account_id: account_id.parse().unwrap(),
                 public_key: near_primitives::test_utils::create_test_signer(account_id.as_str())
                     .public_key(),
-                amount: 10000 * ONE_NEAR,
+                amount: Balance::from_near(10000),
             }
         })
         .collect::<Vec<_>>();
@@ -149,7 +149,7 @@ fn setup_initial_blockchain(
         for accounts in accounts {
             for (account, _nonce) in accounts {
                 genesis_builder =
-                    genesis_builder.add_user_account_simple(account.clone(), 10000 * ONE_NEAR);
+                    genesis_builder.add_user_account_simple(account.clone(), Balance::from_near(10000));
             }
         }
     }

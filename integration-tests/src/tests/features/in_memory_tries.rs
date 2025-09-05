@@ -29,7 +29,7 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 fn slow_test_in_memory_trie_node_consistency() {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
-    let initial_balance = 1000000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(1000000);
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
@@ -397,7 +397,7 @@ fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option
 fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: bool) {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
-    let initial_balance = 1000000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(1000000);
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     // We'll test with 4 shards. This can be any number, but we want to test

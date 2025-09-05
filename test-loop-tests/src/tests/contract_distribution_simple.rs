@@ -230,7 +230,7 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(GENESIS_HEIGHT)
         .transaction_validity_period(1000)
         .build();

@@ -87,7 +87,7 @@ class TrafficGenerator(threading.Thread):
                 self._rpc_node.signer_key,
                 acc,
                 utils.load_test_contract(config=config),
-                100000 * ONE_NEAR,
+                Balance::from_near(100000),
                 self.get_next_nonce(),
                 self.get_latest_block_hash(),
             )

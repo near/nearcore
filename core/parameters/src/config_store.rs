@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{Balance, ProtocolVersion};
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -149,7 +149,8 @@ impl RuntimeConfigStore {
 
         if let Some(runtime_config) = genesis_runtime_config {
             let mut fees = crate::RuntimeFeesConfig::clone(&runtime_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte = 10u128.pow(19);
+            fees.storage_usage_config.storage_amount_per_byte =
+                Balance::from_yoctonear(10u128.pow(19));
             store.insert(
                 42,
                 Arc::new(RuntimeConfig {

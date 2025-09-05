@@ -53,8 +53,8 @@ pub fn check_storage_stake(
     runtime_config: &RuntimeConfig,
 ) -> Result<(), StorageStakingError> {
     let billable_storage_bytes = account.storage_usage();
-    let required_amount = Balance::from(billable_storage_bytes)
-        .checked_mul(runtime_config.storage_amount_per_byte())
+    let required_amount = Balance::from_yoctonear(billable_storage_bytes.into())
+        .checked_mul(runtime_config.storage_amount_per_byte().as_yoctonear())
         .ok_or_else(|| {
             format!(
                 "Account's billable storage usage {} overflows multiplication",
@@ -78,7 +78,7 @@ pub fn check_storage_stake(
         if is_zero_balance_account(account) {
             return Ok(());
         }
-        Err(StorageStakingError::LackBalanceForStorageStaking(required_amount - available_amount))
+        Err(StorageStakingError::LackBalanceForStorageStaking(required_amount.checked_sub(available_amount).unwrap()))
     }
 }
 
@@ -234,7 +234,7 @@ pub fn verify_and_charge_tx_ephemeral(
             return Err(InvalidTxError::InvalidAccessKeyError(err).into());
         }
         if let Some(Action::FunctionCall(function_call)) = tx.actions().get(0) {
-            if function_call.deposit > 0 {
+            if function_call.deposit > Balance::ZERO {
                 let err = InvalidAccessKeyError::DepositWithFunctionCall;
                 return Err(InvalidTxError::InvalidAccessKeyError(err).into());
             }
@@ -621,10 +621,10 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     /// Initial balance used in tests.
-    const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
+    const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
     /// One NEAR, divisible by 10^24.
-    const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+    const NEAR_BASE: Balance = Balance::from_near(1);
 
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
@@ -833,7 +833,7 @@ mod tests {
             let (_, state_update, _) = setup_accounts(vec![(
                 account_id.clone(),
                 TESTING_INIT_BALANCE,
-                0,
+                Balance::ZERO,
                 access_keys,
                 false,
                 false,
@@ -879,8 +879,8 @@ mod tests {
                 (0..30).map(|i| format!("long_method_name_{}", i)).collect::<Vec<_>>();
             let (_, state_update, _) = setup_accounts(vec![(
                 account_id.clone(),
-                0,
-                0,
+                Balance::ZERO,
+                Balance::ZERO,
                 vec![AccessKey {
                     nonce: 0,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -903,7 +903,7 @@ mod tests {
     fn test_validate_transaction_valid() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let deposit = 100;
         let signed_tx = SignedTransaction::send_money(
@@ -952,7 +952,7 @@ mod tests {
     fn test_validate_transaction_invalid_signature() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let mut tx = SignedTransaction::send_money(
             1,
@@ -976,7 +976,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_access_key_not_found() {
         let config = RuntimeConfig::test();
-        let (bad_signer, mut state_update, gas_price) = setup_common(TESTING_INIT_BALANCE, 0, None);
+        let (bad_signer, mut state_update, gas_price) = setup_common(TESTING_INIT_BALANCE, Balance::ZERO, None);
 
         let transaction = SignedTransaction::send_money(
             1,
@@ -1009,7 +1009,7 @@ mod tests {
     fn test_validate_transaction_invalid_bad_action() {
         let mut config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let wasm_config = Arc::make_mut(&mut config.wasm_config);
         wasm_config.limit_config.max_total_prepaid_gas = Gas::from_gas(100);
@@ -1043,7 +1043,7 @@ mod tests {
     fn test_validate_transaction_invalid_bad_signer() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let signed_tx = SignedTransaction::send_money(
             1,
@@ -1100,7 +1100,7 @@ mod tests {
     fn test_validate_transaction_invalid_balance_overflow() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         assert_err_both_validations(
             &config,
@@ -1122,7 +1122,7 @@ mod tests {
     fn test_validate_transaction_invalid_transaction_version() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         assert_err_both_validations(
             &config,
@@ -1145,7 +1145,7 @@ mod tests {
     fn test_validate_transaction_invalid_not_enough_balance() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let signed_tx = SignedTransaction::send_money(
             1,
@@ -1235,10 +1235,10 @@ mod tests {
         let mut config = RuntimeConfig::free();
         let fees = Arc::make_mut(&mut config.fees);
         fees.storage_usage_config.storage_amount_per_byte = 10_000_000;
-        let initial_balance = 1_000_000_000;
-        let transfer_amount = 950_000_000;
+        let initial_balance = Balance::from_yoctonear(1_000_000_000);
+        let transfer_amount = Balance::from_yoctonear(950_000_000);
         let (signer, mut state_update, gas_price) =
-            setup_common(initial_balance, 0, Some(AccessKey::full_access()));
+            setup_common(initial_balance, Balance::ZERO, Some(AccessKey::full_access()));
 
         let signed_tx = SignedTransaction::send_money(
             1,
@@ -1260,7 +1260,7 @@ mod tests {
         .unwrap();
         assert_eq!(verification_result.gas_burnt, Gas::ZERO);
         assert_eq!(verification_result.gas_remaining, Gas::ZERO);
-        assert_eq!(verification_result.burnt_amount, 0);
+        assert_eq!(verification_result.burnt_amount, Balance::ZERO);
     }
 
     #[test]
@@ -1268,14 +1268,14 @@ mod tests {
         let mut config = RuntimeConfig::free();
         let fees = Arc::make_mut(&mut config.fees);
         fees.storage_usage_config.storage_amount_per_byte = 10_000_000;
-        let initial_balance = 1_000_000_000;
-        let transfer_amount = 950_000_000;
+        let initial_balance = Balance::from_yoctonear(1_000_000_000);
+        let transfer_amount = Balance::from_yoctonear(950_000_000);
         let account_id = alice_account();
         let access_keys = vec![AccessKey::full_access(); 10];
         let (signer, mut state_update, gas_price) = setup_accounts(vec![(
             account_id.clone(),
             initial_balance,
-            0,
+            Balance::ZERO,
             access_keys,
             false,
             false,
@@ -1542,7 +1542,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_exceeding_tx_size_limit() {
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let signed_tx = SignedTransaction::from_actions(
             1,

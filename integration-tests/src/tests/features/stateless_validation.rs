@@ -43,8 +43,8 @@ fn run_chunk_validation_test(
 ) {
     init_integration_logger();
 
-    let initial_balance = 100 * ONE_NEAR;
-    let validator_stake = 1000000 * ONE_NEAR;
+    let initial_balance = Balance::from_near(100);
+    let validator_stake = Balance::from_near(1000000);
     let blocks_to_produce = if prob_missing_block > 0.0 { 200 } else { 50 };
 
     let num_accounts = 9;
@@ -264,7 +264,7 @@ fn test_chunk_validation_high_missing_chunks() {
 fn test_protocol_upgrade_81() {
     init_integration_logger();
 
-    let validator_stake = 1000000 * ONE_NEAR;
+    let validator_stake = Balance::from_near(1000000);
     let num_accounts = 9;
     let num_validators = 8;
 
@@ -396,7 +396,7 @@ fn test_eth_implicit_accounts() {
     let alice_eth_account = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
     let bob_eth_account: AccountId = "0x0000000000000000000000000000000000000b0b".parse().unwrap();
 
-    let alice_init_balance = 3 * ONE_NEAR;
+    let alice_init_balance = Balance::from_near(3);
     let create_alice_tx = SignedTransaction::send_money(
         1,
         signer.get_account_id(),

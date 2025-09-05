@@ -6,6 +6,7 @@ use crate::hash::CryptoHash;
 
 /// Account identifier. Provides access to user's state.
 pub use crate::account::id::AccountId;
+pub use crate::balance::Balance;
 pub use crate::gas::Gas;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
@@ -25,8 +26,6 @@ pub type NonceIndex = u32;
 pub type BlockHeight = u64;
 /// Height of the epoch.
 pub type EpochHeight = u64;
-/// Balance is type for storing amounts of tokens.
-pub type Balance = u128;
 /// Compute is a type for storing compute time. Measured in femtoseconds (10^-15 seconds).
 pub type Compute = u64;
 

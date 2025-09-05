@@ -158,7 +158,7 @@ impl Account {
     /// HACK: Using u128::MAX as a sentinel value, there are not enough tokens
     /// in total supply which makes it an invalid value. We use it to
     /// differentiate AccountVersion V1 from newer versions.
-    const SERIALIZATION_SENTINEL: u128 = u128::MAX;
+    const SERIALIZATION_SENTINEL: Balance = Balance::MAX;
 
     pub fn new(
         amount: Balance,
@@ -412,7 +412,7 @@ impl BorshDeserialize for Account {
     fn deserialize_reader<R: io::Read>(rd: &mut R) -> io::Result<Self> {
         // The first value of all Account serialization formats is a u128,
         // either a sentinel or a balance.
-        let sentinel_or_amount = u128::deserialize_reader(rd)?;
+        let sentinel_or_amount = Balance::deserialize_reader(rd)?;
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
             let versioned_account = BorshVersionedAccount::deserialize_reader(rd)?;
             let account = match versioned_account {
@@ -421,7 +421,7 @@ impl BorshDeserialize for Account {
             Ok(account)
         } else {
             // Legacy unversioned representation of Account
-            let locked = u128::deserialize_reader(rd)?;
+            let locked = Balance::deserialize_reader(rd)?;
             let code_hash = CryptoHash::deserialize_reader(rd)?;
             let storage_usage = StorageUsage::deserialize_reader(rd)?;
 

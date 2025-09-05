@@ -699,7 +699,7 @@ pub mod validator_stake {
         }
 
         pub fn test(account_id: AccountId) -> Self {
-            Self::new_v1(account_id, PublicKey::empty(KeyType::ED25519), 0)
+            Self::new_v1(account_id, PublicKey::empty(KeyType::ED25519), Balance::ZERO)
         }
 
         pub fn into_v1(self) -> ValidatorStakeV1 {
@@ -768,8 +768,8 @@ pub mod validator_stake {
             ApprovalStake {
                 account_id: self.account_id().clone(),
                 public_key: self.public_key().clone(),
-                stake_this_epoch: if is_next_epoch { 0 } else { self.stake() },
-                stake_next_epoch: if is_next_epoch { self.stake() } else { 0 },
+                stake_this_epoch: if is_next_epoch { Balance::ZERO } else { self.stake() },
+                stake_next_epoch: if is_next_epoch { self.stake() } else { Balance::ZERO },
             }
         }
 
@@ -796,8 +796,10 @@ pub mod validator_stake {
         pub fn num_mandates(&self, stake_per_mandate: Balance) -> u16 {
             // Integer division in Rust returns the floor as described here
             // https://doc.rust-lang.org/std/primitive.u64.html#method.div_euclid
-            u16::try_from(self.stake() / stake_per_mandate)
-                .expect("number of mandates should fit u16")
+            u16::try_from(
+                self.stake().checked_div(stake_per_mandate.as_yoctonear()).unwrap().as_yoctonear(),
+            )
+            .expect("number of mandates should fit u16")
         }
 
         /// Returns the weight attributed to the validator's partial mandate.
@@ -814,7 +816,7 @@ pub mod validator_stake {
         /// Let `V` be a validator with stake of 12. If `stake_per_mandate` equals 5 then the weight
         /// of `V`'s partial mandate is `12 % 5 = 2`.
         pub fn partial_mandate_weight(&self, stake_per_mandate: Balance) -> Balance {
-            self.stake() % stake_per_mandate
+            Balance::from_yoctonear(self.stake().as_yoctonear() % stake_per_mandate.as_yoctonear())
         }
     }
 }
@@ -923,7 +925,7 @@ pub mod chunk_extra {
                 vec![],
                 Gas::ZERO,
                 Gas::ZERO,
-                0,
+                Balance::ZERO,
                 congestion_control,
                 BandwidthRequests::empty(),
             )

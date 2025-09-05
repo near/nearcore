@@ -51,7 +51,7 @@ fn test_spice_chain() {
         &validators_only.iter().map(|a| a.as_str()).collect_vec(),
     );
 
-    const INITIAL_BALANCE: u128 = 1_000_000 * ONE_NEAR;
+    const INITIAL_BALANCE: u128 = Balance::from_near(1_000_000);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout.clone())

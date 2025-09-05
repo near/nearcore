@@ -70,7 +70,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 /// Millinear, 1/1000 of NEAR.
-pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
+pub const MILLI_NEAR: Balance = Balance::from_millinear(1);
 
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: i64 = 10;
