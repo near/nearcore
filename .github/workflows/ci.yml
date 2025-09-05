@@ -75,7 +75,7 @@ jobs:
           just codecov-ci "nextest-spice"
 
       # Upload the coverage files
-      - if: github.event_name != 'pull_request' || matrix.run_on_pr
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr && matrix.id != 'macos'
         run: |
           mv coverage/codecov/{new,unit-${{matrix.id}}}.json
           mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
@@ -87,7 +87,7 @@ jobs:
           name: coverage-profraw-${{ github.sha }}-${{ matrix.name }}
           path: coverage/profraw
           retention-days: 2
-      - if: github.event_name != 'pull_request' || matrix.run_on_pr
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr && matrix.id != 'macos'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-codecov-${{ github.sha }}-cargo_nextest-${{ matrix.name }}
