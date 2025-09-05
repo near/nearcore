@@ -1554,9 +1554,8 @@ impl Runtime {
 
         type AccountV = Result<Option<Account>, StorageError>;
         type AccessKeyV = Result<Option<AccessKey>, StorageError>;
-        let accounts = dashmap::DashMap::<&AccountId, AccountV>::with_capacity(len);
-        let access_keys =
-            dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(len);
+        let mut accounts = HashMap::<&AccountId, AccountV>::with_capacity(len);
+        let mut access_keys = HashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(len);
 
         let default_hash = CryptoHash::default();
         let mut last_tx_hash = &default_hash;
@@ -1585,10 +1584,10 @@ impl Runtime {
                 };
 
             let verification_result = {
-                let mut account = accounts
+                let account = accounts
                     .entry(signer_id)
                     .or_insert_with(|| get_account(state_update, signer_id));
-                let mut account = match account.value_mut() {
+                let mut account = match account {
                     Ok(Some(a)) => a,
                     Ok(None) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
@@ -1597,10 +1596,10 @@ impl Runtime {
                     }
                     Err(e) => return Err(e.clone().into()),
                 };
-                let mut access_key = access_keys
+                let access_key = access_keys
                     .entry((signer_id, pubkey))
                     .or_insert_with(|| get_access_key(state_update, signer_id, pubkey));
-                let mut access_key = match access_key.value_mut() {
+                let mut access_key = match access_key {
                     Ok(Some(ak)) => ak,
                     Ok(None) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
