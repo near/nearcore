@@ -8,7 +8,7 @@ use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::validator_assignment::ChunkEndorsementsState;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, Balance, EpochId, ShardId};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 
@@ -255,14 +255,15 @@ impl ChunkInclusionTracker {
                 continue;
             };
             let stats = &chunk_info.endorsements;
-            if stats.total_stake == 0 {
+            if stats.total_stake == Balance::ZERO {
                 continue;
             }
             let shard_label = shard_id.to_string();
             let label_values = &[shard_label.as_ref()];
-            metrics::BLOCK_PRODUCER_ENDORSED_STAKE_RATIO
-                .with_label_values(label_values)
-                .observe(stats.endorsed_stake as f64 / stats.total_stake as f64);
+            metrics::BLOCK_PRODUCER_ENDORSED_STAKE_RATIO.with_label_values(label_values).observe(
+                stats.endorsed_stake.as_yoctonear() as f64
+                    / stats.total_stake.as_yoctonear() as f64,
+            );
             metrics::BLOCK_PRODUCER_MISSING_ENDORSEMENT_COUNT
                 .with_label_values(label_values)
                 .observe(

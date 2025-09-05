@@ -19,7 +19,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference, Gas, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Gas, ShardId};
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
@@ -140,7 +140,7 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
 
                 let anchor_hash = get_anchor_hash(&clients);
                 let nonce = get_next_nonce(&test_loop_data, &node_datas, &sender);
-                let amount = ONE_NEAR * rng.gen_range(1..=10);
+                let amount = ONE_NEAR.checked_mul(rng.gen_range(1..=10)).unwrap();
                 let tx = SignedTransaction::send_money(
                     nonce,
                     sender.clone(),
@@ -214,13 +214,13 @@ pub(crate) fn execute_storage_operations(
                 args: near_primitives::test_utils::encode(&[salt]),
                 method_name: "read_value".to_string(),
                 gas: Gas::from_gas(gas),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }));
             let write_action = Action::FunctionCall(Box::new(FunctionCallAction {
                 args: near_primitives::test_utils::encode(&[salt + 1, salt * 10]),
                 method_name: "write_key_value".to_string(),
                 gas: Gas::from_gas(gas),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }));
             let tx = SignedTransaction::from_actions(
                 nonce.get(),
@@ -324,7 +324,7 @@ pub(crate) fn call_burn_gas_contract(
                         signer_id.clone(),
                         receiver_id.clone(),
                         &signer,
-                        1,
+                        Balance::from_yoctonear(1),
                         method_name,
                         args,
                         gas_burnt_per_call.checked_add(Gas::from_teragas(10)).unwrap(),
@@ -438,7 +438,7 @@ pub(crate) fn send_large_cross_shard_receipts(
                             signer_id.clone(),
                             signer_id.clone(),
                             &signer,
-                            1,
+                            Balance::from_yoctonear(1),
                             "generate_large_receipt".into(),
                             format!(
                                 "{{\"account_id\": \"{}\", \"method_name\": \"noop\", \"total_args_size\": 3000000}}",
@@ -533,7 +533,7 @@ pub(crate) fn call_promise_yield(
                             signer_id.clone(),
                             receiver_id.clone(),
                             &signer,
-                            1,
+                            Balance::from_yoctonear(1),
                             "call_yield_resume_read_data_id_from_storage".to_string(),
                             yield_payload.clone(),
                             Gas::from_teragas(300),
@@ -602,7 +602,7 @@ pub(crate) fn call_promise_yield(
                             signer_id.clone(),
                             receiver_id.clone(),
                             &signer,
-                            0,
+                            Balance::ZERO,
                             "call_yield_create_return_promise".to_string(),
                             yield_payload.clone(),
                             Gas::from_teragas(300),
@@ -957,7 +957,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         signer_account.clone(),
                         receiver_account.clone(),
                         &signer,
-                        0,
+                        Balance::ZERO,
                         "call_yield_create_return_promise".to_string(),
                         yield_payload.clone(),
                         Gas::from_teragas(300),
@@ -1034,7 +1034,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         right_child_account.clone(),
                         left_child_account.clone(),
                         &signer,
-                        1,
+                        Balance::from_yoctonear(1),
                         "call_yield_resume_read_data_id_from_storage".to_string(),
                         yield_payload.clone(),
                         Gas::from_teragas(300),
@@ -1165,7 +1165,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                         signer_account.clone(),
                         receiver_account.clone(),
                         &signer,
-                        1,
+                        Balance::from_yoctonear(1),
                         method_name,
                         args,
                         Gas::from_gas(GAS_BURNT_PER_CALL)

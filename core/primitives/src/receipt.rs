@@ -1,7 +1,6 @@
 use crate::action::{GlobalContractIdentifier, base64};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
 use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance, BlockHeight, ShardId};
@@ -518,7 +517,7 @@ impl Receipt {
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: "system".parse().unwrap(),
                     signer_public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_price: 0,
+                    gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
                     actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -533,7 +532,7 @@ impl Receipt {
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: "system".parse().unwrap(),
                     signer_public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_price: 0,
+                    gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
                     actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -564,7 +563,7 @@ impl Receipt {
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: receiver_id.clone(),
                     signer_public_key,
-                    gas_price: 0,
+                    gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
                     actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -579,7 +578,7 @@ impl Receipt {
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: receiver_id.clone(),
                     signer_public_key,
-                    gas_price: 0,
+                    gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
                     actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -643,8 +642,6 @@ pub struct ActionReceipt {
     /// An access key which was used to sign the original transaction
     pub signer_public_key: PublicKey,
     /// A gas_price which has been used to buy gas in the original transaction
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub gas_price: Balance,
     /// If present, where to route the output data
     pub output_data_receivers: Vec<DataReceiver>,
@@ -895,10 +892,10 @@ mod tests {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: "signer_id".parse().unwrap(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: 0,
+                gas_price: Balance::ZERO,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+                actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
             }),
         });
         receipt_v0
@@ -912,10 +909,10 @@ mod tests {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: "signer_id".parse().unwrap(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: 0,
+                gas_price: Balance::ZERO,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+                actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
             }),
             priority: 1,
         });

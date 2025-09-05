@@ -360,7 +360,7 @@ mod tests {
                     signer_id.clone(),
                     "bob.near".parse().unwrap(),
                     &*signer,
-                    i as Balance,
+                    Balance::from_yoctonear(i.into()),
                     CryptoHash::default(),
                 );
                 ValidatedTransaction::new_for_test(signed_tx)
@@ -477,7 +477,7 @@ mod tests {
                     signer_id,
                     "bob.near".parse().unwrap(),
                     &*signer,
-                    i as Balance,
+                    Balance::from_yoctonear(i.into()),
                     CryptoHash::default(),
                 );
                 ValidatedTransaction::new_for_test(signed_tx)
@@ -572,7 +572,7 @@ mod tests {
                     signer_id,
                     "bob.near".parse().unwrap(),
                     &*signer,
-                    i as Balance,
+                    Balance::from_yoctonear(i.into()),
                     CryptoHash::default(),
                 );
                 ValidatedTransaction::new_for_test(signed_tx)

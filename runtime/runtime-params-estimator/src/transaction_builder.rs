@@ -5,7 +5,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::AccountId;
-use near_primitives::types::Gas;
+use near_primitives::types::{Balance, Gas};
 use rand::Rng;
 use rand::prelude::ThreadRng;
 use rand::seq::SliceRandom;
@@ -78,7 +78,7 @@ impl TransactionBuilder {
             method_name: method.to_string(),
             args,
             gas: Gas::from_teragas(1_000_000),
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))];
         self.transaction_from_actions(sender, receiver, actions)
     }

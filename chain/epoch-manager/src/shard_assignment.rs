@@ -92,7 +92,7 @@ fn assign_to_satisfy_shards_inner<T: HasStake + Eq, I: Iterator<Item = (usize, T
                     // shard still needs more producers.  Assign `cp` to it and
                     // move to next one.
                     top.validators += 1;
-                    top.stake += cp.get_stake();
+                    top.stake = top.stake.checked_add(cp.get_stake()).unwrap();
                     result[top.shard_index].push(cp);
                     break;
                 }
@@ -126,7 +126,7 @@ fn assign_to_satisfy_shards<T: HasStake + Eq + Clone>(
         .map(|shard_index| shard_index as usize)
         .map(|shard_index| ValidatorsFirstShardAssignmentItem {
             validators: 0,
-            stake: 0,
+            stake: Balance::ZERO,
             shard_index,
         })
         .collect();

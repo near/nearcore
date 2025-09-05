@@ -1,7 +1,7 @@
 use near_async::test_loop::data::TestLoopData;
 use near_client::Client;
 use near_client::client_actor::ClientActorInner;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, Balance, BlockHeight};
 
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
@@ -22,7 +22,7 @@ pub(crate) mod transactions;
 pub(crate) mod trie_sanity;
 pub(crate) mod validators;
 
-pub(crate) const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
+pub(crate) const ONE_NEAR: Balance = Balance::from_near(1);
 pub(crate) const TGAS: u64 = 1_000_000_000_000;
 
 pub(crate) fn get_node_client<'a>(

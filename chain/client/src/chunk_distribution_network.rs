@@ -230,6 +230,7 @@ mod tests {
             PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderV3,
             shard_chunk_header_inner::ShardChunkHeaderInnerV4,
         },
+        types::Balance,
         validator_signer::EmptyValidatorSigner,
     };
     use std::{collections::HashMap, convert::Infallible, future::Future};
@@ -413,7 +414,7 @@ mod tests {
             shard_id,
             prev_gas_used: Gas::ZERO,
             gas_limit: Gas::ZERO,
-            prev_balance_burnt: 0,
+            prev_balance_burnt: Balance::ZERO,
             prev_outgoing_receipts_root: mock_hashes.next().unwrap(),
             tx_root: mock_hashes.next().unwrap(),
             prev_validator_proposals: Vec::new(),

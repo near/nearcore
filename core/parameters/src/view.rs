@@ -1,7 +1,6 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
-use near_primitives_core::serialize::dec_format;
 use near_primitives_core::types::Balance;
 use near_primitives_core::types::Gas;
 use num_rational::Rational32;
@@ -12,8 +11,6 @@ use num_rational::Rational32;
 pub struct RuntimeConfigView {
     /// Amount of yN per byte required to have on the account.  See
     /// <https://nomicon.io/Economics/Economic#state-stake> for details.
-    #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub storage_amount_per_byte: Balance,
     /// Costs of different actions that need to be performed when sending and
     /// processing transaction and receipts.

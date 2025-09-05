@@ -183,7 +183,7 @@ fn get_validator_summary(
     let mut validator_to_summary = HashMap::new();
     for validator in &validator_info.current_validators {
         let summary = ValidatorSummary {
-            stake: validator.stake.try_into().unwrap(),
+            stake: validator.stake.as_yoctonear().try_into().unwrap(),
             block_production_percent: (100.0 * (validator.num_produced_blocks as f64)
                 / (validator.num_expected_blocks as f64))
                 .floor() as i64,

@@ -1,5 +1,5 @@
 use near_primitives::types::NumBlocks;
-use near_primitives::types::{BlockHeightDelta, NumSeats};
+use near_primitives::types::{Balance, BlockHeightDelta, NumSeats};
 use near_primitives::version::ProtocolVersion;
 use num_rational::Rational32;
 use std::path::PathBuf;
@@ -79,10 +79,10 @@ pub struct AmendGenesisCommand {
     gas_limit: Option<u64>,
     /// min_gas_price to set in the output genesis file
     #[clap(long)]
-    min_gas_price: Option<u128>,
+    min_gas_price: Option<Balance>,
     /// max_gas_price to set in the output genesis file
     #[clap(long)]
-    max_gas_price: Option<u128>,
+    max_gas_price: Option<Balance>,
 }
 
 impl AmendGenesisCommand {

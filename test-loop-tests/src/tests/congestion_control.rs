@@ -19,7 +19,7 @@ use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfig;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::types::BlockHeightDelta;
 
@@ -164,7 +164,7 @@ fn setup(
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .transaction_validity_period(1000)
         .build();

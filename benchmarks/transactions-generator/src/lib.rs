@@ -7,7 +7,7 @@ use near_crypto::PublicKey;
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference};
+use near_primitives::types::{AccountId, Balance, BlockReference};
 use near_primitives::views::{BlockView, QueryRequest, QueryResponse, QueryResponseKind};
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use rand::SeedableRng;
@@ -249,7 +249,7 @@ impl TxGenerator {
         client_sender: &ClientSender,
     ) -> bool {
         // each transaction will transfer this amount
-        const AMOUNT: near_primitives::types::Balance = 1;
+        const AMOUNT: Balance = Balance::from_yoctonear(1);
 
         let idx = rand::seq::index::sample(rnd, accounts.len(), 2);
         let sender = &accounts[idx.index(0)];

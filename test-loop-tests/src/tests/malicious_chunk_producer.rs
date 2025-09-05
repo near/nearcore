@@ -14,7 +14,7 @@ use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage}
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[test]
@@ -28,7 +28,7 @@ fn test_producer_with_expired_transactions() {
         .epoch_length(10)
         .shard_layout(ShardLayout::multi_shard_custom(vec![], 1))
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
         .transaction_validity_period(10)
         .build();
@@ -131,7 +131,7 @@ fn test_producer_with_expired_transactions() {
     let clients = vec![&test_loop.data.get(&chunk_producer.client_sender.actor_handle()).client];
     for account in &accounts {
         let actual = clients.query_balance(account);
-        assert_eq!(actual, 1000000 * ONE_NEAR, "no transfers should have happened");
+        assert_eq!(actual, Balance::from_near(1000000), "no transfers should have happened");
     }
 
     let Some(applied_tx_metric) = near_o11y::metrics::prometheus::gather()

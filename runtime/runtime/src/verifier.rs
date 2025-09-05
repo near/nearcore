@@ -53,8 +53,8 @@ pub fn check_storage_stake(
     runtime_config: &RuntimeConfig,
 ) -> Result<(), StorageStakingError> {
     let billable_storage_bytes = account.storage_usage();
-    let required_amount = Balance::from(billable_storage_bytes)
-        .checked_mul(runtime_config.storage_amount_per_byte())
+    let required_amount = Balance::from_yoctonear(billable_storage_bytes.into())
+        .checked_mul(runtime_config.storage_amount_per_byte().as_yoctonear())
         .ok_or_else(|| {
             format!(
                 "Account's billable storage usage {} overflows multiplication",
@@ -78,7 +78,9 @@ pub fn check_storage_stake(
         if is_zero_balance_account(account) {
             return Ok(());
         }
-        Err(StorageStakingError::LackBalanceForStorageStaking(required_amount - available_amount))
+        Err(StorageStakingError::LackBalanceForStorageStaking(
+            required_amount.checked_sub(available_amount).unwrap(),
+        ))
     }
 }
 
@@ -234,7 +236,7 @@ pub fn verify_and_charge_tx_ephemeral(
             return Err(InvalidTxError::InvalidAccessKeyError(err).into());
         }
         if let Some(Action::FunctionCall(function_call)) = tx.actions().get(0) {
-            if function_call.deposit > 0 {
+            if function_call.deposit > Balance::ZERO {
                 let err = InvalidAccessKeyError::DepositWithFunctionCall;
                 return Err(InvalidTxError::InvalidAccessKeyError(err).into());
             }
@@ -621,10 +623,7 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     /// Initial balance used in tests.
-    const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
-
-    /// One NEAR, divisible by 10^24.
-    const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+    const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
@@ -724,7 +723,11 @@ mod tests {
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
-        (signer, tries.new_trie_update(ShardUId::single_shard(), root), 100)
+        (
+            signer,
+            tries.new_trie_update(ShardUId::single_shard(), root),
+            Balance::from_yoctonear(100),
+        )
     }
 
     fn assert_err_both_validations(
@@ -805,6 +808,7 @@ mod tests {
         use crate::near_primitives::account::{
             AccessKey, AccessKeyPermission, Account, FunctionCallPermission,
         };
+        use crate::near_primitives::types::Balance;
         use crate::verifier::tests::{TESTING_INIT_BALANCE, setup_accounts};
         use crate::verifier::{ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, is_zero_balance_account};
         use near_store::{TrieUpdate, get_account};
@@ -823,7 +827,7 @@ mod tests {
                 let access_key = AccessKey {
                     nonce: 0,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                        allowance: Some(100),
+                        allowance: Some(Balance::from_yoctonear(100)),
                         receiver_id: "a".repeat(64),
                         method_names: vec![],
                     }),
@@ -833,7 +837,7 @@ mod tests {
             let (_, state_update, _) = setup_accounts(vec![(
                 account_id.clone(),
                 TESTING_INIT_BALANCE,
-                0,
+                Balance::ZERO,
                 access_keys,
                 false,
                 false,
@@ -879,12 +883,12 @@ mod tests {
                 (0..30).map(|i| format!("long_method_name_{}", i)).collect::<Vec<_>>();
             let (_, state_update, _) = setup_accounts(vec![(
                 account_id.clone(),
-                0,
-                0,
+                Balance::ZERO,
+                Balance::ZERO,
                 vec![AccessKey {
                     nonce: 0,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                        allowance: Some(100),
+                        allowance: Some(Balance::from_yoctonear(100)),
                         receiver_id: bob_account().into(),
                         method_names,
                     }),
@@ -903,9 +907,9 @@ mod tests {
     fn test_validate_transaction_valid() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
-        let deposit = 100;
+        let deposit = Balance::from_yoctonear(100);
         let signed_tx = SignedTransaction::send_money(
             1,
             alice_account(),
@@ -929,7 +933,7 @@ mod tests {
         // All burned gas goes to the validators at current gas price
         assert_eq!(
             verification_result.burnt_amount,
-            Balance::from(verification_result.gas_burnt.as_gas()) * gas_price
+            gas_price.checked_mul(verification_result.gas_burnt.as_gas().into()).unwrap()
         );
 
         let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
@@ -937,10 +941,17 @@ mod tests {
         assert_eq!(
             account.amount(),
             TESTING_INIT_BALANCE
-                - Balance::from(verification_result.gas_remaining.as_gas())
-                    * verification_result.receipt_gas_price
-                - verification_result.burnt_amount
-                - deposit
+                .checked_sub(
+                    verification_result
+                        .receipt_gas_price
+                        .checked_mul(verification_result.gas_remaining.as_gas().into())
+                        .unwrap()
+                )
+                .unwrap()
+                .checked_sub(verification_result.burnt_amount)
+                .unwrap()
+                .checked_sub(deposit)
+                .unwrap()
         );
 
         let access_key =
@@ -952,14 +963,14 @@ mod tests {
     fn test_validate_transaction_invalid_signature() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let mut tx = SignedTransaction::send_money(
             1,
             alice_account(),
             bob_account(),
             &*signer,
-            100,
+            Balance::from_yoctonear(100),
             CryptoHash::default(),
         );
         tx.signature = signer.sign(CryptoHash::default().as_ref());
@@ -976,14 +987,15 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_access_key_not_found() {
         let config = RuntimeConfig::test();
-        let (bad_signer, mut state_update, gas_price) = setup_common(TESTING_INIT_BALANCE, 0, None);
+        let (bad_signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, None);
 
         let transaction = SignedTransaction::send_money(
             1,
             alice_account(),
             bob_account(),
             &*bad_signer,
-            100,
+            Balance::from_yoctonear(100),
             CryptoHash::default(),
         );
 
@@ -1009,7 +1021,7 @@ mod tests {
     fn test_validate_transaction_invalid_bad_action() {
         let mut config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let wasm_config = Arc::make_mut(&mut config.wasm_config);
         wasm_config.limit_config.max_total_prepaid_gas = Gas::from_gas(100);
@@ -1027,7 +1039,7 @@ mod tests {
                     method_name: "hello".to_string(),
                     args: b"abc".to_vec(),
                     gas: Gas::from_gas(200),
-                    deposit: 0,
+                    deposit: Balance::ZERO,
                 }))],
                 CryptoHash::default(),
                 0,
@@ -1043,14 +1055,14 @@ mod tests {
     fn test_validate_transaction_invalid_bad_signer() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let signed_tx = SignedTransaction::send_money(
             1,
             bob_account(),
             alice_account(),
             &*signer,
-            100,
+            Balance::from_yoctonear(100),
             CryptoHash::default(),
         );
 
@@ -1071,7 +1083,7 @@ mod tests {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
-            0,
+            Balance::ZERO,
             Some(AccessKey { nonce: 2, permission: AccessKeyPermission::FullAccess }),
         );
 
@@ -1080,7 +1092,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            100,
+            Balance::from_yoctonear(100),
             CryptoHash::default(),
         );
 
@@ -1100,7 +1112,7 @@ mod tests {
     fn test_validate_transaction_invalid_balance_overflow() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         assert_err_both_validations(
             &config,
@@ -1111,7 +1123,7 @@ mod tests {
                 alice_account(),
                 bob_account(),
                 &*signer,
-                u128::max_value(),
+                Balance::MAX,
                 CryptoHash::default(),
             ),
             InvalidTxError::CostOverflow,
@@ -1122,7 +1134,7 @@ mod tests {
     fn test_validate_transaction_invalid_transaction_version() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         assert_err_both_validations(
             &config,
@@ -1133,7 +1145,7 @@ mod tests {
                 alice_account(),
                 bob_account(),
                 &*signer,
-                vec![Action::Transfer(TransferAction { deposit: 100 })],
+                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
                 CryptoHash::default(),
                 1,
             ),
@@ -1145,7 +1157,7 @@ mod tests {
     fn test_validate_transaction_invalid_not_enough_balance() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let signed_tx = SignedTransaction::send_money(
             1,
@@ -1179,11 +1191,11 @@ mod tests {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
-            0,
+            Balance::ZERO,
             Some(AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(100),
+                    allowance: Some(Balance::from_yoctonear(100)),
                     receiver_id: bob_account().into(),
                     method_names: vec![],
                 }),
@@ -1199,7 +1211,7 @@ mod tests {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: Gas::from_gas(300),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
             0,
@@ -1223,7 +1235,7 @@ mod tests {
         {
             assert_eq!(account_id, alice_account());
             assert_eq!(*public_key, signer.public_key());
-            assert_eq!(allowance, 100);
+            assert_eq!(allowance, Balance::from_yoctonear(100));
             assert!(cost > allowance);
         } else {
             panic!("Incorrect error");
@@ -1234,11 +1246,11 @@ mod tests {
     fn test_validate_transaction_invalid_low_balance() {
         let mut config = RuntimeConfig::free();
         let fees = Arc::make_mut(&mut config.fees);
-        fees.storage_usage_config.storage_amount_per_byte = 10_000_000;
-        let initial_balance = 1_000_000_000;
-        let transfer_amount = 950_000_000;
+        fees.storage_usage_config.storage_amount_per_byte = Balance::from_yoctonear(10_000_000);
+        let initial_balance = Balance::from_yoctonear(1_000_000_000);
+        let transfer_amount = Balance::from_yoctonear(950_000_000);
         let (signer, mut state_update, gas_price) =
-            setup_common(initial_balance, 0, Some(AccessKey::full_access()));
+            setup_common(initial_balance, Balance::ZERO, Some(AccessKey::full_access()));
 
         let signed_tx = SignedTransaction::send_money(
             1,
@@ -1260,22 +1272,22 @@ mod tests {
         .unwrap();
         assert_eq!(verification_result.gas_burnt, Gas::ZERO);
         assert_eq!(verification_result.gas_remaining, Gas::ZERO);
-        assert_eq!(verification_result.burnt_amount, 0);
+        assert_eq!(verification_result.burnt_amount, Balance::ZERO);
     }
 
     #[test]
     fn test_validate_transaction_invalid_low_balance_many_keys() {
         let mut config = RuntimeConfig::free();
         let fees = Arc::make_mut(&mut config.fees);
-        fees.storage_usage_config.storage_amount_per_byte = 10_000_000;
-        let initial_balance = 1_000_000_000;
-        let transfer_amount = 950_000_000;
+        fees.storage_usage_config.storage_amount_per_byte = Balance::from_yoctonear(10_000_000);
+        let initial_balance = Balance::from_yoctonear(1_000_000_000);
+        let transfer_amount = Balance::from_yoctonear(950_000_000);
         let account_id = alice_account();
         let access_keys = vec![AccessKey::full_access(); 10];
         let (signer, mut state_update, gas_price) = setup_accounts(vec![(
             account_id.clone(),
             initial_balance,
-            0,
+            Balance::ZERO,
             access_keys,
             false,
             false,
@@ -1305,8 +1317,12 @@ mod tests {
             err,
             InvalidTxError::LackBalanceForState {
                 signer_id: account_id,
-                amount: Balance::from(account.storage_usage()) * config.storage_amount_per_byte()
-                    - (initial_balance - transfer_amount)
+                amount: config
+                    .storage_amount_per_byte()
+                    .checked_mul(account.storage_usage().into())
+                    .unwrap()
+                    .checked_sub(initial_balance.checked_sub(transfer_amount).unwrap())
+                    .unwrap()
             }
         );
     }
@@ -1316,7 +1332,7 @@ mod tests {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
-            0,
+            Balance::ZERO,
             Some(AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -1338,7 +1354,7 @@ mod tests {
                     method_name: "hello".to_string(),
                     args: b"abc".to_vec(),
                     gas: Gas::from_gas(100),
-                    deposit: 0,
+                    deposit: Balance::ZERO,
                 })),
                 Action::CreateAccount(CreateAccountAction {}),
             ],
@@ -1401,7 +1417,7 @@ mod tests {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
-            0,
+            Balance::ZERO,
             Some(AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -1421,7 +1437,7 @@ mod tests {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: Gas::from_gas(100),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
             0,
@@ -1450,7 +1466,7 @@ mod tests {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
-            0,
+            Balance::ZERO,
             Some(AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -1470,7 +1486,7 @@ mod tests {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: Gas::from_gas(100),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
             0,
@@ -1498,7 +1514,7 @@ mod tests {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
-            0,
+            Balance::ZERO,
             Some(AccessKey {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -1518,7 +1534,7 @@ mod tests {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: Gas::from_gas(100),
-                deposit: 100,
+                deposit: Balance::from_yoctonear(100),
             }))],
             CryptoHash::default(),
             0,
@@ -1542,7 +1558,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_exceeding_tx_size_limit() {
         let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
         let signed_tx = SignedTransaction::from_actions(
             1,
@@ -1595,7 +1611,11 @@ mod tests {
         let limit_config = test_limit_config();
         validate_receipt(
             &limit_config,
-            &Receipt::new_balance_refund(&alice_account(), 10, ReceiptPriority::NoPriority),
+            &Receipt::new_balance_refund(
+                &alice_account(),
+                Balance::from_yoctonear(10),
+                ReceiptPriority::NoPriority,
+            ),
             PROTOCOL_VERSION,
             ValidateReceiptMode::NewReceipt,
         )
@@ -1612,7 +1632,7 @@ mod tests {
                 &ActionReceipt {
                     signer_id: alice_account(),
                     signer_public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_price: 100,
+                    gas_price: Balance::from_yoctonear(100),
                     output_data_receivers: vec![],
                     input_data_ids: vec![CryptoHash::default(), CryptoHash::default()],
                     actions: vec![]
@@ -1680,7 +1700,7 @@ mod tests {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: Gas::from_gas(100),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
             PROTOCOL_VERSION,
         )
@@ -1699,13 +1719,13 @@ mod tests {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: Gas::from_gas(100),
-                        deposit: 0,
+                        deposit: Balance::ZERO,
                     })),
                     Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: Gas::from_gas(150),
-                        deposit: 0,
+                        deposit: Balance::ZERO,
                     }))
                 ],
                 PROTOCOL_VERSION,
@@ -1730,13 +1750,13 @@ mod tests {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: Gas::from_gas(u64::max_value() / 2 + 1),
-                        deposit: 0,
+                        deposit: Balance::ZERO,
                     })),
                     Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: Gas::from_gas(u64::max_value() / 2 + 1),
-                        deposit: 0,
+                        deposit: Balance::ZERO,
                     }))
                 ],
                 PROTOCOL_VERSION,
@@ -1826,7 +1846,7 @@ mod tests {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: Gas::from_gas(100),
-                deposit: 0,
+                deposit: Balance::ZERO,
             })),
             PROTOCOL_VERSION,
         )
@@ -1842,7 +1862,7 @@ mod tests {
                     method_name: "new".to_string(),
                     args: vec![],
                     gas: Gas::ZERO,
-                    deposit: 0,
+                    deposit: Balance::ZERO,
                 })),
                 PROTOCOL_VERSION,
             )
@@ -1855,7 +1875,7 @@ mod tests {
     fn test_validate_action_valid_transfer() {
         validate_action(
             &test_limit_config(),
-            &Action::Transfer(TransferAction { deposit: 10 }),
+            &Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(10) }),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1866,7 +1886,7 @@ mod tests {
         validate_action(
             &test_limit_config(),
             &Action::Stake(Box::new(StakeAction {
-                stake: 100,
+                stake: Balance::from_yoctonear(100),
                 public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7".parse().unwrap(),
             })),
             PROTOCOL_VERSION,
@@ -1880,7 +1900,7 @@ mod tests {
             validate_action(
                 &test_limit_config(),
                 &Action::Stake(Box::new(StakeAction {
-                    stake: 100,
+                    stake: Balance::from_yoctonear(100),
                     public_key: PublicKey::empty(KeyType::ED25519),
                 })),
                 PROTOCOL_VERSION,
@@ -1914,7 +1934,7 @@ mod tests {
                 access_key: AccessKey {
                     nonce: 0,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                        allowance: Some(1000),
+                        allowance: Some(Balance::from_yoctonear(1000)),
                         receiver_id: alice_account().into(),
                         method_names: vec!["hello".to_string(), "world".to_string()],
                     }),

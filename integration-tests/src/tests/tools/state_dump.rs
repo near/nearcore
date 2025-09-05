@@ -360,7 +360,7 @@ fn test_dump_state_not_track_shard() {
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        1,
+        Balance::from_yoctonear(1),
         genesis_hash,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -562,8 +562,8 @@ fn test_dump_state_respect_select_whitelist_validators() {
     });
 
     assert_eq!(
-        stake.get(AccountIdRef::new_or_panic("test0")).unwrap_or(&(0 as Balance)),
-        &(0 as Balance)
+        stake.get(AccountIdRef::new_or_panic("test0")).unwrap_or(&Balance::ZERO),
+        &Balance::ZERO
     );
 
     validate_genesis(&new_genesis).unwrap();

@@ -9,6 +9,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Balance;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
@@ -24,7 +25,7 @@ fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransact
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
         &signer,
-        10,
+        Balance::from_yoctonear(10),
         *last_block.hash(),
     );
     vec![tx]

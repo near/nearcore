@@ -12,7 +12,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::Gas;
+use near_primitives::types::{Balance, Gas};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_store::archive::cold_storage::{
@@ -71,7 +71,14 @@ fn test1() -> AccountId {
 }
 
 fn create_tx_send_money(nonce: u64, signer: &Signer, block_hash: CryptoHash) -> SignedTransaction {
-    SignedTransaction::send_money(nonce, test0(), test1(), signer, 1, block_hash)
+    SignedTransaction::send_money(
+        nonce,
+        test0(),
+        test1(),
+        signer,
+        Balance::from_yoctonear(1),
+        block_hash,
+    )
 }
 
 fn create_tx_deploy_contract(
@@ -94,7 +101,7 @@ fn create_tx_function_call(
         method_name: "write_random_value".to_string(),
         args: vec![],
         gas: Gas::from_teragas(100),
-        deposit: 0,
+        deposit: Balance::ZERO,
     }));
     SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash, 0)
 }
@@ -114,7 +121,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = 0;
+    genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
@@ -269,7 +276,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = 0;
+    genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_congestion_control_disabled(&genesis)
         .build();

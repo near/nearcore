@@ -18,7 +18,7 @@ use near_primitives::transaction::{
     SignedTransaction, StakeAction, Transaction,
 };
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
+    AccountId, Balance, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,
@@ -1668,7 +1668,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 &mut txs,
                 predecessor_id,
                 receiver_id.clone(),
-                &[Action::Stake(Box::new(StakeAction { public_key, stake: 0 }))],
+                &[Action::Stake(Box::new(StakeAction { public_key, stake: Balance::ZERO }))],
                 target_hash,
                 MappedTxProvenance::Unstake(*target_hash),
                 None,

@@ -10,7 +10,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::ShardId;
+use near_primitives::types::{Balance, ShardId};
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
@@ -114,7 +114,7 @@ fn test_not_supported_block() {
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            1,
+            Balance::from_yoctonear(1),
             genesis_hash,
         );
         assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

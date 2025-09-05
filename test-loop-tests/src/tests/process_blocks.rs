@@ -14,7 +14,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{Balance, validator_stake::ValidatorStake};
 use parking_lot::RwLock;
 
 #[derive(Clone)]
@@ -93,7 +93,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 let proposals = vec![ValidatorStake::new(
                                     bp,
                                     PublicKey::empty(KeyType::ED25519),
-                                    0,
+                                    Balance::ZERO,
                                 )];
 
                                 mut_block.mut_header().set_prev_validator_proposals(proposals);

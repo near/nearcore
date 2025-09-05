@@ -7,9 +7,9 @@ use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, Balance, ShardId};
 
-const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
+const ONE_NEAR: Balance = Balance::from_near(1);
 
 /// Test that processing chunks with invalid transactions does not lead to panics
 #[test]
@@ -40,7 +40,7 @@ fn test_invalid_transactions_no_panic() {
             sender_account.clone(),
             receiver_account.clone(),
             &signers[0],
-            u128::MAX,
+            Balance::MAX,
             tip.last_block_hash,
         ),
         // transaction with invalid nonce
@@ -179,7 +179,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
             sender_account.clone(),
             receiver_account.clone(),
             &signers[0],
-            u128::MAX,
+            Balance::MAX,
             tip.last_block_hash,
         ),
         // transaction with invalid nonce

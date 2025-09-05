@@ -9,7 +9,7 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::AccountId;
-use near_primitives::types::Gas;
+use near_primitives::types::{Balance, Gas};
 use near_primitives::views::FinalExecutionStatus;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -102,7 +102,7 @@ fn prepare_env_with_yield(
             method_name: "call_yield_create_return_promise".to_string(),
             args: anticipated_yield_payload,
             gas: Gas::from_teragas(300),
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         *genesis_block.hash(),
         0,
@@ -141,7 +141,7 @@ fn invoke_yield_resume(env: &TestEnv, data_id: CryptoHash, yield_payload: Vec<u8
             method_name: "call_yield_resume".to_string(),
             args: yield_payload.into_iter().chain(data_id.as_bytes().iter().cloned()).collect(),
             gas: Gas::from_teragas(300),
-            deposit: 0,
+            deposit: Balance::ZERO,
         }))],
         *genesis_block.hash(),
         0,
@@ -174,7 +174,7 @@ fn create_congestion(env: &TestEnv) {
                 method_name: "epoch_height".to_string(),
                 args: vec![],
                 gas: Gas::from_gas(100),
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
             *genesis_block.hash(),
             0,
