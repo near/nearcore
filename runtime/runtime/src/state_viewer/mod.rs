@@ -6,7 +6,7 @@ use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -14,14 +14,15 @@ use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV1};
 use near_primitives::transaction::FunctionCallAction;
-use near_primitives::trie_key::trie_key_parsers;
+use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, ShardId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{TrieUpdate, get_access_key, get_account};
+use near_store::trie::AccessOptions;
+use near_store::{TrieAccess as _, TrieUpdate, get_access_key, get_account};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -91,7 +92,7 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        account.contract().code(account_id, &state_update)?.ok_or_else(|| {
+        account.contract().code(|| account_id.clone(), &state_update)?.ok_or_else(|| {
             errors::ViewContractCodeError::NoContractCode {
                 contract_account_id: account_id.clone(),
             }
@@ -103,8 +104,12 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         identifier: GlobalContractIdentifier,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
-        state_update
-            .get_global_contract_code(identifier.clone().into())?
+        let account_contract = match &identifier {
+            GlobalContractIdentifier::CodeHash(hash) => AccountContract::Global(*hash),
+            GlobalContractIdentifier::AccountId(a) => AccountContract::GlobalByAccount(a.clone()),
+        };
+        account_contract
+            .code(|| unreachable!(), state_update)?
             .ok_or(errors::ViewContractCodeError::NoGlobalContractCode { identifier })
     }
 
