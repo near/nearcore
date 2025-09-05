@@ -328,7 +328,6 @@ impl ChunkExecutorActor {
         mut incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
         mut state_patch: SandboxStatePatch,
     ) -> Result<(), Error> {
-        let block_hash = block.hash();
         let header = block.header();
         let prev_hash = header.prev_hash();
         let prev_block = self.chain_store.get_block(prev_hash)?;
