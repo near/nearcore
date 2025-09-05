@@ -42,12 +42,13 @@ jobs:
             type: nightly
             upload_profraws: true
             run_on_pr: true
-          - name: MacOS
-            id: macos
-            os: warp-macos-latest-arm64-6x
-            type: stable
-            upload_profraws: false
-            run_on_pr: false
+          # TODO(actix_migration): Enable the MacOS tests after jsonrpc migration is done
+          # - name: MacOS
+          #   id: macos
+          #   os: warp-macos-latest-arm64-6x
+          #   type: stable
+          #   upload_profraws: false
+          #   run_on_pr: false
     timeout-minutes: 90
     steps:
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
