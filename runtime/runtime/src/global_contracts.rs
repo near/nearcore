@@ -232,7 +232,7 @@ pub(crate) trait AccountContractStoreExt {
     fn hash(&self, store: &TrieUpdate) -> Result<CryptoHash, StorageError>;
     fn code(
         &self,
-        account_id: &AccountId,
+        local_account_id: impl FnOnce() -> AccountId,
         store: &TrieUpdate,
     ) -> Result<Option<ContractCode>, StorageError>;
 }
@@ -240,10 +240,10 @@ pub(crate) trait AccountContractStoreExt {
 impl AccountContractStoreExt for AccountContract {
     fn code(
         &self,
-        account_id: &AccountId,
+        local_account_id: impl FnOnce() -> AccountId,
         store: &TrieUpdate,
     ) -> Result<Option<ContractCode>, StorageError> {
-        let Some(key) = TrieKey::for_account_contract_code(account_id, self) else {
+        let Some(key) = TrieKey::for_account_contract_code(local_account_id, self) else {
             return Ok(None);
         };
         let code_hash = match self {
