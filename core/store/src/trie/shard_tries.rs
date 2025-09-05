@@ -409,17 +409,11 @@ impl ShardTries {
             }
         }
 
-        if let Some(memtries) = self.get_memtries(shard_uid) {
-            let changes = trie_changes
-                .memtrie_changes
-                .as_ref()
-                .expect("Memtrie changes must be present if memtrie is loaded");
+        if let (Some(memtries), Some(changes)) =
+            (self.get_memtries(shard_uid), trie_changes.memtrie_changes.as_ref())
+        {
             Some(memtries.write().apply_memtrie_changes(block_height, changes))
         } else {
-            assert!(
-                trie_changes.memtrie_changes.is_none(),
-                "Memtrie changes must not be present if memtrie is not loaded"
-            );
             None
         }
     }
