@@ -60,8 +60,10 @@ class RemoteNeardRunner:
             # Script for the validator node to send a stake proposal.
             'send-stake-proposal.sh'
         ]
-        files_desc = f"""<(printf '%s\n' {" ".join(files)})"""
-        source = f"--files-from={files_desc} tests/mocknet/helpers"
+        tmp_file = tempfile.NamedTemporaryFile(mode='w', delete=True)
+        tmp_file.write('\n'.join(files))
+        tmp_file.flush()
+        source = f"--files-from={tmp_file.name} tests/mocknet/helpers"
         self.node.machine.upload(source,
                                  self.neard_runner_home,
                                  switch_user='ubuntu')
