@@ -376,11 +376,10 @@ impl ArchivalDataLossRecoveryCommand {
         let env_filter = EnvFilterBuilder::from_env().verbose(Some("memtrie")).finish()?;
         let _subscriber = default_subscriber(env_filter, &Default::default()).global();
 
-        let near_config =
+        let mut near_config =
             nearcore::config::load_config(&home, genesis_validation).expect("Error loading config");
-        let genesis_config = &near_config.genesis.config;
 
-        let node_storage = nearcore::open_storage(&home, &near_config)?;
+        let node_storage = nearcore::open_storage(&home, &mut near_config)?;
         let store = node_storage.get_split_store().expect("SplitStore not found!");
         let cold_store = node_storage.get_cold_store().expect("ColdStore not found!");
         let cold_db = node_storage.cold_db().expect("ColdDB not found!");
@@ -392,7 +391,7 @@ impl ArchivalDataLossRecoveryCommand {
 
         // Create epoch manager and runtime
         let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home));
         let runtime = NightshadeRuntime::from_config(
             home,
             store.clone(),
@@ -496,7 +495,7 @@ impl ArchivalDataLossRecoveryCommand {
 
         println!("Writing child trie changes");
         let mut transaction = DBTransaction::new();
-        for (&child_shard_uid, child_trie_changes) in trie_changes.trie_changes.iter() {
+        for (&child_shard_uid, child_trie_changes) in &trie_changes.trie_changes {
             let mapped_shard_uid = get_shard_uid_mapping(&cold_store, child_shard_uid);
             let insertions = child_trie_changes.insertions().len();
             println!(
@@ -527,28 +526,28 @@ impl ArchivalDataLossRecoveryCommand {
     ) {
         println!("checking shard {shard_uid:?}");
         let start_time = Instant::now();
-        let mut node_count = 0;
+        let mut leaf_node_count = 0;
 
-        let child_index = shard_layout.get_shard_index(shard_uid.shard_id()).unwrap();
-        let child_header = &block.chunks()[child_index];
+        let shard_index = shard_layout.get_shard_index(shard_uid.shard_id()).unwrap();
+        let chunk_header = &block.chunks()[shard_index];
 
         // TODO(wacban) - find the first new chunk in that shard and use that instead.
-        if shard_uid.shard_id() != child_header.shard_id() {
+        if shard_uid.shard_id() != chunk_header.shard_id() {
             println!("Skipping check_trie due to missing chunk");
             return;
         }
 
-        let child_state_root = child_header.prev_state_root();
-        let child_trie = shard_tries.get_trie_for_shard(shard_uid, child_state_root);
-        let iter_lock = child_trie.lock_for_iter();
-        for item in iter_lock.iter().unwrap() {
+        let state_root = chunk_header.prev_state_root();
+        let trie = shard_tries.get_trie_for_shard(shard_uid, state_root);
+        let iter = trie.disk_iter_with_max_depth(6).expect("could not create disk iter");
+        for item in iter {
             item.unwrap();
-            node_count += 1;
+            leaf_node_count += 1;
         }
 
         let elapsed = start_time.elapsed();
         println!(
-            "finished checking shard {shard_uid:?}, elapsed: {elapsed:?}, node count: {node_count}"
+            "finished checking shard {shard_uid:?}, elapsed: {elapsed:?}, node count: {leaf_node_count}"
         );
     }
 }

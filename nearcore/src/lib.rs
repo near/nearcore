@@ -91,7 +91,7 @@ pub fn get_default_home() -> PathBuf {
 /// The end goal is to get rid of `archive` option in `config.json` file and
 /// have the type of the node be determined purely based on kind of database
 /// being opened.
-pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
+pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
         home_dir,
@@ -185,7 +185,7 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
         },
     }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
-    assert_eq!(near_config.config.archive, storage.is_archive()?);
+    near_config.config.archive = storage.is_archive()?;
     Ok(storage)
 }
 
