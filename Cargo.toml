@@ -165,6 +165,7 @@ assert_matches = "1.5.0"
 async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
+axum = { version = "0.8", features = ["macros"] }
 backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
@@ -403,6 +404,7 @@ tokio = { version = "1.28", default-features = false }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 tqdm = "0.4.4"
 tracing = { version = "0.1.40", features = ["std"] }
 tracing-appender = "0.2.3"

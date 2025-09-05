@@ -394,7 +394,7 @@ fn run_loop_all_shards(
                     let server = HttpServer::new(move || {
                         App::new().service(
                             web::resource("/metrics")
-                                .route(web::get().to(near_jsonrpc::prometheus_handler)),
+                                .route(web::get().to(near_jsonrpc::prometheus_handler_actix)),
                         )
                     })
                     .bind(prometheus_addr)?

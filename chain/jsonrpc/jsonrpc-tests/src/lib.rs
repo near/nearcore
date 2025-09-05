@@ -3,6 +3,7 @@ use std::sync::Arc;
 use actix::Addr;
 use futures::{FutureExt, future::LocalBoxFuture};
 use integration_tests::env::setup::setup_no_network_with_validity_period;
+use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_chain_configs::GenesisConfig;
 use near_client::ViewClientActor;
@@ -30,8 +31,9 @@ pub enum NodeType {
 pub fn start_all(
     clock: Clock,
     node_type: NodeType,
+    actor_system: &ActorSystem,
 ) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
-    start_all_with_validity_period(clock, node_type, 100, false)
+    start_all_with_validity_period(clock, node_type, 100, false, actor_system)
 }
 
 pub fn start_all_with_validity_period(
@@ -39,6 +41,7 @@ pub fn start_all_with_validity_period(
     node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
+    actor_system: &ActorSystem,
 ) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
     let actor_handles = setup_no_network_with_validity_period(
         clock,
@@ -64,6 +67,7 @@ pub fn start_all_with_validity_period(
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
+        actor_system.new_future_spawner().as_ref(),
     );
     // setup_no_network_with_validity_period should use runtime_tempdir together with real runtime.
     (actor_handles.view_client_actor, addr, actor_handles.runtime_tempdir.unwrap())
@@ -75,8 +79,9 @@ macro_rules! test_with_client {
         init_test_logger();
 
         near_actix_test_utils::run_actix(async {
+            let actor_system = near_async::ActorSystem::new();
             let (_view_client_addr, addr, _runtime_tempdir) =
-                test_utils::start_all(near_time::Clock::real(), $node_type);
+                test_utils::start_all(near_time::Clock::real(), $node_type, &actor_system);
 
             let $client = new_client(&format!("http://{}", addr));
 
@@ -85,6 +90,7 @@ macro_rules! test_with_client {
                 let _runtime_tempdir = _runtime_tempdir;
                 $block.await;
                 near_async::shutdown_all_actors();
+                actor_system.stop();
             });
         });
     };
