@@ -65,3 +65,27 @@ pub static PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK: LazyLock<Cou
     )
     .unwrap()
     });
+
+pub static PARTIAL_ENCODED_CHUNK_REQUEST_CACHE_HIT: LazyLock<Counter> = LazyLock::new(|| {
+    near_o11y::metrics::try_create_counter(
+        "near_partial_encoded_chunk_request_cache_hit",
+        "Number of partial encoded chunk requests served from in-memory cache",
+    )
+    .unwrap()
+});
+
+pub static PARTIAL_ENCODED_CHUNK_REQUEST_CACHE_MISS: LazyLock<Counter> = LazyLock::new(|| {
+    near_o11y::metrics::try_create_counter(
+        "near_partial_encoded_chunk_request_cache_miss",
+        concat!("Number of partial encoded chunk requests that required database lookup"),
+    )
+    .unwrap()
+});
+
+pub static PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON: LazyLock<Counter> = LazyLock::new(|| {
+    near_o11y::metrics::try_create_counter(
+        "near_partial_encoded_chunk_outside_horizon",
+        "Count of partial encoded chunks rejected because height is outside horizon",
+    )
+    .unwrap()
+});

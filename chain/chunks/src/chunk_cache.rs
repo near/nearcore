@@ -25,7 +25,7 @@ use tracing::warn;
 //    Users of the data structure are responsible for adding chunk to this map at the right time.
 
 /// A chunk is out of rear horizon if its height + HEIGHT_HORIZON < largest_seen_height
-const HEIGHT_HORIZON: BlockHeightDelta = 1024;
+const HEIGHT_HORIZON: BlockHeightDelta = 128;
 /// A chunk is out of front horizon if its height > largest_seen_height + MAX_HEIGHTS_AHEAD
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 

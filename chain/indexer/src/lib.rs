@@ -95,14 +95,13 @@ pub struct IndexerConfig {
 }
 
 impl IndexerConfig {
-    pub fn derive_near_config(&self) -> NearConfig {
+    pub fn load_near_config(&self) -> anyhow::Result<NearConfig> {
         let genesis_validation_mode = if self.validate_genesis {
             GenesisValidationMode::Full
         } else {
             GenesisValidationMode::UnsafeFast
         };
-        let near_config = nearcore::config::load_config(&self.home_dir, genesis_validation_mode)
-            .expect("failed to load config");
+        let near_config = nearcore::config::load_config(&self.home_dir, genesis_validation_mode)?;
 
         // TODO(cloud_archival): When`TrackedShardsConfig::Shards` is added, ensure it is supported by indexer nodes and update the check below accordingly.
         assert!(
@@ -112,7 +111,7 @@ impl IndexerConfig {
             or `\"tracked_shards_config\": {{\"tracked_accounts\": [\"some_account.near\"]}}` (which tracks whatever shard the account is on)",
             self.home_dir.join("config.json").display()
         );
-        near_config
+        Ok(near_config)
     }
 }
 
@@ -127,16 +126,17 @@ pub struct Indexer {
 
 impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
-    pub fn new(indexer_config: IndexerConfig) -> Result<Self, anyhow::Error> {
+    pub fn new(indexer_config: IndexerConfig) -> anyhow::Result<Self> {
         tracing::info!(
             target: INDEXER,
             home_dir = ?indexer_config.home_dir,
             "new indexer",
         );
-        let near_config = indexer_config.derive_near_config();
+        let near_config =
+            indexer_config.load_near_config().context("failed to load near config")?;
         let nearcore::NearNode { client, view_client, shard_tracker, .. } =
             Self::start_near_node(&indexer_config, near_config.clone())
-                .with_context(|| "failed to start near node as part of indexer")?;
+                .context("failed to start near node as part of indexer")?;
         Ok(Self {
             view_client: IndexerViewClientFetcher::new(view_client.into_multi_sender()),
             client: IndexerClientFetcher::new(client.into_multi_sender()),
@@ -149,7 +149,7 @@ impl Indexer {
     pub fn start_near_node(
         indexer_config: &IndexerConfig,
         near_config: NearConfig,
-    ) -> Result<NearNode, anyhow::Error> {
+    ) -> anyhow::Result<NearNode> {
         nearcore::start_with_config(&indexer_config.home_dir, near_config, ActorSystem::new())
     }
 
@@ -189,7 +189,7 @@ impl Indexer {
 pub fn indexer_init_configs(
     dir: &std::path::PathBuf,
     params: InitConfigArgs,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     init_configs(
         dir,
         params.chain_id,
