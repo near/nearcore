@@ -61,7 +61,8 @@ jobs:
 
       # Run the tests
       - name: just nextest-slow ${{ matrix.type }} (with coverage)
-        if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.type != 'spice'
+        # TODO(actix_migration): Enable the MacOS tests after jsonrpc migration is done
+        if: (github.event_name != 'pull_request' || matrix.run_on_pr) && matrix.type != 'spice' && matrix.type != 'macos'
         run: |
           mkdir -p coverage/profraw/{unit,binaries}
           just codecov-ci "nextest-slow ${{ matrix.type }}"

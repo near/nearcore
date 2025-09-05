@@ -1771,7 +1771,8 @@ impl<T: ChainAccess> TxMirror<T> {
             finality: Finality::Final,
             validate_genesis: false,
         };
-        let near_config = indexer_config.derive_near_config();
+        let near_config =
+            indexer_config.load_near_config().context("failed to load near config")?;
         let near_node = Indexer::start_near_node(&indexer_config, near_config.clone())
             .context("failed to start near node")?;
         let target_indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
