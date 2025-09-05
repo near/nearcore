@@ -25,8 +25,8 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub struct RuntimeExt<'a> {
-    pub(crate) update_op: &'a mut StateUpdateOperation<'a>,
+pub struct RuntimeExt<'a, 'su> {
+    pub(crate) update_op: &'a mut StateUpdateOperation<'su>,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
     account_id: AccountId,
     account: Account,
@@ -80,9 +80,9 @@ impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
     }
 }
 
-impl<'a> RuntimeExt<'a> {
+impl<'a, 'su> RuntimeExt<'a, 'su> {
     pub fn new(
-        update_op: &'a mut StateUpdateOperation<'a>,
+        update_op: &'a mut StateUpdateOperation<'su>,
         receipt_manager: &'a mut ReceiptManager,
         account_id: AccountId,
         account: Account,
@@ -368,7 +368,7 @@ impl<'a> External for RuntimeExt<'a> {
         // If the yielded promise was created by a previous transaction, we'll find it in the trie
         let receiver_id = self.account_id.clone();
         let key = TrieKey::PromiseYieldReceipt { receiver_id, data_id };
-        if self.update_op.contains_key(&key) {
+        if self.update_op.contains_key(&key)? {
             self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
             return Ok(true);
         }

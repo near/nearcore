@@ -13,10 +13,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Gas};
+use near_store::KeyLookupMode;
 use near_store::contract::ContractStorage;
 use near_store::state_update::StateUpdateOperation;
 use near_store::trie::AccessOptions;
-use near_store::KeyLookupMode;
 use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
@@ -116,7 +116,7 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn submit(
         &mut self,
         receipt: &Receipt,
-        state_update: &StateUpdateOperation,
+        state_update: &mut StateUpdateOperation,
         view_config: Option<ViewConfig>,
     ) -> bool {
         let account_id = receipt.receiver_id();
@@ -147,14 +147,14 @@ impl ReceiptPreparationPipeline {
                         account
                     } else {
                         let key = TrieKey::Account { account_id: account_id.clone() };
-                        let Some(receiver) = state_update.get_pure::<Account>(&key) else {
+                        let Ok(Some(receiver)) = state_update.pure_get::<Account>(key) else {
                             // Most likely reason this can happen is because the receipt is for
                             // an account that does not yet exist. This is a routine occurrence
                             // as accounts are created by sending some NEAR to a name that's
                             // about to be created.
                             continue;
                         };
-                        account.insert(receiver)
+                        account.insert(receiver.clone())
                     };
                     let code_hash = match account.contract().as_ref() {
                         AccountContract::None => continue,
@@ -181,11 +181,7 @@ impl ReceiptPreparationPipeline {
                                     global_contract_account_id.clone(),
                                 ),
                             };
-                            let Ok(Some(value_ref)) = state_update.get_ref(
-                                &key,
-                                KeyLookupMode::MemOrFlatOrTrie,
-                                AccessOptions::NO_SIDE_EFFECTS,
-                            ) else {
+                            let Ok(Some(value_ref)) = state_update.pure_get_ref(key) else {
                                 continue;
                             };
                             value_ref.value_hash()

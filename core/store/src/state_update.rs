@@ -150,18 +150,29 @@ impl<'su> StateUpdateOperation<'su> {
     /// The returned object will transparently memoize dereferences of this reference. Once the
     /// value is dereferenced for the first time, the [`StateUpdate`]/[`StateUpdateOperation`] will
     /// switch to storing the value itself.
-    pub fn get_ref(&mut self, key: TrieKey) -> Result<Option<OptimizedValueRef>, StorageError> {
+    ///
+    // FIXME: StateUpdate cannot serve `OptimizedValueRef`s. If the value is written-to, we cannot
+    // materialize `OVR::AvailableValue()` variant of it as it would store serialized data. Making
+    // `value_hash` not straightforward to compute. The only option I can think of is replacing
+    // `OptimizedValueRef` with our own enum that would store either the `ValueRef` or the
+    // deserialized value.
+    pub fn get_ref(&mut self, key: TrieKey) -> Result<Option<&OptimizedValueRef>, StorageError> {
         self.get_ref_or(key, |t, k| {
             t.get_optimized_ref(&k.to_vec(), KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)
         })
     }
 
     /// This is a more flexible version of [`Self::get_ref`], allowing custom [`Trie`] access.
+    // FIXME: StateUpdate cannot serve `OptimizedValueRef`s. If the value is written-to, we cannot
+    // materialize `OVR::AvailableValue()` variant of it as it would store serialized data. Making
+    // `value_hash` not straightforward to compute. The only option I can think of is replacing
+    // `OptimizedValueRef` with our own enum that would store either the `ValueRef` or the
+    // deserialized value.
     pub fn get_ref_or(
         &mut self,
         key: TrieKey,
         fallback: impl FnOnce(&Trie, &TrieKey) -> Result<Option<OptimizedValueRef>, StorageError>,
-    ) -> Result<Option<OptimizedValueRef>, StorageError> {
+    ) -> Result<Option<&OptimizedValueRef>, StorageError> {
         todo!()
     }
 
@@ -346,11 +357,30 @@ impl<'su> StateUpdateOperation<'su> {
         }
     }
 
-    pub fn get_pure<V>(&mut self, key: &TrieKey) -> Result<Option<&V>, StorageError>
+    /// Read value "purely".
+    ///
+    /// Value read this way does not cause any observable side-effects on the underlying storage.
+    pub fn pure_get<V>(&mut self, key: TrieKey) -> Result<Option<&V>, StorageError>
     where
         V: StateValue,
         Arc<V>: BorshDeserialize,
     {
+        todo!()
+    }
+
+    /// Fetch the [`OptimizedValueRef`] "purely".
+    ///
+    /// Value read this way does not cause any observable side-effects on the underlying storage.
+    //
+    // FIXME: StateUpdate cannot serve `OptimizedValueRef`s. If the value is written-to, we cannot
+    // materialize `OVR::AvailableValue()` variant of it as it would store serialized data. Making
+    // `value_hash` not straightforward to compute. The only option I can think of is replacing
+    // `OptimizedValueRef` with our own enum that would store either the `ValueRef` or the
+    // deserialized value.
+    pub fn pure_get_ref(
+        &mut self,
+        key: TrieKey,
+    ) -> Result<Option<&OptimizedValueRef>, StorageError> {
         todo!()
     }
 
@@ -425,6 +455,24 @@ impl<'su> StateUpdateOperation<'su> {
 
     pub fn trie(&self) -> &crate::Trie {
         &self.state_update.trie()
+    }
+}
+
+// FIXME: these all need some other solution
+impl<'su> StateUpdateOperation<'su> {
+    pub fn record_contract_call(
+        &mut self,
+        _: AccountId,
+        _: near_primitives::hash::CryptoHash,
+        _: &near_primitives::account::AccountContract,
+        _: near_primitives::apply::ApplyChunkReason,
+    ) -> Result<(), StorageError> {
+        todo!()
+    }
+
+    // FIXME: decouple from near_vm_runner!
+    pub fn record_contract_deploy(&mut self, _: near_vm_runner::ContractCode) {
+        todo!()
     }
 }
 

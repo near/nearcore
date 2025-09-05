@@ -1399,7 +1399,7 @@ impl Runtime {
         )?;
 
         let own_congestion_info =
-            apply_state.own_congestion_info(&processing_state.state_update.trie())?;
+            apply_state.own_congestion_info(processing_state.state_update.trie())?;
 
         let mut receipt_sink = ReceiptSink::new(
             processing_state.state_update.trie(),
@@ -2639,14 +2639,14 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                         receiver_id: account_id.clone(),
                         data_id: dr.data_id,
                     };
-                    let Ok(Some(&rid)) = update_op.get_pure::<CryptoHash>(&key) else {
+                    let Ok(Some(&rid)) = update_op.pure_get::<CryptoHash>(key) else {
                         return false;
                     };
                     let key = TrieKey::PendingDataCount {
                         receiver_id: account_id.clone(),
                         receipt_id: rid,
                     };
-                    let Ok(Some(&data_count)) = update_op.get_pure::<u32>(&key) else {
+                    let Ok(Some(&data_count)) = update_op.pure_get::<u32>(key) else {
                         return false;
                     };
                     if data_count > 1 {
@@ -2656,7 +2656,7 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                         receiver_id: account_id.clone(),
                         receipt_id: rid,
                     };
-                    let Ok(Some(pr)) = update_op.get_pure::<Receipt>(&key) else {
+                    let Ok(Some(pr)) = update_op.pure_get::<Receipt>(key) else {
                         return false;
                     };
                     let pr = pr.clone();
@@ -2667,7 +2667,7 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                         receiver_id: account_id.clone(),
                         data_id: dr.data_id,
                     };
-                    let Ok(Some(yr)) = update_op.get_pure::<Receipt>(&key) else {
+                    let Ok(Some(yr)) = update_op.pure_get::<Receipt>(key) else {
                         return false;
                     };
                     let yr = yr.clone();
