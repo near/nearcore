@@ -48,7 +48,7 @@ jobs:
             os: warp-macos-latest-arm64-6x
             type: stable
             upload_profraws: false
-            run_on_pr: false
+            run_on_pr: true
     timeout-minutes: 90
     steps:
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
