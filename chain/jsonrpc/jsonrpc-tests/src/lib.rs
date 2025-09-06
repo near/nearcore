@@ -199,7 +199,6 @@ pub fn create_test_setup_with_accounts_and_validity(
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
-        actor_system.new_future_spawner().as_ref(),
     );
 
     // 10. Create TestServer with real HTTP transport to get an address
