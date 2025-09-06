@@ -166,6 +166,7 @@ async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
 axum = { version = "0.8", features = ["macros"] }
+axum-test = "18.0"
 backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"

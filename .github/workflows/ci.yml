@@ -159,7 +159,6 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
-      - run: python3 scripts/state/update_res.py check
       - run: pushd pytest && python3 tests/sanity/upgradable.py && popd
       - run: pushd pytest && python3 tests/sanity/db_migration.py && popd
       - run: pushd pytest && python3 tests/sanity/backward_compatible.py && popd

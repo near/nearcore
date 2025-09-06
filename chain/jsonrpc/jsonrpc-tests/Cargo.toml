@@ -13,18 +13,18 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
-futures.workspace = true
+axum.workspace = true
+axum-test.workspace = true
 borsh.workspace = true
-parking_lot.workspace = true
 reqwest = { workspace = true, features = ["json"] }
-serde.workspace = true
 serde_json.workspace = true
 
-integration-tests.workspace = true
 near-time.workspace = true
 near-async.workspace = true
+near-chain.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
+near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-client.workspace = true
 near-store.workspace = true
@@ -32,6 +32,7 @@ near-o11y.workspace = true
 near-network.workspace = true
 near-jsonrpc.workspace = true
 near-jsonrpc-primitives.workspace = true
+nearcore.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
@@ -40,9 +41,8 @@ near-primitives-core.workspace = true
 near-test-contracts.workspace = true
 
 [features]
-test_features = ["near-jsonrpc/test_features"]
+test_features = ["near-jsonrpc/test_features", "nearcore/test_features"]
 nightly = [
-    "integration-tests/nightly",
     "near-actix-test-utils/nightly",
     "near-async/nightly",
     "near-chain-configs/nightly",
@@ -58,4 +58,3 @@ nightly = [
 sandbox = ["near-jsonrpc/sandbox", "near-o11y/sandbox"]
 
 [package.metadata.cargo-machete]
-ignored = ["near-store"]

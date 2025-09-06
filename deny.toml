@@ -85,9 +85,6 @@ skip = [
     { name = "base64", version = "=0.13.0" },
     { name = "ahash", version = "=0.7.8" },
 
-    # actix-http hasn't upgraded iminz_oxide/flate2 yet.
-    { name = "miniz_oxide", version = "=0.5.1" },
-
     # Everything depends on this...
     { name = "lru", version = "=0.7.8" },
 
@@ -126,7 +123,12 @@ skip = [
     { name = "gimli", version = "=0.31.1" },
     { name = "object", version = "=0.36.5" },
 
+    { name = "bytesize", version = "=1.1.0" },
+    { name = "cookie", version = "=0.16.0" },
+    { name = "num-bigint", version = "=0.3.3" },
+    { name = "num-rational", version = "=0.3.2" },
     { name = "sync_wrapper", version = "=0.1.2" },
     { name = "tower", version = "=0.4.13" },
     { name = "regex-syntax", version = "=0.6.28" },
+    { name = "socket2", version = "=0.5.8" },
 ]

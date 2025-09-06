@@ -1666,15 +1666,12 @@ async fn display_debug_html(
     }
 }
 
-/// Starts HTTP server(s) listening for RPC requests.
+/// Creates the axum Router for JSON-RPC server without starting it.
 ///
-/// Starts an HTTP server which handles JSON RPC calls as well as states
-/// endpoints such as `/status`, `/health`, `/metrics` etc.  Depending on
-/// configuration may also start another HTTP server just for providing
-/// Prometheus metrics (i.e. covering the `/metrics` path).
-///
-/// Starts HTTP server(s) listening for RPC requests using the provided future spawner.
-pub fn start_http(
+/// This function creates and configures the axum Router with all the necessary
+/// routes and middleware but does not start an HTTP server. Useful for testing
+/// or when you need the Router for custom server setup.
+pub fn create_jsonrpc_app(
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
@@ -1683,19 +1680,15 @@ pub fn start_http(
     peer_manager_sender: PeerManagerSenderForRpc,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
-    future_spawner: &dyn FutureSpawner,
-) {
+) -> Router {
     let RpcConfig {
-        addr,
-        prometheus_addr,
         cors_allowed_origins,
         polling_config,
         limits_config,
         enable_debug_rpc,
         experimental_debug_pages_src_path: debug_pages_src_path,
+        ..
     } = config;
-    let prometheus_addr = prometheus_addr.filter(|it| it != &addr.to_string());
-    info!(target:"network", "Starting http server at {}", addr);
 
     // Create shared state
     let handler = Arc::new(JsonRpcHandler {
@@ -1736,10 +1729,47 @@ pub fn start_http(
             .route("/debug/pages/{page}", get(display_debug_html));
     }
 
-    let app = app
-        .layer(get_cors(&cors_allowed_origins))
+    app.layer(get_cors(&cors_allowed_origins))
         .layer(RequestBodyLimitLayer::new(limits_config.json_payload_max_size))
-        .with_state(handler);
+        .with_state(handler)
+}
+
+/// Starts HTTP server(s) listening for RPC requests.
+///
+/// Starts an HTTP server which handles JSON RPC calls as well as states
+/// endpoints such as `/status`, `/health`, `/metrics` etc.  Depending on
+/// configuration may also start another HTTP server just for providing
+/// Prometheus metrics (i.e. covering the `/metrics` path).
+///
+/// Starts HTTP server(s) listening for RPC requests using the provided future spawner.
+pub fn start_http(
+    config: RpcConfig,
+    genesis_config: GenesisConfig,
+    client_sender: ClientSenderForRpc,
+    view_client_sender: ViewClientSenderForRpc,
+    process_tx_sender: ProcessTxSenderForRpc,
+    peer_manager_sender: PeerManagerSenderForRpc,
+    #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
+    entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    future_spawner: &dyn FutureSpawner,
+) {
+    let addr = config.addr;
+    let prometheus_addr = config.prometheus_addr.clone().filter(|it| it != &addr.to_string());
+    let cors_allowed_origins = config.cors_allowed_origins.clone();
+    info!(target:"network", "Starting http server at {}", addr);
+
+    // Create the axum app using the extracted function
+    let app = create_jsonrpc_app(
+        config,
+        genesis_config,
+        client_sender,
+        view_client_sender,
+        process_tx_sender,
+        peer_manager_sender,
+        #[cfg(feature = "test_features")]
+        gc_sender,
+        entity_debug_handler,
+    );
 
     // Start main server
     let socket_addr: SocketAddr = addr.to_string().parse().unwrap();
