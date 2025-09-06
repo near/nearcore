@@ -6,7 +6,7 @@ use near_async::time::{Clock, Duration, Instant};
 use near_chain::state_sync::ChainStateSyncAdapter;
 use near_chain::types::RuntimeAdapter;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::client::{StateRequestHeader, StateRequestPart, StatePartOrHeader};
+use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
 use near_performance_metrics_macros::perf;
 use near_primitives::errors::EpochError;

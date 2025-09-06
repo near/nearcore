@@ -1,4 +1,4 @@
-use crate::client::{StateRequestHeader, StateRequestPart, StatePartOrHeader};
+use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
     Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
