@@ -8272,6 +8272,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
+ "near-indexer",
  "near-jsonrpc",
  "near-network",
  "near-o11y",
@@ -8288,6 +8289,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "tokio",
  "tracing",
 ]
 
