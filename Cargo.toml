@@ -150,7 +150,6 @@ unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
 
 [workspace.dependencies]
 actix = "0.13.0"
-actix-cors = "0.6.1"
 actix-rt = "2"
 actix-web = "4.1"
 anyhow = "1.0.62"
@@ -420,6 +419,8 @@ tracing-subscriber = { version = "0.3.20", features = [
 trybuild = "1.0.11"
 turn = "0.9"
 url = "2.5.0"
+utoipa = "5.4"
+utoipa-swagger-ui = "9"
 wasm-encoder = "0.236"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.236"

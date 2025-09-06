@@ -19,7 +19,6 @@ name = "neard"
 actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
-futures.workspace = true
 openssl-probe.workspace = true
 rayon.workspace = true
 rlimit.workspace = true

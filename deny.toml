@@ -105,6 +105,7 @@ skip = [
     { name = "reqwest", version = "^0.11" },
     { name = "winreg", version = "^0.50" },
     { name = "socket2", version = "^0.4" },
+    { name = "socket2", version = "^0.5" },
     { name = "rustls-pemfile", version = "^1" },
     { name = "nix", version = "^0.24" },
     { name = "mio", version = "^0.8" },
@@ -129,6 +130,10 @@ skip = [
     { name = "num-rational", version = "=0.3.2" },
     { name = "sync_wrapper", version = "=0.1.2" },
     { name = "tower", version = "=0.4.13" },
+    { name = "bytesize", version = "=1.1.0" },
+    { name = "cookie", version = "=0.16.0" },
+    { name = "num-bigint", version = "=0.3.3" },
+    { name = "num-rational", version = "=0.3.2" },
     { name = "regex-syntax", version = "=0.6.28" },
     { name = "socket2", version = "=0.5.8" },
 ]
