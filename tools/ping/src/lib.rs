@@ -1,6 +1,6 @@
-use actix_web::cookie::time::ext::InstantExt as _;
-use actix_web::{App, HttpServer, web};
 use anyhow::Context;
+use axum::Router;
+use axum::routing::get;
 pub use cli::PingCommand;
 use near_network::raw::{ConnectError, Connection, DirectMessage, Message, RoutedMessage};
 use near_network::types::HandshakeFailureReason;
@@ -13,6 +13,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
+use time::ext::InstantExt as _;
 
 pub mod cli;
 mod csv;
@@ -437,18 +438,11 @@ async fn ping_via_node(
     let next_timeout = tokio::time::sleep(std::time::Duration::ZERO);
     tokio::pin!(next_timeout);
 
-    let server = HttpServer::new(move || {
-        App::new().service(
-            web::resource("/metrics").route(web::get().to(near_jsonrpc::prometheus_handler_actix)),
-        )
-    })
-    .bind(prometheus_addr)
-    .unwrap()
-    .workers(1)
-    .shutdown_timeout(3)
-    .disable_signals()
-    .run();
-    tokio::spawn(server);
+    let app = Router::new().route("/metrics", get(near_jsonrpc::prometheus_handler));
+    let listener = tokio::net::TcpListener::bind(prometheus_addr).await.unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
 
     loop {
         let target = app_info.pick_next_target();

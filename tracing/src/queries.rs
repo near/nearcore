@@ -1,8 +1,10 @@
 use crate::db::Database;
 use crate::profile::{Category, Profile, ProfileMeta, StringTableBuilder, Thread};
-use actix_cors::Cors;
-use actix_web::middleware::Compress;
-use actix_web::{App, Error, HttpResponse, HttpServer, post, web};
+use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use axum::response::{IntoResponse, Response};
+use std::sync::Arc;
+use tower_http::cors::CorsLayer;
+use tower_http::compression::CompressionLayer;
 use bson::doc;
 use mongodb::options::FindOptions;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -15,20 +17,36 @@ use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
 use tonic::codegen::tokio_stream::StreamExt;
 
+// Custom error type for axum responses
+#[derive(Debug)]
+struct QueryError(std::io::Error);
+
+impl IntoResponse for QueryError {
+    fn into_response(self) -> Response {
+        (StatusCode::INTERNAL_SERVER_ERROR, self.0.to_string()).into_response()
+    }
+}
+
+impl From<std::io::Error> for QueryError {
+    fn from(err: std::io::Error) -> Self {
+        QueryError(err)
+    }
+}
+
 /// Runs a server that allows trace data to be queried and returned as a
 /// Firefox profile.
 pub async fn run_query_server(db: Database, port: u16) -> std::io::Result<()> {
-    HttpServer::new(move || {
-        App::new()
-            .wrap(Cors::permissive())
-            .wrap(Compress::default())
-            .app_data(web::Data::new(QueryState { db: db.clone() }))
-            .service(raw_trace)
-            .service(profile)
-    })
-    .bind(("0.0.0.0", port))?
-    .run()
-    .await
+    let state = Arc::new(QueryState { db });
+    
+    let app = Router::new()
+        .route("/raw_trace", post(raw_trace))
+        .route("/profile", post(profile))
+        .with_state(state)
+        .layer(CorsLayer::permissive())
+        .layer(CompressionLayer::new());
+    
+    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
+    axum::serve(listener, app).await
 }
 
 pub struct QueryState {
@@ -88,11 +106,10 @@ impl QueryFilter {
     }
 }
 
-#[post("/raw_trace")]
 async fn raw_trace(
-    data: web::Data<QueryState>,
-    req: web::Json<Query>,
-) -> Result<HttpResponse, Error> {
+    State(data): State<Arc<QueryState>>,
+    Json(req): Json<Query>,
+) -> Result<Json<Vec<ExportTraceServiceRequest>>, QueryError> {
     // TODO: Set a limit on the duration of the request interval.
     let col = data.db.raw_traces();
     let mut chunks = col
@@ -104,26 +121,25 @@ async fn raw_trace(
             Some(FindOptions::builder().batch_size(100).build()),
         )
         .await
-        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+        .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
 
     let mut result: Vec<ExportTraceServiceRequest> = Vec::new();
     while let Some(chunk) = chunks.next().await {
         let chunk_bytes = chunk
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
+            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?
             .data
             .bytes;
         let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
         result.push(request);
     }
-    Ok(HttpResponse::Ok().json(result))
+    Ok(Json(result))
 }
 
-#[post("/profile")]
 async fn profile(
-    data: web::Data<QueryState>,
-    req: web::Json<Query>,
-) -> Result<HttpResponse, Error> {
+    State(data): State<Arc<QueryState>>,
+    Json(req): Json<Query>,
+) -> Result<Json<Profile>, QueryError> {
     // TODO: Set a limit on the duration of the request interval.
     let col = data.db.raw_traces();
     let mut chunks = col
@@ -135,16 +151,16 @@ async fn profile(
             Some(FindOptions::builder().batch_size(100).build()),
         )
         .await
-        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+        .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
 
     let mut result = QueryResult::default();
     while let Some(chunk) = chunks.next().await {
         let chunk_bytes = chunk
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
+            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?
             .data
             .bytes;
         let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
         for resource_span in request.resource_spans {
             if let Some(resource) = resource_span.resource {
                 for scope_span in resource_span.scope_spans {
@@ -238,7 +254,7 @@ async fn profile(
     thread.string_array = strings.build();
     profile.threads.push(thread);
 
-    Ok(HttpResponse::Ok().json(profile))
+    Ok(Json(profile))
 }
 
 fn stringify_value(value: Option<&AnyValue>) -> String {

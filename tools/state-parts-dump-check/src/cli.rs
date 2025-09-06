@@ -1,5 +1,6 @@
-use actix_web::{App, HttpServer, web};
 use anyhow::anyhow;
+use axum::Router;
+use axum::routing::get;
 use borsh::BorshDeserialize;
 use near_client::sync::external::{
     ExternalConnection, StateFileType, create_bucket_readonly, external_storage_location,
@@ -391,18 +392,12 @@ fn run_loop_all_shards(
             let old_status = status.as_ref().ok().cloned();
             let new_status = sys.block_on(async move {
                 if !is_prometheus_server_up {
-                    let server = HttpServer::new(move || {
-                        App::new().service(
-                            web::resource("/metrics")
-                                .route(web::get().to(near_jsonrpc::prometheus_handler_actix)),
-                        )
-                    })
-                    .bind(prometheus_addr)?
-                    .workers(1)
-                    .shutdown_timeout(3)
-                    .disable_signals()
-                    .run();
-                    tokio::spawn(server);
+                    let app =
+                        Router::new().route("/metrics", get(near_jsonrpc::prometheus_handler));
+                    let listener = tokio::net::TcpListener::bind(prometheus_addr).await?;
+                    tokio::spawn(async move {
+                        axum::serve(listener, app).await.unwrap();
+                    });
                 }
 
                 run_single_check_with_3_retries(

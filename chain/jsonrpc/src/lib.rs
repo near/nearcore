@@ -1586,21 +1586,6 @@ pub async fn prometheus_handler() -> Response {
     }
 }
 
-// Actix-web version for backward compatibility with tools (to be removed later)
-#[allow(clippy::unused_async)]
-pub async fn prometheus_handler_actix() -> Result<actix_web::HttpResponse, actix_web::Error> {
-    metrics::PROMETHEUS_REQUEST_COUNT.inc();
-
-    let mut buffer = vec![];
-    let encoder = TextEncoder::new();
-    encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
-
-    match String::from_utf8(buffer) {
-        Ok(text) => Ok(actix_web::HttpResponse::Ok().content_type("text/plain").body(text)),
-        Err(_) => Ok(actix_web::HttpResponse::ServiceUnavailable().finish()),
-    }
-}
-
 async fn client_config_handler(State(handler): State<Arc<JsonRpcHandler>>) -> Response {
     match handler.client_config().await {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),

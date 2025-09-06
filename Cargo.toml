@@ -151,7 +151,6 @@ unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
 [workspace.dependencies]
 actix = "0.13.0"
 actix-rt = "2"
-actix-web = "4.1"
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
