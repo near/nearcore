@@ -40,7 +40,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 /// NEAR Protocol Node
 #[derive(clap::Parser)]
@@ -563,7 +563,6 @@ impl RunCmd {
             let config_updater = ConfigUpdater::new(rx_config_update);
 
             let nearcore::NearNode {
-                rpc_servers,
                 cold_store_loop_handle,
                 mut state_sync_dumper,
                 resharding_handle,
@@ -593,11 +592,6 @@ impl RunCmd {
             }
             state_sync_dumper.stop_and_await();
             resharding_handle.stop();
-            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
-                server.stop(true).await;
-                debug!(target: "neard", "{} server stopped", name);
-            }))
-            .await;
             near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();

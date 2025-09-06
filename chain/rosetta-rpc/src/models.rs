@@ -577,10 +577,9 @@ where
     }
 }
 
-impl actix_web::ResponseError for Error {
-    fn error_response(&self) -> actix_web::HttpResponse {
-        let data = actix_web::web::Json(self);
-        actix_web::HttpResponse::InternalServerError().json(data)
+impl axum::response::IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(self)).into_response()
     }
 }
 

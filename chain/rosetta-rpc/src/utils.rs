@@ -4,7 +4,6 @@ use crate::{
     types::AccountId,
 };
 use actix::Addr;
-use futures::StreamExt;
 use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
 use near_primitives::borsh::{self, BorshDeserialize, BorshSerialize};
@@ -338,19 +337,12 @@ where
             near_primitives::views::AccountView,
         )>,
 {
-    futures::stream::iter(account_ids)
-        .map(|account_id| async move {
-            let (_, _, account_info) =
-                query_account(block_id.clone(), account_id.clone(), view_client_addr).await?;
-            Ok((account_id.clone(), account_info))
-        })
-        .buffer_unordered(10)
-        .collect::<Vec<
-            Result<
-                (near_primitives::types::AccountId, near_primitives::views::AccountView),
-                crate::errors::ErrorKind,
-            >,
-        >>()
+    let query_futures = account_ids.map(|account_id| async {
+        let (_, _, account_info) =
+            query_account(block_id.clone(), account_id.clone(), view_client_addr).await?;
+        Ok((account_id.clone(), account_info))
+    });
+    futures::future::join_all(query_futures)
         .await
         .into_iter()
         .filter(|account_info| !matches!(account_info, Err(crate::errors::ErrorKind::NotFound(_))))

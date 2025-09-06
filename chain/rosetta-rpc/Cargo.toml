@@ -12,9 +12,8 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-cors.workspace = true
-actix-web.workspace = true
 actix.workspace = true
+axum.workspace = true
 derive_more = { workspace = true, features = ["as_ref", "from", "from_str"] }
 futures.workspace = true
 hex.workspace = true
@@ -24,8 +23,9 @@ serde_json.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-utoipa = { version = "4", features = ["actix_extras", "chrono"] }
-utoipa-swagger-ui = { version = "4", features = ["actix-web"] }
+tower-http.workspace = true
+utoipa.workspace = true
+utoipa-swagger-ui = { workspace = true, features = ["axum"] }
 
 near-account-id.workspace = true
 near-async.workspace = true

@@ -8,15 +8,15 @@ repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-actix-cors = "0.6.1"
-actix-web = "4.1"
 anyhow = "1.0.62"
+axum = "0.8"
 bson = "2.10.0"
 clap = { version = "4.2.0", features = ["derive"] }
 hex = "0.4.2"
 mongodb = "2.8.2"
 opentelemetry-proto = { version = "0.5.0", features = ["gen-tonic", "trace", "with-serde"] }
 prost = "0.12.4"
+serde = { version = "1.0.192", features = ["derive"] }
 tokio = "1.38"
 tonic = "0.11.0"
-serde = { version = "1.0.192", features = ["derive"] }
+tower-http = { version = "0.6", features = ["cors", "compression-gzip"] }

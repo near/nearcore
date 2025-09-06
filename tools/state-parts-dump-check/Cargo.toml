@@ -12,9 +12,9 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-web.workspace = true
 actix.workspace = true
 anyhow.workspace = true
+axum.workspace = true
 object_store.workspace = true
 borsh.workspace = true
 clap.workspace = true
