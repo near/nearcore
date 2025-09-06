@@ -537,6 +537,7 @@ fn common_rocksdb_options() -> Options {
     opts.set_enable_pipelined_write(true);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
+    opts.set_writable_file_max_buffer_size(16 * bytesize::MIB as u64);
 
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
