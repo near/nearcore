@@ -310,14 +310,17 @@ impl NightshadeRuntime {
 
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
 
+        let trie_changes = WrappedTrieChanges::new(
+            self.get_tries(),
+            shard_uid,
+            apply_result.trie_changes,
+            apply_result.state_changes,
+            apply_state.block_height,
+        );
+        trie_changes.apply_mem_changes();
+
         let result = ApplyChunkResult {
-            trie_changes: WrappedTrieChanges::new(
-                self.get_tries(),
-                shard_uid,
-                apply_result.trie_changes,
-                apply_result.state_changes,
-                apply_state.block_height,
-            ),
+            trie_changes,
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
             outgoing_receipts: apply_result.outgoing_receipts,
