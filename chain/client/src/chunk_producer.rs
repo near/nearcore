@@ -24,10 +24,11 @@ use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 #[cfg(feature = "test_features")]
 use rand::{Rng, SeedableRng};
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
@@ -86,6 +87,54 @@ pub struct ChunkProducer {
     reed_solomon_encoder: ReedSolomon,
     /// Chunk production timing information. Used only for debug purposes.
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
+
+    prepared_transactions_cache: PreparedTransactionsCache,
+
+    // If we produced a chunk, temporarily store the prepared transactions here.
+    // They can be added back to the mempool after the next set of transactions
+    // are prepared optimistically.
+    txs_in_chunk: TxsInChunk,
+}
+
+#[derive(Clone)]
+pub(crate) struct PreparedTransactionsCache {
+    pub cache: Arc<RwLock<HashMap<(CryptoHash, ShardUId), PreparedTransactions>>>,
+}
+
+impl PreparedTransactionsCache {
+    pub fn new() -> Self {
+        Self { cache: Arc::new(RwLock::new(HashMap::new())) }
+    }
+
+    pub fn remove(&self, key: &(CryptoHash, ShardUId)) -> Option<PreparedTransactions> {
+        self.cache.write().remove(key)
+    }
+
+    pub fn insert(
+        &self,
+        key: (CryptoHash, ShardUId),
+        value: PreparedTransactions,
+    ) -> Option<PreparedTransactions> {
+        self.cache.write().insert(key, value)
+    }
+}
+
+pub(crate) struct TxsInChunk {
+    pub txs: RwLock<Vec<(ShardUId, PreparedTransactions)>>,
+}
+
+impl TxsInChunk {
+    pub fn new() -> Self {
+        Self { txs: RwLock::new(Vec::new()) }
+    }
+
+    pub fn push(&self, item: (ShardUId, PreparedTransactions)) {
+        self.txs.write().push(item);
+    }
+
+    pub fn drain(&self) -> Vec<(ShardUId, PreparedTransactions)> {
+        self.txs.write().drain(..).collect()
+    }
 }
 
 impl ChunkProducer {
@@ -121,6 +170,8 @@ impl ChunkProducer {
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
             ),
+            prepared_transactions_cache: PreparedTransactionsCache::new(),
+            txs_in_chunk: TxsInChunk::new(),
         }
     }
 
@@ -274,16 +325,24 @@ impl ChunkProducer {
                 Some(AdvProduceChunksMode::ProduceWithoutTx) => {
                     PreparedTransactions { transactions: Vec::new(), limited_by: None }
                 }
-                _ => self.prepare_transactions(
+                _ => self.get_cached_or_prepare_transactions(
                     shard_uid,
                     prev_block,
-                    chunk_extra.as_ref(),
+                    *chunk_extra.state_root(),
                     chain_validate,
                 )?,
             }
             #[cfg(not(feature = "test_features"))]
-            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref(), chain_validate)?
+            self.get_cached_or_prepare_transactions(
+                shard_uid,
+                prev_block,
+                *chunk_extra.state_root(),
+                chain_validate,
+            )?
         };
+        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
+        // included into the block.
+        self.txs_in_chunk.push((shard_uid, prepared_transactions.clone()));
 
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
@@ -375,16 +434,157 @@ impl ChunkProducer {
         }))
     }
 
+    pub fn prepare_and_cache_transactions(
+        &self,
+        prev_block: &Block,
+        epoch_id: &EpochId,
+        next_height: BlockHeight,
+        signer: &Arc<ValidatorSigner>,
+        chain_validate: Arc<dyn Fn(&SignedTransaction) -> bool + 'static + Send + Sync>,
+    ) -> Result<Option<()>, Error> {
+        let prev_block_hash = *prev_block.hash();
+        let prev_block_height = prev_block.header().height();
+        let mut prepare_transactions_for: Vec<(ShardUId, CryptoHash)> = vec![];
+        let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
+        for shard_id in shard_ids {
+            let chunk_proposer = self
+                .epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id: *epoch_id,
+                    height_created: next_height,
+                    shard_id,
+                })
+                .unwrap()
+                .take_account_id();
+            if signer.validator_id() != &chunk_proposer {
+                tracing::debug!(
+                    target: "client",
+                    ?chunk_proposer,
+                    ?shard_id,
+                    ?next_height,
+                    "not a chunk producer for this height"
+                );
+                continue;
+            };
+
+            // We're a chunk producer for this height
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
+            let Ok(chunk_extra) = self.chain.get_chunk_extra(&prev_block_hash, &shard_uid) else {
+                tracing::warn!(target: "client",
+                    ?shard_uid,
+                    height = %prev_block.header().height(),
+                    "could not find chunk extra"
+                );
+                continue;
+            };
+            let state_root = *chunk_extra.state_root();
+            prepare_transactions_for.push((shard_uid, state_root));
+        }
+
+        {
+            let sharded_tx_pool = self.sharded_tx_pool.clone();
+            let runtime_adapter = self.runtime_adapter.clone();
+            let chunk_transactions_time_limit = self.chunk_transactions_time_limit.get();
+            let prepared_transactions_cache = self.prepared_transactions_cache.clone();
+            let chain_validate = chain_validate.clone();
+            let prev_block = prev_block.clone();
+            // By now, the previous chunk is produced so it should be okay to take
+            // the transactions from it now.
+            let txs_to_reintroduce = self.txs_in_chunk.drain();
+            std::thread::spawn(move || {
+                eprintln!("Preparing transactions for chunk production");
+                for (shard_uid, state_root) in prepare_transactions_for {
+                    let Ok(prepared_transactions) = Self::prepare_transactions_impl(
+                        sharded_tx_pool.clone(),
+                        runtime_adapter.clone(),
+                        chunk_transactions_time_limit,
+                        shard_uid,
+                        &prev_block,
+                        state_root,
+                        chain_validate.as_ref(),
+                    ) else {
+                        tracing::warn!(target: "client",
+                            ?shard_uid,
+                            height = %prev_block_height,
+                            "prepare_transactions_impl failed"
+                        );
+                        continue;
+                    };
+                    tracing::warn!(target: "client",
+                        ?shard_uid,
+                        hash = ?prev_block_hash,
+                        height = %prev_block_height,
+                        num_transactions = %prepared_transactions.transactions.len(),
+                        "Prepared transactions for chunk production"
+                    );
+                    prepared_transactions_cache
+                        .insert((prev_block_hash, shard_uid), prepared_transactions);
+                }
+                Self::reintroduce_txs_in_chunk_to_pool(sharded_tx_pool, txs_to_reintroduce);
+            });
+        }
+
+        Ok(Some(()))
+    }
+
+    fn get_cached_or_prepare_transactions(
+        &self,
+        shard_uid: ShardUId,
+        prev_block: &Block,
+        state_root: CryptoHash,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+    ) -> Result<PreparedTransactions, Error> {
+        // Prepared transactions cache is based on the previous previous block
+        let prev_prev_block_hash = *prev_block.header().prev_hash();
+        let prev_prev_height = prev_block.header().height().saturating_sub(1);
+
+        if let Some(cached) =
+            self.prepared_transactions_cache.remove(&(prev_prev_block_hash, shard_uid))
+        {
+            tracing::warn!(target: "client",
+                ?shard_uid,
+                prev_prev_hash = ?prev_prev_block_hash,
+                prev_prev_height = %prev_prev_height,
+                num_transactions = %cached.transactions.len(),
+                "Using cached prepared transactions");
+            return Ok(cached);
+        }
+        self.prepare_transactions(shard_uid, prev_block, state_root, chain_validate)
+    }
+
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     fn prepare_transactions(
         &self,
         shard_uid: ShardUId,
         prev_block: &Block,
-        chunk_extra: &ChunkExtra,
+        state_root: CryptoHash,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+    ) -> Result<PreparedTransactions, Error> {
+        let sharded_tx_pool = Arc::clone(&self.sharded_tx_pool);
+        let runtime_adapter = Arc::clone(&self.runtime_adapter);
+        let chunk_transactions_time_limit = self.chunk_transactions_time_limit.get();
+        Self::prepare_transactions_impl(
+            sharded_tx_pool,
+            runtime_adapter,
+            chunk_transactions_time_limit,
+            shard_uid,
+            prev_block,
+            state_root,
+            chain_validate,
+        )
+    }
+
+    fn prepare_transactions_impl(
+        sharded_tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        chunk_transactions_time_limit: Option<Duration>,
+        shard_uid: ShardUId,
+        prev_block: &Block,
+        state_root: CryptoHash,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
-        let mut pool_guard = self.sharded_tx_pool.lock();
+        let mut pool_guard = sharded_tx_pool.lock();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
             if cfg!(feature = "protocol_feature_spice") {
@@ -397,36 +597,43 @@ impl ChunkProducer {
             }
 
             let storage_config = RuntimeStorageConfig {
-                state_root: *chunk_extra.state_root(),
+                state_root,
                 use_flat_storage: true,
                 source: near_chain::types::StorageDataSource::Db,
                 state_patch: Default::default(),
             };
-            self.runtime_adapter.prepare_transactions(
+            runtime_adapter.prepare_transactions(
                 storage_config,
                 shard_id,
                 prev_block.into(),
                 &mut iter,
                 chain_validate,
-                self.chunk_transactions_time_limit.get(),
+                chunk_transactions_time_limit,
             )?
         } else {
             PreparedTransactions { transactions: Vec::new(), limited_by: None }
         };
-        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
-        // included into the block.
-        let reintroduced_count = pool_guard
-            .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
-
-        if reintroduced_count < prepared_transactions.transactions.len() {
-            debug!(
-                target: "client",
-                reintroduced_count,
-                num_tx = prepared_transactions.transactions.len(),
-                "reintroduced transactions"
-            );
-        }
         Ok(prepared_transactions)
+    }
+
+    pub fn reintroduce_txs_in_chunk_to_pool(
+        sharded_tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+        prepared_txs: Vec<(ShardUId, PreparedTransactions)>,
+    ) {
+        let mut pool_guard = sharded_tx_pool.lock();
+        for (shard_uid, prepared_txs) in prepared_txs {
+            let num_tx = prepared_txs.transactions.len();
+            let reintroduced_count =
+                pool_guard.reintroduce_transactions(shard_uid, prepared_txs.transactions);
+            if reintroduced_count < num_tx {
+                debug!(
+                    target: "client",
+                    reintroduced_count,
+                    num_tx = num_tx,
+                    "reintroduced transactions"
+                );
+            }
+        }
     }
 
     #[cfg(feature = "test_features")]
