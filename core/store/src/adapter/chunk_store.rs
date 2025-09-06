@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use near_primitives::errors::ChunkAccessError;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk};
+use near_primitives::types::BlockHeight;
+use near_primitives::utils::height_hash_to_bytes;
 
 use crate::{DBCol, Store};
 
@@ -25,10 +27,12 @@ impl ChunkStoreAdapter {
 
     pub fn get_partial_chunk(
         &self,
+        chunk_height: BlockHeight,
         chunk_hash: &ChunkHash,
     ) -> Result<Arc<PartialEncodedChunk>, ChunkAccessError> {
+        let key = height_hash_to_bytes(chunk_height, &chunk_hash.0);
         self.store
-            .caching_get_ser(DBCol::PartialChunks, chunk_hash.as_ref())
+            .caching_get_ser(DBCol::PartialChunks, &key)
             .expect("Borsh should not have failed here")
             .ok_or_else(|| ChunkAccessError::ChunkMissing(chunk_hash.clone()))
     }

@@ -263,9 +263,10 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             chunk.to_transactions().len(),
                             chunk.prev_outgoing_receipts().len()
                         );
-                    } else if let Ok(partial_chunk) =
-                        chain_store.get_partial_chunk(&chunk_header.chunk_hash())
-                    {
+                    } else if let Ok(partial_chunk) = chain_store.get_partial_chunk(
+                        chunk_header.height_created(),
+                        &chunk_header.chunk_hash(),
+                    ) {
                         debug!(
                             "    {: >3} {} | {} | {: >10} | parts = {:?} receipts = {:?}",
                             chunk_header.height_created(),

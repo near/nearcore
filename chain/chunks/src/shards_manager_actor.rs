@@ -552,6 +552,7 @@ impl ShardsManagerActor {
                 );
 
                 let request = PartialEncodedChunkRequestMsg {
+                    chunk_height: height,
                     chunk_hash: chunk_hash.clone(),
                     part_ords,
                     tracking_shards: if target_account == shard_representative_target {
@@ -941,7 +942,12 @@ impl ShardsManagerActor {
         &self,
         request: PartialEncodedChunkRequestMsg,
     ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
-        let PartialEncodedChunkRequestMsg { chunk_hash, part_ords, mut tracking_shards } = request;
+        let PartialEncodedChunkRequestMsg {
+            chunk_height,
+            chunk_hash,
+            part_ords,
+            mut tracking_shards,
+        } = request;
         let mut response = PartialEncodedChunkResponseMsg {
             chunk_hash: chunk_hash.clone(),
             parts: vec![],
@@ -967,7 +973,7 @@ impl ShardsManagerActor {
         }
 
         // Try fetching partial encoded chunk from storage.
-        if let Ok(partial_chunk) = self.store.get_partial_chunk(&chunk_hash) {
+        if let Ok(partial_chunk) = self.store.get_partial_chunk(chunk_height, &chunk_hash) {
             Self::lookup_partial_encoded_chunk_from_partial_chunk_storage(
                 part_ords,
                 tracking_shards,
@@ -2844,6 +2850,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
@@ -2878,6 +2885,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
@@ -2912,6 +2920,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
@@ -2944,6 +2953,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
@@ -2988,6 +2998,7 @@ mod test {
         .unwrap();
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
@@ -3033,6 +3044,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
@@ -3079,6 +3091,7 @@ mod test {
         .unwrap();
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: fixture.all_part_ords.clone(),
                 tracking_shards: HashSet::new(),
@@ -3105,6 +3118,7 @@ mod test {
         );
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: Vec::new(),
                 tracking_shards: HashSet::new(),
@@ -3131,6 +3145,7 @@ mod test {
         );
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: vec![0],
                 tracking_shards: HashSet::new(),
@@ -3162,6 +3177,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: vec![0, fixture.epoch_manager.num_total_parts() as u64],
                 tracking_shards: HashSet::new(),
@@ -3195,6 +3211,7 @@ mod test {
 
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_height: fixture.mock_chunk_header.height_created(),
                 chunk_hash: fixture.mock_chunk_header.chunk_hash().clone(),
                 part_ords: vec![0, 1, 0, 1, 0, 1, 0, 1],
                 tracking_shards: HashSet::new(),
