@@ -2,7 +2,8 @@ use crate::utils::open_rocksdb;
 use anyhow::Context;
 use bytesize::ByteSize;
 use near_async::messaging::{IntoMultiSender, noop};
-use near_chain::resharding::event_type::ReshardingSplitShardParams;
+use near_async::time::Instant;
+use near_chain::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use near_chain::resharding::manager::ReshardingManager;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
@@ -15,11 +16,14 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, ProtocolVersion, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::db::RocksDB;
+use near_store::adapter::trie_store::get_shard_uid_mapping;
+use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
 use near_store::db::rocksdb::snapshot::Snapshot;
+use near_store::db::{DBTransaction, Database, RocksDB};
+use near_store::flat::BlockInfo;
 use near_store::trie::find_trie_split;
 use near_store::trie::mem::node::MemTrieNodeView;
 use near_store::{DBCol, HEAD_KEY, Mode, ShardTries, ShardUId, Temperature};
@@ -211,6 +215,7 @@ impl SplitShardTrieCommand {
             self.shard_uid,
             shard_tries.clone(),
             split_params,
+            false,
         )?;
         println!("Resharding done");
 
@@ -350,5 +355,199 @@ impl FindBoundaryAccountCommand {
         );
 
         Ok(())
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ArchivalDataLossRecoveryCommand {
+    #[clap(long)]
+    protocol_version: ProtocolVersion,
+
+    #[clap(long, default_value_t = false)]
+    check_only: bool,
+}
+
+impl ArchivalDataLossRecoveryCommand {
+    pub fn run(
+        &self,
+        home: &Path,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
+        let env_filter = EnvFilterBuilder::from_env().verbose(Some("memtrie")).finish()?;
+        let _subscriber = default_subscriber(env_filter, &Default::default()).global();
+
+        let mut near_config =
+            nearcore::config::load_config(&home, genesis_validation).expect("Error loading config");
+
+        let node_storage = nearcore::open_storage(&home, &mut near_config)?;
+        let store = node_storage.get_split_store().expect("SplitStore not found!");
+        let cold_store = node_storage.get_cold_store().expect("ColdStore not found!");
+        let cold_db = node_storage.cold_db().expect("ColdDB not found!");
+        let mut chain_store = ChainStore::new(
+            store.clone(),
+            true,
+            near_config.genesis.config.transaction_validity_period,
+        );
+
+        // Create epoch manager and runtime
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home));
+        let runtime = NightshadeRuntime::from_config(
+            home,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        );
+        let runtime = runtime.context("could not create the transaction runtime")?;
+
+        // Get the shard layout and ensure the protocol version upgrade actually
+        // contains a resharding.
+        let shard_layout =
+            epoch_manager.get_shard_layout_from_protocol_version(self.protocol_version);
+        let prev_shard_layout =
+            epoch_manager.get_shard_layout_from_protocol_version(self.protocol_version - 1);
+        assert_ne!(
+            shard_layout, prev_shard_layout,
+            "The provided protocol version does not contain a resharding."
+        );
+
+        println!("Searching for the first epoch of the provided protocol version");
+        // Find the fist epoch of the provided protocol version.
+        let head = store.chain_store().head()?;
+        let mut epoch_id = head.epoch_id;
+        loop {
+            let epoch_start_height = epoch_manager.get_epoch_start_from_epoch_id(&epoch_id)?;
+            let epoch_start_block_header =
+                store.chain_store().get_block_header_by_height(epoch_start_height)?;
+
+            let prev_block_hash = epoch_start_block_header.prev_hash();
+            let prev_epoch_id = epoch_manager.get_epoch_id(prev_block_hash)?;
+            let prev_protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
+
+            if prev_protocol_version < self.protocol_version {
+                break;
+            }
+
+            epoch_id = prev_epoch_id;
+        }
+        println!("Found epoch id {epoch_id:?}");
+
+        // Find the resharding block. It is the last block of the previous epoch.
+        let epoch_start_height = epoch_manager.get_epoch_start_from_epoch_id(&epoch_id)?;
+        let epoch_start_block_hash =
+            store.chain_store().get_block_hash_by_height(epoch_start_height)?;
+        let epoch_start_block = store.chain_store().get_block(&epoch_start_block_hash)?;
+        let resharding_block_hash = epoch_start_block.header().prev_hash();
+        let resharding_block = store.chain_store().get_block(resharding_block_hash)?;
+        println!("Found resharding block {resharding_block_hash:?}");
+
+        // Prepare the resharding split shard params.
+        let resharding_block_info = BlockInfo {
+            hash: *resharding_block.hash(),
+            height: resharding_block.header().height(),
+            prev_hash: *resharding_block.header().prev_hash(),
+        };
+        let resharding_event =
+            ReshardingEventType::from_shard_layout(&shard_layout, resharding_block_info)?;
+        let resharding_event = resharding_event.expect("Could not create the resharding event");
+        let ReshardingEventType::SplitShard(split_shard_params) = resharding_event;
+        println!("Prepared split shard params: {split_shard_params:?}");
+
+        let shard_tries = runtime.get_tries();
+        if self.check_only {
+            Self::check_trie(
+                &shard_layout,
+                &shard_tries,
+                &epoch_start_block,
+                split_shard_params.left_child_shard,
+            );
+
+            Self::check_trie(
+                &shard_layout,
+                &shard_tries,
+                &epoch_start_block,
+                split_shard_params.right_child_shard,
+            );
+            return Ok(());
+        }
+
+        // Create resharding manager.
+        let sender = noop().into_multi_sender();
+        let shard_tracker = ShardTracker::new(
+            near_config.client_config.tracked_shards_config.clone(),
+            epoch_manager.clone(),
+            near_config.validator_signer.clone(),
+        );
+        let resharding_manager =
+            ReshardingManager::new(store, epoch_manager, shard_tracker, sender);
+
+        println!("Starting resharding");
+        let chain_store_update = chain_store.store_update();
+        let trie_changes = resharding_manager.split_shard(
+            chain_store_update,
+            &resharding_block,
+            split_shard_params.parent_shard,
+            shard_tries,
+            split_shard_params,
+            true,
+        )?;
+        println!("Resharding done");
+
+        println!("Writing child trie changes");
+        let mut transaction = DBTransaction::new();
+        for (&child_shard_uid, child_trie_changes) in &trie_changes.trie_changes {
+            let mapped_shard_uid = get_shard_uid_mapping(&cold_store, child_shard_uid);
+            let insertions = child_trie_changes.insertions().len();
+            println!(
+                "shard_uid {child_shard_uid:?}, mapped shard_uid {mapped_shard_uid:?}, insertions {insertions}"
+            );
+
+            for op in child_trie_changes.insertions() {
+                let key = join_two_keys(&mapped_shard_uid.to_bytes(), op.hash().as_bytes());
+                let value = op.payload().to_vec();
+
+                rc_aware_set(&mut transaction, DBCol::State, key, value);
+            }
+        }
+        cold_db.write(transaction)?;
+
+        Ok(())
+    }
+
+    /// Iterate through the whole trie to ensure that all the trie nodes are
+    /// accessible. It should be used with the first block of the first epoch
+    /// with the new shard layout, the matching shard layout and the shard uid
+    /// of the child shard.
+    fn check_trie(
+        shard_layout: &ShardLayout,
+        shard_tries: &ShardTries,
+        block: &Block,
+        shard_uid: ShardUId,
+    ) {
+        println!("checking shard {shard_uid:?}");
+        let start_time = Instant::now();
+        let mut leaf_node_count = 0;
+
+        let shard_index = shard_layout.get_shard_index(shard_uid.shard_id()).unwrap();
+        let chunk_header = &block.chunks()[shard_index];
+
+        // TODO(wacban) - find the first new chunk in that shard and use that instead.
+        if shard_uid.shard_id() != chunk_header.shard_id() {
+            println!("Skipping check_trie due to missing chunk");
+            return;
+        }
+
+        let state_root = chunk_header.prev_state_root();
+        let trie = shard_tries.get_trie_for_shard(shard_uid, state_root);
+        let iter = trie.disk_iter_with_max_depth(6).expect("could not create disk iter");
+        for item in iter {
+            item.unwrap();
+            leaf_node_count += 1;
+        }
+
+        let elapsed = start_time.elapsed();
+        println!(
+            "finished checking shard {shard_uid:?}, elapsed: {elapsed:?}, node count: {leaf_node_count}"
+        );
     }
 }

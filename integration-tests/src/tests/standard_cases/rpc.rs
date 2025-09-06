@@ -115,6 +115,11 @@ fn slow_test_send_money_testnet() {
 }
 
 #[test]
+fn slow_test_transaction_invalid_signature_testnet() {
+    run_testnet_test!(test_transaction_invalid_signature);
+}
+
+#[test]
 fn slow_test_send_money_over_balance_testnet() {
     run_testnet_test!(test_send_money_over_balance);
 }

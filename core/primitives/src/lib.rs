@@ -55,14 +55,6 @@ pub mod views;
 
 pub use near_primitives_core::chains;
 
-#[cfg(fuzz)]
-#[test]
-fn failing_fuzzer() {
-    // This fuzzer always fails. It is used as a sanity-check that our clusterfuzz instance
-    // is working properly, as it has silently stopped working quite a few times already.
-    bolero::check!().for_each(|_| -> () { panic!("The expected-to-fail fuzzer actually failed") })
-}
-
 #[test]
 #[should_panic = "attempt to add with overflow"]
 fn test_overflow() {

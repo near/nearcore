@@ -132,7 +132,7 @@ impl ActorSystem {
     ///
     /// This is useful for keeping track of spawned futures and their lifetimes.
     /// Behind the scenes, this builds a new EmptyActor each time.
-    pub fn future_spawner(&self) -> Box<dyn FutureSpawner> {
+    pub fn new_future_spawner(&self) -> Box<dyn FutureSpawner> {
         let handle = self.spawn_tokio_actor(EmptyActor);
         handle.future_spawner()
     }
