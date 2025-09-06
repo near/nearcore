@@ -150,9 +150,7 @@ unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
 
 [workspace.dependencies]
 actix = "0.13.0"
-actix-cors = "0.6.1"
 actix-rt = "2"
-actix-web = "4.1"
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
@@ -165,6 +163,8 @@ assert_matches = "1.5.0"
 async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
+axum = { version = "0.8", features = ["macros"] }
+axum-test = "18.0"
 backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
@@ -403,6 +403,7 @@ tokio = { version = "1.28", default-features = false }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 tqdm = "0.4.4"
 tracing = { version = "0.1.40", features = ["std"] }
 tracing-appender = "0.2.3"
@@ -417,6 +418,8 @@ tracing-subscriber = { version = "0.3.20", features = [
 trybuild = "1.0.11"
 turn = "0.9"
 url = "2.5.0"
+utoipa = "5.4"
+utoipa-swagger-ui = "9"
 wasm-encoder = "0.236"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.236"

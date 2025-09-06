@@ -146,7 +146,7 @@ pub fn update_cold_db(
 // Correctly set the key and value on DBTransaction, taking reference counting
 // into account. For non-rc columns it just sets the value. For rc columns it
 // appends rc = 1 to the value and sets it.
-fn rc_aware_set(
+pub fn rc_aware_set(
     transaction: &mut DBTransaction,
     col: DBCol,
     key: Vec<u8>,
