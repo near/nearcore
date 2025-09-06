@@ -1147,7 +1147,7 @@ impl ValidatorStats {
     }
 }
 
-#[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema)]
+#[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema, Clone)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
     pub chunk_stats: ChunkStats,
