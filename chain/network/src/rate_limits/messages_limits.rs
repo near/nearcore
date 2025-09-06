@@ -238,6 +238,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 }
                 T2MessageBody::StatePartRequest(_) => None, // TODO
                 T2MessageBody::StateHeaderRequest(_) => None, // TODO
+                T2MessageBody::StateRequestAck(_) => None,  // TODO
                 T2MessageBody::Ping(_) | T2MessageBody::Pong(_) => None,
             },
         },

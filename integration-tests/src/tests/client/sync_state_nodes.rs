@@ -11,7 +11,7 @@ use near_chain_configs::{
 use near_client::{GetBlock, ProcessTxResponse};
 use near_client_primitives::types::GetValidatorInfo;
 use near_crypto::InMemorySigner;
-use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
+use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
@@ -779,7 +779,9 @@ fn slow_test_state_sync_headers() {
                         .send(StateRequestHeader { shard_id, sync_hash })
                         .await
                     {
-                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StatePartOrHeader(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
@@ -801,7 +803,9 @@ fn slow_test_state_sync_headers() {
                         .send(StateRequestPart { shard_id, sync_hash, part_id: 0 })
                         .await
                     {
-                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StatePartOrHeader(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
@@ -945,7 +949,9 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                         .send(StateRequestHeader { shard_id, sync_hash })
                         .await
                     {
-                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StatePartOrHeader(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
@@ -962,7 +968,9 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                         .send(StateRequestPart { shard_id, sync_hash, part_id: 0 })
                         .await
                     {
-                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        Ok(Some(StatePartOrHeader(state_response_info))) => {
+                            Some(state_response_info)
+                        }
                         _ => None,
                     };
                     let state_response_info = match state_response_info {
