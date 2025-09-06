@@ -23,7 +23,7 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, BlockHeight, NumBlocks, NumShards, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -153,7 +153,7 @@ pub fn setup_with_tx_validity_period(
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = tx_validity_period;
-    genesis.config.gas_limit = 1_000_000;
+    genesis.config.gas_limit = Gas::from_gas(1_000_000);
     genesis.config.min_gas_price = 100;
     genesis.config.max_gas_price = 1_000_000_000;
     genesis.config.total_supply = 1_000_000_000;

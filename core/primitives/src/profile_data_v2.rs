@@ -30,17 +30,19 @@ impl DataArray {
 }
 
 impl ProfileDataV2 {
-    pub fn get_ext_cost(&self, ext: ExtCosts) -> u64 {
-        self[ext]
+    pub fn get_ext_cost(&self, ext: ExtCosts) -> Gas {
+        Gas::from_gas(self[ext])
     }
 
-    pub fn get_wasm_cost(&self) -> u64 {
+    pub fn get_wasm_cost(&self) -> Gas {
         // ProfileV2Cost::WasmInstruction => 62,
-        self.data[62]
+        Gas::from_gas(self.data[62])
     }
 
-    fn host_gas(&self) -> u64 {
-        ExtCosts::iter().map(|a| self.get_ext_cost(a)).fold(0, u64::saturating_add)
+    fn host_gas(&self) -> Gas {
+        ExtCosts::iter()
+            .map(|a| self.get_ext_cost(a))
+            .fold(Gas::ZERO, |sum, elem| sum.checked_add(elem).unwrap())
     }
 
     /// List action cost in the old way, which conflated several action parameters into one.
@@ -48,21 +50,24 @@ impl ProfileDataV2 {
     /// This is used to display old gas profiles on the RPC API and in debug output.
     pub fn legacy_action_costs(&self) -> Vec<(&'static str, Gas)> {
         vec![
-            ("CREATE_ACCOUNT", self.data[0]),
-            ("DELETE_ACCOUNT", self.data[1]),
-            ("DEPLOY_CONTRACT", self.data[2]), // contains per byte and base cost
-            ("FUNCTION_CALL", self.data[3]),   // contains per byte and base cost
-            ("TRANSFER", self.data[4]),
-            ("STAKE", self.data[5]),
-            ("ADD_KEY", self.data[6]), // contains base + per byte cost for function call keys and full access keys
-            ("DELETE_KEY", self.data[7]),
-            ("NEW_DATA_RECEIPT_BYTE", self.data[8]), // contains the per-byte cost for sending back a data dependency
-            ("NEW_RECEIPT", self.data[9]), // contains base cost for data receipts and action receipts
+            ("CREATE_ACCOUNT", Gas::from_gas(self.data[0])),
+            ("DELETE_ACCOUNT", Gas::from_gas(self.data[1])),
+            ("DEPLOY_CONTRACT", Gas::from_gas(self.data[2])), // contains per byte and base cost
+            ("FUNCTION_CALL", Gas::from_gas(self.data[3])),   // contains per byte and base cost
+            ("TRANSFER", Gas::from_gas(self.data[4])),
+            ("STAKE", Gas::from_gas(self.data[5])),
+            ("ADD_KEY", Gas::from_gas(self.data[6])), // contains base + per byte cost for function call keys and full access keys
+            ("DELETE_KEY", Gas::from_gas(self.data[7])),
+            ("NEW_DATA_RECEIPT_BYTE", Gas::from_gas(self.data[8])), // contains the per-byte cost for sending back a data dependency
+            ("NEW_RECEIPT", Gas::from_gas(self.data[9])), // contains base cost for data receipts and action receipts
         ]
     }
 
-    pub fn action_gas(&self) -> u64 {
-        self.legacy_action_costs().iter().map(|(_name, cost)| *cost).fold(0, u64::saturating_add)
+    pub fn action_gas(&self) -> Gas {
+        self.legacy_action_costs()
+            .iter()
+            .map(|(_name, cost)| *cost)
+            .fold(Gas::ZERO, |acc: Gas, cost: Gas| acc.saturating_add(cost))
     }
 
     /// Test instance with unique numbers in each field.
@@ -70,10 +75,10 @@ impl ProfileDataV2 {
         let mut profile_data = ProfileDataV2::default();
         let num_legacy_actions = 10;
         for i in 0..num_legacy_actions {
-            profile_data.data.0[i] = i as Gas + 1000;
+            profile_data.data.0[i] = i as u64 + 1000;
         }
         for i in num_legacy_actions..DataArray::LEN {
-            profile_data.data.0[i] = (i - num_legacy_actions) as Gas;
+            profile_data.data.0[i] = (i - num_legacy_actions) as u64;
         }
         profile_data
     }
@@ -86,24 +91,28 @@ impl fmt::Debug for ProfileDataV2 {
         let action_gas = self.action_gas();
 
         writeln!(f, "------------------------------")?;
-        writeln!(f, "Action gas: {}", action_gas)?;
+        writeln!(f, "Action gas: {}", action_gas.as_gas())?;
         writeln!(f, "------ Host functions --------")?;
         for cost in ExtCosts::iter() {
             let d = self.get_ext_cost(cost);
-            if d != 0 {
+            if d != Gas::ZERO {
                 writeln!(
                     f,
                     "{} -> {} [{}% host]",
                     cost,
-                    d,
-                    Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
+                    d.as_gas(),
+                    Ratio::new(
+                        d.checked_mul(100).unwrap().as_gas(),
+                        core::cmp::max(host_gas.as_gas(), 1)
+                    )
+                    .to_integer(),
                 )?;
             }
         }
         writeln!(f, "------ Actions --------")?;
         for (cost, gas) in self.legacy_action_costs() {
-            if gas != 0 {
-                writeln!(f, "{} -> {}", cost.to_ascii_lowercase(), gas)?;
+            if gas != Gas::ZERO {
+                writeln!(f, "{} -> {}", cost.to_ascii_lowercase(), gas.as_gas())?;
             }
         }
         writeln!(f, "------------------------------")?;

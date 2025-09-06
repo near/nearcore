@@ -106,7 +106,7 @@ pub(crate) fn read_node_from_accounting_cache(testbed: &mut Testbed) -> GasCost 
         if debug {
             eprint!("{:<32}", debug_name);
             for cost in &p_results {
-                eprint!("{:>8} ", cost.to_gas() / 1_000_000);
+                eprint!("{:>8} ", cost.to_gas().as_gas() / 1_000_000);
             }
             eprintln!();
         }

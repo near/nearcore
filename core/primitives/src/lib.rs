@@ -4,6 +4,7 @@ pub use near_primitives_core::account;
 pub use near_primitives_core::apply;
 pub use near_primitives_core::borsh;
 pub use near_primitives_core::config;
+pub use near_primitives_core::gas;
 pub use near_primitives_core::hash;
 pub use near_primitives_core::num_rational;
 pub use near_primitives_core::serialize;

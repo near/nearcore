@@ -131,16 +131,16 @@ impl Block {
         // Collect aggregate of validators and gas usage/limits from chunks.
 
         let mut prev_validator_proposals = vec![];
-        let mut gas_used = 0;
+        let mut gas_used = Gas::ZERO;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
         let mut balance_burnt = 0;
-        let mut gas_limit = 0;
+        let mut gas_limit = Gas::ZERO;
         for chunk in &chunks {
             if chunk.height_included() == height {
                 prev_validator_proposals.extend(chunk.prev_validator_proposals());
-                gas_used += chunk.prev_gas_used();
-                gas_limit += chunk.gas_limit();
+                gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
+                gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
                 balance_burnt += chunk.prev_balance_burnt();
                 chunk_mask.push(true);
             } else {
@@ -311,12 +311,12 @@ impl Block {
         max_gas_price: Balance,
     ) -> Balance {
         // If block was skipped, the price does not change.
-        if gas_limit == 0 {
+        if gas_limit == Gas::ZERO {
             return gas_price;
         }
 
-        let gas_used = u128::from(gas_used);
-        let gas_limit = u128::from(gas_limit);
+        let gas_used = u128::from(gas_used.as_gas());
+        let gas_limit = u128::from(gas_limit.as_gas());
         let adjustment_rate_numer = *gas_price_adjustment_rate.numer() as u128;
         let adjustment_rate_denom = *gas_price_adjustment_rate.denom() as u128;
 
@@ -646,11 +646,12 @@ impl<'a> Chunks<'a> {
     }
 
     pub fn compute_gas_used(&self) -> Gas {
-        self.iter_new().fold(0, |acc, chunk| acc + chunk.prev_gas_used())
+        self.iter_new()
+            .fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
     }
 
     pub fn compute_gas_limit(&self) -> Gas {
-        self.iter_new().fold(0, |acc, chunk| acc + chunk.gas_limit())
+        self.iter_new().fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
     }
 }
 

@@ -699,10 +699,10 @@ pub(crate) fn print_chain(
                             let chunk_hash = chunks[shard_index].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
                                 chunk_debug_str.push(format!(
-                                    "{}: {} {: >3} Tgas {: >10}",
+                                    "{}: {} {: >3} {: >10}",
                                     shard_id,
                                     format_hash(chunk_hash.0, show_full_hashes),
-                                    chunk.cloned_header().prev_gas_used() / (1_000_000_000_000),
+                                    chunk.cloned_header().prev_gas_used(),
                                     chunk_producer
                                 ));
                             } else {

@@ -119,16 +119,16 @@ using a loop rather than those methods, for example:
 ```rust
 // GOOD
 for outcome_with_id in result? {
-    *total_gas_burnt =
-        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+    *total_gas_burnt = total_gas_burnt
+        .checked_add_result(outcome_with_id.outcome.gas_burnt)?;
     outcomes.push(outcome_with_id);
 }
 
 // BAD
 result?.into_iter().try_for_each(
     |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
-        *total_gas_burnt =
-            safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+        *total_gas_burnt = total_gas_burnt
+            .checked_add_result(outcome_with_id.outcome.gas_burnt)?;
         outcomes.push(outcome_with_id);
         Ok(())
     },

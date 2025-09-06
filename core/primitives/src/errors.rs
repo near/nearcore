@@ -3,9 +3,11 @@ use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayoutError;
 use crate::sharding::ChunkHash;
-use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
+use crate::types::{AccountId, Balance, EpochId, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+pub use near_primitives_core::errors::IntegerOverflowError;
+use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
@@ -823,17 +825,6 @@ impl Display for InvalidAccessKeyError {
 }
 
 impl std::error::Error for InvalidAccessKeyError {}
-
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
-pub struct IntegerOverflowError;
-
-impl std::fmt::Display for IntegerOverflowError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        f.write_str(&format!("{:?}", self))
-    }
-}
-
-impl std::error::Error for IntegerOverflowError {}
 
 impl From<IntegerOverflowError> for InvalidTxError {
     fn from(_: IntegerOverflowError) -> Self {

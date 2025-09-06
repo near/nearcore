@@ -285,8 +285,10 @@ impl NightshadeRuntime {
             })?;
         let elapsed = instant.elapsed();
 
-        let total_gas_burnt =
-            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+        let total_gas_burnt = apply_result
+            .outcomes
+            .iter()
+            .fold(Gas::ZERO, |a, tx_result| a.checked_add(tx_result.outcome.gas_burnt).unwrap());
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
@@ -476,7 +478,7 @@ impl NightshadeRuntime {
 fn format_total_gas_burnt(gas: Gas) -> String {
     // Rounds up the amount of teragas to hundreds of Tgas.
     // For example 123 Tgas gets rounded up to "200".
-    format!("{:.0}", ((gas as f64) / 1e14).ceil() * 100.0)
+    format!("{:.0}", ((gas.as_gas() as f64) / 1e14).ceil() * 100.0)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -639,7 +641,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut state_update = TrieUpdate::new(trie);
 
         // Total amount of gas burnt for converting transactions towards receipts.
-        let mut total_gas_burnt = 0;
+        let mut total_gas_burnt = Gas::ZERO;
         let mut total_size = 0u64;
 
         let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
@@ -744,7 +746,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Ok(cost) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         state_update.commit(StateChangeCause::NotWritableToDisk);
-                        total_gas_burnt += cost.gas_burnt;
+                        total_gas_burnt = total_gas_burnt.checked_add(cost.gas_burnt).unwrap();
                         total_size += validated_tx.get_size();
                         result.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
@@ -770,10 +772,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::PREPARE_TX_REJECTED
             .with_label_values(&[&shard_label, "invalid_block_hash"])
             .observe(rejected_invalid_for_chain as f64);
-        metrics::PREPARE_TX_GAS.with_label_values(&[&shard_label]).observe(total_gas_burnt as f64);
+        metrics::PREPARE_TX_GAS
+            .with_label_values(&[&shard_label])
+            .observe(total_gas_burnt.as_gas() as f64);
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
-            .set(i64::try_from(transactions_gas_limit).unwrap_or(i64::MAX));
+            .set(i64::try_from(transactions_gas_limit.as_gas()).unwrap_or(i64::MAX));
         Ok(result)
     }
 
@@ -1243,7 +1247,7 @@ fn chunk_tx_gas_limit(
     runtime_config: &RuntimeConfig,
     prev_block: &PrepareTransactionsBlockContext,
     shard_id: ShardId,
-) -> u64 {
+) -> Gas {
     // The own congestion may be None when a new shard is created, or when the
     // feature is just being enabled. Using the default (no congestion) is a
     // reasonable choice in this case.

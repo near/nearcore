@@ -806,7 +806,7 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
-    pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
+    pub attached_gas: Option<crate::utils::SignedDiff<u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub predecessor_id: Option<AccountIdentifier>,
     #[serde(skip_serializing_if = "Option::is_none")]
