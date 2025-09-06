@@ -1766,7 +1766,8 @@ pub fn start_http(
         view_client_sender,
         process_tx_sender,
         peer_manager_sender,
-        #[cfg(feature = "test_features")] gc_sender,
+        #[cfg(feature = "test_features")]
+        gc_sender,
         entity_debug_handler,
     );
 
