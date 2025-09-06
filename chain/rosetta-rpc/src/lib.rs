@@ -1090,10 +1090,7 @@ pub fn start_rosetta_rpc(
         .route("/construction/parse", post(construction_parse))
         .route("/construction/hash", post(construction_hash))
         .route("/construction/submit", post(construction_submit))
-        .merge(
-            SwaggerUi::new("/swagger-ui/{_:.*}")
-                .url("/api/openapi.json", RosettaOpenApi::openapi()),
-        )
+        .merge(SwaggerUi::new("/swagger-ui").url("/api/openapi.json", RosettaOpenApi::openapi()))
         .with_state(app_state)
         .layer(get_cors(&cors_allowed_origins))
         .layer(RequestBodyLimitLayer::new(limits.input_payload_max_size))

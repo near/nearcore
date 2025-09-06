@@ -14111,6 +14111,12 @@
             ],
             "description": "`none` value disables state dump to external storage."
           },
+          "parts_compression_lvl": {
+            "default": 1,
+            "description": "Zstd compression level for state parts.",
+            "format": "int32",
+            "type": "integer"
+          },
           "sync": {
             "$ref": "#/components/schemas/SyncConfig"
           }

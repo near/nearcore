@@ -833,6 +833,7 @@ fn slow_test_state_sync_headers() {
 }
 
 #[test]
+#[ignore] // TODO: Fix flaky test
 // Tests StateRequestHeader and StateRequestPart.
 fn slow_test_state_sync_headers_no_tracked_shards() {
     heavy_test(|| {

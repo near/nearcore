@@ -27,6 +27,7 @@ fn test_config_duration_all_std() {
     // of the serialization is checked. It's still not perfect, I suppose,
     // because there are Vec's. So it's best-effort.
     let config = Config {
+        contract_cache_path: Some(".".into()),
         chunk_distribution_network: Some(Default::default()),
         store: StoreConfig { path: Some(Default::default()), ..Default::default() },
         cold_store: Some(StoreConfig { path: Some(Default::default()), ..Default::default() }),
