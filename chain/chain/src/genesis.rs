@@ -269,10 +269,12 @@ pub fn get_genesis_congestion_infos(
     runtime: &dyn RuntimeAdapter,
     state_roots: &Vec<CryptoHash>,
 ) -> Result<Vec<CongestionInfo>, Error> {
-    get_genesis_congestion_infos_impl(epoch_manager, runtime, state_roots).map_err(|err| {
-        tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
-        err
-    })
+    let congestion_infos = vec![CongestionInfo::default(); state_roots.len()];
+    Ok(congestion_infos)
+    // get_genesis_congestion_infos_impl(epoch_manager, runtime, state_roots).map_err(|err| {
+    //     tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
+    //     err
+    // })
 }
 
 fn get_genesis_congestion_infos_impl(
