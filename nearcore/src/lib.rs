@@ -479,7 +479,7 @@ pub fn start_with_config_and_synchronization(
         chunk_state_witness: chunk_validation_actor.into_sender(),
     });
     let shards_manager_actor = start_shards_manager(
-        actor_system,
+        actor_system.clone(),
         epoch_manager.clone(),
         view_epoch_manager.clone(),
         shard_tracker.clone(),
@@ -550,7 +550,7 @@ pub fn start_with_config_and_synchronization(
             hot_store,
             cold_store,
         };
-        rpc_servers.extend(near_jsonrpc::start_http(
+        near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone().into_multi_sender(),
@@ -560,7 +560,8 @@ pub fn start_with_config_and_synchronization(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
-        ));
+            actor_system.new_future_spawner().as_ref(),
+        );
     }
 
     #[cfg(feature = "rosetta_rpc")]
