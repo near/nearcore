@@ -1375,6 +1375,11 @@ impl Runtime {
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
         processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
 
+        // If verifying a witness, iterate the trie into the cache
+        if apply_state.apply_reason == ApplyChunkReason::ValidateChunkStateWitness {
+            processing_state.state_update.set_cached();
+        }
+
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_transactions_data(&signed_txs);
