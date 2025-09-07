@@ -12,7 +12,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, ShardIndex};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::ProtocolFeature;
 use std::cell::Cell;

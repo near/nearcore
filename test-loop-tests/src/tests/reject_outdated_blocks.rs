@@ -12,8 +12,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
-use near_primitives::types::AccountInfo;
+use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::num_rational::Rational32;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -34,7 +33,7 @@ fn create_tx(latest_block: &Block, origin: &AccountId, receiver: &AccountId) -> 
         origin.clone(),
         receiver.clone(),
         &signer.into(),
-        10,
+        Balance::from_yoctonear(10),
         *latest_block.hash(),
     )
 }

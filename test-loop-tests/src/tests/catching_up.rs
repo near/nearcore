@@ -14,7 +14,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference, NumSeats, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 use crate::setup::builder::TestLoopBuilder;
@@ -101,8 +101,8 @@ fn test_catchup_random_single_part_sync_common(
     .collect();
     let seats: NumSeats = 8;
 
-    let stake = ONE_NEAR;
-    let mut runner = RotatingValidatorsRunner::new(stake, validators);
+    let stake = Balance::from_near(1);
+    let mut runner = RotatingValidatorsRunner::new(stake.as_yoctonear(), validators);
 
     let test_accounts: Vec<AccountId> =
         (0..16).map(|i| format!("test_account{i}").parse().unwrap()).collect_vec();
@@ -170,14 +170,15 @@ fn test_catchup_random_single_part_sync_common(
     let anchor_hash = get_anchor_hash(&clients);
     for (i, sender) in test_accounts.iter().enumerate() {
         for (j, receiver) in test_accounts.iter().enumerate() {
-            let mut amount = (((i + j + 17) * 701) % 42 + 1) as u128;
-            if change_balances {
+            let amount = if change_balances {
                 if i > j {
-                    amount = 2;
+                    Balance::from_yoctonear(2)
                 } else {
-                    amount = 1;
+                    Balance::from_yoctonear(1)
                 }
-            }
+            } else {
+                Balance::from_yoctonear((((i + j + 17) * 701) % 42 + 1) as u128)
+            };
             println!("VALUES {:?} {:?} {:?}", sender.to_string(), receiver.to_string(), amount);
 
             let tx = SignedTransaction::send_money(
@@ -242,9 +243,9 @@ fn test_catchup_random_single_part_sync_common(
                         Entry::Vacant(entry) => {
                             println!("VACANT {:?}", entry);
                             if change_balances {
-                                assert_ne!(amount % 100, 0);
+                                assert_ne!(amount.as_yoctonear() % 100, 0);
                             } else {
-                                assert_eq!(amount % 100, 0);
+                                assert_eq!(amount.as_yoctonear() % 100, 0);
                             }
                             entry.insert(amount);
                         }
@@ -292,8 +293,8 @@ fn slow_test_catchup_sanity_blocks_produced() {
     .collect();
     let seats: NumSeats = 8;
 
-    let stake = ONE_NEAR;
-    let mut runner = RotatingValidatorsRunner::new(stake, validators);
+    let stake = Balance::from_near(1);
+    let mut runner = RotatingValidatorsRunner::new(stake.as_yoctonear(), validators);
 
     let accounts = runner.all_validators_accounts();
     let num_shards = 4;
@@ -389,8 +390,8 @@ fn slow_test_all_chunks_accepted() {
     .collect();
     let seats: NumSeats = 8;
 
-    let stake = ONE_NEAR;
-    let mut runner = RotatingValidatorsRunner::new(stake, validators);
+    let stake = Balance::from_near(1);
+    let mut runner = RotatingValidatorsRunner::new(stake.as_yoctonear(), validators);
 
     let accounts = runner.all_validators_accounts();
     let num_shards = 4;

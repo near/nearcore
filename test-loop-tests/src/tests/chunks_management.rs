@@ -13,7 +13,7 @@ use near_network::types::{AccountIdOrPeerTrackingShard, NetworkRequests};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockId, BlockReference, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, EpochId, NumSeats};
 use parking_lot::RwLock;
 
 use crate::setup::builder::TestLoopBuilder;
@@ -66,7 +66,7 @@ impl Test {
         let genesis = TestLoopBuilder::new_genesis_builder()
             .epoch_length(epoch_length)
             .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
-            .add_user_accounts_simple(&accounts, stake)
+            .add_user_accounts_simple(&accounts, Balance::from_yoctonear(stake))
             .shard_layout(ShardLayout::multi_shard(4, 3))
             .genesis_height(0)
             .build();

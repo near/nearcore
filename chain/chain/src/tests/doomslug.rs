@@ -5,7 +5,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::Approval;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{ApprovalStake, BlockHeight};
+use near_primitives::types::{ApprovalStake, Balance, BlockHeight};
 use num_rational::Rational32;
 use rand::{Rng, thread_rng};
 use std::collections::{HashMap, HashSet};
@@ -41,8 +41,8 @@ fn one_iter(
         .iter()
         .map(|account_id| ApprovalStake {
             account_id: account_id.parse().unwrap(),
-            stake_this_epoch: 1,
-            stake_next_epoch: 1,
+            stake_this_epoch: Balance::from_yoctonear(1),
+            stake_next_epoch: Balance::from_yoctonear(1),
             public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
         })
         .collect::<Vec<_>>();

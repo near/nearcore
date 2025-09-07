@@ -150,7 +150,7 @@ impl TryFrom<&ParameterValue> for Balance {
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
             ParameterValue::U64(v) => Ok(Balance::from_yoctonear(u128::from(*v))),
-            ParameterValue::String(s) => s.parse().map_err(|err| {
+            ParameterValue::String(s) => s.parse().map_err(|_err| {
                 ValueConversionError::ParseType(std::any::type_name::<Balance>(), value.clone())
             }),
             _ => Err(ValueConversionError::ParseType(

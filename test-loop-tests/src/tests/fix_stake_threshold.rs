@@ -10,8 +10,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::num_rational::Rational32;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::AccountId;
-use near_primitives::types::AccountInfo;
+use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 
 #[test]
@@ -73,16 +72,16 @@ fn slow_test_fix_validator_stake_threshold() {
             let account_id = &v.parse().unwrap();
             epoch_info.get_validator_stake(account_id).unwrap()
         })
-        .sum::<u128>();
+        .fold(Balance::ZERO, |acc, stake| acc.checked_add(stake).unwrap());
 
     assert_eq!(validators.len(), 2, "proposal with stake at threshold should not be approved");
-    assert_eq!(total_stake / ONE_NEAR, 37_500_000_000);
+    assert_eq!(total_stake.checked_div(ONE_NEAR).unwrap(), Balance::from_yoctonear(37_500_000_000));
 
     // after threshold fix
     // threshold = min_stake_ratio * total_stake / (1 - min_stake_ratio)
     //           = (1 / 62_500) * total_stake / (62_499 / 62_500)
     //           = total_stake / 62_499
-    assert_eq!(epoch_info.seat_price() / ONE_NEAR, total_stake / 62_499 / ONE_NEAR);
+    assert_eq!(epoch_info.seat_price().checked_div(ONE_NEAR).unwrap(), total_stake.checked_div(62_499).unwrap().checked_div(ONE_NEAR).unwrap());
 
     TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));

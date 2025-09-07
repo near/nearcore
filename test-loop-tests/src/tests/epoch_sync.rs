@@ -10,7 +10,7 @@ use near_client::sync::epoch::EpochSync;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeightDelta};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
 use near_primitives::utils::compression::CompressedData;
 use near_store::adapter::StoreAdapter;
 

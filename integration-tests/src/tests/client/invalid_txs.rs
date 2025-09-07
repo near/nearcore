@@ -7,7 +7,7 @@ use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, Balance, ShardId};
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
@@ -40,7 +40,7 @@ fn test_invalid_transactions_no_panic() {
             sender_account.clone(),
             receiver_account.clone(),
             &signers[0],
-            u128::MAX,
+            Balance::from_yoctonear(u128::MAX),
             tip.last_block_hash,
         ),
         // transaction with invalid nonce
@@ -49,7 +49,7 @@ fn test_invalid_transactions_no_panic() {
             sender_account.clone(),
             receiver_account.clone(),
             &signers[0],
-            ONE_NEAR,
+            Balance::from_near(1),
             tip.last_block_hash,
         ),
         // transaction with invalid sender account
@@ -58,7 +58,7 @@ fn test_invalid_transactions_no_panic() {
             "test3".parse().unwrap(),
             receiver_account.clone(),
             &new_signer,
-            ONE_NEAR,
+            Balance::from_near(1),
             tip.last_block_hash,
         ),
     ];
@@ -72,7 +72,7 @@ fn test_invalid_transactions_no_panic() {
         sender_account,
         receiver_account,
         &signers[0],
-        ONE_NEAR,
+        Balance::from_near(1),
         tip.last_block_hash,
     );
     let mut start_height = 1;
@@ -170,7 +170,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
             sender_account.clone(),
             receiver_account.clone(),
             &signers[0],
-            ONE_NEAR,
+            Balance::from_near(1),
             tip.last_block_hash,
         ),
         // transaction with invalid balance
@@ -179,7 +179,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
             sender_account.clone(),
             receiver_account.clone(),
             &signers[0],
-            u128::MAX,
+            Balance::from_yoctonear(u128::MAX),
             tip.last_block_hash,
         ),
         // transaction with invalid nonce
@@ -188,7 +188,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
             sender_account,
             receiver_account.clone(),
             &signers[0],
-            ONE_NEAR,
+            Balance::from_near(1),
             tip.last_block_hash,
         ),
         // transaction with invalid sender account
@@ -197,7 +197,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
             "test3".parse().unwrap(),
             receiver_account,
             &new_signer,
-            ONE_NEAR,
+            Balance::from_near(1),
             tip.last_block_hash,
         ),
     ];

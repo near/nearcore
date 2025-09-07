@@ -9,7 +9,7 @@ use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
-use near_primitives::types::{AccountId, BlockHeightDelta, Gas, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId, ShardIndex};
 use near_primitives::version::PROTOCOL_VERSION;
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
@@ -107,7 +107,7 @@ struct TestReshardingParameters {
     archivals: Vec<AccountId>,
     #[builder(setter(skip))]
     new_boundary_account: AccountId,
-    initial_balance: u128,
+    initial_balance: Balance,
     epoch_length: BlockHeightDelta,
     chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
     shuffle_shard_assignment_for_chunk_producers: bool,

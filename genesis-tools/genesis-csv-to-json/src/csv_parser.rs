@@ -310,7 +310,7 @@ mod tests {
                 privileged_pks: vec![PublicKey::empty(KeyType::ED25519)],
                 foundation_pks: vec![PublicKey::empty(KeyType::ED25519)],
                 full_pks: vec![],
-                amount: 1000,
+                amount: Balance::from_yoctonear(1000),
                 lockup: timestamp(23, 0, 0),
                 vesting_start: timestamp(22, 0, 0),
                 vesting_end: timestamp(23, 30, 0),
@@ -334,7 +334,7 @@ mod tests {
                 privileged_pks: vec![PublicKey::empty(KeyType::ED25519)],
                 foundation_pks: vec![PublicKey::empty(KeyType::ED25519)],
                 full_pks: vec![],
-                amount: 2000,
+                amount: Balance::from_yoctonear(2000),
                 lockup: timestamp(23, 0, 0),
                 vesting_start: None,
                 vesting_end: None,
@@ -347,13 +347,13 @@ mod tests {
             })
             .unwrap();
         writer.flush().unwrap();
-        keys_to_state_records(file.reopen().unwrap(), 1).unwrap();
+        keys_to_state_records(file.reopen().unwrap(), Balance::from_yoctonear(1)).unwrap();
     }
 
     #[test]
     fn test_res_file() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res/test_accounts.csv");
         let res = std::fs::read(path).unwrap();
-        keys_to_state_records(&res[..], 1).unwrap();
+        keys_to_state_records(&res[..], Balance::from_yoctonear(1)).unwrap();
     }
 }

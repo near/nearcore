@@ -60,9 +60,9 @@ impl RotatingValidatorsRunner {
                     if i == index {
                         // Using max_stake - i for stake allows some of the validators to be block
                         // and chunk producers while keeping others as chunk validators only.
-                        v.stake_tx(&env, self.max_stake - u128::try_from(j).unwrap())
+                        v.stake_tx(&env, Balance::from_yoctonear(self.max_stake - u128::try_from(j).unwrap()))
                     } else {
-                        v.stake_tx(&env, 0)
+                        v.stake_tx(&env, Balance::ZERO)
                     }
                 })
             })
@@ -265,7 +265,7 @@ impl RotatingValidatorsRunner {
                 .map(|(i, v)| AccountInfo {
                     account_id: v.account.clone(),
                     public_key: v.signer.public_key(),
-                    amount: self.max_stake - u128::try_from(i).unwrap(),
+                    amount: Balance::from_yoctonear(self.max_stake - u128::try_from(i).unwrap()),
                 })
                 .collect(),
             num_block_producer_seats,

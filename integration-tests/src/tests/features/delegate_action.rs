@@ -19,7 +19,8 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::types::{AccountId, Gas};
+use near_primitives_core::balance::Balance;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -94,7 +95,7 @@ fn check_meta_tx_execution(
 
     let sender_before = node_user.view_balance(&sender).unwrap();
     let relayer_before = node_user.view_balance(&relayer).unwrap();
-    let receiver_before = node_user.view_balance(&receiver).unwrap_or(0);
+    let receiver_before = node_user.view_balance(&receiver).unwrap_or(Balance::ZERO);
     let relayer_nonce_before = node_user
         .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, relayer.as_ref()))
         .unwrap()
@@ -128,13 +129,13 @@ fn check_meta_tx_execution(
         assert_eq!(user_nonce, user_nonce_before + 1);
     }
 
-    let sender_after = node_user.view_balance(&sender).unwrap_or(0);
-    let relayer_after = node_user.view_balance(&relayer).unwrap_or(0);
-    let receiver_after = node_user.view_balance(&receiver).unwrap_or(0);
+    let sender_after = node_user.view_balance(&sender).unwrap_or(Balance::ZERO);
+    let relayer_after = node_user.view_balance(&relayer).unwrap_or(Balance::ZERO);
+    let receiver_after = node_user.view_balance(&receiver).unwrap_or(Balance::ZERO);
 
-    let sender_diff = sender_after as i128 - sender_before as i128;
-    let relayer_diff = relayer_after as i128 - relayer_before as i128;
-    let receiver_diff = receiver_after as i128 - receiver_before as i128;
+    let sender_diff = sender_after.as_yoctonear() as i128 - sender_before.as_yoctonear() as i128;
+    let relayer_diff = relayer_after.as_yoctonear() as i128 - relayer_before.as_yoctonear() as i128;
+    let receiver_diff = receiver_after.as_yoctonear() as i128 - receiver_before.as_yoctonear() as i128;
     (tx_result, sender_diff, relayer_diff, receiver_diff)
 }
 
@@ -151,16 +152,16 @@ fn check_meta_tx_no_fn_call(
     receiver: AccountId,
 ) -> FinalExecutionOutcomeView {
     let fee_helper = fee_helper(node);
-    let gas_cost = normal_tx_cost + fee_helper.meta_tx_overhead_cost(&actions, &receiver);
+    let gas_cost = Balance::from_yoctonear(normal_tx_cost.as_yoctonear().checked_add(fee_helper.meta_tx_overhead_cost(&actions, &receiver).as_yoctonear()).unwrap());
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(node, actions, sender, relayer, receiver);
 
     assert_eq!(sender_diff, 0, "sender should not pay for anything");
-    assert_eq!(receiver_diff, tokens_transferred as i128, "unexpected receiver balance");
+    assert_eq!(receiver_diff, tokens_transferred.as_yoctonear() as i128, "unexpected receiver balance");
     assert_eq!(
         relayer_diff,
-        -((gas_cost + tokens_transferred) as i128),
+        -((gas_cost.as_yoctonear().checked_add(tokens_transferred.as_yoctonear()).unwrap()) as i128),
         "unexpected relayer balance"
     );
 
@@ -255,14 +256,16 @@ fn check_meta_tx_fn_call(
     let refund_penalty = fee_helper.gas_refund_cost(gross_gas_refund);
 
     // the relayer pays all gas and tokens
-    let gas_cost = meta_tx_overhead_cost
-        + refund_penalty
-        + fee_helper.gas_to_balance(static_exec_gas.checked_add(static_send_gas).unwrap());
-    let expected_relayer_cost = (gas_cost + tokens_transferred + dyn_cost) as i128;
+    let gas_cost = Balance::from_yoctonear(meta_tx_overhead_cost.as_yoctonear()
+        .checked_add(refund_penalty.as_yoctonear())
+        .unwrap()
+        .checked_add(fee_helper.gas_to_balance(static_exec_gas.checked_add(static_send_gas).unwrap()).as_yoctonear())
+        .unwrap());
+    let expected_relayer_cost = (gas_cost.as_yoctonear().checked_add(tokens_transferred.as_yoctonear()).unwrap().checked_add(dyn_cost.as_yoctonear()).unwrap()) as i128;
     assert_eq!(relayer_diff, -expected_relayer_cost, "unexpected relayer balance");
 
     // the receiver gains transferred tokens and the contract reward
-    let expected_receiver_gain = (tokens_transferred + contract_reward) as i128;
+    let expected_receiver_gain = (tokens_transferred.as_yoctonear().checked_add(contract_reward.as_yoctonear()).unwrap()) as i128;
     assert_eq!(receiver_diff, expected_receiver_gain, "unexpected receiver balance");
 
     tx_result
@@ -280,7 +283,7 @@ fn meta_tx_near_transfer() {
     let node = RuntimeNode::new(&relayer);
     let fee_helper = fee_helper(&node);
 
-    let amount = NEAR_BASE;
+    let amount = Balance::from_near(1);
     let actions = vec![Action::Transfer(TransferAction { deposit: amount })];
     let tx_cost = fee_helper.transfer_cost();
     check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, receiver);
@@ -296,7 +299,7 @@ fn meta_tx_fn_call() {
 
     let actions = vec![log_something_fn_call()];
     let outcome =
-        check_meta_tx_fn_call(&node, actions, TEST_METHOD_LEN, 0, sender, relayer, receiver);
+        check_meta_tx_fn_call(&node, actions, TEST_METHOD_LEN, Balance::ZERO, sender, relayer, receiver);
 
     // Check that the function call was executed as expected
     let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
@@ -335,7 +338,7 @@ fn meta_tx_fn_call_access_key() {
         &node,
         actions,
         TEST_METHOD_LEN,
-        0,
+        Balance::ZERO,
         sender.clone(),
         relayer,
         receiver,
@@ -369,7 +372,7 @@ fn meta_tx_fn_call_access_key_insufficient_allowance() {
     let receiver = carol_account();
 
     // 1 yocto near, that's less than 1 gas unit
-    let initial_allowance = 1;
+    let initial_allowance = Balance::from_yoctonear(1);
     let signer = create_user_test_signer(&sender);
 
     let node = setup_with_access_key(
@@ -384,7 +387,7 @@ fn meta_tx_fn_call_access_key_insufficient_allowance() {
     let actions = vec![log_something_fn_call()];
     // this should still succeed because we use the gas of the relayer, not of the access key
     let outcome =
-        check_meta_tx_fn_call(&node, actions, TEST_METHOD_LEN, 0, sender, relayer, receiver);
+        check_meta_tx_fn_call(&node, actions, TEST_METHOD_LEN, Balance::ZERO, sender, relayer, receiver);
 
     // Check that the function call was executed as expected
     let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
@@ -446,7 +449,7 @@ fn meta_tx_deploy() {
     let code = smallest_rs_contract().to_vec();
     let tx_cost = fee_helper.deploy_contract_cost(code.len() as u64);
     let actions = vec![Action::DeployContract(DeployContractAction { code })];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, Balance::ZERO, sender, relayer, receiver);
 }
 
 #[test]
@@ -460,8 +463,8 @@ fn meta_tx_stake() {
 
     let tx_cost = fee_helper.stake_cost();
     let public_key = create_user_test_signer(&sender).public_key();
-    let actions = vec![Action::Stake(Box::new(StakeAction { public_key, stake: 0 }))];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
+    let actions = vec![Action::Stake(Box::new(StakeAction { public_key, stake: Balance::ZERO }))];
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, Balance::ZERO, sender, relayer, receiver);
 }
 
 #[test]
@@ -481,7 +484,7 @@ fn meta_tx_add_key() {
         public_key: public_key.clone(),
         access_key: AccessKey::full_access(),
     }))];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, Balance::ZERO, sender, relayer, receiver.clone());
 
     let key_view = node
         .user()
@@ -507,7 +510,7 @@ fn meta_tx_delete_key() {
     let public_key = PublicKey::from_seed(KeyType::ED25519, receiver.as_ref());
     let actions =
         vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key.clone() }))];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, Balance::ZERO, sender, relayer, receiver.clone());
 
     let err = node
         .user()
@@ -527,7 +530,7 @@ fn meta_tx_delete_account() {
     let node = RuntimeNode::new(&relayer);
 
     // setup: create new account because the standard accounts are validators (can't be deleted)
-    let balance = NEAR_BASE;
+    let balance = Balance::from_near(1);
     node.user()
         .create_account(
             relayer.clone(),
@@ -544,18 +547,19 @@ fn meta_tx_delete_account() {
         vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: relayer.clone() })];
 
     // special case balance check for deleting account
-    let gas_cost = fee_helper.prepaid_delete_account_cost()
-        + fee_helper.meta_tx_overhead_cost(&actions, &receiver);
+    let gas_cost = Balance::from_yoctonear(fee_helper.prepaid_delete_account_cost().as_yoctonear()
+        .checked_add(fee_helper.meta_tx_overhead_cost(&actions, &receiver).as_yoctonear())
+        .unwrap());
     let (_tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(&node, actions, sender, relayer, receiver.clone());
 
     assert_eq!(
         sender_diff,
-        -(balance as i128),
+        -(balance.as_yoctonear() as i128),
         "sender should be deleted and thus have zero balance"
     );
     assert_eq!(sender_diff, receiver_diff);
-    assert_eq!(relayer_diff, balance as i128 - (gas_cost as i128), "unexpected relayer balance");
+    assert_eq!(relayer_diff, balance.as_yoctonear() as i128 - (gas_cost.as_yoctonear() as i128), "unexpected relayer balance");
     let err = node.view_account(&receiver).expect_err("account should have been deleted");
     assert_eq!(err, "Account ID #eve.alice.near does not exist");
 }
@@ -585,7 +589,7 @@ fn meta_tx_ft_transfer() {
             // make the relayer (alice) owner, makes initialization easier
             br#"{"owner_id": "alice.near", "total_supply": "1000000"}"#.to_vec(),
             Gas::from_teragas(30),
-            0,
+            Balance::ZERO,
         )
         .expect("FT contract initialization failed")
         .assert_success();
@@ -614,7 +618,7 @@ fn meta_tx_ft_transfer() {
         &node,
         actions,
         bytes0 + bytes1,
-        2,
+        Balance::from_yoctonear(2),
         sender.clone(),
         relayer.clone(),
         ft_contract.clone(),
@@ -636,9 +640,9 @@ fn meta_tx_ft_transfer() {
     );
 
     // Also check FT balances
-    assert_ft_balance(&node, &ft_contract, &receiver, 1000);
-    assert_ft_balance(&node, &ft_contract, sender.as_ref(), 10_000 - 1000 - 10);
-    assert_ft_balance(&node, &ft_contract, relayer.as_ref(), 1_000_000 - 10_000 + 10);
+    assert_ft_balance(&node, &ft_contract, &receiver, Balance::from_yoctonear(1000));
+    assert_ft_balance(&node, &ft_contract, sender.as_ref(), Balance::from_yoctonear(10_000 - 1000 - 10));
+    assert_ft_balance(&node, &ft_contract, relayer.as_ref(), Balance::from_yoctonear(1_000_000 - 10_000 + 10));
 }
 
 /// Call the function "log_something" in the test contract.
@@ -647,7 +651,7 @@ fn log_something_fn_call() -> Action {
         method_name: TEST_METHOD.to_owned(),
         args: vec![],
         gas: Gas::from_teragas(30),
-        deposit: 0,
+        deposit: Balance::ZERO,
     }))
 }
 
@@ -669,7 +673,7 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
         method_name,
         args,
         gas: Gas::from_teragas(20),
-        deposit: 1,
+        deposit: Balance::from_yoctonear(1),
     }));
 
     (action, num_bytes as u64)
@@ -689,7 +693,7 @@ fn ft_register_action(receiver: &str) -> Action {
         method_name: "storage_deposit".to_owned(),
         args,
         gas: Gas::from_teragas(20),
-        deposit: NEAR_BASE,
+        deposit: Balance::from_near(1),
     }))
 }
 
@@ -739,12 +743,12 @@ fn setup_with_access_key(
     let access_key = fn_access_key(allowance, receiver.to_string(), vec![method.to_owned()]);
     let mut genesis = Genesis::test(vec![user.clone(), receiver.clone()], 3);
     add_test_contract(&mut genesis, &receiver);
-    add_account_with_access_key(&mut genesis, sender.clone(), NEAR_BASE, public_key, access_key);
+    add_account_with_access_key(&mut genesis, sender.clone(), Balance::from_near(1), public_key, access_key);
     RuntimeNode::new_from_genesis(user, genesis)
 }
 
 fn fn_access_key(
-    initial_allowance: u128,
+    initial_allowance: Balance,
     receiver_id: String,
     method_names: Vec<String>,
 ) -> AccessKey {
@@ -770,7 +774,7 @@ fn meta_tx_create_named_account() {
     let node = RuntimeNode::new(&relayer);
 
     let fee_helper = fee_helper(&node);
-    let amount = NEAR_BASE;
+    let amount = Balance::from_near(1);
 
     let public_key = PublicKey::from_seed(KeyType::ED25519, new_account.as_ref());
 
@@ -841,7 +845,7 @@ fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
     // Check the account doesn't exist, yet. We will attempt creating it.
     node.view_account(&new_account).expect_err("account already exists");
 
-    let initial_amount = NEAR_BASE;
+    let initial_amount = Balance::from_near(1);
     let actions = vec![
         Action::Transfer(TransferAction { deposit: initial_amount }),
         Action::DeployContract(DeployContractAction { code: ft_contract().to_vec() }),
@@ -889,9 +893,9 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
 
     let fee_helper = fee_helper(&node);
     let initial_amount = match new_account.get_account_type() {
-        AccountType::NearImplicitAccount => NEAR_BASE,
+        AccountType::NearImplicitAccount => Balance::from_near(1),
         // ETH-implicit accounts fit within zero-balance account limit.
-        AccountType::EthImplicitAccount => 0u128,
+        AccountType::EthImplicitAccount => Balance::ZERO,
         AccountType::NamedAccount => panic!("must be implicit"),
     };
     let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
@@ -924,7 +928,7 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
     }
 
     // Now test we can use this account in a meta transaction that sends back half the tokens to alice.
-    let transfer_amount = initial_amount / 2;
+    let transfer_amount = Balance::from_yoctonear(initial_amount.as_yoctonear() / 2);
     let actions = vec![Action::Transfer(TransferAction { deposit: transfer_amount })];
     let tx_cost = fee_helper.transfer_cost();
     check_meta_tx_no_fn_call(

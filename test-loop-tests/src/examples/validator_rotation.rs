@@ -3,7 +3,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, NumSeats};
+use near_primitives::types::{AccountId, Balance, NumSeats};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -29,7 +29,7 @@ fn test_validator_rotation() {
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(7)
         .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
-        .add_user_accounts_simple(&accounts, stake)
+        .add_user_accounts_simple(&accounts, Balance::from_yoctonear(stake))
         .shard_layout(ShardLayout::single_shard())
         .build();
 

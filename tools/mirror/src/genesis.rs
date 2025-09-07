@@ -1,5 +1,6 @@
 use near_crypto::PublicKey;
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::types::Balance;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction};
@@ -294,6 +295,7 @@ pub(crate) fn map_records<P: AsRef<Path>>(
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
+    use near_primitives::types::Balance;
     use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::hash::CryptoHash;
@@ -314,7 +316,7 @@ mod test {
                 signer_public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![
@@ -344,7 +346,7 @@ mod test {
                 signer_public_key: "ed25519:6rL9HcTfinxxcVURLeQ3Y3nkietL4LQ3WxhPn51bCo4V"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![
@@ -408,7 +410,7 @@ mod test {
                 signer_public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Delegate(Box::new(SignedDelegateAction {
@@ -455,7 +457,7 @@ mod test {
                 signer_public_key: "ed25519:6rL9HcTfinxxcVURLeQ3Y3nkietL4LQ3WxhPn51bCo4V"
                     .parse()
                     .unwrap(),
-                gas_price: 100,
+                gas_price: Balance::from_yoctonear(100),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Delegate(Box::new(SignedDelegateAction {

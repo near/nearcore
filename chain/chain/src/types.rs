@@ -582,8 +582,8 @@ mod tests {
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::now_utc(),
             0,
-            100,
-            1_000_000_000,
+            Balance::from_yoctonear(100),
+            Balance::from_yoctonear(1_000_000_000),
             &genesis_bps,
         );
         let signer = Arc::new(create_test_signer("other"));
@@ -607,7 +607,7 @@ mod tests {
                 receipt_ids: vec![hash(&[1])],
                 gas_burnt: Gas::from_gas(100),
                 compute_usage: Some(200),
-                tokens_burnt: 10000,
+                tokens_burnt: Balance::from_yoctonear(10000),
                 executor_id: "alice".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
             },
@@ -620,7 +620,7 @@ mod tests {
                 receipt_ids: vec![],
                 gas_burnt: Gas::ZERO,
                 compute_usage: Some(0),
-                tokens_burnt: 0,
+                tokens_burnt: Balance::ZERO,
                 executor_id: "bob".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
             },

@@ -57,7 +57,7 @@ fn ultra_slow_test_sync_state_stake_change() {
                 1,
                 "test1".parse().unwrap(),
                 &*signer,
-                TESTING_INIT_STAKE / 2,
+                TESTING_INIT_STAKE.checked_div(2).unwrap(),
                 near1.validator_signer.get().unwrap().public_key(),
                 genesis_hash,
             );

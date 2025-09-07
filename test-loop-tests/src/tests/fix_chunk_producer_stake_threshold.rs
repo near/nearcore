@@ -8,8 +8,7 @@ use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::AccountId;
-use near_primitives::types::AccountInfo;
+use near_primitives::types::{AccountId, AccountInfo, Balance};
 
 #[test]
 fn slow_test_fix_cp_stake_threshold() {
@@ -37,7 +36,7 @@ fn slow_test_fix_cp_stake_threshold() {
             public_key: create_test_signer(accounts[2].as_str()).public_key(),
             // cp min stake ratio was `(1 / 62500) / num_shards` before the fix
             // stake is right at threshold, and proposal should not be approved
-            amount: Balance::from_near(((30 + 30) * 62500 / 62500 / num_shards)),
+            amount: Balance::from_near(((30 + 30) * 62500 / 62500 / num_shards) as u128),
         },
         AccountInfo {
             account_id: accounts[3].clone(),

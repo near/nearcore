@@ -408,7 +408,7 @@ pub fn amend_genesis(
 #[cfg(test)]
 mod test {
     use anyhow::Context;
-    use near_chain_configs::{Genesis, GenesisConfig, NEAR_BASE, get_initial_supply};
+    use near_chain_configs::{Genesis, GenesisConfig, get_initial_supply};
     use near_primitives::account::AccountContract;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
@@ -901,7 +901,7 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "foo2",
-                    amount: 300_000_000,
+                    amount: Balance::from_yoctonear(300_000_000),
                     locked: Balance::ZERO,
                     storage_usage: 0,
                 },

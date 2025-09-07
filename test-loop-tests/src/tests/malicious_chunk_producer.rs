@@ -14,7 +14,7 @@ use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage}
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[test]
@@ -74,7 +74,7 @@ fn test_producer_with_expired_transactions() {
                 sender,
                 receiver,
                 &signer,
-                ONE_NEAR,
+                Balance::from_near(1),
                 anchor_hash,
             );
             let process_tx_request =

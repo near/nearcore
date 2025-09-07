@@ -7,7 +7,7 @@ use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 
 const NUM_CLIENTS: usize = 4;
 

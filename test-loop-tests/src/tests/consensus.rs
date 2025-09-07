@@ -20,7 +20,7 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
 
@@ -59,7 +59,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
-        .add_user_accounts_simple(&accounts, stake)
+        .add_user_accounts_simple(&accounts, Balance::from_yoctonear(stake))
         .shard_layout(ShardLayout::multi_shard(8, 3))
         .build();
 

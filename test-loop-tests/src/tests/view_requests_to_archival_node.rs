@@ -16,7 +16,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality, Gas,
+    AccountId, Balance, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality, Gas,
     SyncCheckpoint,
 };
 use near_primitives::version::PROTOCOL_VERSION;

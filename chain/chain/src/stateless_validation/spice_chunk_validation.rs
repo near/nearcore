@@ -224,6 +224,7 @@ fn validate_source_receipts_proofs(
 #[cfg(test)]
 mod tests {
     use std::str::FromStr as _;
+    use near_primitives::types::Balance;
 
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
@@ -611,12 +612,12 @@ mod tests {
         vec![
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[0]).unwrap(),
-                100,
+                Balance::from_yoctonear(100),
                 ReceiptPriority::NoPriority,
             ),
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[1]).unwrap(),
-                100,
+                Balance::from_yoctonear(100),
                 ReceiptPriority::NoPriority,
             ),
         ]
@@ -668,7 +669,7 @@ mod tests {
             )
         };
 
-        vec![send_money(100), send_money(200), send_money(300)]
+        vec![send_money(Balance::from_yoctonear(100)), send_money(Balance::from_yoctonear(200)), send_money(Balance::from_yoctonear(300))]
     }
 
     struct TestWitnessBuilder {

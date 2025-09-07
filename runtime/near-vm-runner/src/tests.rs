@@ -12,7 +12,7 @@ mod wasm_validation;
 use crate::logic::VMContext;
 use near_parameters::RuntimeConfigStore;
 use near_parameters::vm::VMKind;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Balance, Gas};
 use near_primitives_core::version::PROTOCOL_VERSION;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -57,10 +57,10 @@ fn create_context(input: Vec<u8>) -> VMContext {
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
-        account_balance: 2u128,
-        account_locked_balance: 0,
+        account_balance: Balance::from_yoctonear(2),
+        account_locked_balance: Balance::ZERO,
         storage_usage: 12,
-        attached_deposit: 2u128,
+        attached_deposit: Balance::from_yoctonear(2),
         prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
         view_config: None,

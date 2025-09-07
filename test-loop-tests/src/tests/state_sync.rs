@@ -14,7 +14,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 
@@ -230,7 +230,7 @@ fn send_txs_between_shards(
             sender.clone(),
             receiver.clone(),
             &create_user_test_signer(sender).into(),
-            1000,
+            Balance::from_yoctonear(1000),
             block_hash,
         );
         *nonce += 1;

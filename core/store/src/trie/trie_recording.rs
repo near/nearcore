@@ -372,6 +372,7 @@ impl SubtreeSize {
 
 #[cfg(test)]
 mod trie_recording_tests {
+    use near_primitives::types::Balance;
     use crate::adapter::trie_store::TrieStoreAdapter;
     use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
     use crate::db::refcount::decode_value_with_rc;
@@ -454,7 +455,7 @@ mod trie_recording_tests {
             Vec::new(),
             Gas::ZERO,
             Gas::ZERO,
-            0,
+            Balance::ZERO,
             Some(CongestionInfo::default()),
             BandwidthRequests::empty(),
         );

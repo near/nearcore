@@ -25,7 +25,7 @@ use near_chain_configs::Genesis;
 use near_client::client_actor::ClientActorInner;
 use near_client::{RpcHandler, ViewClientActorInner};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_primitives::{account::AccountContract, borsh::BorshDeserialize, types::Balance};
+use near_primitives::{borsh::BorshDeserialize, types::Balance};
 
 mod adapters;
 mod config;

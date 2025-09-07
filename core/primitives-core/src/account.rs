@@ -580,8 +580,8 @@ mod tests {
         global_contract_account_id: Option<AccountId>,
     ) -> SerdeAccount {
         SerdeAccount {
-            amount: 10_000_000,
-            locked: 100_000,
+            amount: Balance::from_yoctonear(10_000_000),
+            locked: Balance::from_yoctonear(100_000),
             code_hash,
             storage_usage: 1000,
             version: AccountVersion::V2,
@@ -593,8 +593,8 @@ mod tests {
     #[test]
     fn test_v1_account_serde_serialization() {
         let old_account = AccountV1 {
-            amount: 1_000_000,
-            locked: 1_000_000,
+            amount: Balance::from_yoctonear(1_000_000),
+            locked: Balance::from_yoctonear(1_000_000),
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 100,
         };
@@ -623,8 +623,8 @@ mod tests {
     #[test]
     fn test_v1_account_borsh_serialization() {
         let old_account = AccountV1 {
-            amount: 100,
-            locked: 200,
+            amount: Balance::from_yoctonear(100),
+            locked: Balance::from_yoctonear(200),
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 300,
         };
@@ -642,8 +642,8 @@ mod tests {
     #[test]
     fn test_account_v2_serde_serialization() {
         let account_v2 = AccountV2 {
-            amount: 10_000_000,
-            locked: 100_000,
+            amount: Balance::from_yoctonear(10_000_000),
+            locked: Balance::from_yoctonear(100_000),
             storage_usage: 1000,
             contract: AccountContract::Local(CryptoHash::hash_bytes(&[42])),
         };
@@ -669,8 +669,8 @@ mod tests {
     #[test]
     fn test_account_v2_borsh_serialization() {
         let account_v2 = AccountV2 {
-            amount: 10_000_000,
-            locked: 100_000,
+            amount: Balance::from_yoctonear(10_000_000),
+            locked: Balance::from_yoctonear(100_000),
             storage_usage: 1000,
             contract: AccountContract::Global(CryptoHash::hash_bytes(&[42])),
         };
@@ -721,8 +721,8 @@ mod tests {
     #[test]
     fn test_account_version_upgrade_behaviour() {
         let account_v1 = AccountV1 {
-            amount: 100,
-            locked: 200,
+            amount: Balance::from_yoctonear(100),
+            locked: Balance::from_yoctonear(200),
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 300,
         };

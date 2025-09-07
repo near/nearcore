@@ -211,7 +211,7 @@ mod test {
     const VALID_ED25519_RISTRETTO_KEY: &str = "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7";
 
     fn create_account() -> Account {
-        Account::new(100, 10, AccountContract::None, 0)
+        Account::new(Balance::from_yoctonear(100), Balance::from_yoctonear(10), AccountContract::None, 0)
     }
 
     #[test]
@@ -238,7 +238,7 @@ mod test {
         config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: PublicKey::empty(KeyType::ED25519),
-            amount: 10,
+            amount: Balance::from_yoctonear(10),
         }];
         let records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".parse().unwrap(),
@@ -255,9 +255,9 @@ mod test {
         config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
-            amount: 100,
+            amount: Balance::from_yoctonear(100),
         }];
-        config.total_supply = 110;
+        config.total_supply = Balance::from_yoctonear(110);
         let records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".parse().unwrap(),
             account: create_account(),
@@ -285,9 +285,9 @@ mod test {
         config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
-            amount: 10,
+            amount: Balance::from_yoctonear(10),
         }];
-        config.total_supply = 110;
+        config.total_supply = Balance::from_yoctonear(110);
         let records = GenesisRecords(vec![
             StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
             StateRecord::AccessKey {
@@ -307,9 +307,9 @@ mod test {
         config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
-            amount: 10,
+            amount: Balance::from_yoctonear(10),
         }];
-        config.total_supply = 110;
+        config.total_supply = Balance::from_yoctonear(110);
         let records = GenesisRecords(vec![
             StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
             StateRecord::Contract { account_id: "test".parse().unwrap(), code: [1, 2, 3].to_vec() },

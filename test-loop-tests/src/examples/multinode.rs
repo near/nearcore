@@ -3,9 +3,9 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Balance;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::ONE_NEAR;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
 };
@@ -56,11 +56,11 @@ fn test_cross_shard_token_transfer() {
 
     assert_eq!(
         rpc_node.view_account_query(env.test_loop_data(), &sender_account).amount,
-        initial_balance - transfer_amount
+        initial_balance.checked_sub(transfer_amount).unwrap()
     );
     assert_eq!(
         rpc_node.view_account_query(env.test_loop_data(), &receiver_account).amount,
-        initial_balance + transfer_amount
+        initial_balance.checked_add(transfer_amount).unwrap()
     );
 
     // Give the test a chance to finish off remaining events in the event loop, which can

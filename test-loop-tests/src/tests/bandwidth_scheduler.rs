@@ -53,11 +53,11 @@ use testlib::bandwidth_scheduler::{
     TestScenario, TestScenarioBuilder, TestSummary,
 };
 
+use near_primitives::types::Balance;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
 
 /// 3 shards, random receipt sizes
@@ -745,14 +745,14 @@ fn make_send_receipt_transaction(
         receipt: ReceiptEnum::Action(ActionReceipt {
             signer_id: sender_account.clone(),
             signer_public_key: sender_signer.public_key(),
-            gas_price: 0,
+            gas_price: Balance::ZERO,
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: method_name.clone(),
                 args: Vec::new(),
                 gas: Gas::ZERO,
-                deposit: 0,
+                deposit: Balance::ZERO,
             }))],
         }),
     }))
@@ -766,7 +766,7 @@ fn make_send_receipt_transaction(
         sender_account.clone(),
         sender_account,
         &sender_signer,
-        0,
+        Balance::ZERO,
         "do_function_call_with_args_of_size".to_string(),
         serde_json::json!({
             "account_id": receiver_account,

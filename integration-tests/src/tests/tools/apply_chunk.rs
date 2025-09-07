@@ -8,6 +8,7 @@ use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::Balance;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::get_num_seats_per_shard;
 use near_state_viewer::cli::StorageSource;
@@ -28,7 +29,7 @@ fn send_txs(env: &TestEnv, signers: &[Signer], height: u64, hash: CryptoHash) {
             from.parse().unwrap(),
             to.parse().unwrap(),
             &signer,
-            100,
+            Balance::from_yoctonear(100),
             hash,
         );
         assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

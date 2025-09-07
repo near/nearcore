@@ -19,7 +19,7 @@ use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfig;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::types::BlockHeightDelta;
 
@@ -112,7 +112,7 @@ fn slow_test_one_shard_congested() {
 
     // Send transfer from shard 1 to shard 1 – should succeed
     let block_time = client_actor.client.config.max_block_production_delay;
-    let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard1_acc2, ONE_NEAR);
+    let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard1_acc2, Balance::from_near(1));
     let tx_outcome = execute_tx(
         &mut env.test_loop,
         &rpc_id,
@@ -124,7 +124,7 @@ fn slow_test_one_shard_congested() {
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
 
     // Send transfer from shard 1 to shard 2 – should fail, because shard 2 is congested
-    let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard2_acc1, ONE_NEAR);
+    let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard2_acc1, Balance::from_near(1));
     let tx_error = execute_tx(
         &mut env.test_loop,
         &rpc_id,

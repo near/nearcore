@@ -5,7 +5,7 @@ use itertools::Itertools;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_vm_runner::logic::ProtocolVersion;
 

@@ -155,21 +155,22 @@ mod aliases {
 mod test {
     use crate::hash;
     use crate::rand::WeightedIndex;
+    use near_primitives_core::types::Balance;
 
     #[test]
     fn test_should_correctly_compute_odds_and_aliases() {
         // Example taken from https://www.keithschwarz.com/darts-dice-coins/
-        let weights = vec![5, 8, 4, 10, 4, 4, 5];
+        let weights = vec![Balance::from_yoctonear(5), Balance::from_yoctonear(8), Balance::from_yoctonear(4), Balance::from_yoctonear(10), Balance::from_yoctonear(4), Balance::from_yoctonear(4), Balance::from_yoctonear(5)];
         let weighted_index = WeightedIndex::new(weights);
 
         assert_eq!(weighted_index.get_aliases(), &[1, 0, 3, 1, 3, 3, 3]);
 
-        assert_eq!(weighted_index.get_no_alias_odds(), &[35, 40, 28, 29, 28, 28, 35]);
+        assert_eq!(weighted_index.get_no_alias_odds(), &[Balance::from_yoctonear(35), Balance::from_yoctonear(40), Balance::from_yoctonear(28), Balance::from_yoctonear(29), Balance::from_yoctonear(28), Balance::from_yoctonear(28), Balance::from_yoctonear(35)]);
     }
 
     #[test]
     fn test_sample_should_produce_correct_distribution() {
-        let weights = vec![5, 1, 1];
+        let weights = vec![Balance::from_yoctonear(5), Balance::from_yoctonear(1), Balance::from_yoctonear(1)];
         let weighted_index = WeightedIndex::new(weights);
 
         let n_samples = 1_000_000;

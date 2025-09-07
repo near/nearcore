@@ -118,6 +118,7 @@ impl Node for RuntimeNode {
 mod tests {
     use crate::node::Node;
     use crate::node::runtime_node::RuntimeNode;
+    use near_primitives::types::Balance;
     use testlib::fees_utils::FeeHelper;
     use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -127,12 +128,12 @@ mod tests {
         let node = RuntimeNode::new(&alice);
         let node_user = node.user();
         let (alice1, bob1) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());
-        node_user.send_money(alice.clone(), bob.clone(), 1).unwrap();
+        node_user.send_money(alice.clone(), bob.clone(), Balance::from_yoctonear(1)).unwrap();
         let runtime_config = node.client.as_ref().read().runtime_config.clone();
         let fee_helper = FeeHelper::new(runtime_config, node.genesis().config.min_gas_price);
         let transfer_cost = fee_helper.transfer_cost();
         let (alice2, bob2) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());
-        assert_eq!(alice2, alice1 - 1 - transfer_cost);
-        assert_eq!(bob2, bob1 + 1);
+        assert_eq!(alice2, alice1.checked_sub(Balance::from_yoctonear(1)).unwrap().checked_sub(transfer_cost).unwrap());
+        assert_eq!(bob2, bob1.checked_add(Balance::from_yoctonear(1)).unwrap());
     }
 }

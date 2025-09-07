@@ -895,10 +895,10 @@ mod tests {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: "signer_id".parse().unwrap(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: 0,
+                gas_price: Balance::ZERO,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+                actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
             }),
         });
         receipt_v0
@@ -912,10 +912,10 @@ mod tests {
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: "signer_id".parse().unwrap(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: 0,
+                gas_price: Balance::ZERO,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+                actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
             }),
             priority: 1,
         });

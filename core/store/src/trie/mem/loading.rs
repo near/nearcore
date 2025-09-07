@@ -185,6 +185,7 @@ pub fn load_trie_from_flat_state_and_delta(
 #[cfg(test)]
 mod tests {
     use super::load_trie_from_flat_state_and_delta;
+    use near_primitives::types::Balance;
     use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
     use crate::flat::test_utils::MockChain;
     use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
@@ -545,7 +546,7 @@ mod tests {
             Vec::new(),
             Gas::ZERO,
             Gas::ZERO,
-            0,
+            Balance::ZERO,
             Some(CongestionInfo::default()),
             BandwidthRequests::empty(),
         );

@@ -30,7 +30,7 @@ use crate::utils::account::{
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions;
 
-const GAS_PRICE = Balance::from_yoctonear(1);
+const GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
 #[test]
 fn test_global_contract_by_hash() {
@@ -44,7 +44,7 @@ fn test_global_contract_by_account_id() {
 
 #[test]
 fn test_global_contract_deploy_insufficient_balance_for_storage() {
-    let mut env = GlobalContractsTestEnv::setup(ONE_NEAR);
+    let mut env = GlobalContractsTestEnv::setup(Balance::from_near(1));
 
     let tx = env.deploy_global_contract_tx(GlobalContractDeployMode::CodeHash);
     let outcome = env.execute_tx(tx);
@@ -61,7 +61,7 @@ fn test_global_contract_deploy_insufficient_balance_for_storage() {
 
 #[test]
 fn test_use_non_existent_global_contract() {
-    let mut env = GlobalContractsTestEnv::setup(ONE_NEAR);
+    let mut env = GlobalContractsTestEnv::setup(Balance::from_near(1));
 
     let identifier = env.global_contract_identifier(&GlobalContractDeployMode::CodeHash);
     let tx = env.use_global_contract_tx(&env.account_shard_0.clone(), identifier);
@@ -127,11 +127,11 @@ fn test_global_contract_by_hash_rpc_calls() {
 }
 
 fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
-    const INITIAL_BALANCE = Balance::from_near(1000);
+    const INITIAL_BALANCE: Balance = Balance::from_near(1000);
     let mut env = GlobalContractsTestEnv::setup(INITIAL_BALANCE);
 
     env.deploy_global_contract(deploy_mode.clone());
-    let deploy_cost = INITIAL_BALANCE - env.get_account_state(env.deploy_account.clone()).amount;
+    let deploy_cost = INITIAL_BALANCE.checked_sub(env.get_account_state(env.deploy_account.clone()).amount).unwrap();
     assert_eq!(deploy_cost, env.deploy_global_contract_cost());
 
     for account in [env.account_shard_0.clone(), env.account_shard_1.clone()] {
@@ -140,7 +140,7 @@ fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
 
         env.use_global_contract(&account, identifier.clone());
         let account_state = env.get_account_state(account.clone());
-        let use_cost = INITIAL_BALANCE - account_state.amount;
+        let use_cost = INITIAL_BALANCE.checked_sub(account_state.amount).unwrap();
         assert_eq!(use_cost, env.use_global_contract_cost(&identifier));
         assert_eq!(
             account_state.storage_usage,
@@ -241,7 +241,7 @@ impl GlobalContractsTestEnv {
                 &[account_shard_0.clone(), account_shard_1.clone(), deploy_account.clone()],
                 initial_balance,
             )
-            .add_user_account_simple(zero_balance_account.clone(), 0)
+            .add_user_account_simple(zero_balance_account.clone(), Balance::ZERO)
             .gas_prices(GAS_PRICE, GAS_PRICE)
             .build();
 
@@ -372,7 +372,7 @@ impl GlobalContractsTestEnv {
             signer_id,
             receiver_id,
             &signer,
-            0,
+            Balance::ZERO,
             "log_something".to_owned(),
             vec![],
             Gas::from_teragas(300),
@@ -414,8 +414,8 @@ impl GlobalContractsTestEnv {
             .unwrap();
         let storage_cost =
             runtime_config.fees.storage_usage_config.global_contract_storage_amount_per_byte
-                * contract_size as Balance;
-        gas_fees.as_gas() as Balance * GAS_PRICE + storage_cost
+                .checked_mul(contract_size as u128).unwrap();
+        GAS_PRICE.checked_mul(gas_fees.as_gas().into()).unwrap().checked_add(storage_cost).unwrap()
     }
 
     fn use_global_contract_cost(&self, identifier: &GlobalContractIdentifier) -> Balance {
@@ -429,7 +429,7 @@ impl GlobalContractsTestEnv {
                     * identifier.len() as u64,
             ))
             .unwrap();
-        gas_fees.as_gas() as Balance * GAS_PRICE
+        GAS_PRICE.checked_mul(gas_fees.as_gas().into()).unwrap()
     }
 
     fn total_action_cost(fees: &RuntimeFeesConfig, cost: ActionCosts) -> Gas {

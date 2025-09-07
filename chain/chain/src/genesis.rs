@@ -368,12 +368,12 @@ mod test {
             .genesis_height(9820210)
             .genesis_time_from_clock(&FakeClock::default().clock())
             .epoch_length(43200)
-            .gas_prices(1e9 as Balance, 1e22 as Balance)
+            .gas_prices(Balance::from_yoctonear(1_000_000_000), Balance::from_millinear(10))
             .gas_limit_one_petagas()
             .transaction_validity_period(86400)
             .max_inflation_rate(Rational32::new(0, 1))
             .protocol_reward_rate(Rational32::new(0, 1))
-            .add_user_account_simple("alice".parse().unwrap(), 1_000_000)
+            .add_user_account_simple("alice".parse().unwrap(), Balance::from_yoctonear(1_000_000))
             .build();
 
         let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)

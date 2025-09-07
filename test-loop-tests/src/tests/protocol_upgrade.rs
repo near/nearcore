@@ -7,7 +7,7 @@ use near_chain_configs::test_genesis::{
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, Balance, BlockHeight, ShardId, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::ProtocolVersion;

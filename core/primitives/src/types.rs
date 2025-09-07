@@ -1333,15 +1333,15 @@ mod tests {
 
     #[test]
     fn test_validator_stake_num_mandates() {
-        assert_eq!(new_validator_stake(0).num_mandates(5), 0);
-        assert_eq!(new_validator_stake(10).num_mandates(5), 2);
-        assert_eq!(new_validator_stake(12).num_mandates(5), 2);
+        assert_eq!(new_validator_stake(Balance::ZERO).num_mandates(Balance::from_yoctonear(5)), 0);
+        assert_eq!(new_validator_stake(Balance::from_yoctonear(10)).num_mandates(Balance::from_yoctonear(5)), 2);
+        assert_eq!(new_validator_stake(Balance::from_yoctonear(12)).num_mandates(Balance::from_yoctonear(5)), 2);
     }
 
     #[test]
     fn test_validator_partial_mandate_weight() {
-        assert_eq!(new_validator_stake(0).partial_mandate_weight(5), 0);
-        assert_eq!(new_validator_stake(10).partial_mandate_weight(5), 0);
-        assert_eq!(new_validator_stake(12).partial_mandate_weight(5), 2);
+        assert_eq!(new_validator_stake(Balance::ZERO).partial_mandate_weight(Balance::from_yoctonear(5)), Balance::ZERO);
+        assert_eq!(new_validator_stake(Balance::from_yoctonear(10)).partial_mandate_weight(Balance::from_yoctonear(5)), Balance::ZERO);
+        assert_eq!(new_validator_stake(Balance::from_yoctonear(12)).partial_mandate_weight(Balance::from_yoctonear(5)), Balance::from_yoctonear(2));
     }
 }

@@ -775,6 +775,7 @@ impl Doomslug {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::types::Balance;
     use crate::Doomslug;
     use crate::doomslug::{
         DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
@@ -930,8 +931,8 @@ mod tests {
 
     #[test]
     fn test_doomslug_approvals() {
-        let accounts: Vec<(&str, u128, u128)> =
-            vec![("test1", 2, 0), ("test2", 1, 0), ("test3", 3, 0), ("test4", 1, 0)];
+        let accounts: Vec<(&str, Balance, Balance)> =
+            vec![("test1", Balance::from_yoctonear(2), Balance::ZERO), ("test2", Balance::from_yoctonear(1), Balance::ZERO), ("test3", Balance::from_yoctonear(3), Balance::ZERO), ("test4", Balance::from_yoctonear(1), Balance::ZERO)];
         let stakes = accounts
             .iter()
             .map(|(account_id, stake_this_epoch, stake_next_epoch)| ApprovalStake {
@@ -1050,7 +1051,7 @@ mod tests {
 
     #[test]
     fn test_doomslug_one_approval_per_target_height() {
-        let accounts = vec![("test1", 2, 0), ("test2", 1, 2), ("test3", 3, 3), ("test4", 2, 2)];
+        let accounts = vec![("test1", Balance::from_yoctonear(2), Balance::ZERO), ("test2", Balance::from_yoctonear(1), Balance::from_yoctonear(2)), ("test3", Balance::from_yoctonear(3), Balance::from_yoctonear(3)), ("test4", Balance::from_yoctonear(2), Balance::from_yoctonear(2))];
         let signers = accounts
             .iter()
             .map(|(account_id, _, _)| create_test_signer(account_id))
@@ -1084,7 +1085,7 @@ mod tests {
                 .get(&ApprovalInner::Skip(1))
                 .unwrap()
                 .approved_stake_this_epoch,
-            2
+            Balance::from_yoctonear(2)
         );
 
         assert_eq!(
@@ -1093,7 +1094,7 @@ mod tests {
                 .get(&ApprovalInner::Skip(1))
                 .unwrap()
                 .approved_stake_next_epoch,
-            0
+            Balance::ZERO
         );
 
         tracker.process_approval(&a1_1, &stakes, DoomslugThresholdMode::TwoThirds);
@@ -1104,7 +1105,7 @@ mod tests {
                 .get(&ApprovalInner::Skip(1))
                 .unwrap()
                 .approved_stake_this_epoch,
-            2
+            Balance::from_yoctonear(2)
         );
 
         assert_eq!(
@@ -1113,7 +1114,7 @@ mod tests {
                 .get(&ApprovalInner::Skip(1))
                 .unwrap()
                 .approved_stake_next_epoch,
-            0
+            Balance::ZERO
         );
 
         // Process the remaining two approvals on the first block
@@ -1126,7 +1127,7 @@ mod tests {
                 .get(&ApprovalInner::Skip(1))
                 .unwrap()
                 .approved_stake_this_epoch,
-            6
+            Balance::from_yoctonear(6)
         );
 
         assert_eq!(
@@ -1135,7 +1136,7 @@ mod tests {
                 .get(&ApprovalInner::Skip(1))
                 .unwrap()
                 .approved_stake_next_epoch,
-            5
+            Balance::from_yoctonear(5)
         );
 
         // Process new approvals one by one, expect the approved and endorsed stake to slowly decrease
@@ -1147,7 +1148,7 @@ mod tests {
                 .get(&ApprovalInner::Skip(1))
                 .unwrap()
                 .approved_stake_this_epoch,
-            4
+            Balance::from_yoctonear(4)
         );
 
         assert_eq!(
@@ -1156,7 +1157,7 @@ mod tests {
                 .get(&ApprovalInner::Skip(1))
                 .unwrap()
                 .approved_stake_next_epoch,
-            5
+            Balance::from_yoctonear(5)
         );
 
         tracker.process_approval(&a2_2, &stakes, DoomslugThresholdMode::TwoThirds);
@@ -1167,7 +1168,7 @@ mod tests {
                 .get(&ApprovalInner::Skip(1))
                 .unwrap()
                 .approved_stake_this_epoch,
-            3
+            Balance::from_yoctonear(3)
         );
 
         assert_eq!(
@@ -1176,7 +1177,7 @@ mod tests {
                 .get(&ApprovalInner::Skip(1))
                 .unwrap()
                 .approved_stake_next_epoch,
-            3
+            Balance::from_yoctonear(3)
         );
 
         // As we update the last of the three approvals, the tracker for the first block should be completely removed
@@ -1193,7 +1194,7 @@ mod tests {
                 .get(&ApprovalInner::Endorsement(hash(&[3])))
                 .unwrap()
                 .approved_stake_this_epoch,
-            6
+            Balance::from_yoctonear(6)
         );
 
         assert_eq!(
@@ -1202,7 +1203,7 @@ mod tests {
                 .get(&ApprovalInner::Endorsement(hash(&[3])))
                 .unwrap()
                 .approved_stake_next_epoch,
-            5
+            Balance::from_yoctonear(5)
         );
 
         tracker.process_approval(&a2_3, &stakes, DoomslugThresholdMode::TwoThirds);
@@ -1213,7 +1214,7 @@ mod tests {
                 .get(&ApprovalInner::Endorsement(hash(&[3])))
                 .unwrap()
                 .approved_stake_this_epoch,
-            6
+            Balance::from_yoctonear(6)
         );
 
         assert_eq!(
@@ -1222,7 +1223,7 @@ mod tests {
                 .get(&ApprovalInner::Endorsement(hash(&[3])))
                 .unwrap()
                 .approved_stake_next_epoch,
-            5
+            Balance::from_yoctonear(5)
         );
     }
 }

@@ -1059,7 +1059,7 @@ mod tests {
     /// Tests that `num_validators` returns the number of all validators including both block and chunk producers.
     #[test]
     fn test_num_validators() {
-        let amount_staked = 1_000_000;
+        let amount_staked = Balance::from_yoctonear(1_000_000);
         let validators = vec![
             ("test1".parse().unwrap(), amount_staked),
             ("test2".parse().unwrap(), amount_staked),

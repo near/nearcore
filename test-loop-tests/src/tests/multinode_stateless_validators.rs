@@ -7,7 +7,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetValidatorInfo, ViewClientActorInner};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, EpochId, EpochReference};
+use near_primitives::types::{AccountId, Balance, EpochId, EpochReference};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 
 use crate::setup::builder::TestLoopBuilder;

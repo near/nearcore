@@ -10,7 +10,7 @@ use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::receipt::ReceiptEnum;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::ContractCode;
 
