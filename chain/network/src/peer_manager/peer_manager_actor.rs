@@ -829,6 +829,12 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::StateRequestHeader { shard_id, sync_hash, sync_prev_prev_hash } => {
+                // The node needs to include its own public address in the request
+                // so that the response can be sent over a direct Tier3 connection.
+                let Some(addr) = *self.state.my_public_addr.read() else {
+                    return NetworkResponses::MyPublicAddrNotKnown;
+                };
+
                 // Select a peer which has advertised availability of the desired
                 // state snapshot.
                 let Some(peer_id) = self
@@ -838,24 +844,6 @@ impl PeerManagerActor {
                 else {
                     tracing::debug!(target: "network", %shard_id, ?sync_hash, "no snapshot hosts available");
                     return NetworkResponses::NoDestinationsAvailable;
-                };
-
-                // If we have a direct connection we can simply send a StateRequestHeader message
-                // over it. This is a bit of a hack for upgradability and can be deleted in the
-                // next release.
-                {
-                    if self.state.tier2.send_message(
-                        peer_id.clone(),
-                        Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
-                    ) {
-                        return NetworkResponses::SelectedDestination(peer_id);
-                    }
-                }
-
-                // The node needs to include its own public address in the request
-                // so that the response can be sent over a direct Tier3 connection.
-                let Some(addr) = *self.state.my_public_addr.read() else {
-                    return NetworkResponses::MyPublicAddrNotKnown;
                 };
 
                 let routed_message = self.state.sign_message(
@@ -1444,6 +1432,7 @@ impl actix::Handler<Tier3Request> for PeerManagerActor {
                 let sender: PeerId = request.peer_info.id.clone();
 
                 // Send an ack for the request
+                tracing::debug!(target: "network", ?tier2_ack, "ack state request from host {sender}");
                 let routed_message = state.sign_message(
                     &clock,
                     RawRoutedMessage {
