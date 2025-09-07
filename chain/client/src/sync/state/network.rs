@@ -88,11 +88,7 @@ impl StateSyncDownloadSourcePeerSharedState {
             }
         };
 
-        let key = PendingPeerRequestKey {
-            shard_id,
-            sync_hash: msg.sync_hash(),
-            part_id_or_header,
-        };
+        let key = PendingPeerRequestKey { shard_id, sync_hash: msg.sync_hash(), part_id_or_header };
 
         let Some(request) = self.pending_requests.get_mut(&key) else {
             tracing::debug!(target: "sync", "Received {:?} from {}", key, peer_id);
