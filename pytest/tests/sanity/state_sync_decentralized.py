@@ -147,8 +147,7 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
                 )
             assert num_headers > 0 and num_parts > 0, f"Node {i} did not state sync, but is expected to in this test"
 
-            acks = metrics.get_metric_all_values(
-                "near_state_sync_peer_acks")
+            acks = metrics.get_metric_all_values("near_state_sync_peer_acks")
 
             num_will_respond_header = 0
             num_will_respond_part = 0
