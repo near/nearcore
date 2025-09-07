@@ -82,6 +82,19 @@ impl StateSyncDownloadSourcePeerSharedState {
 
         match msg {
             StateResponse::Ack(ack) => {
+                let typ = match &key.part_id_or_header {
+                    PartIdOrHeader::Part { .. } => "part",
+                    PartIdOrHeader::Header => "header",
+                };
+                let label = match ack.body {
+                    StateRequestAckBody::Busy => "busy",
+                    StateRequestAckBody::Error => "error",
+                    StateRequestAckBody::WillRespond => "will_respond",
+                };
+                metrics::STATE_SYNC_PEER_ACKS
+                    .with_label_values(&[&key.shard_id.to_string(), typ, label])
+                    .inc();
+
                 match ack.body {
                     StateRequestAckBody::Busy | StateRequestAckBody::Error => {
                         // We received a message indicating that the peer won't send a response.
