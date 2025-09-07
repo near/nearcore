@@ -63,10 +63,35 @@ impl StateSyncDownloadSourcePeerSharedState {
         peer_id: PeerId,
         msg: StateResponse,
     ) -> Result<(), near_chain::Error> {
+        let shard_id = msg.shard_id();
+        let part_id_or_header = msg.part_id_or_header();
+
+        let typ = match &part_id_or_header {
+            PartIdOrHeader::Part { .. } => "part",
+            PartIdOrHeader::Header => "header",
+        };
+        match msg {
+            StateResponse::Ack(ref ack) => {
+                let label = match ack.body {
+                    StateRequestAckBody::Busy => "busy",
+                    StateRequestAckBody::Error => "error",
+                    StateRequestAckBody::WillRespond => "will_respond",
+                };
+                metrics::STATE_SYNC_PEER_MSGS
+                    .with_label_values(&[&shard_id.to_string(), typ, label])
+                    .inc();
+            }
+            StateResponse::State(_) => {
+                metrics::STATE_SYNC_PEER_MSGS
+                    .with_label_values(&[&shard_id.to_string(), typ, "state"])
+                    .inc();
+            }
+        };
+
         let key = PendingPeerRequestKey {
-            shard_id: msg.shard_id(),
+            shard_id,
             sync_hash: msg.sync_hash(),
-            part_id_or_header: msg.part_id_or_header(),
+            part_id_or_header,
         };
 
         let Some(request) = self.pending_requests.get_mut(&key) else {
@@ -82,19 +107,6 @@ impl StateSyncDownloadSourcePeerSharedState {
 
         match msg {
             StateResponse::Ack(ack) => {
-                let typ = match &key.part_id_or_header {
-                    PartIdOrHeader::Part { .. } => "part",
-                    PartIdOrHeader::Header => "header",
-                };
-                let label = match ack.body {
-                    StateRequestAckBody::Busy => "busy",
-                    StateRequestAckBody::Error => "error",
-                    StateRequestAckBody::WillRespond => "will_respond",
-                };
-                metrics::STATE_SYNC_PEER_ACKS
-                    .with_label_values(&[&key.shard_id.to_string(), typ, label])
-                    .inc();
-
                 match ack.body {
                     StateRequestAckBody::Busy | StateRequestAckBody::Error => {
                         // We received a message indicating that the peer won't send a response.

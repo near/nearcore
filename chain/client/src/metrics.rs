@@ -510,12 +510,12 @@ pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_PEER_ACKS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+pub(crate) static STATE_SYNC_PEER_MSGS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "near_state_sync_peer_acks",
-        "Count of number of state sync peer acks by request type (header, part),
-               and acknowledgment status (will_respond, busy, error)",
-        &["shard_id", "type", "status"],
+        "near_state_sync_peer_msgs",
+        "Count of number of state sync peer messages by state type (header, part),
+               and message content (will_respond, busy, error, state)",
+        &["shard_id", "type", "content"],
     )
     .unwrap()
 });
