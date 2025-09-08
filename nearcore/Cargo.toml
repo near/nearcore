@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 actix-rt.workspace = true
-actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true

@@ -5172,7 +5172,6 @@ dependencies = [
 name = "near-transactions-generator"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "near-async",
  "near-client",
@@ -5565,7 +5564,6 @@ dependencies = [
 name = "nearcore"
 version = "0.0.0"
 dependencies = [
- "actix",
  "actix-rt",
  "anyhow",
  "bencher",
