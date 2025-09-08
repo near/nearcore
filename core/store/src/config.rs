@@ -116,6 +116,9 @@ pub struct StoreConfig {
     pub migration_snapshot: MigrationSnapshot,
 
     pub state_snapshot_config: StateSnapshotConfig,
+
+    #[serde(skip_serializing_if = "RocksDbConfig::is_default")]
+    pub rocksdb: RocksDbConfig,
 }
 
 impl StoreConfig {
@@ -302,6 +305,8 @@ impl Default for StoreConfig {
             migration_snapshot: Default::default(),
 
             state_snapshot_config: Default::default(),
+
+            rocksdb: Default::default(),
         }
     }
 }
@@ -420,6 +425,90 @@ fn default_cold_store_loop_sleep_duration() -> Duration {
     Duration::seconds(1)
 }
 
+/// RocksDB configuration options.
+///
+/// These options control database-wide behavior and performance characteristics.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct RocksDbConfig {
+    /// Bytes to sync per sync operation for data files.
+    /// Helps smooth I/O by syncing incrementally rather than in large bursts.
+    #[serde(default = "default_rocksdb_bytes_per_sync")]
+    pub bytes_per_sync: bytesize::ByteSize,
+
+    /// Bytes to sync per sync operation for WAL files.
+    /// Reduces latency spikes from large fsync bursts during WAL writes.
+    #[serde(default = "default_rocksdb_wal_bytes_per_sync")]
+    pub wal_bytes_per_sync: bytesize::ByteSize,
+
+    /// Enable pipelined write path to reduce write stall latency.
+    #[serde(default = "default_rocksdb_enable_pipelined_write")]
+    pub enable_pipelined_write: bool,
+
+    /// Size of a single memtable (write buffer).
+    /// Larger values reduce flush frequency but use more memory.
+    #[serde(default = "default_rocksdb_write_buffer_size")]
+    pub write_buffer_size: bytesize::ByteSize,
+
+    /// Target size for level 1 in the LSM tree.
+    /// Controls the size of the first level after L0.
+    #[serde(default = "default_rocksdb_max_bytes_for_level_base")]
+    pub max_bytes_for_level_base: bytesize::ByteSize,
+
+    /// Maximum total size of WAL files before forcing a flush.
+    #[serde(default = "default_rocksdb_max_total_wal_size")]
+    pub max_total_wal_size: bytesize::ByteSize,
+
+    /// Override for RocksDB parallelism (background threads).
+    /// If None, uses max(1, num_cpus / 2). Only applies when not using single_thread_rocksdb.
+    #[serde(default)]
+    pub parallelism: Option<i32>,
+}
+
+impl Default for RocksDbConfig {
+    fn default() -> Self {
+        Self {
+            bytes_per_sync: default_rocksdb_bytes_per_sync(),
+            wal_bytes_per_sync: default_rocksdb_wal_bytes_per_sync(),
+            enable_pipelined_write: default_rocksdb_enable_pipelined_write(),
+            write_buffer_size: default_rocksdb_write_buffer_size(),
+            max_bytes_for_level_base: default_rocksdb_max_bytes_for_level_base(),
+            max_total_wal_size: default_rocksdb_max_total_wal_size(),
+            parallelism: None,
+        }
+    }
+}
+
+impl RocksDbConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+fn default_rocksdb_bytes_per_sync() -> bytesize::ByteSize {
+    bytesize::ByteSize::mib(1)
+}
+
+fn default_rocksdb_wal_bytes_per_sync() -> bytesize::ByteSize {
+    bytesize::ByteSize::mib(1)
+}
+
+fn default_rocksdb_enable_pipelined_write() -> bool {
+    true
+}
+
+fn default_rocksdb_write_buffer_size() -> bytesize::ByteSize {
+    bytesize::ByteSize::mib(256)
+}
+
+fn default_rocksdb_max_bytes_for_level_base() -> bytesize::ByteSize {
+    bytesize::ByteSize::mib(256)
+}
+
+fn default_rocksdb_max_total_wal_size() -> bytesize::ByteSize {
+    bytesize::ByteSize::gib(4)
+}
+
 /// Parameters for prefetching certain contract calls.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -454,4 +543,27 @@ pub enum CloudStorageLocation {
         /// GCS bucket containing the archival storage objects.
         _bucket: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RocksDbConfig, StoreConfig};
+
+    #[test]
+    fn rocksdb_config_override_single_field() {
+        let json = r#"{ "wal_bytes_per_sync": 3145728 }"#;
+        let cfg: RocksDbConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.wal_bytes_per_sync.as_u64(), bytesize::ByteSize::mib(3).as_u64());
+        // Unset fields remain at default
+        assert_eq!(cfg.bytes_per_sync.as_u64(), bytesize::ByteSize::mib(1).as_u64());
+    }
+
+    #[test]
+    fn legacy_store_config_without_rocksdb_field_loads() {
+        // Simulate legacy StoreConfig JSON without the `rocksdb` key
+        let json = "{}";
+        let store: StoreConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(store.rocksdb.bytes_per_sync.as_u64(), bytesize::ByteSize::mib(1).as_u64());
+        assert_eq!(store.rocksdb.wal_bytes_per_sync.as_u64(), bytesize::ByteSize::mib(1).as_u64());
+    }
 }

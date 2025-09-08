@@ -473,9 +473,11 @@ impl Database for RocksDB {
         let Some(columns_to_keep) = columns_to_keep else {
             return Ok(());
         };
-        let opts = common_rocksdb_options();
+        // For this operation (drop CF) we use the default RocksDB configuration.
+        let default_store_config = StoreConfig::default();
+        let opts = common_rocksdb_options(&default_store_config.rocksdb);
         let cfs =
-            cf_descriptors(&DBCol::iter().collect_vec(), &StoreConfig::default(), Temperature::Hot);
+            cf_descriptors(&DBCol::iter().collect_vec(), &default_store_config, Temperature::Hot);
         let mut db = DB::open_cf_descriptors(&opts, path, cfs)
             .with_context(|| format!("failed to open checkpoint at {}", path.display()))?;
         for col in DBCol::iter() {
@@ -524,19 +526,18 @@ fn cf_descriptors(
 }
 
 /// DB level options
-fn common_rocksdb_options() -> Options {
+fn common_rocksdb_options(rocksdb_config: &crate::config::RocksDbConfig) -> Options {
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
     opts.set_use_fsync(false);
     opts.set_keep_log_file_num(1);
-    opts.set_bytes_per_sync(bytesize::MIB);
-    // Sync WAL roughly every 1 MiB to smooth I/O and reduce latency spikes from large fsync bursts
-    opts.set_wal_bytes_per_sync(bytesize::MIB);
-    // Reduce write stall latency by enabling pipelined write path
-    opts.set_enable_pipelined_write(true);
-    opts.set_write_buffer_size(256 * bytesize::MIB as usize);
-    opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
+    opts.set_bytes_per_sync(rocksdb_config.bytes_per_sync.as_u64());
+    opts.set_wal_bytes_per_sync(rocksdb_config.wal_bytes_per_sync.as_u64());
+    opts.set_enable_pipelined_write(rocksdb_config.enable_pipelined_write);
+    opts.set_write_buffer_size(rocksdb_config.write_buffer_size.as_u64() as usize);
+    opts.set_max_bytes_for_level_base(rocksdb_config.max_bytes_for_level_base.as_u64());
+    opts.set_max_total_wal_size(rocksdb_config.max_total_wal_size.as_u64());
 
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
@@ -547,14 +548,16 @@ fn common_rocksdb_options() -> Options {
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_stop_writes_trigger(100000000);
     } else {
-        opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
-        opts.set_max_total_wal_size(4 * bytesize::GIB);
+        let parallelism = rocksdb_config
+            .parallelism
+            .unwrap_or_else(|| std::cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.increase_parallelism(parallelism);
     }
     opts
 }
 
 fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
-    let mut opts = common_rocksdb_options();
+    let mut opts = common_rocksdb_options(&store_config.rocksdb);
     opts.create_missing_column_families(mode.read_write());
     opts.create_if_missing(mode.can_create());
     opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
