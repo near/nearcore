@@ -20,7 +20,7 @@ use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId, Gas, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -307,7 +307,7 @@ impl ChunkProducer {
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.adversarial.produce_invalid_chunks {
-            gas_used.checked_add(Gas::from_gas(1)).unwrap()
+            gas_used.checked_add(near_primitives::types::Gas::from_gas(1)).unwrap()
         } else {
             gas_used
         };
