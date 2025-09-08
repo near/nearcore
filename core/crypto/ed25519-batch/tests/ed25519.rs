@@ -1,8 +1,9 @@
-// cspell:ignore csprng dumbin jewellery
+// cspell:ignore csprng
 // This file is based on https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/ed25519-dalek/benches/ed25519_benchmarks.rs
 // Modifications:
 // - Modified test for `safe_verify_batch_seven_signatures` to use `safe_verify_batch`.
 // - Removed other tests.
+// - Replaced messages with same message used in benchmarks
 //
 // This file is part of ed25519-dalek.
 // Copyright (c) 2017-2019 isis lovecruft
@@ -16,23 +17,18 @@ use ed25519_dalek::*;
 mod integrations {
     use super::*;
     use near_crypto_ed25519_batch::safe_verify_batch;
+    use near_crypto_ed25519_batch::test_utils::MESSAGE_TO_SIGN;
     use rand::rngs::OsRng;
 
     #[test]
     fn safe_verify_batch_seven_signatures() {
-        let messages: [&[u8]; 7] = [
-            b"Watch closely everyone, I'm going to show you how to kill a god.",
-            b"I'm not a cryptographer I just encrypt a lot.",
-            b"Still not a cryptographer.",
-            b"This is a test of the tsunami alert system. This is only a test.",
-            b"Fuck dumbin' it down, spit ice, skip jewellery: Molotov cocktails on me like accessories.",
-            b"Hey, I never cared about your bucks, so if I run up with a mask on, probably got a gas can too.",
-            b"And I'm not here to fill 'er up. Nope, we came to riot, here to incite, we don't want any of your stuff.", ];
+        let num_messages = 7;
+        let messages: Vec<&[u8]> = (0..num_messages).map(|_| MESSAGE_TO_SIGN).collect();
         let mut csprng = OsRng;
         let mut verifying_keys: Vec<VerifyingKey> = Vec::new();
         let mut signatures: Vec<Signature> = Vec::new();
 
-        for msg in messages {
+        for msg in &messages {
             let signing_key: SigningKey = SigningKey::generate(&mut csprng);
             signatures.push(signing_key.sign(msg));
             verifying_keys.push(signing_key.verifying_key());
@@ -51,14 +47,8 @@ mod integrations {
         use std::io::BufReader;
 
         // Same seven messages as safe_verify_batch_seven_signatures
-        let messages: [&[u8]; 7] = [
-            b"Watch closely everyone, I'm going to show you how to kill a god.",
-            b"I'm not a cryptographer I just encrypt a lot.",
-            b"Still not a cryptographer.",
-            b"This is a test of the tsunami alert system. This is only a test.",
-            b"Fuck dumbin' it down, spit ice, skip jewellery: Molotov cocktails on me like accessories.",
-            b"Hey, I never cared about your bucks, so if I run up with a mask on, probably got a gas can too.",
-            b"And I'm not here to fill 'er up. Nope, we came to riot, here to incite, we don't want any of your stuff.", ];
+        let num_messages = 7;
+        let messages: Vec<&[u8]> = (0..num_messages).map(|_| MESSAGE_TO_SIGN).collect();
         let mut csprng = OsRng;
         let mut signing_keys: Vec<SigningKey> = Vec::new();
         let mut signatures: Vec<Signature> = Vec::new();
@@ -79,7 +69,7 @@ mod integrations {
             panic!("Problem in deserializing the test instances file");
         };
 
-        for msg in messages {
+        for msg in &messages {
             let signing_key = SigningKey::generate(&mut csprng);
             signatures.push(signing_key.sign(msg));
             signing_keys.push(signing_key);

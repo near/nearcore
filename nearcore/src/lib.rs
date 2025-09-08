@@ -4,12 +4,10 @@ pub use crate::config::{NearConfig, init_configs, load_config, load_test_config}
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
 
-use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::StateSyncDumper;
 use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
-use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::wrapper::{ActixWrapper, SyncActixWrapper, spawn_sync_actix_actor};
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
@@ -27,6 +25,7 @@ use near_chain::{
 use near_chain_configs::ReshardingHandle;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
+use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::gc_actor::GCActor;
 use near_client::{
     ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
@@ -46,10 +45,10 @@ use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::broadcast;
 
 pub mod append_only_map;
-pub mod cold_storage;
 pub mod config;
 #[cfg(test)]
 mod config_duration_test;
@@ -227,10 +226,9 @@ pub struct NearNode {
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
     pub arbiters: Vec<ArbiterHandle>,
-    pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
-    /// It's a handle to a background thread that copies data from the hot store to the cold store.
-    pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
+    /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
+    pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
     /// Contains handles to background threads that may be dumping state to S3.
     pub state_sync_dumper: StateSyncDumper,
     // A handle that allows the main process to interrupt resharding if needed.
@@ -332,8 +330,20 @@ pub fn start_with_config_and_synchronization(
             (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
         };
 
-    let cold_store_loop_handle =
-        spawn_cold_store_loop(&config, &storage, epoch_manager.clone(), shard_tracker.clone())?;
+    let result = create_cold_store_actor(
+        config.config.save_trie_changes,
+        &config.config.split_storage.clone().unwrap_or_default(),
+        config.genesis.config.genesis_height,
+        &storage,
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+    )?;
+    let cold_store_loop_handle = if let Some((actor, keep_going)) = result {
+        let _cold_store_addr = actor_system.spawn_tokio_actor(actor);
+        Some(keep_going)
+    } else {
+        None
+    };
 
     let telemetry = ActixWrapper::new(TelemetryActor::new(config.telemetry_config.clone())).start();
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
@@ -468,7 +478,7 @@ pub fn start_with_config_and_synchronization(
         chunk_state_witness: chunk_validation_actor.into_sender(),
     });
     let shards_manager_actor = start_shards_manager(
-        actor_system,
+        actor_system.clone(),
         epoch_manager.clone(),
         view_epoch_manager.clone(),
         shard_tracker.clone(),
@@ -513,7 +523,6 @@ pub fn start_with_config_and_synchronization(
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
-    let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
         storage.into_inner(near_store::Temperature::Hot),
@@ -539,7 +548,7 @@ pub fn start_with_config_and_synchronization(
             hot_store,
             cold_store,
         };
-        rpc_servers.extend(near_jsonrpc::start_http(
+        near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone().into_multi_sender(),
@@ -549,25 +558,22 @@ pub fn start_with_config_and_synchronization(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
-        ));
+            actor_system.new_future_spawner().as_ref(),
+        );
     }
 
     #[cfg(feature = "rosetta_rpc")]
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
-        rpc_servers.push((
-            "Rosetta RPC",
-            near_rosetta_rpc::start_rosetta_rpc(
-                rosetta_rpc_config,
-                config.genesis,
-                genesis_block.header().hash(),
-                client_actor.clone(),
-                view_client_addr.clone(),
-                rpc_handler.clone(),
-            ),
-        ));
+        near_rosetta_rpc::start_rosetta_rpc(
+            rosetta_rpc_config,
+            config.genesis,
+            genesis_block.header().hash(),
+            client_actor.clone(),
+            view_client_addr.clone(),
+            rpc_handler.clone(),
+            actor_system.new_future_spawner().as_ref(),
+        );
     }
-
-    rpc_servers.shrink_to_fit();
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
@@ -590,7 +596,6 @@ pub fn start_with_config_and_synchronization(
         rpc_handler,
         #[cfg(feature = "tx_generator")]
         tx_generator,
-        rpc_servers,
         arbiters,
         cold_store_loop_handle,
         state_sync_dumper,

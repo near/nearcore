@@ -2,10 +2,10 @@
 //!
 //! Run with `cargo bench --bench state_witness_borsh`
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use std::time::Duration;
-
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
+use std::hint::black_box;
+use std::time::Duration;
 use testlib::state_witness_test_data;
 
 fn borsh_benchmark(c: &mut Criterion) {

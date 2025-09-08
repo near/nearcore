@@ -3,6 +3,7 @@ use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ProtocolConfig;
+use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_configs::ReshardingConfig;
 use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -23,7 +24,7 @@ use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
@@ -205,6 +206,8 @@ pub struct ChainConfig {
     pub background_migration_threads: usize,
     /// The resharding configuration.
     pub resharding_config: MutableConfigValue<ReshardingConfig>,
+    /// The epoch to check for protocol version compatibility.
+    pub protocol_version_check: ProtocolVersionCheckConfig,
 }
 
 impl ChainConfig {
@@ -217,6 +220,7 @@ impl ChainConfig {
                 ReshardingConfig::test(),
                 "resharding_config",
             ),
+            protocol_version_check: Default::default(),
         }
     }
 }
@@ -482,16 +486,17 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
-    ) -> Result<Vec<u8>, Error>;
+    ) -> Result<StatePart, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
+    /// TODO(cloud_archival) #14124 newtype for validated state parts
     fn validate_state_part(
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: PartId,
-        data: &[u8],
+        part: &StatePart,
     ) -> bool;
 
     /// Should be executed after accepting all the parts to set up a new state.
@@ -500,7 +505,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: PartId,
-        part: &[u8],
+        part: &StatePart,
         epoch_id: &EpochId,
     ) -> Result<(), Error>;
 

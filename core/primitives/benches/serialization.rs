@@ -76,7 +76,7 @@ fn create_block() -> Block {
         Clock::real(),
         None,
         None,
-        vec![],
+        None,
     )
 }
 

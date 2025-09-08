@@ -1,4 +1,3 @@
-use std::any::type_name;
 use std::fmt::Debug;
 
 use futures::FutureExt;
@@ -9,6 +8,7 @@ use crate::messaging::{
     AsyncSendError, CanSend, CanSendAsync, HandlerWithContext, Message, MessageWithCallback,
 };
 use crate::tokio::runtime_handle::{TokioRuntimeHandle, TokioRuntimeMessage};
+use crate::{next_message_sequence_num, pretty_type_name};
 
 impl<A, M> CanSend<M> for TokioRuntimeHandle<A>
 where
@@ -16,14 +16,18 @@ where
     M: Message + Debug + Send + 'static,
 {
     fn send(&self, message: M) {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
-        tracing::debug!(target: "tokio_runtime", "Sending sync message: {}", description);
+        let seq = next_message_sequence_num();
+        let message_type = pretty_type_name::<A>();
+        tracing::trace!(target: "tokio_runtime", seq, message_type, ?message, "sending sync message");
 
-        let function =
-            |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| actor.handle(message, ctx);
+        let function = |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
+            actor.handle(message, ctx);
+        };
 
-        let message = TokioRuntimeMessage { description, function: Box::new(function) };
-        self.sender.send(message).unwrap();
+        let message = TokioRuntimeMessage { seq, function: Box::new(function) };
+        if let Err(_) = self.sender.send(message) {
+            tracing::info!(target: "tokio_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
+        }
     }
 }
 
@@ -35,16 +39,25 @@ where
     R: Send + 'static,
 {
     fn send(&self, message: MessageWithCallback<M, R>) {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
-        tracing::debug!(target: "tokio_runtime", "Sending sync message with callback: {}", description);
+        let seq = next_message_sequence_num();
+        let message_type = pretty_type_name::<A>();
+        tracing::trace!(
+            target: "tokio_runtime",
+            seq,
+            message_type,
+            ?message,
+            "sending sync message with callback"
+        );
 
         let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
             let result = actor.handle(message.message, ctx);
             (message.callback)(std::future::ready(Ok(result)).boxed());
         };
 
-        let message = TokioRuntimeMessage { description, function: Box::new(function) };
-        self.sender.send(message).unwrap();
+        let message = TokioRuntimeMessage { seq, function: Box::new(function) };
+        if let Err(_) = self.sender.send(message) {
+            tracing::info!(target: "tokio_runtime", seq, "Ignoring sync message with callback, receiving actor is being shut down");
+        }
     }
 }
 
@@ -55,26 +68,28 @@ where
     R: Debug + Send + 'static,
 {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
-        let description = format!("{}({:?})", pretty_type_name::<A>(), &message);
-        tracing::debug!(target: "tokio_runtime", "Sending async message: {}", description);
-
+        let seq = next_message_sequence_num();
+        let message_type = pretty_type_name::<A>();
+        tracing::trace!(target: "tokio_runtime", seq, message_type, ?message, "sending async message");
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let future = async move { receiver.await.map_err(|_| AsyncSendError::Dropped) };
         let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
             let result = actor.handle(message, ctx);
             sender.send(result).unwrap();
         };
-
-        let message = TokioRuntimeMessage { description, function: Box::new(function) };
-        self.sender.send(message).unwrap();
-        future.boxed()
+        let message = TokioRuntimeMessage { seq, function: Box::new(function) };
+        if let Err(_) = self.sender.send(message) {
+            async { Err(AsyncSendError::Dropped) }.boxed()
+        } else {
+            future.boxed()
+        }
     }
 }
 
 impl<A> FutureSpawner for TokioRuntimeHandle<A> {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
-        tracing::debug!(target: "tokio_runtime", "Spawning future: FutureSpawn({})", description);
-        self.runtime.spawn(f);
+        tracing::debug!(target: "tokio_runtime", description, "spawning future");
+        self.runtime_handle.spawn(f);
     }
 }
 
@@ -84,26 +99,19 @@ where
 {
     fn run_later_boxed(
         &mut self,
-        name: &str,
+        name: &'static str,
         dur: near_time::Duration,
         f: Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send + 'static>,
     ) {
-        let description = format!("DelayedAction {}({:?})", pretty_type_name::<A>(), name);
-        tracing::debug!(target: "tokio_runtime", "Sending delayed action: {}", description);
-
+        let seq = next_message_sequence_num();
+        tracing::debug!(target: "tokio_runtime", seq, name, "sending delayed action");
         let sender = self.sender.clone();
-        self.runtime.spawn(async move {
+        self.runtime_handle.spawn(async move {
             tokio::time::sleep(dur.unsigned_abs()).await;
             let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| f(actor, ctx);
-            let message = TokioRuntimeMessage { description, function: Box::new(function) };
-            sender.send(message).unwrap();
+            let message = TokioRuntimeMessage { seq, function: Box::new(function) };
+            // It's ok for this to fail; it means the runtime is shutting down already.
+            sender.send(message).ok();
         });
     }
-}
-
-// Quick and dirty way of getting the type name without the module path.
-// Does not work for more complex types like std::sync::Arc<std::sync::atomic::AtomicBool<...>>
-// example near_chunks::shards_manager_actor::ShardsManagerActor -> ShardsManagerActor
-fn pretty_type_name<T>() -> &'static str {
-    type_name::<T>().split("::").last().unwrap()
 }

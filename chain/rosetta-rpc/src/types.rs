@@ -23,10 +23,3 @@ impl fmt::Debug for AccountId {
         fmt::Debug::fmt(&self.0, f)
     }
 }
-
-use paperclip::v2::{models::DataType, schema::TypedData};
-impl TypedData for AccountId {
-    fn data_type() -> DataType {
-        DataType::String
-    }
-}
