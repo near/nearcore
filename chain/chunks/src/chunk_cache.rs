@@ -52,12 +52,12 @@ pub struct EncodedChunksCacheEntry {
 
     /// Timestamp of when this entry was created used for metrics below
     pub created_at: Instant,
-    /// Checks whether a metric was recorded for the time taken to receive the needed parts for this chunk
-    pub marked_received_all_parts: bool,
-    /// Checks whether a metric was recorded for the time taken to receive the needed receipts for this chunk
-    pub marked_received_all_receipts: bool,
-    /// Checks whether a metric was recorded for the time taken to make a chunk able to be reconstructed
-    pub marked_reconstruction: bool,
+    /// Used to check whether a metric was recorded for the time taken to receive the needed parts for this chunk
+    pub received_all_parts: bool,
+    /// Used to check whether a metric was recorded for the time taken to receive the needed receipts for this chunk
+    pub received_all_receipts: bool,
+    /// Used to check whether a metric was recorded for the time taken to make a chunk able to be reconstructed
+    pub could_reconstruct: bool,
 }
 
 pub struct EncodedChunksCache {

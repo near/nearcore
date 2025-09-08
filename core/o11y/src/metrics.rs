@@ -207,7 +207,7 @@ pub fn try_create_histogram_vec(
 }
 
 /// Returns buckets for finer-grained time measurements.
-pub fn finer_grained_time_buckets() -> Vec<f64> {
+pub fn fine_grained_time_buckets() -> Vec<f64> {
     vec![0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
 }
 
