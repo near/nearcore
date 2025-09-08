@@ -210,7 +210,7 @@ impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
 /// Extract [`GlobalContractIdentifier`] out of [`AccountContract`] if it represents a global
 /// contract.
 ///
-/// If conversion is not possible, returns information about locally deployed contract.
+/// If conversion is not possible, returns information about the locally deployed contract.
 impl TryFrom<AccountContract> for GlobalContractIdentifier {
     type Error = Option<CryptoHash>;
     fn try_from(value: AccountContract) -> Result<Self, Self::Error> {
