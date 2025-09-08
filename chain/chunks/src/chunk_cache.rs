@@ -56,7 +56,7 @@ pub struct EncodedChunksCacheEntry {
     pub marked_received_all_parts: bool,
     /// Checks whether a metric was recorded for the time taken to receive the needed receipts for this chunk
     pub marked_received_all_receipts: bool,
-    /// Checks whether a metric was recorded for the time taken to make a chunk reconstructable
+    /// Checks whether a metric was recorded for the time taken to make a chunk able to be reconstructed
     pub marked_reconstruction: bool,
 }
 
