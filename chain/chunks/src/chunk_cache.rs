@@ -89,9 +89,9 @@ impl EncodedChunksCacheEntry {
             ready_for_inclusion: false,
             header_fully_validated: false,
             created_at: Instant::now(),
-            marked_received_all_parts: false,
-            marked_received_all_receipts: false,
-            marked_reconstruction: false,
+            received_all_parts: false,
+            received_all_receipts: false,
+            could_reconstruct: false,
         }
     }
 
@@ -149,42 +149,42 @@ impl EncodedChunksCache {
         let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) else {
             return;
         };
-        if entry.marked_received_all_receipts {
+        if entry.received_all_receipts {
             return;
         }
         let time_to_last_receipt = Instant::now().signed_duration_since(entry.created_at);
         metrics::PARTIAL_CHUNK_TIME_TO_LAST_RECEIPT_PART
             .with_label_values(&[entry.header.shard_id().to_string().as_str()])
             .observe(time_to_last_receipt.as_seconds_f64());
-        entry.marked_received_all_receipts = true;
+        entry.received_all_receipts = true;
     }
 
     pub fn mark_received_all_parts(&mut self, chunk_hash: &ChunkHash) {
         let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) else {
             return;
         };
-        if entry.marked_received_all_parts {
+        if entry.received_all_parts {
             return;
         }
         let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
         metrics::PARTIAL_CHUNK_TIME_TO_LAST_CHUNK_PART
             .with_label_values(&[entry.header.shard_id().to_string().as_str()])
             .observe(time_to_last_part.as_seconds_f64());
-        entry.marked_received_all_parts = true;
+        entry.received_all_parts = true;
     }
 
     pub fn mark_can_reconstruct(&mut self, chunk_hash: &ChunkHash) {
         let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) else {
             return;
         };
-        if entry.marked_reconstruction {
+        if entry.could_reconstruct {
             return;
         }
         let time_to_reconstruct = Instant::now().signed_duration_since(entry.created_at);
         metrics::PARTIAL_CHUNK_TIME_TO_RECONSTRUCT
             .with_label_values(&[entry.header.shard_id().to_string().as_str()])
             .observe(time_to_reconstruct.as_seconds_f64());
-        entry.marked_reconstruction = true;
+        entry.could_reconstruct = true;
     }
 
     pub fn mark_entry_validated(&mut self, chunk_hash: &ChunkHash) {
