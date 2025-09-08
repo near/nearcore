@@ -147,6 +147,8 @@ impl TrieUpdate {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.is_some());
             }
+        } else if let Some(cached) = self.cached.get(&key) {
+            return Ok(cached.is_some());
         }
         self.trie.contains_key(&key, opts)
     }
@@ -324,6 +326,8 @@ impl TrieUpdate {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
+        } else if let Some(cached) = self.cached.get(&key) {
+            return Ok(cached.clone());
         }
         fallback(&key)
     }
