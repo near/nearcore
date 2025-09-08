@@ -1524,7 +1524,7 @@ impl Runtime {
                     .par_chunks(chunk_size)
                     .map(|txs| {
                         // First, do batch signature verification for all transactions in this chunk.
-                        // This returns a bitmask of which transactions had valid signatures.
+                        // Returns a bitmask of which transactions' signatures could be verified in batch.
                         let valid_signatures = validate_batch_signatures(txs);
 
                         let mut valid_mask: ValidBitmask = 0;
