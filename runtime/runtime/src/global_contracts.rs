@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{
-    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    ContractIsLocalError, UseGlobalContractAction,
+    ContractIsLocalError, DeployGlobalContractAction, GlobalContractDeployMode,
+    GlobalContractIdentifier, UseGlobalContractAction,
 };
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::errors::{ActionErrorKind, RuntimeError};

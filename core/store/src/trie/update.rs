@@ -5,7 +5,7 @@ use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use near_primitives::account::AccountContract;
-use near_primitives::action::{GlobalContractIdentifier, ContractIsLocalError};
+use near_primitives::action::{ContractIsLocalError, GlobalContractIdentifier};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
