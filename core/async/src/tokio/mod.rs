@@ -1,4 +1,7 @@
-mod runtime_handle;
+mod runtime;
+pub(crate) mod runtime_handle;
 mod sender;
+#[cfg(test)]
+mod test;
 
-pub use runtime_handle::{TokioRuntimeHandle, spawn_tokio_actor};
+pub use runtime_handle::TokioRuntimeHandle;

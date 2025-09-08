@@ -1,7 +1,9 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
+use near_async::messaging::IntoMultiSender;
 use near_config_utils::DownloadConfigType;
+use nearcore::NearNode;
 use tokio::sync::mpsc;
 
 use near_chain_configs::GenesisValidationMode;
@@ -15,8 +17,11 @@ pub use near_indexer_primitives::{
     StreamerMessage,
 };
 
+use near_async::ActorSystem;
 use near_epoch_manager::shard_tracker::ShardTracker;
 pub use streamer::build_streamer_message;
+
+use crate::streamer::{IndexerClientFetcher, IndexerViewClientFetcher};
 
 mod streamer;
 
@@ -89,33 +94,14 @@ pub struct IndexerConfig {
     pub validate_genesis: bool,
 }
 
-/// This is the core component, which handles `nearcore` and internal `streamer`.
-pub struct Indexer {
-    indexer_config: IndexerConfig,
-    near_config: nearcore::NearConfig,
-    view_client: actix::Addr<near_client::ViewClientActor>,
-    client: actix::Addr<near_client::ClientActor>,
-    rpc_handler: actix::Addr<near_client::RpcHandlerActor>,
-    shard_tracker: ShardTracker,
-}
-
-impl Indexer {
-    /// Initialize Indexer by configuring `nearcore`
-    pub fn new(indexer_config: IndexerConfig) -> Result<Self, anyhow::Error> {
-        tracing::info!(
-            target: INDEXER,
-            "Load config from {}...",
-            indexer_config.home_dir.display()
-        );
-
-        let genesis_validation_mode = if indexer_config.validate_genesis {
+impl IndexerConfig {
+    pub fn load_near_config(&self) -> anyhow::Result<NearConfig> {
+        let genesis_validation_mode = if self.validate_genesis {
             GenesisValidationMode::Full
         } else {
             GenesisValidationMode::UnsafeFast
         };
-        let near_config =
-            nearcore::config::load_config(&indexer_config.home_dir, genesis_validation_mode)
-                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        let near_config = nearcore::config::load_config(&self.home_dir, genesis_validation_mode)?;
 
         // TODO(cloud_archival): When`TrackedShardsConfig::Shards` is added, ensure it is supported by indexer nodes and update the check below accordingly.
         assert!(
@@ -123,12 +109,64 @@ impl Indexer {
             "Indexer should either track at least one shard or track at least one account. \n\
             Tip: You may want to update {} with `\"tracked_shards_config\": \"AllShards\"` (which tracks all shards)
             or `\"tracked_shards_config\": {{\"tracked_accounts\": [\"some_account.near\"]}}` (which tracks whatever shard the account is on)",
-            indexer_config.home_dir.join("config.json").display()
+            self.home_dir.join("config.json").display()
         );
-        let nearcore::NearNode { client, view_client, rpc_handler, shard_tracker, .. } =
-            nearcore::start_with_config(&indexer_config.home_dir, near_config.clone())
-                .with_context(|| "start_with_config")?;
-        Ok(Self { view_client, client, rpc_handler, near_config, indexer_config, shard_tracker })
+        Ok(near_config)
+    }
+}
+
+/// This is the core component, which handles `nearcore` and internal `streamer`.
+pub struct Indexer {
+    indexer_config: IndexerConfig,
+    near_config: nearcore::NearConfig,
+    view_client: IndexerViewClientFetcher,
+    client: IndexerClientFetcher,
+    shard_tracker: ShardTracker,
+}
+
+impl Indexer {
+    /// Initialize Indexer by configuring `nearcore`
+    pub fn new(indexer_config: IndexerConfig) -> anyhow::Result<Self> {
+        tracing::info!(
+            target: INDEXER,
+            home_dir = ?indexer_config.home_dir,
+            "new indexer",
+        );
+        let near_config =
+            indexer_config.load_near_config().context("failed to load near config")?;
+        let nearcore::NearNode { client, view_client, shard_tracker, .. } =
+            Self::start_near_node(&indexer_config, near_config.clone())
+                .context("failed to start near node as part of indexer")?;
+        Ok(Self {
+            view_client: IndexerViewClientFetcher::new(view_client.into_multi_sender()),
+            client: IndexerClientFetcher::new(client.into_multi_sender()),
+            near_config,
+            indexer_config,
+            shard_tracker,
+        })
+    }
+
+    pub fn start_near_node(
+        indexer_config: &IndexerConfig,
+        near_config: NearConfig,
+    ) -> anyhow::Result<NearNode> {
+        nearcore::start_with_config(&indexer_config.home_dir, near_config, ActorSystem::new())
+    }
+
+    pub fn from_near_node(
+        indexer_config: IndexerConfig,
+        near_config: NearConfig,
+        near_node: &NearNode,
+    ) -> Self {
+        Self {
+            view_client: IndexerViewClientFetcher::new(
+                near_node.view_client.clone().into_multi_sender(),
+            ),
+            client: IndexerClientFetcher::new(near_node.client.clone().into_multi_sender()),
+            near_config,
+            indexer_config,
+            shard_tracker: near_node.shard_tracker.clone(),
+        }
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
@@ -144,22 +182,6 @@ impl Indexer {
         ));
         receiver
     }
-
-    /// Expose neard config
-    pub fn near_config(&self) -> &nearcore::NearConfig {
-        &self.near_config
-    }
-
-    /// Internal client actors just in case. Use on your own risk, backward compatibility is not guaranteed
-    pub fn client_actors(
-        &self,
-    ) -> (
-        actix::Addr<near_client::ViewClientActor>,
-        actix::Addr<near_client::ClientActor>,
-        actix::Addr<near_client::RpcHandlerActor>,
-    ) {
-        (self.view_client.clone(), self.client.clone(), self.rpc_handler.clone())
-    }
 }
 
 /// Function that initializes configs for the node which
@@ -167,7 +189,7 @@ impl Indexer {
 pub fn indexer_init_configs(
     dir: &std::path::PathBuf,
     params: InitConfigArgs,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     init_configs(
         dir,
         params.chain_id,

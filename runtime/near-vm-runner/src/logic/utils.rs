@@ -3,7 +3,7 @@ use super::HostError;
 /// Uses `,` separator to split `method_names` into a vector of method names.
 /// Returns an empty vec if the empty slice is given.
 /// Throws `HostError::EmptyMethodName` in case there is an empty method name inside.
-pub(super) fn split_method_names(method_names: &[u8]) -> Result<Vec<Vec<u8>>, HostError> {
+pub(crate) fn split_method_names(method_names: &[u8]) -> Result<Vec<Vec<u8>>, HostError> {
     if method_names.is_empty() {
         Ok(vec![])
     } else {

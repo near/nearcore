@@ -5,18 +5,20 @@ use crate::env::test_env_builder::TestEnvBuilder;
 use crate::utils::process_blocks::{
     deploy_test_contract, prepare_env_with_congestion, set_block_protocol_version,
 };
-use actix::System;
 use assert_matches::assert_matches;
 use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
+use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE};
+use near_chain_configs::{
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE, ProtocolVersionCheckConfig,
+};
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
@@ -43,7 +45,7 @@ use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3, ShardChunkWithEncoding,
 };
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
@@ -89,7 +91,7 @@ fn produce_two_blocks() {
                 if let NetworkRequests::Block { .. } = msg.as_network_requests_ref() {
                     count.fetch_add(1, Ordering::Relaxed);
                     if count.load(Ordering::Relaxed) >= 2 {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 }
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
@@ -120,7 +122,7 @@ fn receive_network_block() {
                     if *first_header_announce {
                         *first_header_announce = false;
                     } else {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     }
                 }
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
@@ -158,9 +160,9 @@ fn receive_network_block() {
                 Clock::real(),
                 None,
                 None,
-                vec![],
+                None,
             );
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.into(),
                     peer_id: PeerInfo::random().id,
@@ -198,7 +200,7 @@ fn produce_block_with_approvals() {
                     // runs 10 iterations, which is way further in the future than them producing the
                     // block
                     if block.header().num_approvals() == validators.len() as u64 - 2 {
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
                     } else if block.header().height() == 10 {
                         println!("{}", block.header().height());
                         println!(
@@ -249,9 +251,9 @@ fn produce_block_with_approvals() {
                 Clock::real(),
                 None,
                 None,
-                vec![],
+                None,
             );
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -276,7 +278,7 @@ fn produce_block_with_approvals() {
                 );
                 actor_handles
                     .client_actor
-                    .do_send(BlockApproval(approval, PeerInfo::random().id).span_wrap());
+                    .send(BlockApproval(approval, PeerInfo::random().id).span_wrap());
             }
 
             future::ready(())
@@ -308,7 +310,7 @@ fn invalid_blocks_common(is_requested: bool) {
                             assert_eq!(block.header().chunk_mask().len(), 1);
                             assert_eq!(block.header().latest_protocol_version(), PROTOCOL_VERSION);
                             assert_eq!(ban_counter, 3);
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                     }
                     NetworkRequests::BanPeer { ban_reason, .. } => {
@@ -316,7 +318,7 @@ fn invalid_blocks_common(is_requested: bool) {
                         ban_counter += 1;
                         let expected_ban_counter = 4;
                         if ban_counter == expected_ban_counter && is_requested {
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                     }
                     _ => {}
@@ -356,13 +358,13 @@ fn invalid_blocks_common(is_requested: bool) {
                 Clock::real(),
                 None,
                 None,
-                vec![],
+                None,
             );
             // Send block with invalid chunk mask
             let mut block = valid_block.clone();
             block.mut_header().set_chunk_mask(vec![]);
             block.mut_header().init();
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -375,7 +377,7 @@ fn invalid_blocks_common(is_requested: bool) {
             let mut block = valid_block.clone();
             block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
             block.mut_header().init();
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -400,7 +402,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 }
             };
             block.set_chunks(chunks);
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -411,7 +413,7 @@ fn invalid_blocks_common(is_requested: bool) {
 
             // Send proper block.
             let block2 = valid_block;
-            actor_handles.client_actor.do_send(
+            actor_handles.client_actor.send(
                 BlockResponse {
                     block: block2.clone().into(),
                     peer_id: PeerInfo::random().id,
@@ -423,7 +425,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 let mut block3 = block2;
                 block3.mut_header().set_chunk_headers_root(hash(&[1]));
                 block3.mut_header().init();
-                actor_handles.client_actor.do_send(
+                actor_handles.client_actor.send(
                     BlockResponse {
                         block: block3.clone().into(),
                         peer_id: PeerInfo::random().id,
@@ -465,7 +467,7 @@ fn skip_block_production() {
                 match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if block.header().height() > 3 {
-                            System::current().stop();
+                            near_async::shutdown_all_actors();
                         }
                     }
                     _ => {}
@@ -496,7 +498,7 @@ fn client_sync_headers() {
                         assert_eq!(*peer_id, peer_info1.id);
                         assert_eq!(hashes.len(), 1);
                         // TODO: check it requests correct hashes.
-                        System::current().stop();
+                        near_async::shutdown_all_actors();
 
                         PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
                     }
@@ -504,7 +506,7 @@ fn client_sync_headers() {
                 }
             }),
         );
-        actor_handles.client_actor.do_send(
+        actor_handles.client_actor.send(
             SetNetworkInfo(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo {
                     full_peer_info: FullPeerInfo {
@@ -2147,9 +2149,12 @@ fn slow_test_catchup_gas_price_change() {
                 .unwrap()
         );
         store_update.commit().unwrap();
+        let protocol_version =
+            env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-            let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+            let bytes = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+            let part = StatePart::from_bytes(bytes.to_vec(), protocol_version).unwrap();
             env.clients[1]
                 .runtime_adapter
                 .apply_state_part(
@@ -3015,25 +3020,79 @@ fn test_not_broadcast_block_on_accept() {
 }
 
 #[test]
-#[should_panic(
-    expected = "The client protocol version is older than the protocol version of the network"
-)]
 fn test_node_shutdown_with_old_protocol_version() {
     let epoch_length = 5;
+    // These should not panic
+    run_with_version_upgrade_scheduled_in_next_next_epoch(
+        epoch_length,
+        epoch_length - 1,
+        ProtocolVersionCheckConfig::NextNext,
+    );
+    run_with_version_upgrade_scheduled_in_next_next_epoch(
+        epoch_length,
+        epoch_length * 2 - 1,
+        ProtocolVersionCheckConfig::Next,
+    );
+
+    // These should panic
+    let expected_msg =
+        "The client protocol version is older than the protocol version of the network";
+    must_panic(
+        || {
+            run_with_version_upgrade_scheduled_in_next_next_epoch(
+                epoch_length,
+                epoch_length,
+                ProtocolVersionCheckConfig::NextNext,
+            );
+        },
+        expected_msg,
+    );
+    must_panic(
+        || {
+            run_with_version_upgrade_scheduled_in_next_next_epoch(
+                epoch_length,
+                epoch_length * 2,
+                ProtocolVersionCheckConfig::Next,
+            );
+        },
+        expected_msg,
+    );
+}
+
+fn must_panic<F: FnOnce() + std::panic::UnwindSafe>(f: F, expected_msg: &str) {
+    let result = std::panic::catch_unwind(f);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let msg = err
+        .downcast_ref::<&'static str>()
+        .map(|s| *s)
+        .or_else(|| err.downcast_ref::<String>().map(|s| &**s))
+        .unwrap();
+
+    assert!(msg.contains(expected_msg));
+}
+
+fn run_with_version_upgrade_scheduled_in_next_next_epoch(
+    epoch_length: u64,
+    num_blocks: u64,
+    epoch_to_check: ProtocolVersionCheckConfig,
+) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
+    let mut env = TestEnv::builder(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .protocol_version_check(epoch_to_check)
+        .build();
     let validator_signer = create_test_signer("test0");
-    for i in 1..=5 {
+    for i in 1..=epoch_length.min(num_blocks) {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         Arc::make_mut(&mut block).mut_header().set_latest_protocol_version(PROTOCOL_VERSION + 1);
         Arc::make_mut(&mut block).mut_header().resign(&validator_signer);
         env.process_block(0, block, Provenance::NONE);
     }
-    for i in 6..=10 {
+    for i in epoch_length + 1..=num_blocks {
         env.produce_block(0, i);
     }
-    env.produce_block(0, 11);
 }
 
 #[test]

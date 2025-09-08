@@ -1,6 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
+use near_async::ActorSystem;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
@@ -39,7 +40,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 /// NEAR Protocol Node
 #[derive(clap::Parser)]
@@ -562,7 +563,6 @@ impl RunCmd {
             let config_updater = ConfigUpdater::new(rx_config_update);
 
             let nearcore::NearNode {
-                rpc_servers,
                 cold_store_loop_handle,
                 mut state_sync_dumper,
                 resharding_handle,
@@ -570,6 +570,7 @@ impl RunCmd {
             } = nearcore::start_with_config_and_synchronization(
                 home_dir,
                 near_config,
+                ActorSystem::new(),
                 Some(tx_crash),
                 Some(config_updater),
             )
@@ -587,16 +588,11 @@ impl RunCmd {
             };
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
             if let Some(handle) = cold_store_loop_handle {
-                handle.stop()
+                handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
             state_sync_dumper.stop_and_await();
             resharding_handle.stop();
-            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
-                server.stop(true).await;
-                debug!(target: "neard", "{} server stopped", name);
-            }))
-            .await;
-            actix::System::current().stop();
+            near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
         });

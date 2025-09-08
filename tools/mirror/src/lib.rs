@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::QueryError as RuntimeQueryError;
-use near_client::{ClientActor, RpcHandlerActor, ViewClientActor};
 use near_client::{ProcessTxRequest, ProcessTxResponse};
+use near_client::{RpcHandlerActor, ViewClientActor};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcomeError, GetReceiptError, Query,
     QueryError, Status,
@@ -27,6 +27,7 @@ use near_primitives::views::{
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, ShardId};
+use nearcore::NearNode;
 use parking_lot::{Mutex, RwLock};
 use rocksdb::DB;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -48,6 +49,9 @@ mod online;
 pub mod secret;
 
 pub use cli::MirrorCommand;
+use near_async::messaging::CanSendAsync;
+use near_async::tokio::TokioRuntimeHandle;
+use near_client::client_actor::ClientActorInner;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 
 #[derive(strum::EnumIter)]
@@ -1752,7 +1756,7 @@ impl<T: ChainAccess> TxMirror<T> {
         home_dir: PathBuf,
         db: Arc<DB>,
         clients_tx: tokio::sync::oneshot::Sender<(
-            Addr<ClientActor>,
+            TokioRuntimeHandle<ClientActorInner>,
             Addr<ViewClientActor>,
             Addr<RpcHandlerActor>,
         )>,
@@ -1760,29 +1764,34 @@ impl<T: ChainAccess> TxMirror<T> {
         target_height: Arc<RwLock<BlockHeight>>,
         target_head: Arc<RwLock<CryptoHash>>,
     ) -> anyhow::Result<()> {
-        let target_indexer = Indexer::new(near_indexer::IndexerConfig {
+        let indexer_config = near_indexer::IndexerConfig {
             home_dir,
             sync_mode: near_indexer::SyncModeEnum::FromInterruption,
             await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
             finality: Finality::Final,
             validate_genesis: false,
-        })
-        .context("failed to start target chain indexer")?;
-        let (target_view_client, target_client, rpc_handler) = target_indexer.client_actors();
+        };
+        let near_config =
+            indexer_config.load_near_config().context("failed to load near config")?;
+        let near_node = Indexer::start_near_node(&indexer_config, near_config.clone())
+            .context("failed to start near node")?;
+        let target_indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
         let mut target_stream = target_indexer.streamer();
+        let NearNode { client, view_client, rpc_handler, .. } = near_node;
         let (first_target_height, first_target_head) = Self::index_target_chain(
             &tracker,
             &tx_block_queue,
             &mut target_stream,
             db.as_ref(),
-            &target_view_client,
-            &target_client,
+            &view_client,
+            &client,
         )
         .await?;
         *target_height.write() = first_target_height;
         *target_head.write() = first_target_head;
         clients_tx
-            .send((target_client.clone(), target_view_client.clone(), rpc_handler.clone()))
+            .send((client.clone(), view_client.clone(), rpc_handler.clone()))
+            .map_err(|_| ())
             .unwrap();
 
         loop {
@@ -1798,7 +1807,7 @@ impl<T: ChainAccess> TxMirror<T> {
             }
             for access_key_update in target_block_info.access_key_updates {
                 let nonce = crate::fetch_access_key_nonce(
-                    &target_view_client,
+                    &view_client,
                     &access_key_update.account_id,
                     &access_key_update.public_key,
                 )
@@ -1877,9 +1886,9 @@ impl<T: ChainAccess> TxMirror<T> {
         }
     }
 
-    async fn target_chain_syncing(target_client: &Addr<ClientActor>) -> bool {
+    async fn target_chain_syncing(target_client: &TokioRuntimeHandle<ClientActorInner>) -> bool {
         target_client
-            .send(Status { is_health_check: false, detailed: false }.span_wrap())
+            .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
             .await
             .unwrap()
             .map(|s| s.sync_info.syncing)
@@ -1905,7 +1914,7 @@ impl<T: ChainAccess> TxMirror<T> {
         target_stream: &mut mpsc::Receiver<StreamerMessage>,
         db: &DB,
         target_view_client: &Addr<ViewClientActor>,
-        target_client: &Addr<ClientActor>,
+        target_client: &TokioRuntimeHandle<ClientActorInner>,
     ) -> anyhow::Result<(BlockHeight, CryptoHash)> {
         let mut head = None;
 

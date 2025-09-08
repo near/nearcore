@@ -41,7 +41,11 @@ thiserror.workspace = true
 tracing.workspace = true
 wasm-encoder = { workspace = true, optional = true }
 wasmparser = { workspace = true, optional = true }
-wasmtime = { workspace = true, features = ["parallel-compilation", "runtime"], optional = true }
+wasmtime = { workspace = true, features = [
+    "parallel-compilation",
+    "pooling-allocator",
+    "runtime",
+], optional = true }
 
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }

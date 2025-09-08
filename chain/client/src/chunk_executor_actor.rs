@@ -23,7 +23,6 @@ use near_chain::{
     Block, Chain, ChainGenesis, ChainStore, ChainUpdate, DoomslugThresholdMode, Error,
     collect_receipts, get_chunk_clone_from_header,
 };
-use near_chain_configs::ClientConfig;
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
@@ -64,10 +63,10 @@ use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 pub struct ChunkExecutorActor {
-    chain_store: ChainStore,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
-    shard_tracker: ShardTracker,
+    pub(crate) chain_store: ChainStore,
+    pub(crate) runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub(crate) epoch_manager: Arc<dyn EpochManagerAdapter>,
+    pub(crate) shard_tracker: ShardTracker,
     network_adapter: PeerManagerAdapter,
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     myself_sender: Sender<ExecutorApplyChunksDone>,
@@ -77,10 +76,11 @@ pub struct ChunkExecutorActor {
     // Hash of the genesis block.
     genesis_hash: CryptoHash,
 
-    validator_signer: MutableValidatorSigner,
-    core_processor: CoreStatementsProcessor,
+    pub(crate) validator_signer: MutableValidatorSigner,
+    pub(crate) core_processor: CoreStatementsProcessor,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
-    client_config: ClientConfig,
+
+    save_latest_witnesses: bool,
 }
 
 impl ChunkExecutorActor {
@@ -97,7 +97,7 @@ impl ChunkExecutorActor {
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         myself_sender: Sender<ExecutorApplyChunksDone>,
-        client_config: ClientConfig,
+        save_latest_witnesses: bool,
     ) -> Self {
         Self {
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
@@ -112,7 +112,7 @@ impl ChunkExecutorActor {
             validator_signer,
             core_processor,
             chunk_endorsement_tracker,
-            client_config,
+            save_latest_witnesses,
         }
     }
 }
@@ -136,7 +136,7 @@ pub struct ProcessedBlock {
     pub block_hash: CryptoHash,
 }
 
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone)]
 #[rtype(result = "()")]
 pub struct ExecutorApplyChunksDone {
     pub block_hash: CryptoHash,
@@ -513,7 +513,7 @@ impl ChunkExecutorActor {
             chunk_header,
         )?;
 
-        if self.client_config.save_latest_witnesses {
+        if self.save_latest_witnesses {
             self.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
 
@@ -676,7 +676,7 @@ impl ChunkExecutorActor {
         Ok(ShardContext { shard_uid, should_apply_chunk })
     }
 
-    fn get_chunk_extra(
+    pub(crate) fn get_chunk_extra(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
@@ -690,7 +690,7 @@ impl ChunkExecutorActor {
         }
     }
 
-    fn chunk_extra_exists(
+    pub(crate) fn chunk_extra_exists(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,

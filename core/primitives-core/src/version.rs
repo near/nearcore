@@ -324,6 +324,7 @@ pub enum ProtocolFeature {
     RefTypesBulkMemory,
     SaturatingFloatToInt,
     ChunkPartChecks,
+    StatePartsCompression,
 }
 
 impl ProtocolFeature {
@@ -421,6 +422,7 @@ impl ProtocolFeature {
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
+            ProtocolFeature::RefTypesBulkMemory | ProtocolFeature::StatePartsCompression => 81,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -428,7 +430,6 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::RefTypesBulkMemory => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -445,10 +446,10 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 80;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 81;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =

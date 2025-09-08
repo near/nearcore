@@ -12,7 +12,7 @@ use near_chain::stateless_validation::chunk_validation::{
 use near_chain::stateless_validation::spice_chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, Block, ChainGenesis, ChainStore, Error};
-use near_chain_configs::{ClientConfig, MutableValidatorSigner};
+use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
@@ -37,7 +37,8 @@ pub struct SpiceChunkValidatorActor {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_adapter: PeerManagerAdapter,
-    client_config: ClientConfig,
+    save_latest_witnesses: bool,
+    save_invalid_witnesses: bool,
 
     validator_signer: MutableValidatorSigner,
     core_processor: CoreStatementsProcessor,
@@ -64,7 +65,8 @@ impl SpiceChunkValidatorActor {
         core_processor: CoreStatementsProcessor,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         validation_spawner: ApplyChunksSpawner,
-        client_config: ClientConfig,
+        save_latest_witnesses: bool,
+        save_invalid_witnesses: bool,
     ) -> Self {
         // TODO(spice): Assess if this limit still makes sense for spice.
         // See ChunkValidator::new in c/c/s/s/chunk_validator/mod.rs for rationale used currently.
@@ -75,7 +77,8 @@ impl SpiceChunkValidatorActor {
         let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
         Self {
             pending_witnesses: HashMap::new(),
-            client_config,
+            save_latest_witnesses,
+            save_invalid_witnesses,
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
             runtime_adapter,
             epoch_manager,
@@ -148,7 +151,7 @@ impl Handler<SpanWrapped<ChunkStateWitnessMessage>> for SpiceChunkValidatorActor
 }
 
 impl SpiceChunkValidatorActor {
-    pub fn process_chunk_state_witness(
+    fn process_chunk_state_witness(
         &mut self,
         witness: ChunkStateWitness,
         raw_witness_size: ChunkStateWitnessSize,
@@ -161,7 +164,7 @@ impl SpiceChunkValidatorActor {
             "process_chunk_state_witness",
         );
 
-        if self.client_config.save_latest_witnesses {
+        if self.save_latest_witnesses {
             self.chain_store.save_latest_chunk_state_witness(&witness)?;
         }
 
@@ -255,11 +258,7 @@ impl SpiceChunkValidatorActor {
         Ok(())
     }
 
-    pub fn handle_not_ready_state_witness(
-        &mut self,
-        witness: ChunkStateWitness,
-        _witness_size: usize,
-    ) {
+    fn handle_not_ready_state_witness(&mut self, witness: ChunkStateWitness, _witness_size: usize) {
         // TODO(spice): Implement additional checks before adding witness to pending witnesses, see Client's orphan_witness_handling.rs.
         let block_hash = witness.main_state_transition().block_hash;
         self.pending_witnesses.entry(block_hash).or_default().push(witness);
@@ -287,7 +286,7 @@ impl SpiceChunkValidatorActor {
         let chunk_producer_name =
             self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
-        let save_witness_if_invalid = self.client_config.save_invalid_witnesses;
+        let save_witness_if_invalid = self.save_invalid_witnesses;
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();

@@ -1,7 +1,6 @@
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
-use actix::System;
 use parking_lot::RwLock;
 
 use near_client::{GetBlock, GetChunk};
@@ -55,6 +54,6 @@ fn slow_test_track_shards() {
         })
         .await
         .unwrap();
-        System::current().stop()
+        near_async::shutdown_all_actors();
     });
 }

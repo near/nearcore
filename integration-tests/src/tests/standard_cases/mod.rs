@@ -4,7 +4,7 @@ mod runtime;
 use assert_matches::assert_matches;
 use near_chain_configs::NEAR_BASE;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives::account::{
@@ -541,6 +541,24 @@ pub fn test_smart_contract_reward(node: impl Node) {
         - fee_helper.function_call_exec_gas(b"run_test".len() as u64);
     let reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
     assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + reward);
+}
+
+pub fn test_transaction_invalid_signature(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let node_user = node.user();
+    let mut tx = node_user.make_signed_transaction(
+        account_id.clone(),
+        bob_account(),
+        vec![Action::Transfer(TransferAction { deposit: 1 })],
+    );
+    tx.signature = Signature::from_parts(KeyType::ED25519, &[0u8; 64]).unwrap();
+    let result = node_user.commit_transaction(tx);
+    assert_matches!(
+        result,
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidSignature
+        )))) | Err(CommitError::OutcomeNotFound)
+    );
 }
 
 pub fn test_send_money_over_balance(node: impl Node) {
