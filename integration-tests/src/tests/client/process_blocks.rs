@@ -9,7 +9,7 @@ use assert_matches::assert_matches;
 use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
-use near_async::messaging::CanSend;
+use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -128,7 +128,7 @@ fn receive_network_block() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
+        let actor = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -216,7 +216,7 @@ fn produce_block_with_approvals() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
+        let actor = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -326,7 +326,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = actor_handles.view_client_actor.send(GetBlockWithMerkleTree::latest());
+        let actor = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);

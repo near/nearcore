@@ -2,9 +2,9 @@ use crate::{
     ChainAccess, ChainError, LatestTargetNonce, MappedBlock, MappedTx, MappedTxProvenance,
     NonceUpdater, TargetChainTx, TargetNonce, TxBatch, TxRef,
 };
-use actix::Addr;
 use anyhow::Context;
-use near_client::ViewClientActor;
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_client::ViewClientActorInner;
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::StreamerMessage;
 use near_indexer_primitives::{IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome};
@@ -234,7 +234,7 @@ impl TxTracker {
     //
     // So this function must be called before calling initialize_target_nonce() for a given access key
     async fn store_target_nonce(
-        target_view_client: &Addr<ViewClientActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
         db: &DB,
         access_key: &(AccountId, PublicKey),
     ) -> anyhow::Result<()> {
@@ -288,7 +288,7 @@ impl TxTracker {
 
     pub(crate) async fn next_nonce(
         lock: &Mutex<Self>,
-        target_view_client: &Addr<ViewClientActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
         db: &DB,
         signer_id: &AccountId,
         public_key: &PublicKey,
@@ -316,7 +316,7 @@ impl TxTracker {
     pub(crate) async fn insert_nonce(
         lock: &Mutex<Self>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_view_client: &Addr<ViewClientActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
         db: &DB,
         signer_id: &AccountId,
         public_key: &PublicKey,
@@ -402,7 +402,7 @@ impl TxTracker {
 
     async fn store_access_key_updates(
         block: &MappedBlock,
-        target_view_client: &Addr<ViewClientActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
         db: &DB,
     ) -> anyhow::Result<()> {
         for c in &block.chunks {
@@ -474,7 +474,7 @@ impl TxTracker {
         lock: &Mutex<Self>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         block: MappedBlock,
-        target_view_client: &Addr<ViewClientActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
         db: &DB,
     ) -> anyhow::Result<()> {
         Self::store_access_key_updates(&block, target_view_client, db).await?;
