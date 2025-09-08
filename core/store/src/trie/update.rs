@@ -5,7 +5,7 @@ use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use near_primitives::account::AccountContract;
-use near_primitives::action::GlobalContractIdentifier;
+use near_primitives::action::{GlobalContractIdentifier, LocalContractError};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -307,8 +307,8 @@ impl TrieUpdate {
         // newly-deployed to the account. Note that the check below to see if the contract exists
         // has no side effects (not charging gas or recording trie nodes)
         let trie_key = match GlobalContractIdentifier::try_from(account_contract.clone()) {
-            Err(None) => return Ok(()),
-            Err(Some(_)) => TrieKey::ContractCode { account_id },
+            Err(LocalContractError::NotDeployed) => return Ok(()),
+            Err(LocalContractError::Deployed(_)) => TrieKey::ContractCode { account_id },
             Ok(identifier) => TrieKey::GlobalContractCode { identifier: identifier.into() },
         };
         let contract_ref = self

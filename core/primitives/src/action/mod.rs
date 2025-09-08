@@ -207,27 +207,45 @@ impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
     }
 }
 
-/// Extract [`GlobalContractIdentifier`] out of [`AccountContract`] if it represents a global
-/// contract.
-///
-/// If conversion is not possible, returns information about the locally deployed contract.
-impl TryFrom<AccountContract> for GlobalContractIdentifier {
-    type Error = Option<CryptoHash>;
-    fn try_from(value: AccountContract) -> Result<Self, Self::Error> {
-        match value {
-            AccountContract::None => Err(None),
-            AccountContract::Local(h) => Err(Some(h)),
-            AccountContract::Global(h) => Ok(GlobalContractIdentifier::CodeHash(h)),
-            AccountContract::GlobalByAccount(a) => Ok(GlobalContractIdentifier::AccountId(a)),
-        }
-    }
-}
-
 impl GlobalContractIdentifier {
     pub fn len(&self) -> usize {
         match self {
             GlobalContractIdentifier::CodeHash(_) => 32,
             GlobalContractIdentifier::AccountId(account_id) => account_id.len(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum LocalContractError {
+    NotDeployed,
+    Deployed(CryptoHash),
+}
+
+impl std::error::Error for LocalContractError {}
+
+impl fmt::Display for LocalContractError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            LocalContractError::NotDeployed => "contract is not deployed",
+            LocalContractError::Deployed(_) => "a locally deployed contract is deployed",
+        })
+    }
+}
+
+/// Extract [`GlobalContractIdentifier`] out of [`AccountContract`] if it represents a global
+/// contract.
+///
+/// If conversion is not possible, the conversion error can be inspected to obtain information
+/// about the local error.
+impl TryFrom<AccountContract> for GlobalContractIdentifier {
+    type Error = LocalContractError;
+    fn try_from(value: AccountContract) -> Result<Self, Self::Error> {
+        match value {
+            AccountContract::None => Err(LocalContractError::NotDeployed),
+            AccountContract::Local(h) => Err(LocalContractError::Deployed(h)),
+            AccountContract::Global(h) => Ok(GlobalContractIdentifier::CodeHash(h)),
+            AccountContract::GlobalByAccount(a) => Ok(GlobalContractIdentifier::AccountId(a)),
         }
     }
 }
