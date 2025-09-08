@@ -217,18 +217,18 @@ impl GlobalContractIdentifier {
 }
 
 #[derive(Debug)]
-pub enum LocalContractError {
+pub enum ContractIsLocalError {
     NotDeployed,
     Deployed(CryptoHash),
 }
 
-impl std::error::Error for LocalContractError {}
+impl std::error::Error for ContractIsLocalError {}
 
-impl fmt::Display for LocalContractError {
+impl fmt::Display for ContractIsLocalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            LocalContractError::NotDeployed => "contract is not deployed",
-            LocalContractError::Deployed(_) => "a locally deployed contract is deployed",
+            ContractIsLocalError::NotDeployed => "contract is not deployed",
+            ContractIsLocalError::Deployed(_) => "a locally deployed contract is deployed",
         })
     }
 }
@@ -239,11 +239,11 @@ impl fmt::Display for LocalContractError {
 /// If conversion is not possible, the conversion error can be inspected to obtain information
 /// about the local error.
 impl TryFrom<AccountContract> for GlobalContractIdentifier {
-    type Error = LocalContractError;
+    type Error = ContractIsLocalError;
     fn try_from(value: AccountContract) -> Result<Self, Self::Error> {
         match value {
-            AccountContract::None => Err(LocalContractError::NotDeployed),
-            AccountContract::Local(h) => Err(LocalContractError::Deployed(h)),
+            AccountContract::None => Err(ContractIsLocalError::NotDeployed),
+            AccountContract::Local(h) => Err(ContractIsLocalError::Deployed(h)),
             AccountContract::Global(h) => Ok(GlobalContractIdentifier::CodeHash(h)),
             AccountContract::GlobalByAccount(a) => Ok(GlobalContractIdentifier::AccountId(a)),
         }

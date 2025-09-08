@@ -4,7 +4,7 @@ use std::sync::Arc;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{
     DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    LocalContractError, UseGlobalContractAction,
+    ContractIsLocalError, UseGlobalContractAction,
 };
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::errors::{ActionErrorKind, RuntimeError};
@@ -245,8 +245,8 @@ impl AccountContractAccessExt for AccountContract {
     ) -> Result<Option<ContractCode>, StorageError> {
         let local_hash = match GlobalContractIdentifier::try_from(self) {
             Ok(identifier) => return identifier.code(store),
-            Err(LocalContractError::NotDeployed) => return Ok(None),
-            Err(LocalContractError::Deployed(local_hash)) => local_hash,
+            Err(ContractIsLocalError::NotDeployed) => return Ok(None),
+            Err(ContractIsLocalError::Deployed(local_hash)) => local_hash,
         };
         let key = TrieKey::ContractCode { account_id: local_account_id.clone() };
         let code = store.get(&key, AccessOptions::DEFAULT)?;
@@ -256,8 +256,8 @@ impl AccountContractAccessExt for AccountContract {
     fn hash(self, store: &TrieUpdate) -> Result<CryptoHash, StorageError> {
         match GlobalContractIdentifier::try_from(self) {
             Ok(gci) => return gci.hash(store),
-            Err(LocalContractError::NotDeployed) => return Ok(CryptoHash::default()),
-            Err(LocalContractError::Deployed(local_hash)) => Ok(local_hash),
+            Err(ContractIsLocalError::NotDeployed) => return Ok(CryptoHash::default()),
+            Err(ContractIsLocalError::Deployed(local_hash)) => Ok(local_hash),
         }
     }
 }
