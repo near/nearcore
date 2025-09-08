@@ -1,4 +1,7 @@
-use near_o11y::metrics::{Counter, Histogram, exponential_buckets, try_create_histogram};
+use near_o11y::metrics::{
+    Counter, Histogram, exponential_buckets, fine_grained_time_buckets, try_create_histogram,
+    try_create_histogram_vec,
+};
 use std::sync::LazyLock;
 
 pub static PARTIAL_ENCODED_CHUNK_REQUEST_PROCESSING_TIME: LazyLock<
@@ -42,6 +45,39 @@ pub(crate) static PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY: LazyLock<Histogram> = La
         )
         .unwrap()
 });
+
+pub static PARTIAL_CHUNK_TIME_TO_LAST_CHUNK_PART: LazyLock<near_o11y::metrics::HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_partial_chunk_time_to_last_part",
+            "Time taken from receiving the chunk header to receiving the last owned chunk part for completing the chunk",
+            &["shard_id"],
+            Some(fine_grained_time_buckets()),
+        )
+        .unwrap()
+    });
+
+pub static PARTIAL_CHUNK_TIME_TO_LAST_RECEIPT_PART: LazyLock<near_o11y::metrics::HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_partial_chunk_time_to_last_receipt_part",
+            "Time taken from receiving the chunk header to receiving the last needed receipt for completing the chunk",
+            &["shard_id"],
+            Some(fine_grained_time_buckets()),
+        )
+        .unwrap()
+    });
+
+pub static PARTIAL_CHUNK_TIME_TO_RECONSTRUCT: LazyLock<near_o11y::metrics::HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+        "near_partial_chunk_time_to_reconstruct",
+        "Time taken from receiving the chunk header to having enough parts to reconstruct the chunk",
+        &["shard_id"],
+        Some(fine_grained_time_buckets()),
+    )
+    .unwrap()
+    });
 
 pub static PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER: LazyLock<Counter> = LazyLock::new(
     || {

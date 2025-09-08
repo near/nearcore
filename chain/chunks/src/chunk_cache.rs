@@ -1,11 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
+use crate::metrics;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use std::collections::hash_map::Entry::Occupied;
+use time::ext::InstantExt;
 use tracing::warn;
 
 // This file implements EncodedChunksCache, which provides three main functionalities:
@@ -46,6 +49,15 @@ pub struct EncodedChunksCacheEntry {
     /// validated again to make sure they are fully validated.
     /// See comments in `validate_chunk_header` for more context on partial vs full validation
     pub header_fully_validated: bool,
+
+    /// Timestamp of when this entry was created used for metrics below
+    pub created_at: Instant,
+    /// Used to check whether a metric was recorded for the time taken to receive the needed parts for this chunk
+    pub received_all_parts: bool,
+    /// Used to check whether a metric was recorded for the time taken to receive the needed receipts for this chunk
+    pub received_all_receipts: bool,
+    /// Used to check whether a metric was recorded for the time taken to make a chunk able to be reconstructed
+    pub could_reconstruct: bool,
 }
 
 pub struct EncodedChunksCache {
@@ -76,6 +88,10 @@ impl EncodedChunksCacheEntry {
             complete: false,
             ready_for_inclusion: false,
             header_fully_validated: false,
+            created_at: Instant::now(),
+            received_all_parts: false,
+            received_all_receipts: false,
+            could_reconstruct: false,
         }
     }
 
@@ -127,6 +143,48 @@ impl EncodedChunksCache {
         } else {
             warn!(target:"chunks", "cannot mark non-existent entry as complete {:?}", chunk_hash);
         }
+    }
+
+    pub fn mark_received_all_receipts(&mut self, chunk_hash: &ChunkHash) {
+        let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) else {
+            return;
+        };
+        if entry.received_all_receipts {
+            return;
+        }
+        let time_to_last_receipt = Instant::now().signed_duration_since(entry.created_at);
+        metrics::PARTIAL_CHUNK_TIME_TO_LAST_RECEIPT_PART
+            .with_label_values(&[entry.header.shard_id().to_string().as_str()])
+            .observe(time_to_last_receipt.as_seconds_f64());
+        entry.received_all_receipts = true;
+    }
+
+    pub fn mark_received_all_parts(&mut self, chunk_hash: &ChunkHash) {
+        let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) else {
+            return;
+        };
+        if entry.received_all_parts {
+            return;
+        }
+        let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
+        metrics::PARTIAL_CHUNK_TIME_TO_LAST_CHUNK_PART
+            .with_label_values(&[entry.header.shard_id().to_string().as_str()])
+            .observe(time_to_last_part.as_seconds_f64());
+        entry.received_all_parts = true;
+    }
+
+    pub fn mark_can_reconstruct(&mut self, chunk_hash: &ChunkHash) {
+        let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) else {
+            return;
+        };
+        if entry.could_reconstruct {
+            return;
+        }
+        let time_to_reconstruct = Instant::now().signed_duration_since(entry.created_at);
+        metrics::PARTIAL_CHUNK_TIME_TO_RECONSTRUCT
+            .with_label_values(&[entry.header.shard_id().to_string().as_str()])
+            .observe(time_to_reconstruct.as_seconds_f64());
+        entry.could_reconstruct = true;
     }
 
     pub fn mark_entry_validated(&mut self, chunk_hash: &ChunkHash) {
