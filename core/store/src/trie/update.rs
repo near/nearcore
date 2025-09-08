@@ -5,6 +5,7 @@ use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use near_primitives::account::AccountContract;
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -294,18 +295,21 @@ impl TrieUpdate {
         account_contract: &AccountContract,
         apply_reason: ApplyChunkReason,
     ) -> Result<(), StorageError> {
-        // The recording of contracts when they are excluded from the witness are only for distributing them to the validators,
-        // and not needed for validating the chunks, thus we skip the recording if we are not applying the chunk for updating the shard.
+        // The recording of contracts when they are excluded from the witness are only for
+        // distributing them to the validators, and not needed for validating the chunks, thus we
+        // skip the recording if we are not applying the chunk for updating the shard.
         if apply_reason != ApplyChunkReason::UpdateTrackedShard {
             return Ok(());
         }
 
-        // Only record the call if trie contains the contract (with the given hash) being called deployed to the given account.
-        // This avoids recording contracts that do not exist or are newly-deployed to the account.
-        // Note that the check below to see if the contract exists has no side effects (not charging gas or recording trie nodes)
-        let Some(trie_key) = TrieKey::for_account_contract_code(&account_id, account_contract)
-        else {
-            return Ok(());
+        // Only record the call if trie contains the contract (with the given hash) being called
+        // deployed to the given account. This avoids recording contracts that do not exist or are
+        // newly-deployed to the account. Note that the check below to see if the contract exists
+        // has no side effects (not charging gas or recording trie nodes)
+        let trie_key = match GlobalContractIdentifier::try_from(account_contract.clone()) {
+            Err(None) => return Ok(()),
+            Err(Some(_)) => TrieKey::ContractCode { account_id },
+            Ok(identifier) => TrieKey::GlobalContractCode { identifier: identifier.into() },
         };
         let contract_ref = self
             .trie

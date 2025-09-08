@@ -3,7 +3,7 @@ pub mod delegate;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
-    account::AccessKey,
+    account::{AccessKey, AccountContract},
     hash::CryptoHash,
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
@@ -206,6 +206,23 @@ impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
         }
     }
 }
+
+/// Extract [`GlobalContractIdentifier`] out of [`AccountContract`] if it represents a global
+/// contract.
+///
+/// If conversion is not possible, returns information about locally deployed contract.
+impl TryFrom<AccountContract> for GlobalContractIdentifier {
+    type Error = Option<CryptoHash>;
+    fn try_from(value: AccountContract) -> Result<Self, Self::Error> {
+        match value {
+            AccountContract::None => Err(None),
+            AccountContract::Local(h) => Err(Some(h)),
+            AccountContract::Global(h) => Ok(GlobalContractIdentifier::CodeHash(h)),
+            AccountContract::GlobalByAccount(a) => Ok(GlobalContractIdentifier::AccountId(a)),
+        }
+    }
+}
+
 
 impl GlobalContractIdentifier {
     pub fn len(&self) -> usize {
