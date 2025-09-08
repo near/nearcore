@@ -646,27 +646,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     }
 
     // Column specific settings
-    use crate::DBCol::*;
-    let group_cfg = match col {
-        PartialChunks | State | TrieChanges => store_config
-            .rocksdb
-            .cf_high_load
-            .clone()
-            .unwrap_or_default()
-            .apply_over(RocksDbCfConfig::high_load_defaults()),
-        FlatState | Chunks | StateChanges | Transactions => store_config
-            .rocksdb
-            .cf_medium_load
-            .clone()
-            .unwrap_or_default()
-            .apply_over(RocksDbCfConfig::medium_load_defaults()),
-        _ => store_config
-            .rocksdb
-            .cf_low_load
-            .clone()
-            .unwrap_or_default()
-            .apply_over(RocksDbCfConfig::low_load_defaults()),
-    };
+    let group_cfg = RocksDbCfConfig::resolve_for_column(col, &store_config.rocksdb);
 
     // Apply group defaults derived from group_cfg
     if let Some(v) = group_cfg.optimize_level_style_compaction {
