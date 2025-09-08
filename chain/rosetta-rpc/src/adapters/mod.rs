@@ -831,6 +831,7 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::transaction::{Action, TransferAction};
+    use near_primitives::types::Gas;
 
     #[test]
     fn test_near_actions_bijection() {
@@ -879,7 +880,7 @@ mod tests {
             near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: 100500,
+                gas: Gas::from_gas(100500),
                 deposit: 0,
             }
             .into(),
@@ -888,7 +889,7 @@ mod tests {
             near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: 100500,
+                gas: Gas::from_gas(100500),
                 deposit: near_primitives::types::Balance::MAX,
             }
             .into(),

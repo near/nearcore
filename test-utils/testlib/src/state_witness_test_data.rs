@@ -16,7 +16,7 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
-use near_primitives::types::{Balance, EpochInfoProvider, StateChangeCause};
+use near_primitives::types::{Balance, EpochInfoProvider, Gas, StateChangeCause};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{set_access_key, set_account};
@@ -85,7 +85,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         epoch_height: 0,
         gas_price: GAS_PRICE,
         block_timestamp: 100,
-        gas_limit: Some(10u64.pow(15)),
+        gas_limit: Some(Gas::from_teragas(1000)),
         random_seed: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),

@@ -791,7 +791,7 @@ fn report_outgoing_buffers(
 
         CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS
             .with_label_values(&[&sender_shard_label, &receiver_shard_label])
-            .set(i64::try_from(unused_capacity.gas).unwrap_or(i64::MAX));
+            .set(i64::try_from(unused_capacity.gas.as_gas()).unwrap_or(i64::MAX));
 
         if let Some(len) = inner.outgoing_buffers.buffer_len(*receiver_shard_id) {
             CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN

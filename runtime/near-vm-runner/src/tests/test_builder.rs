@@ -24,7 +24,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         account_locked_balance: 0,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(14),
+        prepaid_gas: Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
@@ -261,8 +261,8 @@ fn fmt_outcome_without_abort(
         outcome.balance,
         outcome.storage_usage,
         return_data_str,
-        outcome.burnt_gas,
-        outcome.used_gas
+        outcome.burnt_gas.as_gas(),
+        outcome.used_gas.as_gas()
     )?;
     Ok(())
 }

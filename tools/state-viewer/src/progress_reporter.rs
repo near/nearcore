@@ -1,3 +1,4 @@
+use near_primitives_core::types::Gas;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub fn timestamp_ms() -> u64 {
@@ -28,7 +29,7 @@ pub struct ProgressReporter {
 }
 
 impl ProgressReporter {
-    pub fn inc_and_report_progress(&self, block_height: u64, gas_burnt: u64) {
+    pub fn inc_and_report_progress(&self, block_height: u64, gas_burnt: Gas) {
         let ProgressReporter {
             cnt,
             skipped,
@@ -37,11 +38,11 @@ impl ProgressReporter {
             tgas_burned,
             indicatif,
         } = self;
-        if gas_burnt == 0 {
+        if gas_burnt == Gas::ZERO {
             empty_blocks.fetch_add(1, Ordering::Relaxed);
         } else {
             non_empty_blocks.fetch_add(1, Ordering::Relaxed);
-            tgas_burned.fetch_add(gas_burnt / TGAS, Ordering::Relaxed);
+            tgas_burned.fetch_add(gas_burnt.checked_div(TGAS).unwrap().as_gas(), Ordering::Relaxed);
         }
 
         const PRINT_PER: u64 = 100;

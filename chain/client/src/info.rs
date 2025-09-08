@@ -58,7 +58,7 @@ pub struct InfoHelper {
     /// Total number of blocks processed.
     num_chunks_in_blocks_processed: u64,
     /// Total gas used during period.
-    gas_used: u64,
+    gas_used: Gas,
     /// Telemetry event sender.
     telemetry_sender: Sender<TelemetryEvent>,
     /// Log coloring enabled.
@@ -91,7 +91,7 @@ impl InfoHelper {
             started: clock.now(),
             num_blocks_processed: 0,
             num_chunks_in_blocks_processed: 0,
-            gas_used: 0,
+            gas_used: Gas::ZERO,
             telemetry_sender,
             log_summary_style: client_config.log_summary_style,
             boot_time_seconds: clock.now_utc().unix_timestamp(),
@@ -105,7 +105,7 @@ impl InfoHelper {
     pub fn chunk_processed(&self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
         metrics::TGAS_USAGE_HIST
             .with_label_values(&[&shard_id.to_string()])
-            .observe(gas_used as f64 / TERAGAS);
+            .observe(gas_used.as_gas() as f64 / TERAGAS);
         metrics::BALANCE_BURNT.inc_by(balance_burnt as f64);
     }
 
@@ -126,8 +126,8 @@ impl InfoHelper {
     ) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
-        self.gas_used += gas_used;
-        metrics::GAS_USED.inc_by(gas_used as f64);
+        self.gas_used = self.gas_used.checked_add(gas_used).unwrap();
+        metrics::GAS_USED.inc_by(gas_used.as_gas() as f64);
         metrics::BLOCKS_PROCESSED.inc();
         metrics::CHUNKS_PROCESSED.inc_by(num_chunks);
         metrics::GAS_PRICE.set(gas_price as f64);
@@ -432,7 +432,7 @@ impl InfoHelper {
         let avg_bls = (self.num_blocks_processed as f64)
             / (now.signed_duration_since(self.started).whole_milliseconds() as f64)
             * 1000.0;
-        let avg_gas_used = ((self.gas_used as f64)
+        let avg_gas_used = ((self.gas_used.as_gas() as f64)
             / (now.signed_duration_since(self.started).whole_milliseconds() as f64)
             * 1000.0) as u64;
         let blocks_info_log =
@@ -473,7 +473,7 @@ impl InfoHelper {
         self.started = self.clock.now();
         self.num_blocks_processed = 0;
         self.num_chunks_in_blocks_processed = 0;
-        self.gas_used = 0;
+        self.gas_used = Gas::ZERO;
 
         let telemetry_event = TelemetryEvent {
             content: self.telemetry_info(

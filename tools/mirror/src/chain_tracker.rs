@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::Transaction;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView};
-use near_primitives_core::types::{Gas, Nonce};
+use near_primitives_core::types::Nonce;
 use parking_lot::Mutex;
 use rocksdb::DB;
 use std::cmp::Ordering;
@@ -91,20 +91,6 @@ impl PartialOrd for TxId {
 impl Ord for TxId {
     fn cmp(&self, other: &Self) -> Ordering {
         self.nonce.cmp(&other.nonce).then_with(|| self.hash.cmp(&other.hash))
-    }
-}
-
-fn gas_pretty(gas: Gas) -> String {
-    if gas < 1000 {
-        format!("{} gas", gas)
-    } else if gas < 1_000_000 {
-        format!("{} Kgas", gas / 1000)
-    } else if gas < 1_000_000_000 {
-        format!("{} Mgas", gas / 1_000_000)
-    } else if gas < 1_000_000_000_000 {
-        format!("{} Ggas", gas / 1_000_000_000)
-    } else {
-        format!("{} Tgas", gas / 1_000_000_000_000)
     }
 }
 
@@ -569,8 +555,7 @@ impl TxTracker {
                     write!(
                         log_message,
                         "-------- shard {} gas used: {} ---------\n",
-                        s.shard_id,
-                        gas_pretty(c.header.gas_used)
+                        s.shard_id, c.header.gas_used
                     )
                     .unwrap();
                     for tx in &c.transactions {

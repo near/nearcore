@@ -1,6 +1,5 @@
 use crate::config::{
-    safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
-    total_prepaid_send_fees,
+    safe_add_compute, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
@@ -136,7 +135,7 @@ pub(crate) fn execute_function_call(
     if !context.view_config.is_some() {
         let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
         let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
-        outcome.used_gas = safe_add_gas(outcome.used_gas, distributed)?;
+        outcome.used_gas = outcome.used_gas.checked_add_result(distributed)?;
     }
 
     Ok(outcome)
@@ -249,14 +248,14 @@ pub(crate) fn action_function_call(
             ActionErrorKind::FunctionCallError(crate::conversions::Convert::convert(err)).into();
         result.result = Err(action_err);
     }
-    result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
+    result.gas_burnt = result.gas_burnt.checked_add_result(outcome.burnt_gas)?;
     result.gas_burnt_for_function_call =
-        safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
+        result.gas_burnt_for_function_call.checked_add_result(outcome.burnt_gas)?;
     // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
     // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
     // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
     // `FunctionCall`s error.
-    result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+    result.gas_used = result.gas_used.checked_add_result(outcome.used_gas)?;
     result.compute_usage = safe_add_compute(result.compute_usage, outcome.compute_usage)?;
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
@@ -816,13 +815,13 @@ pub(crate) fn apply_delegate_action(
     let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, &action_receipt.actions)?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt,
-    result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
+    result.gas_used = result.gas_used.checked_add_result(required_gas)?;
     // This gas was prepaid on Relayer shard. Need to burn it because the receipt is going to be sent.
     // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
-    result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
-    result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
+    result.gas_used = result.gas_used.checked_add_result(prepaid_send_fees)?;
+    result.gas_burnt = result.gas_burnt.checked_add_result(prepaid_send_fees)?;
     // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-    result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees)?;
+    result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees.as_gas())?;
     result.new_receipts.push(new_receipt);
 
     Ok(())
@@ -832,16 +831,13 @@ pub(crate) fn apply_delegate_action(
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-            let mut required_gas = safe_add_gas(
-                total_prepaid_exec_fees(
-                    &apply_state.config,
-                    &action_receipt.actions,
-                    receipt.receiver_id(),
-                )?,
-                total_prepaid_gas(&action_receipt.actions)?,
-            )?;
-            required_gas = safe_add_gas(
-                required_gas,
+            let mut required_gas = total_prepaid_exec_fees(
+                &apply_state.config,
+                &action_receipt.actions,
+                receipt.receiver_id(),
+            )?
+            .checked_add_result(total_prepaid_gas(&action_receipt.actions)?)?;
+            required_gas = required_gas.checked_add_result(
                 apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
             )?;
 
@@ -849,7 +845,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
         }
         ReceiptEnum::GlobalContractDistribution(_)
         | ReceiptEnum::Data(_)
-        | ReceiptEnum::PromiseResume(_) => 0,
+        | ReceiptEnum::PromiseResume(_) => Gas::ZERO,
     })
 }
 
@@ -1124,6 +1120,7 @@ mod tests {
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::transaction::CreateAccountAction;
+    use near_primitives::types::Gas;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::set_account;
@@ -1342,7 +1339,7 @@ mod tests {
                             Box::new(FunctionCallAction {
                                  method_name: "ft_transfer".parse().unwrap(),
                                  args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
-                                 gas: 30000000000000,
+                                 gas: Gas::from_teragas(30),
                                  deposit: 1,
                             })
                         )
@@ -1746,7 +1743,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
@@ -1797,14 +1794,14 @@ mod tests {
             non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             }))),
             non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
                 method_name: "test_method".parse().unwrap(),
+                gas: Gas::from_gas(300),
             }))),
         ];
 
@@ -1836,7 +1833,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 1,
-                gas: 300,
+                gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
 
@@ -1868,7 +1865,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
 
@@ -1903,7 +1900,7 @@ mod tests {
             vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
-                gas: 300,
+                gas: Gas::from_gas(300),
                 method_name: "test_method".parse().unwrap(),
             })))];
 

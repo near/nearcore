@@ -454,7 +454,7 @@ pub(super) struct RunCmd {
     #[clap(long)]
     telemetry_url: Option<String>,
     /// Customize max_gas_burnt_view runtime limit.  If not specified, either
-    /// value given at ‘init’ (i.e. present in config.json) or one from genesis
+    /// value given at 'init' (i.e. present in config.json) or one from genesis
     /// configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,

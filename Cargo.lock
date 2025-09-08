@@ -4513,6 +4513,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-gas"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41ca4044222f2f392ab61d27d0aefc5106b1ece4dcd22c5c987e3c75371d2a37"
+dependencies = [
+ "borsh",
+ "serde",
+]
+
+[[package]]
 name = "near-indexer"
 version = "0.0.0"
 dependencies = [
@@ -4925,6 +4935,7 @@ dependencies = [
  "expect-test",
  "insta",
  "near-account-id",
+ "near-gas",
  "near-schema-checker-lib",
  "num-rational 0.3.2",
  "schemars 1.0.3",

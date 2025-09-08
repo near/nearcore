@@ -2,7 +2,7 @@
 
 use crate::actions::*;
 use crate::config::{
-    exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
+    exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
@@ -226,12 +226,12 @@ impl ActionResult {
             next_result.gas_burnt,
             next_result.gas_used
         );
-        self.gas_burnt = safe_add_gas(self.gas_burnt, next_result.gas_burnt)?;
-        self.gas_burnt_for_function_call = safe_add_gas(
-            self.gas_burnt_for_function_call,
-            next_result.gas_burnt_for_function_call,
-        )?;
-        self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
+        self.gas_burnt = self.gas_burnt.checked_add_result(next_result.gas_burnt)?;
+        self.gas_burnt_for_function_call = self
+            .gas_burnt_for_function_call
+            .checked_add(next_result.gas_burnt_for_function_call)
+            .ok_or(IntegerOverflowError)?;
+        self.gas_used = self.gas_used.checked_add_result(next_result.gas_used)?;
         self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
         self.profile.merge(&next_result.profile);
         self.result = next_result.result;
@@ -254,9 +254,9 @@ impl ActionResult {
 impl Default for ActionResult {
     fn default() -> Self {
         Self {
-            gas_burnt: 0,
-            gas_burnt_for_function_call: 0,
-            gas_used: 0,
+            gas_burnt: Gas::ZERO,
+            gas_burnt_for_function_call: Gas::ZERO,
+            gas_used: Gas::ZERO,
             compute_usage: 0,
             result: Ok(ReturnData::None),
             logs: vec![],
@@ -322,7 +322,7 @@ impl Runtime {
         result.gas_used = exec_fees;
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-        result.compute_usage = exec_fees;
+        result.compute_usage = exec_fees.as_gas();
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
@@ -544,7 +544,7 @@ impl Runtime {
         result.gas_used = exec_fees;
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-        result.compute_usage = exec_fees;
+        result.compute_usage = exec_fees.as_gas();
 
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
@@ -655,7 +655,7 @@ impl Runtime {
         };
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas =
-            if receipt.predecessor_id().is_system() { 0 } else { result.gas_burnt };
+            if receipt.predecessor_id().is_system() { Gas::ZERO } else { result.gas_burnt };
         // `price_deficit` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?
             - gas_refund_result.price_deficit;
@@ -666,9 +666,12 @@ impl Runtime {
         let tokens_burnt = tx_burnt_amount;
 
         // Adding burnt gas reward for function calls if the account exists.
-        let receiver_gas_reward = result.gas_burnt_for_function_call
-            * *apply_state.config.fees.burnt_gas_reward.numer() as u64
-            / *apply_state.config.fees.burnt_gas_reward.denom() as u64;
+        let receiver_gas_reward = result
+            .gas_burnt_for_function_call
+            .checked_mul(*apply_state.config.fees.burnt_gas_reward.numer() as u64)
+            .unwrap()
+            .checked_div(*apply_state.config.fees.burnt_gas_reward.denom() as u64)
+            .unwrap();
         // The balance that the current account should receive as a reward for function call
         // execution.
         let receiver_reward = if apply_state.config.fees.refund_gas_price_changes {
@@ -863,19 +866,26 @@ impl Runtime {
         config: &RuntimeConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = safe_add_gas(
-            total_prepaid_gas(&action_receipt.actions)?,
-            total_prepaid_send_fees(config, &action_receipt.actions)?,
-        )?;
-        let prepaid_exec_gas = safe_add_gas(
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
-            config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        )?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions)?)
+            .ok_or(IntegerOverflowError)?;
+        let prepaid_exec_gas =
+            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+                .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
+                .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
-            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_burnt
+            prepaid_gas
+                .checked_add(prepaid_exec_gas)
+                .ok_or(IntegerOverflowError)?
+                .checked_sub(result.gas_burnt)
+                .unwrap()
         } else {
-            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
+            prepaid_gas
+                .checked_add(prepaid_exec_gas)
+                .ok_or(IntegerOverflowError)?
+                .checked_sub(result.gas_used)
+                .unwrap()
         };
 
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
@@ -945,19 +955,26 @@ impl Runtime {
         config: &RuntimeConfig,
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = safe_add_gas(
-            total_prepaid_gas(&action_receipt.actions)?,
-            total_prepaid_send_fees(config, &action_receipt.actions)?,
-        )?;
-        let prepaid_exec_gas = safe_add_gas(
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
-            config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-        )?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions)?)
+            .ok_or(IntegerOverflowError)?;
+        let prepaid_exec_gas =
+            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?
+                .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
+                .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gross_gas_refund = if result.result.is_err() {
-            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_burnt
+            prepaid_gas
+                .checked_add(prepaid_exec_gas)
+                .ok_or(IntegerOverflowError)?
+                .checked_sub(result.gas_burnt)
+                .unwrap()
         } else {
-            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
+            prepaid_gas
+                .checked_add(prepaid_exec_gas)
+                .ok_or(IntegerOverflowError)?
+                .checked_sub(result.gas_used)
+                .unwrap()
         };
 
         // NEP-536 also adds a penalty to gas refund.
@@ -1650,7 +1667,7 @@ impl Runtime {
                     }),
                 });
                 let gas_burnt = verification_result.gas_burnt;
-                let compute_usage = gas_burnt;
+                let compute_usage = gas_burnt.as_gas();
                 let outcome = ExecutionOutcomeWithId {
                     id: tx.get_hash(),
                     outcome: ExecutionOutcome {
@@ -1696,7 +1713,7 @@ impl Runtime {
             }
             let compute = outcome.outcome.compute_usage;
             let compute = compute.expect("`process_transaction` must populate compute usage");
-            total.add(outcome.outcome.gas_burnt, compute)?;
+            total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
         }
@@ -1781,8 +1798,8 @@ impl Runtime {
                 .compute_usage
                 .expect("`process_receipt` must populate compute usage");
             let total = &mut processing_state.total;
-            total.add(gas_burnt, compute_usage)?;
-            span.record("gas_burnt", gas_burnt);
+            total.add(gas_burnt.as_gas(), compute_usage)?;
+            span.record("gas_burnt", gas_burnt.as_gas());
             span.record("compute_usage", compute_usage);
 
             processing_state.outcomes.push(outcome_with_id);
@@ -2061,7 +2078,7 @@ impl Runtime {
 
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
-        let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
+        let compute_limit = apply_state.gas_limit.map(|g| g.as_gas()).unwrap_or(u64::MAX);
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         self.process_local_receipts(
@@ -2452,7 +2469,7 @@ impl Drop for TotalResourceGuard {
 
 impl TotalResourceGuard {
     fn add(&mut self, gas: u64, compute: u64) -> Result<(), IntegerOverflowError> {
-        self.gas = safe_add_gas(self.gas, gas)?;
+        self.gas = self.gas.checked_add(gas).ok_or(IntegerOverflowError)?;
         self.compute = safe_add_compute(self.compute, compute)?;
         Ok(())
     }

@@ -9,7 +9,7 @@ use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::config::Rational32;
@@ -132,7 +132,7 @@ pub fn prepare_env_with_congestion(
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.protocol_version = protocol_version;
     genesis.config.epoch_length = epoch_length;
-    genesis.config.gas_limit = 10_000_000_000_000;
+    genesis.config.gas_limit = Gas::from_teragas(10);
     if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
         genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     }
@@ -181,7 +181,7 @@ pub fn prepare_env_with_congestion(
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "call_promise".to_string(),
                 args: serde_json::to_vec(&data).unwrap(),
-                gas: gas_1,
+                gas: Gas::from_gas(gas_1),
                 deposit: 0,
             }))],
             *genesis_block.hash(),

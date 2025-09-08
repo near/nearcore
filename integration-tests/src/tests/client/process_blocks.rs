@@ -57,7 +57,7 @@ use near_primitives::transaction::{
     Transaction, TransactionV0,
 };
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, Gas, NumBlocks};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
@@ -1573,16 +1573,21 @@ fn test_gas_price_change() {
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
     let transaction_costs = RuntimeConfig::test().fees;
 
-    let send_money_total_gas = transaction_costs.fee(ActionCosts::transfer).send_fee(false)
-        + transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false)
-        + transaction_costs.fee(ActionCosts::transfer).exec_fee()
-        + transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
-    let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
+    let send_money_total_gas = transaction_costs
+        .fee(ActionCosts::transfer)
+        .send_fee(false)
+        .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false))
+        .unwrap()
+        .checked_add(transaction_costs.fee(ActionCosts::transfer).exec_fee())
+        .unwrap()
+        .checked_add(transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee())
+        .unwrap();
+    let min_gas_price = target_num_tokens_left / u128::from(send_money_total_gas.as_gas());
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Ratio::new(1, 10);
 
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = gas_limit;
+    genesis.config.gas_limit = Gas::from_gas(gas_limit);
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
@@ -1596,7 +1601,7 @@ fn test_gas_price_change() {
         &signer,
         TESTING_INIT_BALANCE
             - target_num_tokens_left
-            - send_money_total_gas as u128 * min_gas_price,
+            - u128::from(send_money_total_gas.as_gas()) * min_gas_price,
         genesis_hash,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -1623,7 +1628,7 @@ fn test_gas_price_overflow() {
     let gas_limit = 450000000000;
     let gas_price_adjustment_rate = Ratio::from_integer(1);
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = gas_limit;
+    genesis.config.gas_limit = Gas::from_gas(gas_limit);
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     genesis.config.transaction_validity_period = 100000;
     genesis.config.epoch_length = 43200;
@@ -1906,7 +1911,7 @@ fn test_validate_chunk_extra() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_block_height".to_string(),
             args: vec![],
-            gas: 100000000000000,
+            gas: Gas::from_teragas(100),
             deposit: 0,
         }))],
         *last_block.hash(),
@@ -2037,7 +2042,7 @@ fn slow_test_catchup_gas_price_change() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = 1000000000000;
+    genesis.config.gas_limit = Gas::from_teragas(1);
 
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
@@ -2189,7 +2194,7 @@ fn test_block_execution_outcomes() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = 1000000000000;
+    genesis.config.gas_limit = Gas::from_teragas(1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -2271,7 +2276,7 @@ fn test_save_tx_outcomes_false() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = 1000000000000;
+    genesis.config.gas_limit = Gas::from_teragas(1);
     let mut env = TestEnv::builder(&genesis.config)
         .save_tx_outcomes(false)
         .nightshade_runtimes(&genesis)
@@ -2321,7 +2326,7 @@ fn test_refund_receipts_processing() {
     genesis.config.min_gas_price = min_gas_price;
     // Set gas limit to be small enough to produce some delayed receipts, but large enough for
     // transactions to get through.
-    genesis.config.gas_limit = 100_000_000;
+    genesis.config.gas_limit = Gas::from_gas(100_000_000);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -2413,9 +2418,22 @@ fn test_execution_metadata() {
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
 
     // Total costs for creating a function call receipt.
-    let expected_receipt_cost = config.fees.fee(ActionCosts::new_action_receipt).execution
-        + config.fees.fee(ActionCosts::function_call_base).exec_fee()
-        + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
+    let expected_receipt_cost = config
+        .fees
+        .fee(ActionCosts::new_action_receipt)
+        .execution
+        .checked_add(config.fees.fee(ActionCosts::function_call_base).exec_fee())
+        .unwrap()
+        .checked_add(
+            config
+                .fees
+                .fee(ActionCosts::function_call_byte)
+                .exec_fee()
+                .checked_mul("main".len() as u64)
+                .unwrap(),
+        )
+        .unwrap()
+        .as_gas();
 
     // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
     // operand stack (8 bytes worth to hold the return value.)
@@ -2427,13 +2445,13 @@ fn test_execution_metadata() {
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "BASE",
-        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::base).to_string()
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::base).as_gas().to_string()
       },
       // We include compilation costs into running the function.
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "CONTRACT_LOADING_BASE",
-        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).to_string()
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).as_gas().to_string()
       },
       {
         "cost_category": "WASM_HOST_COST",
@@ -2452,14 +2470,19 @@ fn test_execution_metadata() {
     let actual_profile = serde_json::to_value(&metadata.gas_profile).unwrap();
     assert_eq!(expected_profile, actual_profile);
 
-    let actual_receipt_cost = outcome.gas_burnt
-        - metadata
-            .gas_profile
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|it| it.gas_used)
-            .sum::<u64>();
+    let actual_receipt_cost = outcome
+        .gas_burnt
+        .checked_sub(
+            metadata
+                .gas_profile
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|it| it.gas_used)
+                .fold(Gas::ZERO, |acc, gas| acc.checked_add(gas).unwrap()),
+        )
+        .unwrap()
+        .as_gas();
 
     assert_eq!(expected_receipt_cost, actual_receipt_cost)
 }
@@ -3233,7 +3256,7 @@ fn test_validator_stake_host_function() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_validator_stake".to_string(),
             args: b"test0".to_vec(),
-            gas: 100_000_000_000_000,
+            gas: Gas::from_teragas(100),
             deposit: 0,
         }))],
         *genesis_block.hash(),
