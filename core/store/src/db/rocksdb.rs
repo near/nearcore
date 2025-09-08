@@ -1,4 +1,4 @@
-use crate::config::Mode;
+use crate::config::{Mode, RocksDbCfConfig};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
 use ::rocksdb::{
@@ -645,29 +645,55 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
 
-    // Optimize write-heavy columns to boost compaction throughput
-    match col {
-        DBCol::PartialChunks | DBCol::State | DBCol::TrieChanges => {
-            opts.optimize_level_style_compaction(1024 * bytesize::MIB as usize);
-            opts.set_level_zero_file_num_compaction_trigger(8);
-            opts.set_level_zero_slowdown_writes_trigger(32);
-            opts.set_level_zero_stop_writes_trigger(64);
-            opts.set_max_subcompactions(2);
-            opts.set_target_file_size_base(128 * bytesize::MIB);
-            opts.set_max_write_buffer_number(8);
-            opts.set_compaction_readahead_size(6 * bytesize::MIB as usize);
-        }
-        DBCol::FlatState | DBCol::Chunks | DBCol::StateChanges | DBCol::Transactions => {
-            opts.optimize_level_style_compaction(512 * bytesize::MIB as usize);
-            opts.set_level_zero_file_num_compaction_trigger(8);
-            opts.set_level_zero_slowdown_writes_trigger(32);
-            opts.set_level_zero_stop_writes_trigger(64);
-            opts.set_target_file_size_base(128 * bytesize::MIB);
-            opts.set_max_write_buffer_number(6);
-            opts.set_compaction_readahead_size(4 * bytesize::MIB as usize);
-        }
-        _ => {}
+    // Column specific settings
+    use crate::DBCol::*;
+    let group_cfg = match col {
+        PartialChunks | State | TrieChanges => store_config
+            .rocksdb
+            .cf_high_load
+            .clone()
+            .unwrap_or_default()
+            .apply_over(RocksDbCfConfig::high_load_defaults()),
+        FlatState | Chunks | StateChanges | Transactions => store_config
+            .rocksdb
+            .cf_medium_load
+            .clone()
+            .unwrap_or_default()
+            .apply_over(RocksDbCfConfig::medium_load_defaults()),
+        _ => store_config
+            .rocksdb
+            .cf_low_load
+            .clone()
+            .unwrap_or_default()
+            .apply_over(RocksDbCfConfig::low_load_defaults()),
+    };
+
+    // Apply group defaults derived from group_cfg
+    if let Some(v) = group_cfg.optimize_level_style_compaction {
+        opts.optimize_level_style_compaction(v.as_u64() as usize);
     }
+    if let Some(v) = group_cfg.level_zero_file_num_compaction_trigger {
+        opts.set_level_zero_file_num_compaction_trigger(v);
+    }
+    if let Some(v) = group_cfg.level_zero_slowdown_writes_trigger {
+        opts.set_level_zero_slowdown_writes_trigger(v);
+    }
+    if let Some(v) = group_cfg.level_zero_stop_writes_trigger {
+        opts.set_level_zero_stop_writes_trigger(v);
+    }
+    if let Some(v) = group_cfg.max_subcompactions {
+        opts.set_max_subcompactions(v as u32);
+    }
+    if let Some(v) = group_cfg.target_file_size_base {
+        opts.set_target_file_size_base(v.as_u64());
+    }
+    if let Some(v) = group_cfg.max_write_buffer_number {
+        opts.set_max_write_buffer_number(v);
+    }
+    if let Some(v) = group_cfg.compaction_readahead_size {
+        opts.set_compaction_readahead_size(v.as_u64() as usize);
+    }
+
     opts
 }
 

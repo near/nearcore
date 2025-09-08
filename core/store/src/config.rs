@@ -432,11 +432,13 @@ fn default_cold_store_loop_sleep_duration() -> Duration {
 #[serde(default)]
 pub struct RocksDbConfig {
     /// Bytes to sync per sync operation for data files.
+    ///
     /// Helps smooth I/O by syncing incrementally rather than in large bursts.
     #[serde(default = "default_rocksdb_bytes_per_sync")]
     pub bytes_per_sync: bytesize::ByteSize,
 
     /// Bytes to sync per sync operation for WAL files.
+    ///
     /// Reduces latency spikes from large fsync bursts during WAL writes.
     #[serde(default = "default_rocksdb_wal_bytes_per_sync")]
     pub wal_bytes_per_sync: bytesize::ByteSize,
@@ -446,11 +448,13 @@ pub struct RocksDbConfig {
     pub enable_pipelined_write: bool,
 
     /// Size of a single memtable (write buffer).
+    ///
     /// Larger values reduce flush frequency but use more memory.
     #[serde(default = "default_rocksdb_write_buffer_size")]
     pub write_buffer_size: bytesize::ByteSize,
 
     /// Target size for level 1 in the LSM tree.
+    ///
     /// Controls the size of the first level after L0.
     #[serde(default = "default_rocksdb_max_bytes_for_level_base")]
     pub max_bytes_for_level_base: bytesize::ByteSize,
@@ -460,9 +464,28 @@ pub struct RocksDbConfig {
     pub max_total_wal_size: bytesize::ByteSize,
 
     /// Override for RocksDB parallelism (background threads).
+    ///
     /// If None, uses max(1, num_cpus / 2). Only applies when not using single_thread_rocksdb.
     #[serde(default)]
     pub parallelism: Option<i32>,
+
+    /// Column-family tuning overrides for write-heavy columns.
+    ///
+    /// Applies to: PartialChunks, State, TrieChanges.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cf_high_load: Option<RocksDbCfConfig>,
+
+    /// Column-family tuning overrides for moderately write-heavy columns.
+    ///
+    /// Applies to: FlatState, Chunks, StateChanges, Transactions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cf_medium_load: Option<RocksDbCfConfig>,
+
+    /// Column-family tuning overrides for remaining columns.
+    ///
+    /// Applies to all other columns not covered by high/medium groups.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cf_low_load: Option<RocksDbCfConfig>,
 }
 
 impl Default for RocksDbConfig {
@@ -475,6 +498,9 @@ impl Default for RocksDbConfig {
             max_bytes_for_level_base: default_rocksdb_max_bytes_for_level_base(),
             max_total_wal_size: default_rocksdb_max_total_wal_size(),
             parallelism: None,
+            cf_high_load: None,
+            cf_medium_load: None,
+            cf_low_load: None,
         }
     }
 }
@@ -507,6 +533,89 @@ fn default_rocksdb_max_bytes_for_level_base() -> bytesize::ByteSize {
 
 fn default_rocksdb_max_total_wal_size() -> bytesize::ByteSize {
     bytesize::ByteSize::gib(4)
+}
+
+/// Per-column-family override settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct RocksDbCfConfig {
+    pub optimize_level_style_compaction: Option<bytesize::ByteSize>,
+    pub level_zero_file_num_compaction_trigger: Option<i32>,
+    pub level_zero_slowdown_writes_trigger: Option<i32>,
+    pub level_zero_stop_writes_trigger: Option<i32>,
+    pub max_subcompactions: Option<i32>,
+    pub target_file_size_base: Option<bytesize::ByteSize>,
+    pub max_write_buffer_number: Option<i32>,
+    pub compaction_readahead_size: Option<bytesize::ByteSize>,
+}
+
+impl RocksDbCfConfig {
+    pub fn apply_over(self, mut base: RocksDbCfConfig) -> RocksDbCfConfig {
+        if let Some(v) = self.optimize_level_style_compaction {
+            base.optimize_level_style_compaction = Some(v);
+        }
+        if let Some(v) = self.level_zero_file_num_compaction_trigger {
+            base.level_zero_file_num_compaction_trigger = Some(v);
+        }
+        if let Some(v) = self.level_zero_slowdown_writes_trigger {
+            base.level_zero_slowdown_writes_trigger = Some(v);
+        }
+        if let Some(v) = self.level_zero_stop_writes_trigger {
+            base.level_zero_stop_writes_trigger = Some(v);
+        }
+        if let Some(v) = self.max_subcompactions {
+            base.max_subcompactions = Some(v);
+        }
+        if let Some(v) = self.target_file_size_base {
+            base.target_file_size_base = Some(v);
+        }
+        if let Some(v) = self.max_write_buffer_number {
+            base.max_write_buffer_number = Some(v);
+        }
+        if let Some(v) = self.compaction_readahead_size {
+            base.compaction_readahead_size = Some(v);
+        }
+        base
+    }
+
+    pub fn high_load_defaults() -> Self {
+        Self {
+            optimize_level_style_compaction: Some(bytesize::ByteSize::mib(1024)),
+            level_zero_file_num_compaction_trigger: Some(8),
+            level_zero_slowdown_writes_trigger: Some(32),
+            level_zero_stop_writes_trigger: Some(64),
+            max_subcompactions: Some(2),
+            target_file_size_base: Some(bytesize::ByteSize::mib(128)),
+            max_write_buffer_number: Some(8),
+            compaction_readahead_size: Some(bytesize::ByteSize::mib(6)),
+        }
+    }
+
+    pub fn medium_load_defaults() -> Self {
+        Self {
+            optimize_level_style_compaction: Some(bytesize::ByteSize::mib(512)),
+            level_zero_file_num_compaction_trigger: Some(8),
+            level_zero_slowdown_writes_trigger: Some(32),
+            level_zero_stop_writes_trigger: Some(64),
+            max_subcompactions: None,
+            target_file_size_base: Some(bytesize::ByteSize::mib(128)),
+            max_write_buffer_number: Some(6),
+            compaction_readahead_size: Some(bytesize::ByteSize::mib(4)),
+        }
+    }
+
+    pub fn low_load_defaults() -> Self {
+        Self {
+            optimize_level_style_compaction: Some(bytesize::ByteSize::mib(256)),
+            level_zero_file_num_compaction_trigger: Some(8),
+            level_zero_slowdown_writes_trigger: Some(32),
+            level_zero_stop_writes_trigger: Some(64),
+            max_subcompactions: None,
+            target_file_size_base: Some(bytesize::ByteSize::mib(96)),
+            max_write_buffer_number: Some(4),
+            compaction_readahead_size: Some(bytesize::ByteSize::mib(2)),
+        }
+    }
 }
 
 /// Parameters for prefetching certain contract calls.
@@ -548,6 +657,9 @@ pub enum CloudStorageLocation {
 #[cfg(test)]
 mod tests {
     use super::{RocksDbConfig, StoreConfig};
+    use crate::config::{
+        RocksDbCfConfig, default_rocksdb_bytes_per_sync, default_rocksdb_wal_bytes_per_sync,
+    };
 
     #[test]
     fn rocksdb_config_override_single_field() {
@@ -555,7 +667,7 @@ mod tests {
         let cfg: RocksDbConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.wal_bytes_per_sync.as_u64(), bytesize::ByteSize::mib(3).as_u64());
         // Unset fields remain at default
-        assert_eq!(cfg.bytes_per_sync.as_u64(), bytesize::ByteSize::mib(1).as_u64());
+        assert_eq!(cfg.bytes_per_sync.as_u64(), default_rocksdb_bytes_per_sync().as_u64());
     }
 
     #[test]
@@ -563,7 +675,34 @@ mod tests {
         // Simulate legacy StoreConfig JSON without the `rocksdb` key
         let json = "{}";
         let store: StoreConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(store.rocksdb.bytes_per_sync.as_u64(), bytesize::ByteSize::mib(1).as_u64());
-        assert_eq!(store.rocksdb.wal_bytes_per_sync.as_u64(), bytesize::ByteSize::mib(1).as_u64());
+        assert_eq!(
+            store.rocksdb.bytes_per_sync.as_u64(),
+            default_rocksdb_bytes_per_sync().as_u64()
+        );
+        assert_eq!(
+            store.rocksdb.wal_bytes_per_sync.as_u64(),
+            default_rocksdb_wal_bytes_per_sync().as_u64()
+        );
+    }
+
+    #[test]
+    fn cf_medium_override_single_field() {
+        let json = r#"{ "cf_medium_load": { "max_write_buffer_number": 12 } }"#;
+        let cfg: RocksDbConfig = serde_json::from_str(json).unwrap();
+
+        // Medium: apply overrides over preset
+        let medium_base = RocksDbCfConfig::medium_load_defaults();
+        let medium = cfg.cf_medium_load.clone().unwrap_or_default().apply_over(medium_base.clone());
+        assert_eq!(medium.max_write_buffer_number, Some(12));
+        // Another medium default remains intact
+        assert_eq!(
+            medium.target_file_size_base.map(|b| b.as_u64()),
+            Some(medium_base.target_file_size_base.unwrap().as_u64())
+        );
+
+        // High: no overrides remains preset
+        let high_base = RocksDbCfConfig::high_load_defaults();
+        let high = cfg.cf_high_load.unwrap_or_default().apply_over(high_base.clone());
+        assert_eq!(high.max_write_buffer_number, Some(high_base.max_write_buffer_number.unwrap()));
     }
 }
