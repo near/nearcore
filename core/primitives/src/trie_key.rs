@@ -2,7 +2,6 @@ use crate::types::AccountId;
 use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
 use borsh::{BorshDeserialize, BorshSerialize, to_vec};
 use near_crypto::PublicKey;
-use near_primitives_core::account::AccountContract;
 use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
@@ -486,23 +485,6 @@ impl TrieKey {
             TrieKey::GlobalContractCode { .. } => None,
             TrieKey::GasKey { account_id, .. } => Some(account_id.clone()),
         }
-    }
-
-    pub fn for_account_contract_code(
-        account_id: &AccountId,
-        account_contract: &AccountContract,
-    ) -> Option<Self> {
-        let trie_key = match account_contract {
-            AccountContract::None => return None,
-            AccountContract::Local(_) => Self::ContractCode { account_id: account_id.clone() },
-            AccountContract::Global(code_hash) => Self::GlobalContractCode {
-                identifier: GlobalContractCodeIdentifier::CodeHash(*code_hash),
-            },
-            AccountContract::GlobalByAccount(account_id) => Self::GlobalContractCode {
-                identifier: GlobalContractCodeIdentifier::AccountId(account_id.clone()),
-            },
-        };
-        Some(trie_key)
     }
 }
 

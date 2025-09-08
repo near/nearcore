@@ -4,7 +4,7 @@ use crate::trie_key::GlobalContractCodeIdentifier;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
-    account::AccessKey,
+    account::{AccessKey, AccountContract},
     hash::CryptoHash,
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
@@ -209,6 +209,40 @@ impl GlobalContractIdentifier {
         match self {
             GlobalContractIdentifier::CodeHash(_) => 32,
             GlobalContractIdentifier::AccountId(account_id) => account_id.len(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ContractIsLocalError {
+    NotDeployed,
+    Deployed(CryptoHash),
+}
+
+impl std::error::Error for ContractIsLocalError {}
+
+impl fmt::Display for ContractIsLocalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            ContractIsLocalError::NotDeployed => "contract is not deployed",
+            ContractIsLocalError::Deployed(_) => "a locally deployed contract is deployed",
+        })
+    }
+}
+
+/// Extract [`GlobalContractIdentifier`] out of [`AccountContract`] if it represents a global
+/// contract.
+///
+/// If conversion is not possible, the conversion error can be inspected to obtain information
+/// about the local error.
+impl TryFrom<AccountContract> for GlobalContractIdentifier {
+    type Error = ContractIsLocalError;
+    fn try_from(value: AccountContract) -> Result<Self, Self::Error> {
+        match value {
+            AccountContract::None => Err(ContractIsLocalError::NotDeployed),
+            AccountContract::Local(h) => Err(ContractIsLocalError::Deployed(h)),
+            AccountContract::Global(h) => Ok(GlobalContractIdentifier::CodeHash(h)),
+            AccountContract::GlobalByAccount(a) => Ok(GlobalContractIdentifier::AccountId(a)),
         }
     }
 }

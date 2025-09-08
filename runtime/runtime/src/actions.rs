@@ -26,8 +26,9 @@ use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
+use near_store::trie::AccessOptions;
 use near_store::{
-    StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
+    StorageError, TrieAccess, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
     get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
     set_promise_yield_indices,
 };
@@ -633,8 +634,8 @@ pub(crate) fn action_delete_account(
     Ok(())
 }
 
-/// Returns the storage usage for the contract code with the given `code_hash` and deployed to the given `account_id`.
-/// If no contract was deployed to the account, returns `0`.
+/// Returns the storage usage for the contract code with the given `code_hash` and deployed to the
+/// given `account_id`. If no contract was deployed to the account, returns `0`.
 ///
 /// This implements different behaviors based on the protocol version:
 /// If `ExcludeExistingCodeFromWitnessForCodeLen` is enabled then the code-length is obtained without reading
@@ -649,7 +650,8 @@ fn get_code_len_or_default(
         if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(protocol_version) {
             state_update.get_code_len(account_id, code_hash)?
         } else {
-            state_update.get_code(account_id, code_hash)?.map(|contract| contract.code().len())
+            let key = near_primitives::trie_key::TrieKey::ContractCode { account_id };
+            state_update.get(&key, AccessOptions::DEFAULT)?.map(|code| code.len())
         };
     debug_assert!(
         code_len.is_some() || code_hash == CryptoHash::default(),

@@ -5,10 +5,11 @@ use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use near_primitives::account::AccountContract;
+use near_primitives::action::{ContractIsLocalError, GlobalContractIdentifier};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
-use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot,
@@ -162,31 +163,6 @@ impl TrieUpdate {
         self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
     }
 
-    // Deprecated, will be removed when ExcludeExistingCodeFromWitnessForCodeLen is stabilized.
-    // `get_account_contract_code` should be used instead.
-    pub fn get_code(
-        &self,
-        account_id: AccountId,
-        code_hash: CryptoHash,
-    ) -> Result<Option<ContractCode>, StorageError> {
-        let key = TrieKey::ContractCode { account_id };
-        self.get(&key, AccessOptions::DEFAULT)
-            .map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
-    }
-
-    pub fn get_global_contract_code(
-        &self,
-        identifier: GlobalContractCodeIdentifier,
-    ) -> Result<Option<ContractCode>, StorageError> {
-        let code_hash = match identifier {
-            GlobalContractCodeIdentifier::CodeHash(hash) => Some(hash),
-            GlobalContractCodeIdentifier::AccountId(_) => None,
-        };
-        let key = TrieKey::GlobalContractCode { identifier };
-        self.get(&key, AccessOptions::DEFAULT)
-            .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
-    }
-
     /// Returns the size (in num bytes) of the contract code for the given account.
     ///
     /// This is different from `get_code` in that it does not read the code from storage.
@@ -319,18 +295,21 @@ impl TrieUpdate {
         account_contract: &AccountContract,
         apply_reason: ApplyChunkReason,
     ) -> Result<(), StorageError> {
-        // The recording of contracts when they are excluded from the witness are only for distributing them to the validators,
-        // and not needed for validating the chunks, thus we skip the recording if we are not applying the chunk for updating the shard.
+        // The recording of contracts when they are excluded from the witness are only for
+        // distributing them to the validators, and not needed for validating the chunks, thus we
+        // skip the recording if we are not applying the chunk for updating the shard.
         if apply_reason != ApplyChunkReason::UpdateTrackedShard {
             return Ok(());
         }
 
-        // Only record the call if trie contains the contract (with the given hash) being called deployed to the given account.
-        // This avoids recording contracts that do not exist or are newly-deployed to the account.
-        // Note that the check below to see if the contract exists has no side effects (not charging gas or recording trie nodes)
-        let Some(trie_key) = TrieKey::for_account_contract_code(&account_id, account_contract)
-        else {
-            return Ok(());
+        // Only record the call if trie contains the contract (with the given hash) being called
+        // deployed to the given account. This avoids recording contracts that do not exist or are
+        // newly-deployed to the account. Note that the check below to see if the contract exists
+        // has no side effects (not charging gas or recording trie nodes)
+        let trie_key = match GlobalContractIdentifier::try_from(account_contract.clone()) {
+            Err(ContractIsLocalError::NotDeployed) => return Ok(()),
+            Err(ContractIsLocalError::Deployed(_)) => TrieKey::ContractCode { account_id },
+            Ok(identifier) => TrieKey::GlobalContractCode { identifier: identifier.into() },
         };
         let contract_ref = self
             .trie
