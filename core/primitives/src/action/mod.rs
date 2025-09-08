@@ -223,7 +223,6 @@ impl TryFrom<AccountContract> for GlobalContractIdentifier {
     }
 }
 
-
 impl GlobalContractIdentifier {
     pub fn len(&self) -> usize {
         match self {
