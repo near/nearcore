@@ -224,15 +224,16 @@ enum BadCongestionInfoMode {
 
 impl BadCongestionInfoMode {
     fn corrupt(&self, congestion_info: &mut CongestionInfo) {
+        let contestion_info_test_gas_amount = Gas::from_gas(1);
         match self {
             BadCongestionInfoMode::CorruptReceiptBytes => {
                 congestion_info.add_receipt_bytes(1).unwrap();
             }
             BadCongestionInfoMode::CorruptDelayedReceiptsBytes => {
-                congestion_info.add_delayed_receipt_gas(Gas::ONE).unwrap();
+                congestion_info.add_delayed_receipt_gas(contestion_info_test_gas_amount).unwrap();
             }
             BadCongestionInfoMode::CorruptBufferedReceiptsBytes => {
-                congestion_info.add_buffered_receipt_gas(Gas::ONE).unwrap();
+                congestion_info.add_buffered_receipt_gas(contestion_info_test_gas_amount).unwrap();
             }
             BadCongestionInfoMode::CorruptAllowedShard => {
                 congestion_info.set_allowed_shard(u16::MAX);

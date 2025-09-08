@@ -71,7 +71,14 @@ pub fn test_smart_contract_simple(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], Gas::from_tera(100), 0)
+        .function_call(
+            alice_account(),
+            bob_account(),
+            "run_test",
+            vec![],
+            Gas::from_teragas(100),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -91,7 +98,7 @@ pub fn test_smart_contract_panic(node: impl Node) {
             alice_account(),
             "panic_with_message",
             vec![],
-            Gas::from_tera(100),
+            Gas::from_teragas(100),
             0,
         )
         .unwrap();
@@ -120,7 +127,7 @@ pub fn test_smart_contract_self_call(node: impl Node) {
             account_id.clone(),
             "run_test",
             vec![],
-            Gas::from_tera(100),
+            Gas::from_teragas(100),
             0,
         )
         .unwrap();
@@ -144,7 +151,7 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
             bob_account(),
             "_run_test",
             vec![],
-            Gas::from_tera(100),
+            Gas::from_teragas(100),
             0,
         )
         .unwrap();
@@ -171,7 +178,7 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "", vec![], Gas::from_tera(100), 0)
+        .function_call(account_id.clone(), bob_account(), "", vec![], Gas::from_teragas(100), 0)
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -196,7 +203,7 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "", vec![], Gas::from_tera(100), 10)
+        .function_call(account_id.clone(), bob_account(), "", vec![], Gas::from_teragas(100), 10)
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -225,7 +232,7 @@ pub fn test_smart_contract_with_args(node: impl Node) {
             bob_account(),
             "sum_with_input",
             (2u64..4).flat_map(|x| x.to_le_bytes().to_vec()).collect(),
-            Gas::from_tera(100),
+            Gas::from_teragas(100),
             0,
         )
         .unwrap();
@@ -249,7 +256,7 @@ pub fn test_async_call_with_logs(node: impl Node) {
             bob_account(),
             "log_something",
             vec![],
-            Gas::from_tera(100),
+            Gas::from_teragas(100),
             0,
         )
         .unwrap();
@@ -554,7 +561,14 @@ pub fn test_smart_contract_reward(node: impl Node) {
     let bob = node_user.view_account(&bob_account()).unwrap();
     assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], Gas::from_tera(100), 0)
+        .function_call(
+            alice_account(),
+            bob_account(),
+            "run_test",
+            vec![],
+            Gas::from_teragas(100),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -1200,7 +1214,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
             bob_account(),
             "run_test",
             vec![],
-            Gas::from_tera(100),
+            Gas::from_teragas(100),
             0,
         )
         .unwrap_err();
@@ -1228,7 +1242,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
             eve_dot_alice_account(),
             "run_test",
             vec![],
-            Gas::from_tera(100),
+            Gas::from_teragas(100),
             0,
         )
         .unwrap_err();
@@ -1473,7 +1487,7 @@ pub fn test_smart_contract_free(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], Gas::from_tera(10), 0)
+        .function_call(alice_account(), bob_account(), "run_test", vec![], Gas::from_teragas(10), 0)
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -1545,7 +1559,7 @@ pub fn test_contract_write_key_value_cost(node: impl Node) {
                 bob_account(),
                 "write_key_value",
                 test_utils::encode(&[10u64, 20u64]),
-                Gas::from_tera(100),
+                Gas::from_teragas(100),
                 0,
             )
             .unwrap();
@@ -1565,7 +1579,7 @@ fn make_write_key_value_action(key: Vec<u64>, value: Vec<u64>) -> Action {
     FunctionCallAction {
         method_name: "write_key_value".to_string(),
         args: test_utils::encode(&args),
-        gas: Gas::from_tera(100),
+        gas: Gas::from_teragas(100),
         deposit: 0,
     }
     .into()
@@ -1726,7 +1740,7 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
                 FunctionCallAction {
                     args: test_utils::encode(&[1]),
                     method_name: "read_value".to_string(),
-                    gas: Gas::from_tera(100),
+                    gas: Gas::from_teragas(100),
                     deposit: 0,
                 }
                 .into(),

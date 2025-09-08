@@ -18,7 +18,7 @@ const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
 const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 
 /// Max prepaid amount of gas.
-const MAX_GAS: Gas = Gas::from_tera(300);
+const MAX_GAS: Gas = Gas::from_teragas(300);
 
 /// Costs whose amount of `gas_used` may depend on environmental factors.
 ///

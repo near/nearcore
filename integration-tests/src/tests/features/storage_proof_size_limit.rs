@@ -59,7 +59,7 @@ fn test_storage_proof_size_limit() {
         let action = Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_one_megabyte".to_string(),
             args: vec![idx],
-            gas: Gas::from_tera(300),
+            gas: Gas::from_teragas(300),
             deposit: 0,
         }));
 
@@ -83,7 +83,7 @@ fn test_storage_proof_size_limit() {
         let action = Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "read_n_megabytes".to_string(),
             args: vec![from, to],
-            gas: Gas::from_tera(300),
+            gas: Gas::from_teragas(300),
             deposit: 0,
         }));
         let tx = SignedTransaction::from_actions(

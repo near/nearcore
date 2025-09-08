@@ -97,7 +97,7 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         args: vec![42u8; 2_000_000],
         method_name: "foo".to_owned(),
-        gas: Gas::from_tera(10),
+        gas: Gas::from_teragas(10),
         deposit: 1,
     }));
 

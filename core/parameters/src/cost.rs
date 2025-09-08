@@ -499,7 +499,7 @@ impl RuntimeFeesConfig {
             },
             min_gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION)
             {
-                Gas::from_tera(1)
+                Gas::from_teragas(1)
             } else {
                 Gas::ZERO
             },

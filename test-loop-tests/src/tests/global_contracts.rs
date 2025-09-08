@@ -375,7 +375,7 @@ impl GlobalContractsTestEnv {
             0,
             "log_something".to_owned(),
             vec![],
-            Gas::from_tera(300),
+            Gas::from_teragas(300),
             self.get_tx_block_hash(),
         )
     }

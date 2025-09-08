@@ -10,10 +10,12 @@ use std::sync::Arc;
 use testlib::fees_utils::FeeHelper;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
+const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
+
 #[test]
 fn test_burn_all_gas() {
-    let attached_gas = Gas::from_tera(100);
-    let burn_gas = attached_gas.checked_add(Gas::ONE).unwrap();
+    let attached_gas = Gas::from_teragas(100);
+    let burn_gas = attached_gas.checked_add(DEFAULT_MINIMAL_GAS_ATTACHMENT).unwrap();
     let deposit = 0;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -27,8 +29,8 @@ fn test_burn_all_gas() {
 
 #[test]
 fn test_deposit_refund() {
-    let attached_gas = Gas::from_tera(100);
-    let burn_gas = attached_gas.checked_add(Gas::ONE).unwrap();
+    let attached_gas = Gas::from_teragas(100);
+    let burn_gas = attached_gas.checked_add(DEFAULT_MINIMAL_GAS_ATTACHMENT).unwrap();
     let deposit = 10;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -42,8 +44,8 @@ fn test_deposit_refund() {
 
 #[test]
 fn test_big_gas_refund() {
-    let attached_gas = Gas::from_tera(100);
-    let burn_gas = Gas::from_tera(10);
+    let attached_gas = Gas::from_teragas(100);
+    let burn_gas = Gas::from_teragas(10);
     let deposit = 0;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
@@ -53,8 +55,8 @@ fn test_big_gas_refund() {
 
 #[test]
 fn test_small_gas_refund() {
-    let attached_gas = Gas::from_tera(10);
-    let burn_gas = attached_gas.checked_sub(Gas::from_tera(1).checked_div(2).unwrap()).unwrap();
+    let attached_gas = Gas::from_teragas(10);
+    let burn_gas = attached_gas.checked_sub(Gas::from_teragas(1).checked_div(2).unwrap()).unwrap();
     let deposit = 0;
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);

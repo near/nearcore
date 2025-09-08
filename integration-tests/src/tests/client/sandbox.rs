@@ -44,7 +44,7 @@ fn test_setup() -> (TestEnv, Signer) {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "write_random_value".to_string(),
                 args: vec![],
-                gas: Gas::from_tera(100),
+                gas: Gas::from_teragas(100),
                 deposit: 0,
             }))],
         ),

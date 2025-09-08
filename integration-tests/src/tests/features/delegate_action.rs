@@ -584,7 +584,7 @@ fn meta_tx_ft_transfer() {
             "new_default_meta",
             // make the relayer (alice) owner, makes initialization easier
             br#"{"owner_id": "alice.near", "total_supply": "1000000"}"#.to_vec(),
-            Gas::from_tera(30),
+            Gas::from_teragas(30),
             0,
         )
         .expect("FT contract initialization failed")
@@ -646,7 +646,7 @@ fn log_something_fn_call() -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: TEST_METHOD.to_owned(),
         args: vec![],
-        gas: Gas::from_tera(30),
+        gas: Gas::from_teragas(30),
         deposit: 0,
     }))
 }
@@ -668,7 +668,7 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args,
-        gas: Gas::from_tera(20),
+        gas: Gas::from_teragas(20),
         deposit: 1,
     }));
 
@@ -688,7 +688,7 @@ fn ft_register_action(receiver: &str) -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "storage_deposit".to_owned(),
         args,
-        gas: Gas::from_tera(20),
+        gas: Gas::from_teragas(20),
         deposit: NEAR_BASE,
     }))
 }

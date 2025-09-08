@@ -184,7 +184,7 @@ fn new_fn_call_100tgas(
     signer: &Signer,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
-    let hundred_tgas = Gas::from_tera(100);
+    let hundred_tgas = Gas::from_teragas(100);
     let deposit = 0;
     let nonce = *nonce_source;
     *nonce_source += 1;
@@ -210,7 +210,7 @@ fn new_cheap_fn_call(
     receiver: AccountId,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
-    let one_tgas = Gas::from_tera(1);
+    let one_tgas = Gas::from_teragas(1);
     let deposit = 0;
     let nonce = *nonce_source;
     *nonce_source += 1;

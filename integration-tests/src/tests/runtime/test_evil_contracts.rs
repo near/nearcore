@@ -14,7 +14,7 @@ pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
 pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 
 /// Max prepaid amount of gas.
-const MAX_GAS: Gas = Gas::from_tera(300);
+const MAX_GAS: Gas = Gas::from_teragas(300);
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".parse().unwrap());

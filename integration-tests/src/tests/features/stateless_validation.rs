@@ -80,7 +80,7 @@ fn run_chunk_validation_test(
         // this must still have the same length as the number of shards,
         // or else the genesis fails validation.
         num_block_producer_seats_per_shard: vec![8; num_shards],
-        gas_limit: Gas::from_tera(1000),
+        gas_limit: Gas::from_teragas(1000),
         transaction_validity_period: 120,
         // Needed to completely avoid validator kickouts as we want to test
         // missing chunks functionality.

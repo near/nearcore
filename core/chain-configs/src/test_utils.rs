@@ -27,7 +27,7 @@ impl GenesisConfig {
         GenesisConfig {
             genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
             genesis_height: 0,
-            gas_limit: Gas::from_tera(1000),
+            gas_limit: Gas::from_teragas(1000),
             min_gas_price: 0,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,

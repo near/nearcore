@@ -1505,7 +1505,7 @@ fn test_storage_proof_garbage() {
                 FunctionCallAction {
                     method_name: format!("internal_record_storage_garbage_{garbage_size_mb}"),
                     args: vec![],
-                    gas: Gas::from_tera(300),
+                    gas: Gas::from_teragas(300),
                     deposit: 300000000000000,
                 }
                 .into(),

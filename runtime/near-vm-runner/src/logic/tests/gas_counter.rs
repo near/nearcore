@@ -869,7 +869,7 @@ fn test_memory_copy_aggregate_accounting() {
               )
             )"#,
         )
-        .gas(Gas::from_giga(10))
+        .gas(Gas::from_gigagas(10))
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
         .expects(&[expect![[r#"
@@ -890,7 +890,7 @@ fn test_memory_copy_aggregate_accounting() {
               )
             )"#,
         )
-        .gas(Gas::from_giga(10))
+        .gas(Gas::from_gigagas(10))
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
         .expects(&[expect![[r#"
@@ -961,7 +961,7 @@ fn test_memory_copy_full_memory_out_of_gas() {
               )
             )"#,
         )
-        .gas(Gas::from_tera(300))
+        .gas(Gas::from_teragas(300))
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::RefTypesBulkMemory])
         .expects(&[expect![[r#"

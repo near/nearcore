@@ -16,7 +16,7 @@ use crate::ApplyState;
 mod apply;
 
 const GAS_PRICE: Balance = 5000;
-const MAX_ATTACHED_GAS: Gas = Gas::from_tera(300);
+const MAX_ATTACHED_GAS: Gas = Gas::from_teragas(300);
 
 fn to_yocto(near: Balance) -> Balance {
     near * 10u128.pow(24)

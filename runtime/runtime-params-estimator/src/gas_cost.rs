@@ -12,6 +12,8 @@ use crate::config::GasMetric;
 use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
 use crate::qemu::QemuMeasurement;
 
+const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from(1);
+
 /// Result of cost estimation.
 ///
 /// Holds wall-clock time or number of instructions and can be converted to
@@ -593,7 +595,12 @@ mod tests {
 
         // Also check applied tolerance strategies, in  this case they should always be certain as the solution is positive
         check_uncertainty(&xs, &ys, Default::default(), false);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), false);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            false,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
     }
 
@@ -628,11 +635,19 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
         check_uncertainty(
             &xs,
             &ys,
-            abs_tolerance(Gas::from_gas((GAS_IN_NS * 50).to_integer()), Gas::ONE),
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            true,
+        );
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(
+                Gas::from_gas((GAS_IN_NS * 50).to_integer()),
+                DEFAULT_MINIMAL_GAS_ATTACHMENT,
+            ),
             false,
         );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
@@ -655,8 +670,18 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::from_gas(1_000_000)), false);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            true,
+        );
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, Gas::from_gas(1_000_000)),
+            false,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
     }
 
@@ -677,7 +702,12 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), false);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), false);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            false,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
     }
 
@@ -698,7 +728,12 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            true,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
         check_uncertainty(
             &xs,
@@ -732,7 +767,12 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            true,
+        );
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), true);
         check_uncertainty(
             &xs,
@@ -766,7 +806,12 @@ mod tests {
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
         check_uncertainty(&xs, &ys, Default::default(), true);
-        check_uncertainty(&xs, &ys, abs_tolerance(Gas::ONE, Gas::ONE), true);
+        check_uncertainty(
+            &xs,
+            &ys,
+            abs_tolerance(DEFAULT_MINIMAL_GAS_ATTACHMENT, DEFAULT_MINIMAL_GAS_ATTACHMENT),
+            true,
+        );
         check_uncertainty(
             &xs,
             &ys,

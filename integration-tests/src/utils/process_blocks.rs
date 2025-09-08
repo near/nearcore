@@ -132,7 +132,7 @@ pub fn prepare_env_with_congestion(
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.protocol_version = protocol_version;
     genesis.config.epoch_length = epoch_length;
-    genesis.config.gas_limit = Gas::from_tera(10);
+    genesis.config.gas_limit = Gas::from_teragas(10);
     if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
         genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     }

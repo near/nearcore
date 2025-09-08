@@ -53,6 +53,8 @@ use testlib::runtime_utils::{alice_account, bob_account};
 /* Apply tests */
 /***************/
 
+const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
+
 fn setup_runtime(
     initial_accounts: Vec<AccountId>,
     initial_balance: Balance,
@@ -181,7 +183,7 @@ fn setup_runtime_for_shard(
 #[test]
 fn test_apply_no_op() {
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), 0, Gas::from_tera(1000));
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), 0, Gas::from_teragas(1000));
     runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -204,7 +206,7 @@ fn test_apply_check_balance_validation_rewards() {
         vec![alice_account()],
         to_yocto(1_000_000),
         initial_locked,
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     let validator_accounts_update = ValidatorAccountsUpdate {
@@ -329,7 +331,7 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        Gas::ONE,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     let receipt_gas_cost = apply_state
@@ -382,7 +384,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        Gas::ONE,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     let receipt_gas_cost = apply_state
@@ -543,7 +545,7 @@ fn test_apply_delayed_receipts_local_tx() {
         vec![alice_account(), bob_account()],
         initial_balance,
         initial_locked,
-        Gas::ONE,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     let receipt_exec_gas_fee = Gas::from_gas(1000);
@@ -1101,7 +1103,7 @@ fn test_delete_key_add_key() {
         vec![alice_account()],
         to_yocto(1_000_000),
         initial_locked,
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -1146,7 +1148,7 @@ fn test_delete_key_underflow() {
         vec![alice_account()],
         to_yocto(1_000_000),
         initial_locked,
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -1236,8 +1238,12 @@ fn test_contract_precompilation() {
 
 #[test]
 fn test_compute_usage_limit() {
-    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), Gas::ONE);
+    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
 
     let shard_uid = ShardUId::single_shard();
 
@@ -1328,7 +1334,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     let deploy_contract_receipt = create_receipt_with_actions(
@@ -1345,7 +1351,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -1377,7 +1383,7 @@ fn test_main_storage_proof_size_soft_limit() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -1433,7 +1439,7 @@ fn test_main_storage_proof_size_soft_limit() {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: Gas::ONE,
+                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
                 deposit: 0,
             }))],
         )
@@ -1492,7 +1498,7 @@ fn test_exclude_contract_code_from_witness() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     const CONTRACT_SIZE: usize = 5000;
@@ -1550,7 +1556,7 @@ fn test_exclude_contract_code_from_witness() {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: Vec::new(),
-                gas: Gas::ONE,
+                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
                 deposit: 0,
             }))],
         )
@@ -1617,7 +1623,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
@@ -1728,7 +1734,7 @@ fn test_deploy_and_call_different_contracts() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::ONE,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -1751,7 +1757,7 @@ fn test_deploy_and_call_different_contracts() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -1770,7 +1776,7 @@ fn test_deploy_and_call_different_contracts() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -1832,7 +1838,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::ONE,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
@@ -1876,7 +1882,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -1938,7 +1944,7 @@ fn test_deploy_and_call_in_apply() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::ONE,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -1961,7 +1967,7 @@ fn test_deploy_and_call_in_apply() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -1980,7 +1986,7 @@ fn test_deploy_and_call_in_apply() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -2015,7 +2021,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::ONE,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
@@ -2059,7 +2065,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: Vec::new(),
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -2095,7 +2101,7 @@ fn test_deploy_existing_contract_to_different_account() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2114,7 +2120,7 @@ fn test_deploy_existing_contract_to_different_account() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -2156,7 +2162,7 @@ fn test_deploy_existing_contract_to_different_account() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -2190,7 +2196,7 @@ fn test_deploy_and_call_in_same_receipt() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::ONE,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2204,7 +2210,7 @@ fn test_deploy_and_call_in_same_receipt() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: Gas::ONE,
+                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
                 deposit: 0,
             })),
         ],
@@ -2237,7 +2243,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::ONE,
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
@@ -2253,7 +2259,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: Gas::ONE,
+                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
                 deposit: 0,
             })),
         ],
@@ -2279,8 +2285,12 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
 // Tests the case in which a function call is made to an account with no contract deployed.
 #[test]
 fn test_call_account_without_contract() {
-    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), Gas::ONE);
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
 
@@ -2290,7 +2300,7 @@ fn test_call_account_without_contract() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -2315,8 +2325,12 @@ fn test_call_account_without_contract() {
 /// Tests that we do not record the contract accesses when validating the chunk.
 #[test]
 fn test_contract_accesses_when_validating_chunk() {
-    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
-        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), Gas::ONE);
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        DEFAULT_MINIMAL_GAS_ATTACHMENT,
+    );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
 
@@ -2334,7 +2348,7 @@ fn test_contract_accesses_when_validating_chunk() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
-            gas: Gas::ONE,
+            gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
             deposit: 0,
         }))],
     );
@@ -2410,7 +2424,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2508,7 +2522,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     apply_state.config = Arc::new(RuntimeConfig::free());
@@ -2949,7 +2963,7 @@ fn test_deploy_and_call_local_receipt() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     let tx = SignedTransaction::from_actions(
@@ -3015,7 +3029,7 @@ fn test_deploy_and_call_local_receipts() {
         vec![alice_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     let tx1 = SignedTransaction::from_actions(
@@ -3156,7 +3170,7 @@ fn test_transaction_ordering_with_apply() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
 
     let validity_flags = vec![true; txs.len()];
@@ -3235,7 +3249,7 @@ fn test_transaction_multiple_access_keys_with_apply() {
             accounts_with_keys,
             to_yocto(1_000_000),
             to_yocto(500_000),
-            Gas::from_tera(1000),
+            Gas::from_teragas(1000),
         );
 
     let validity_flags = vec![true; txs.len()];
@@ -3282,7 +3296,7 @@ fn test_expired_transaction() {
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
         to_yocto(500_000),
-        Gas::from_tera(1000),
+        Gas::from_teragas(1000),
     );
     let signed_valid_period_txs = SignedValidPeriodTransactions::new(expired_tx, vec![false]);
     let apply_result = runtime

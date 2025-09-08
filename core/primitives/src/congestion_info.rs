@@ -597,6 +597,8 @@ mod tests {
         assert_eq!(0.0, congestion_control.outgoing_congestion());
         assert_eq!(0.0, congestion_control.congestion_level());
 
+        let acceptable_diff = Gas::from_gas(1);
+
         let diff =
             if config.max_outgoing_gas > congestion_control.outgoing_gas_limit(ShardId::new(0)) {
                 config
@@ -607,14 +609,14 @@ mod tests {
                     .outgoing_gas_limit(ShardId::new(0))
                     .saturating_sub(config.max_outgoing_gas)
             };
-        assert!(diff <= Gas::ONE);
+        assert!(diff <= acceptable_diff);
 
         let diff = if config.max_tx_gas > congestion_control.process_tx_limit() {
             config.max_tx_gas.saturating_sub(congestion_control.process_tx_limit())
         } else {
             congestion_control.process_tx_limit().saturating_sub(config.max_tx_gas)
         };
-        assert!(diff <= Gas::ONE);
+        assert!(diff <= acceptable_diff);
         assert!(congestion_control.shard_accepts_transactions().is_yes());
     }
 

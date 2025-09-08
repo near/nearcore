@@ -31,7 +31,7 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
         account_locked_balance: 1u128,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: Gas::from_tera(1_000_000),
+        prepaid_gas: Gas::from_teragas(1_000_000),
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],

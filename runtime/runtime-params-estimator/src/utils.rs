@@ -308,7 +308,7 @@ fn function_call_action(method_name: String) -> Action {
     Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args: Vec::new(),
-        gas: Gas::from_tera(1000),
+        gas: Gas::from_teragas(1000),
         deposit: 0,
     }))
 }
