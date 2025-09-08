@@ -8,12 +8,12 @@ use near_primitives::action::{
 };
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::errors::{ActionErrorKind, RuntimeError};
-use near_primitives::hash::hash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
 use near_store::trie::AccessOptions;
-use near_store::{StorageError, TrieUpdate};
+use near_store::{KeyLookupMode, StorageError, TrieAccess as _, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractCode, precompile_contract};
 
@@ -226,4 +226,56 @@ fn forward_distribution_next_shard(
         receipt_sink.forward_or_buffer_receipt(next_receipt, apply_state, state_update)?;
     }
     Ok(())
+}
+
+pub(crate) trait AccountContractStoreExt {
+    fn hash(&self, store: &TrieUpdate) -> Result<CryptoHash, StorageError>;
+    fn code(
+        &self,
+        account_id: &AccountId,
+        store: &TrieUpdate,
+    ) -> Result<Option<ContractCode>, StorageError>;
+}
+
+impl AccountContractStoreExt for AccountContract {
+    fn code(
+        &self,
+        account_id: &AccountId,
+        store: &TrieUpdate,
+    ) -> Result<Option<ContractCode>, StorageError> {
+        let Some(key) = TrieKey::for_account_contract_code(account_id, self) else {
+            return Ok(None);
+        };
+        let code_hash = match self {
+            AccountContract::None | AccountContract::GlobalByAccount(_) => None,
+            AccountContract::Local(hash) | AccountContract::Global(hash) => Some(*hash),
+        };
+        store
+            .get(&key, AccessOptions::DEFAULT)
+            .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+    }
+
+    fn hash(&self, store: &TrieUpdate) -> Result<CryptoHash, StorageError> {
+        let hash = match self {
+            AccountContract::None => CryptoHash::default(),
+            AccountContract::Local(code_hash) | AccountContract::Global(code_hash) => *code_hash,
+            AccountContract::GlobalByAccount(account_id) => {
+                let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
+                let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
+                let value_ref = store
+                    .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
+                    .ok_or_else(|| {
+                        let TrieKey::GlobalContractCode { identifier } = key else {
+                            unreachable!()
+                        };
+                        StorageError::StorageInconsistentState(format!(
+                            "Global contract identifier not found {:?}",
+                            identifier
+                        ))
+                    })?;
+                value_ref.value_hash()
+            }
+        };
+        Ok(hash)
+    }
 }
