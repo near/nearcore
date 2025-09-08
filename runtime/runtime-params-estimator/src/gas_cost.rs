@@ -12,8 +12,6 @@ use crate::config::GasMetric;
 use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
 use crate::qemu::QemuMeasurement;
 
-const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
-
 /// Result of cost estimation.
 ///
 /// Holds wall-clock time or number of instructions and can be converted to
@@ -527,6 +525,8 @@ mod tests {
     use near_primitives::types::Gas;
     use num_rational::Ratio;
     use num_traits::{ToPrimitive, Zero};
+
+    const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
 
     #[track_caller]
     fn check_uncertainty(
