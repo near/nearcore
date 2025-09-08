@@ -1,7 +1,11 @@
 use crate::VerificationResult;
 use crate::config::{TransactionCost, total_prepaid_gas};
+use crate::metrics::{
+    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS, TRANSACTION_BATCH_SIGNATURE_VERIFY_TOTAL,
+};
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
+use near_crypto::{PublicKey, Signature};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::DeployGlobalContractAction;
@@ -11,8 +15,8 @@ use near_primitives::errors::{
 };
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
-    Action, AddKeyAction, BatchValidationError, DeployContractAction, FunctionCallAction,
-    SignedTransaction, StakeAction, Transaction,
+    Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
+    Transaction,
 };
 use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance};
@@ -23,6 +27,7 @@ use near_store::{
     StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
+use smallvec::SmallVec;
 
 pub const ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT: StorageUsage = 770;
 
@@ -35,6 +40,10 @@ pub enum StorageStakingError {
     /// Storage consistency error: an account has invalid storage usage or amount or locked amount
     StorageError(String),
 }
+
+/// We track the transaction validity in a bit vector of this size. This type informs the
+/// maximum size of the transactions' chunk processed with each rayon job.
+pub(crate) type ValidBitmask = u128;
 
 /// Checks if given account has enough balance for storage stake.
 ///
@@ -115,16 +124,48 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx)
 }
 
-pub fn validate_transaction_batch<'a>(
+/// Validates the transaction assuming that the signature is already known to be valid.
+pub(crate) fn validate_transaction_with_known_valid_signature<'a>(
     config: &RuntimeConfig,
-    signed_txs: &[SignedTransaction],
+    signed_tx: &SignedTransaction,
     current_protocol_version: ProtocolVersion,
-) -> Result<(), BatchValidationError> {
-    for signed_tx in signed_txs {
-        validate_transaction_actions(config, signed_tx, current_protocol_version)
-            .map_err(BatchValidationError::InvalidTx)?;
+) -> Result<(), InvalidTxError> {
+    validate_transaction_actions(config, signed_tx, current_protocol_version)?;
+    ValidatedTransaction::check_valid_for_config(config, signed_tx)
+}
+
+/// Validates a batch of SignedTransactions. Returns a bitmask of valid transactions.
+/// Transactions with the corresponding bit set to 1 have a valid signature and can
+/// skip individual signature verification.
+pub(crate) fn validate_batch_signatures(signed_txs: &[SignedTransaction]) -> ValidBitmask {
+    const MAX_BATCH_SIZE: usize = 128;
+    let mut messages = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
+    let mut signatures = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
+    let mut keys = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
+    let mut batch_mask: ValidBitmask = 0;
+
+    for (i, tx) in signed_txs.iter().enumerate() {
+        let (Signature::ED25519(sig), PublicKey::ED25519(key)) =
+            (&tx.signature, tx.transaction.public_key())
+        else {
+            continue;
+        };
+        let Ok(public_key) = ed25519_dalek::VerifyingKey::from_bytes(&key.0) else {
+            continue;
+        };
+        messages.push(tx.hash().as_ref());
+        signatures.push(*sig);
+        keys.push(public_key);
+        batch_mask |= 1 << i;
     }
-    ValidatedTransaction::validate_batch(config, signed_txs.iter())
+
+    TRANSACTION_BATCH_SIGNATURE_VERIFY_TOTAL.inc();
+    if near_crypto_ed25519_batch::safe_verify_batch(&messages, &signatures, &keys).is_err() {
+        // Batch verification failed, return 0 bitmask
+        return 0;
+    }
+    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS.inc();
+    batch_mask
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
