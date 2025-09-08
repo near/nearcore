@@ -31,18 +31,18 @@ pub static TRANSACTION_APPLIED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub static TRANSACTION_BATCH_SIGNATURE_VERIFY_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
-    try_create_int_counter(
-        "near_transaction_batch_signature_verify_total",
-        "The number of transaction batch signatures verified since starting this node",
-    )
-    .unwrap()
-});
-
 pub static TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_transaction_batch_signature_verify_success",
         "The number of successful transaction batch signature verifications since starting this node",
+    )
+    .unwrap()
+});
+
+pub static TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_transaction_batch_signature_verify_failure",
+        "The number of transaction batch signature verifications that failed since starting this node",
     )
     .unwrap()
 });

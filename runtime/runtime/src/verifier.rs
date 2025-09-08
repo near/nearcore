@@ -1,7 +1,7 @@
 use crate::VerificationResult;
 use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::metrics::{
-    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS, TRANSACTION_BATCH_SIGNATURE_VERIFY_TOTAL,
+    TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE, TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS,
 };
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
@@ -159,9 +159,9 @@ pub(crate) fn validate_batch_signatures(signed_txs: &[SignedTransaction]) -> Val
         batch_mask |= 1 << i;
     }
 
-    TRANSACTION_BATCH_SIGNATURE_VERIFY_TOTAL.inc();
     if near_crypto_ed25519_batch::safe_verify_batch(&messages, &signatures, &keys).is_err() {
         // Batch verification failed, return 0 bitmask
+        TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE.inc();
         return 0;
     }
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS.inc();
