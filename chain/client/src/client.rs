@@ -1303,19 +1303,22 @@ impl Client {
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk.
+    #[instrument(
+        level = "debug",
+        skip_all,
+        target = "client",
+        fields(
+            hash = ?partial_chunk.chunk_hash(),
+            height = ?partial_chunk.height_created(),
+            tag_block_production = true
+        )
+    )]
     pub fn on_chunk_completed(
         &mut self,
         partial_chunk: PartialEncodedChunk,
         shard_chunk: Option<ShardChunk>,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
-        let _span = tracing::debug_span!(
-            target: "client",
-            "on_chunk_completed",
-            hash = ?partial_chunk.chunk_hash(),
-            height = ?partial_chunk.height_created(),
-            tag_block_production = true)
-        .entered();
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
 
