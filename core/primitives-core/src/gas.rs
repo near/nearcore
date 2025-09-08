@@ -69,7 +69,7 @@ impl Gas {
     ///
     /// let gas = Gas::from_gas(5 * 1_000_000_000_000);
     ///
-    /// assert_eq!(gas.as_tgas(), 5);
+    /// assert_eq!(gas.as_teragas(), 5);
     /// ```
     pub const fn from_gas(inner: u64) -> Self {
         Self(NearGas::from_gas(inner))
@@ -95,7 +95,7 @@ impl Gas {
     /// use near_primitives_core::gas::Gas;
     ///
     /// let gas = Gas::from_gigagas(1);
-    /// assert_eq!(gas.as_ggas(), 1);
+    /// assert_eq!(gas.as_gigagas(), 1);
     /// ```
     pub const fn as_gigagas(self) -> u64 {
         self.0.as_ggas()
@@ -108,7 +108,7 @@ impl Gas {
     /// use near_primitives_core::gas::Gas;
     ///
     /// let gas = Gas::from_gas(1 * 1_000_000_000_000);
-    /// assert_eq!(gas.as_tgas(), 1);
+    /// assert_eq!(gas.as_teragas(), 1);
     /// ```
     pub const fn as_teragas(self) -> u64 {
         self.0.as_tgas()
