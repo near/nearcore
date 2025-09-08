@@ -249,9 +249,8 @@ impl AccountContractAccessExt for AccountContract {
             Err(Some(local_hash)) => local_hash,
         };
         let key = TrieKey::ContractCode { account_id: local_account_id.clone() };
-        store
-            .get(&key, AccessOptions::DEFAULT)
-            .map(|opt| opt.map(|code| ContractCode::new(code, Some(local_hash))))
+        let code = store.get(&key, AccessOptions::DEFAULT)?;
+        Ok(code.map(|code| ContractCode::new(code, Some(local_hash))))
     }
 
     fn hash(self, store: &TrieUpdate) -> Result<CryptoHash, StorageError> {
@@ -292,8 +291,7 @@ impl GlobalContractAccessExt for GlobalContractIdentifier {
             GlobalContractIdentifier::AccountId(_) => None,
             GlobalContractIdentifier::CodeHash(hash) => Some(hash),
         };
-        store
-            .get(&key, AccessOptions::DEFAULT)
-            .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+        let code = store.get(&key, AccessOptions::DEFAULT)?;
+        Ok(code.map(|code| ContractCode::new(code, code_hash)))
     }
 }
