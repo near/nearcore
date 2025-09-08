@@ -272,7 +272,7 @@ impl GlobalContractAccessExt for GlobalContractIdentifier {
         if let GlobalContractIdentifier::CodeHash(crypto_hash) = self {
             return Ok(crypto_hash);
         }
-        let key = TrieKey::GlobalContractCode { identifier: self.clone().into() };
+        let key = TrieKey::GlobalContractCode { identifier: self.into() };
         let value_ref = store
             .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
             .ok_or_else(|| {
