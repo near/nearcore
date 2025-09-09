@@ -153,7 +153,7 @@ impl EncodedChunksCache {
             return;
         }
         let time_to_last_receipt = Instant::now().signed_duration_since(entry.created_at);
-        metrics::PARTIAL_CHUNK_TIME_TO_LAST_RECEIPT_PART
+        metrics::PARTIAL_CHUNK_TIME_TO_LAST_RECEIPT_PART_SECONDS
             .with_label_values(&[entry.header.shard_id().to_string().as_str()])
             .observe(time_to_last_receipt.as_seconds_f64());
         entry.received_all_receipts = true;
@@ -167,7 +167,7 @@ impl EncodedChunksCache {
             return;
         }
         let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
-        metrics::PARTIAL_CHUNK_TIME_TO_LAST_CHUNK_PART
+        metrics::PARTIAL_CHUNK_TIME_TO_LAST_CHUNK_PART_SECONDS
             .with_label_values(&[entry.header.shard_id().to_string().as_str()])
             .observe(time_to_last_part.as_seconds_f64());
         entry.received_all_parts = true;
@@ -181,7 +181,7 @@ impl EncodedChunksCache {
             return;
         }
         let time_to_reconstruct = Instant::now().signed_duration_since(entry.created_at);
-        metrics::PARTIAL_CHUNK_TIME_TO_RECONSTRUCT
+        metrics::PARTIAL_CHUNK_TIME_TO_RECONSTRUCT_SECONDS
             .with_label_values(&[entry.header.shard_id().to_string().as_str()])
             .observe(time_to_reconstruct.as_seconds_f64());
         entry.could_reconstruct = true;
