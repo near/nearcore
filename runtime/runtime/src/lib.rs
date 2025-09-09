@@ -13,8 +13,7 @@ use crate::metrics::{
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{
-    StorageStakingError, check_storage_stake, get_batchable_signature_and_public_key,
-    validate_receipt, validate_transaction_well_formed,
+    StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_well_formed,
 };
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
@@ -31,7 +30,7 @@ use global_contracts::{
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
-use near_crypto::PublicKey;
+use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account};
@@ -51,7 +50,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-    TransferAction,
+    SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -1578,6 +1577,8 @@ impl Runtime {
                                     protocol_version,
                                 )
                             } else {
+                                // TODO(perf): Can we use the VerifyingKey constructed for batch verification
+                                // to avoid re-parsing the public key here if batch verification fails?
                                 validate_transaction(
                                     &apply_state.config,
                                     tx.clone(),
@@ -2296,6 +2297,24 @@ impl Runtime {
             contract_updates,
         })
     }
+}
+
+/// Returns the signature and public key if they are of ED25519 type.
+///
+/// Used for batch signature verification, which only supports ED25519 signatures.
+/// Returns `None` if the signature or public key are not ED25519.
+fn get_batchable_signature_and_public_key(
+    signed_tx: &SignedTransaction,
+) -> Option<(&ed25519_dalek::Signature, ed25519_dalek::VerifyingKey)> {
+    let (Signature::ED25519(sig), PublicKey::ED25519(key)) =
+        (&signed_tx.signature, signed_tx.transaction.public_key())
+    else {
+        return None;
+    };
+    let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(&key.0) else {
+        return None;
+    };
+    Some((sig, key))
 }
 
 impl ApplyState {
