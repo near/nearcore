@@ -644,42 +644,26 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
         compaction_readahead_size,
     } = RocksDbCfConfig::resolve_for_column(col, &store_config.rocksdb);
 
-    if let Some(v) = memtable_memory_budget {
-        // Note that this function changes a lot of RocksDB parameters including:
-        //      write_buffer_size = memtable_memory_budget / 4
-        //      min_write_buffer_number_to_merge = 2
-        //      max_write_buffer_number = 6
-        //      level0_file_num_compaction_trigger = 2
-        //      target_file_size_base = memtable_memory_budget / 8
-        //      max_bytes_for_level_base = memtable_memory_budget
-        //      compaction_style = kCompactionStyleLevel
-        // Also it sets compression_per_level in a way that the first 2 levels have no compression and
-        // the rest use LZ4 compression.
-        // See the implementation here:
-        //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
-        opts.optimize_level_style_compaction(v.as_u64() as usize);
-    }
-    if let Some(v) = level_zero_file_num_compaction_trigger {
-        opts.set_level_zero_file_num_compaction_trigger(v);
-    }
-    if let Some(v) = level_zero_slowdown_writes_trigger {
-        opts.set_level_zero_slowdown_writes_trigger(v);
-    }
-    if let Some(v) = level_zero_stop_writes_trigger {
-        opts.set_level_zero_stop_writes_trigger(v);
-    }
-    if let Some(v) = max_subcompactions {
-        opts.set_max_subcompactions(v as u32);
-    }
-    if let Some(v) = target_file_size_base {
-        opts.set_target_file_size_base(v.as_u64());
-    }
-    if let Some(v) = max_write_buffer_number {
-        opts.set_max_write_buffer_number(v);
-    }
-    if let Some(v) = compaction_readahead_size {
-        opts.set_compaction_readahead_size(v.as_u64() as usize);
-    }
+    // Note that this function changes a lot of RocksDB parameters including:
+    //      write_buffer_size = memtable_memory_budget / 4
+    //      min_write_buffer_number_to_merge = 2
+    //      max_write_buffer_number = 6
+    //      level0_file_num_compaction_trigger = 2
+    //      target_file_size_base = memtable_memory_budget / 8
+    //      max_bytes_for_level_base = memtable_memory_budget
+    //      compaction_style = kCompactionStyleLevel
+    // Also it sets compression_per_level in a way that the first 2 levels have no compression and
+    // the rest use LZ4 compression.
+    // See the implementation here:
+    //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
+    opts.optimize_level_style_compaction(memtable_memory_budget.as_u64() as usize);
+    opts.set_level_zero_file_num_compaction_trigger(level_zero_file_num_compaction_trigger);
+    opts.set_level_zero_slowdown_writes_trigger(level_zero_slowdown_writes_trigger);
+    opts.set_level_zero_stop_writes_trigger(level_zero_stop_writes_trigger);
+    opts.set_max_subcompactions(max_subcompactions);
+    opts.set_target_file_size_base(target_file_size_base.as_u64());
+    opts.set_max_write_buffer_number(max_write_buffer_number);
+    opts.set_compaction_readahead_size(compaction_readahead_size.as_u64() as usize);
 
     opts
 }

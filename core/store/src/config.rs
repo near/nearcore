@@ -473,19 +473,19 @@ pub struct RocksDbConfig {
     ///
     /// Applies to: PartialChunks, State, TrieChanges.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cf_high_load_overrides: Option<RocksDbCfConfig>,
+    pub cf_high_load_overrides: Option<RocksDbCfOverrides>,
 
     /// Column-family tuning overrides for moderately write-heavy columns.
     ///
     /// Applies to: FlatState, Chunks, StateChanges, Transactions.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cf_medium_load_overrides: Option<RocksDbCfConfig>,
+    pub cf_medium_load_overrides: Option<RocksDbCfOverrides>,
 
     /// Column-family tuning overrides for remaining columns.
     ///
     /// Applies to all other columns not covered by high/medium groups.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cf_low_load_overrides: Option<RocksDbCfConfig>,
+    pub cf_low_load_overrides: Option<RocksDbCfOverrides>,
 }
 
 impl Default for RocksDbConfig {
@@ -540,18 +540,23 @@ fn default_rocksdb_max_total_wal_size() -> bytesize::ByteSize {
 /// This ensures consistency between the struct definition, overrides application and presets.
 macro_rules! define_cf_config_fields {
     ($(($field:ident, $type:ty)),* $(,)?) => {
+        #[derive(Clone)]
+        pub struct RocksDbCfConfig {
+            $(pub $field: $type,)*
+        }
+
         #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
         #[serde(default)]
-        pub struct RocksDbCfConfig {
+        pub struct RocksDbCfOverrides {
             $(pub $field: Option<$type>,)*
         }
 
-        impl RocksDbCfConfig {
-            /// Applies this config's non-None values over the base config.
+        impl RocksDbCfOverrides {
+            /// Applies these overrides non-None values over the base config.
             pub fn apply_over(self, mut base: RocksDbCfConfig) -> RocksDbCfConfig {
                 $(
                     if let Some(v) = self.$field {
-                        base.$field = Some(v);
+                        base.$field = v;
                     }
                 )*
                 base
@@ -566,7 +571,7 @@ define_cf_config_fields!(
     (level_zero_file_num_compaction_trigger, i32),
     (level_zero_slowdown_writes_trigger, i32),
     (level_zero_stop_writes_trigger, i32),
-    (max_subcompactions, i32),
+    (max_subcompactions, u32),
     (target_file_size_base, bytesize::ByteSize),
     (max_write_buffer_number, i32),
     (compaction_readahead_size, bytesize::ByteSize),
@@ -592,40 +597,40 @@ impl RocksDbCfConfig {
 
     pub fn high_load_defaults() -> Self {
         Self {
-            memtable_memory_budget: Some(bytesize::ByteSize::mib(1024)),
-            level_zero_file_num_compaction_trigger: Some(8),
-            level_zero_slowdown_writes_trigger: Some(32),
-            level_zero_stop_writes_trigger: Some(64),
-            max_subcompactions: Some(2),
-            target_file_size_base: Some(bytesize::ByteSize::mib(128)),
-            max_write_buffer_number: Some(8),
-            compaction_readahead_size: Some(bytesize::ByteSize::mib(6)),
+            memtable_memory_budget: bytesize::ByteSize::mib(1024),
+            level_zero_file_num_compaction_trigger: 8,
+            level_zero_slowdown_writes_trigger: 32,
+            level_zero_stop_writes_trigger: 64,
+            max_subcompactions: 2,
+            target_file_size_base: bytesize::ByteSize::mib(128),
+            max_write_buffer_number: 8,
+            compaction_readahead_size: bytesize::ByteSize::mib(6),
         }
     }
 
     pub fn medium_load_defaults() -> Self {
         Self {
-            memtable_memory_budget: Some(bytesize::ByteSize::mib(512)),
-            level_zero_file_num_compaction_trigger: Some(8),
-            level_zero_slowdown_writes_trigger: Some(32),
-            level_zero_stop_writes_trigger: Some(64),
-            max_subcompactions: None,
-            target_file_size_base: Some(bytesize::ByteSize::mib(128)),
-            max_write_buffer_number: Some(6),
-            compaction_readahead_size: Some(bytesize::ByteSize::mib(4)),
+            memtable_memory_budget: bytesize::ByteSize::mib(512),
+            level_zero_file_num_compaction_trigger: 8,
+            level_zero_slowdown_writes_trigger: 32,
+            level_zero_stop_writes_trigger: 64,
+            max_subcompactions: 1,
+            target_file_size_base: bytesize::ByteSize::mib(128),
+            max_write_buffer_number: 6,
+            compaction_readahead_size: bytesize::ByteSize::mib(4),
         }
     }
 
     pub fn low_load_defaults() -> Self {
         Self {
-            memtable_memory_budget: Some(bytesize::ByteSize::mib(256)),
-            level_zero_file_num_compaction_trigger: Some(8),
-            level_zero_slowdown_writes_trigger: Some(32),
-            level_zero_stop_writes_trigger: Some(64),
-            max_subcompactions: None,
-            target_file_size_base: Some(bytesize::ByteSize::mib(96)),
-            max_write_buffer_number: Some(4),
-            compaction_readahead_size: Some(bytesize::ByteSize::mib(2)),
+            memtable_memory_budget: bytesize::ByteSize::mib(256),
+            level_zero_file_num_compaction_trigger: 8,
+            level_zero_slowdown_writes_trigger: 32,
+            level_zero_stop_writes_trigger: 64,
+            max_subcompactions: 1,
+            target_file_size_base: bytesize::ByteSize::mib(96),
+            max_write_buffer_number: 4,
+            compaction_readahead_size: bytesize::ByteSize::mib(2),
         }
     }
 }
@@ -709,16 +714,16 @@ mod tests {
             .clone()
             .unwrap_or_default()
             .apply_over(medium_base.clone());
-        assert_eq!(medium.max_write_buffer_number, Some(12));
+        assert_eq!(medium.max_write_buffer_number, 12);
         // Another medium default remains intact
         assert_eq!(
-            medium.target_file_size_base.map(|b| b.as_u64()),
-            Some(medium_base.target_file_size_base.unwrap().as_u64())
+            medium.target_file_size_base.as_u64(),
+            medium_base.target_file_size_base.as_u64()
         );
 
         // High: no overrides so keep preset
         let high_base = RocksDbCfConfig::high_load_defaults();
         let high = cfg.cf_high_load_overrides.unwrap_or_default().apply_over(high_base.clone());
-        assert_eq!(high.max_write_buffer_number, Some(high_base.max_write_buffer_number.unwrap()));
+        assert_eq!(high.max_write_buffer_number, high_base.max_write_buffer_number);
     }
 }
