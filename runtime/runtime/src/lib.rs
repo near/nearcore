@@ -1361,6 +1361,7 @@ impl Runtime {
         num_transactions = signed_txs.len(),
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
+        tag_block_production = true
     ))]
     pub fn apply(
         &self,
@@ -1506,6 +1507,13 @@ impl Runtime {
     ///
     /// Any transactions that fail to validate (e.g. invalid nonces, unknown signing keys,
     /// insufficient NEAR balance, etc.) will be skipped, producing no receipts.
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "process_transactions",
+        skip_all,
+        fields(tag_block_production = true)
+    )]
     fn process_transactions(
         &self,
         processing_state: &mut ApplyProcessingReceiptState,
@@ -2068,6 +2076,13 @@ impl Runtime {
 
     /// Processes all receipts (local, delayed and incoming).
     /// Returns a structure containing the result of the processing.
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "process_receipts",
+        skip_all,
+        fields(tag_block_production = true)
+    )]
     fn process_receipts(
         &self,
         processing_state: &mut ApplyProcessingReceiptState,
@@ -2130,6 +2145,13 @@ impl Runtime {
         })
     }
 
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "validate_apply_state_update",
+        skip_all,
+        fields(tag_block_production = true)
+    )]
     fn validate_apply_state_update(
         &self,
         processing_state: ApplyProcessingReceiptState,
@@ -2137,7 +2159,6 @@ impl Runtime {
         receipt_sink: ReceiptSink,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         let apply_state = processing_state.apply_state;
         let epoch_info_provider = processing_state.epoch_info_provider;
         let mut stats = processing_state.stats;
