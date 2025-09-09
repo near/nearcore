@@ -845,7 +845,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         self.new_delayed_gas = self.new_delayed_gas.checked_add(gas).ok_or(IntegerOverflowError)?;
         self.new_delayed_bytes =
             self.new_delayed_bytes.checked_add(size).ok_or(IntegerOverflowError)?;
-        self.queue.push_back(trie_update, &receipt)?;
+        self.queue.push_back(update_op, &receipt)?;
         Ok(())
     }
 

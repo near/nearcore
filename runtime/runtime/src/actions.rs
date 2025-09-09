@@ -674,12 +674,7 @@ fn get_code_len_or_default(
                 code_ref.len()
             })
         } else {
-<<<<<<< HEAD
-            let key = near_primitives::trie_key::TrieKey::ContractCode { account_id };
-            state_update.get(&key, AccessOptions::DEFAULT)?.map(|code| code.len())
-=======
             state_update.get::<Vec<u8>>(key)?.map(|code| code.len())
->>>>>>> 9920e6eed (wip)
         };
     debug_assert!(
         code_len.is_some() || code_hash == CryptoHash::default(),

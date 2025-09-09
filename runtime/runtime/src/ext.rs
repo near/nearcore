@@ -140,7 +140,7 @@ fn wrap_storage_error(error: StorageError) -> VMLogicError {
 
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
 
-impl<'a> External for RuntimeExt<'a> {
+impl<'a, 'su> External for RuntimeExt<'a, 'su> {
     fn storage_set<'b>(
         &'b mut self,
         access_tracker: &mut dyn StorageAccessTracker,
