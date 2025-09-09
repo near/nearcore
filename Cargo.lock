@@ -5136,7 +5136,6 @@ dependencies = [
  "futures",
  "near-async",
  "near-o11y",
- "near-performance-metrics",
  "near-performance-metrics-macros",
  "reqwest 0.12.4",
  "serde",
