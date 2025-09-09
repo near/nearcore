@@ -56,7 +56,7 @@ use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_store::adapter::StoreAdapter;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
-use near_telemetry::TelemetryActor;
+use near_telemetry::{TelemetryActor, TelemetryConfig};
 use nearcore::NightshadeRuntime;
 use num_rational::Ratio;
 use std::sync::Arc;
@@ -144,7 +144,8 @@ fn setup(
         ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
 
     let actor_system = ActorSystem::new();
-    let telemetry = actor_system.spawn_tokio_actor(TelemetryActor::default());
+    let telemetry =
+        TelemetryActor::spawn_tokio_actor(actor_system.clone(), TelemetryConfig::default());
     let config = {
         let mut base = ClientConfig::test(
             skip_sync_wait,
