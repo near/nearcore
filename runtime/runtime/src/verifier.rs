@@ -116,7 +116,7 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx)
 }
 
-/// Validates well formnedess of a transaction's actions and with respect to the runtime config.
+/// Validates a transaction contains well-formed actions and is valid for the given runtime config.
 ///
 /// This function is similar to `validate_transaction` but does NOT verify the signature.
 pub(crate) fn validate_transaction_well_formed<'a>(
