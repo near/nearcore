@@ -382,7 +382,7 @@ impl ChunkProducer {
     #[instrument(
         target = "client",
         level = "debug",
-        "prepare_transactions",
+        "producer_prepare_transactions",
         skip_all,
         fields(
             height = prev_block.header().height() + 1,

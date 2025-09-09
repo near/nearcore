@@ -595,7 +595,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     #[instrument(
         target = "runtime",
         level = "debug",
-        "prepare_transactions",
+        "runtime_prepare_transactions",
         skip_all,
         fields(
             height = prev_block.height + 1,
