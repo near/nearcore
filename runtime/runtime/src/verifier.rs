@@ -2,7 +2,6 @@ use crate::VerificationResult;
 use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
-use near_crypto::{PublicKey, Signature};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::DeployGlobalContractAction;
@@ -126,24 +125,6 @@ pub(crate) fn validate_transaction_well_formed<'a>(
 ) -> Result<(), InvalidTxError> {
     validate_transaction_actions(config, signed_tx, current_protocol_version)?;
     ValidatedTransaction::check_valid_for_config(config, signed_tx)
-}
-
-/// Returns the signature and public key if they are of ED25519 type.
-///
-/// Used for batch signature verification, which only supports ED25519 signatures.
-/// Returns `None` if the signature or public key are not ED25519.
-pub(crate) fn get_batchable_signature_and_public_key(
-    signed_tx: &SignedTransaction,
-) -> Option<(&ed25519_dalek::Signature, ed25519_dalek::VerifyingKey)> {
-    let (Signature::ED25519(sig), PublicKey::ED25519(key)) =
-        (&signed_tx.signature, signed_tx.transaction.public_key())
-    else {
-        return None;
-    };
-    let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(&key.0) else {
-        return None;
-    };
-    Some((sig, key))
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
