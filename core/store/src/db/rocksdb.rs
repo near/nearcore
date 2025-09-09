@@ -659,7 +659,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
 
     // Column specific settings
     let RocksDbCfConfig {
-        optimize_level_style_compaction,
+        memtable_memory_budget,
         level_zero_file_num_compaction_trigger,
         level_zero_slowdown_writes_trigger,
         level_zero_stop_writes_trigger,
@@ -669,7 +669,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
         compaction_readahead_size,
     } = RocksDbCfConfig::resolve_for_column(col, &store_config.rocksdb);
 
-    if let Some(v) = optimize_level_style_compaction {
+    if let Some(v) = memtable_memory_budget {
         opts.optimize_level_style_compaction(v.as_u64() as usize);
     }
     if let Some(v) = level_zero_file_num_compaction_trigger {

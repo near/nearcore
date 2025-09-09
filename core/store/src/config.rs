@@ -562,7 +562,7 @@ macro_rules! define_cf_config_fields {
 
 // This macro invocation will generate the struct `RocksDbCfConfig`.
 define_cf_config_fields!(
-    (optimize_level_style_compaction, bytesize::ByteSize),
+    (memtable_memory_budget, bytesize::ByteSize),
     (level_zero_file_num_compaction_trigger, i32),
     (level_zero_slowdown_writes_trigger, i32),
     (level_zero_stop_writes_trigger, i32),
@@ -592,7 +592,7 @@ impl RocksDbCfConfig {
 
     pub fn high_load_defaults() -> Self {
         Self {
-            optimize_level_style_compaction: Some(bytesize::ByteSize::mib(1024)),
+            memtable_memory_budget: Some(bytesize::ByteSize::mib(1024)),
             level_zero_file_num_compaction_trigger: Some(8),
             level_zero_slowdown_writes_trigger: Some(32),
             level_zero_stop_writes_trigger: Some(64),
@@ -605,7 +605,7 @@ impl RocksDbCfConfig {
 
     pub fn medium_load_defaults() -> Self {
         Self {
-            optimize_level_style_compaction: Some(bytesize::ByteSize::mib(512)),
+            memtable_memory_budget: Some(bytesize::ByteSize::mib(512)),
             level_zero_file_num_compaction_trigger: Some(8),
             level_zero_slowdown_writes_trigger: Some(32),
             level_zero_stop_writes_trigger: Some(64),
@@ -618,7 +618,7 @@ impl RocksDbCfConfig {
 
     pub fn low_load_defaults() -> Self {
         Self {
-            optimize_level_style_compaction: Some(bytesize::ByteSize::mib(256)),
+            memtable_memory_budget: Some(bytesize::ByteSize::mib(256)),
             level_zero_file_num_compaction_trigger: Some(8),
             level_zero_slowdown_writes_trigger: Some(32),
             level_zero_stop_writes_trigger: Some(64),
