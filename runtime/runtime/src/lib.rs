@@ -1584,7 +1584,8 @@ impl Runtime {
         let default_hash = CryptoHash::default();
         let mut last_tx_hash = default_hash;
 
-        for tx in tx_vec {
+        for mut tx in tx_vec {
+            tx.skip_signature_check = true;
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
             let v = validate_transaction(&apply_state.config, tx, protocol_version);
             let Ok(validated_tx) = v else {
