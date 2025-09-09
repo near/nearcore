@@ -1542,9 +1542,11 @@ impl Runtime {
                         let mut valid_mask: ValidBitmask = 0;
                         for (idx, tx) in txs.iter().enumerate() {
                             let tx_hash = tx.hash();
+                            let mut check_tx = tx.clone();
+                            check_tx.skip_signature_check = true;
                             let v = validate_transaction(
                                 &apply_state.config,
-                                tx.clone(),
+                                check_tx,
                                 protocol_version,
                             );
                             if let Err((err, _)) = v {
