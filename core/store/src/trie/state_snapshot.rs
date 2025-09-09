@@ -370,7 +370,7 @@ impl ShardTries {
             .ok_or_else(|| anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
         tracing::debug!(target: "state_snapshot", ?snapshot_path, ?parent_path);
 
-        let store_config = StoreConfig::default();
+        let store_config = StoreConfig::state_snapshot_store_config();
 
         let opener = NodeStorage::opener(&snapshot_path, &store_config, None, None);
         let storage = opener.open_in_mode(Mode::ReadOnly)?;

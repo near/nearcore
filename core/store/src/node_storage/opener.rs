@@ -290,7 +290,7 @@ impl<'a> StoreOpener<'a> {
             return Ok(());
         }
 
-        let config = StoreConfig::default();
+        let config = StoreConfig::state_snapshot_store_config();
         for entry in std::fs::read_dir(state_snapshots_dir)? {
             let entry = entry?;
             let snapshot_path = entry.path();
@@ -676,7 +676,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
         .map_err(StoreOpenerError::CheckpointError)?;
 
     // As only path from config is used in StoreOpener, default config with custom path will do.
-    let mut config = StoreConfig::default();
+    let mut config = StoreConfig::state_snapshot_store_config();
     config.path = Some(checkpoint_path);
     let opener = NodeStorage::opener(checkpoint_base_path, &config, None, None);
     // This will create all the column families that were dropped by create_checkpoint(),

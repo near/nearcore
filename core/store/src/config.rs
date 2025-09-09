@@ -122,6 +122,11 @@ pub struct StoreConfig {
 }
 
 impl StoreConfig {
+    /// StoreConfig used for state snapshot database.
+    pub fn state_snapshot_store_config() -> Self {
+        Self::default()
+    }
+
     pub fn enable_state_snapshot(&mut self) {
         self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Enabled;
     }
