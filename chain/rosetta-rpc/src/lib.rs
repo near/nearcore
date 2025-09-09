@@ -4,7 +4,6 @@ use std::convert::AsRef;
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix::Addr;
 use axum::Router;
 use axum::extract::{Json, State};
 use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
@@ -24,7 +23,7 @@ use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::Genesis;
 use near_client::client_actor::ClientActorInner;
-use near_client::{RpcHandlerActor, ViewClientActorInner};
+use near_client::{RpcHandler, ViewClientActorInner};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
 
@@ -52,7 +51,7 @@ struct RosettaAppState {
     genesis: Arc<GenesisWithIdentifier>,
     client_addr: TokioRuntimeHandle<ClientActorInner>,
     view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
-    tx_handler_addr: Addr<RpcHandlerActor>,
+    tx_handler_addr: MultithreadRuntimeHandle<RpcHandler>,
     currencies: Option<Vec<models::Currency>>,
 }
 
@@ -921,7 +920,7 @@ async fn construction_submit(
     let transaction_hash = signed_transaction.as_ref().get_hash();
     let transaction_submission = state
         .tx_handler_addr
-        .send(near_client::ProcessTxRequest {
+        .send_async(near_client::ProcessTxRequest {
             transaction: signed_transaction.into_inner(),
             is_forwarded: false,
             check_only: false,
@@ -1064,7 +1063,7 @@ pub fn start_rosetta_rpc(
     genesis_block_hash: &near_primitives::hash::CryptoHash,
     client_addr: TokioRuntimeHandle<ClientActorInner>,
     view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
-    tx_handler_addr: Addr<RpcHandlerActor>,
+    tx_handler_addr: MultithreadRuntimeHandle<RpcHandler>,
     future_spawner: &dyn FutureSpawner,
 ) {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits, currencies } = config;

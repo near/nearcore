@@ -9,10 +9,10 @@
 
 use crate::stateless_validation::chunk_validator::orphan_witness_pool::OrphanStateWitnessPool;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use near_async::actix::wrapper::SyncActixWrapper;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, Handler, Sender};
-use near_async::{MultiSend, MultiSenderFrom};
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::stateless_validation::chunk_validation::{self, MainStateTransitionCache};
 use near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL;
@@ -43,8 +43,6 @@ use std::sync::Arc;
 /// The range starts at 2 because a witness at height of head+1 would
 /// have the previous block available (the chain head), so it wouldn't be an orphan.
 const ALLOWED_ORPHAN_WITNESS_DISTANCE_FROM_HEAD: Range<BlockHeight> = 2..6;
-
-pub type ChunkValidationSyncActor = SyncActixWrapper<ChunkValidationActorInner>;
 
 /// Outcome of processing an orphaned witness.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,7 +162,8 @@ impl ChunkValidationActorInner {
     }
 
     /// Spawns multiple chunk validation actors using SyncArbiter.
-    pub fn spawn_actix_actors(
+    pub fn spawn_multithread_actor(
+        actor_system: ActorSystem,
         chain_store: ChainStore,
         genesis_block: Arc<Block>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -177,13 +176,13 @@ impl ChunkValidationActorInner {
         orphan_witness_pool_size: usize,
         max_orphan_witness_size: u64,
         num_actors: usize,
-    ) -> actix::Addr<ChunkValidationSyncActor> {
+    ) -> MultithreadRuntimeHandle<ChunkValidationActorInner> {
         // Create shared orphan witness pool
         let shared_orphan_pool =
             Arc::new(Mutex::new(OrphanStateWitnessPool::new(orphan_witness_pool_size)));
 
-        actix::SyncArbiter::start(num_actors, move || {
-            let actor = ChunkValidationActorInner::new_with_shared_pool(
+        actor_system.spawn_multithread_actor(num_actors, move || {
+            ChunkValidationActorInner::new_with_shared_pool(
                 chain_store.clone(),
                 genesis_block.clone(),
                 epoch_manager.clone(),
@@ -195,8 +194,7 @@ impl ChunkValidationActorInner {
                 validation_spawner.clone(),
                 shared_orphan_pool.clone(),
                 max_orphan_witness_size,
-            );
-            SyncActixWrapper::new(actor)
+            )
         })
     }
 

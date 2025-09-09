@@ -1,8 +1,7 @@
-use actix::{Actor, Addr};
+use actix::Addr;
 use anyhow::{Context, anyhow, bail};
 use near_async::ActorSystem;
 use near_async::actix::futures::ActixFutureSpawner;
-use near_async::actix::wrapper::ActixWrapper;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -33,7 +32,7 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_store::genesis::initialize_genesis_state;
-use near_telemetry::{TelemetryActor, TelemetryConfig};
+use near_telemetry::TelemetryActor;
 use nearcore::NightshadeRuntime;
 use std::collections::HashSet;
 use std::future::Future;
@@ -75,8 +74,9 @@ fn setup_network_node(
         Some(Arc::new(create_test_signer(account_id.as_str()))),
         "validator_signer",
     );
-    let telemetry_actor =
-        ActixWrapper::new(TelemetryActor::new(TelemetryConfig::default())).start();
+
+    let actor_system = ActorSystem::new();
+    let telemetry_actor = actor_system.spawn_tokio_actor(TelemetryActor::default());
 
     let db = node_storage.into_inner(near_store::Temperature::Hot);
     let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
@@ -96,7 +96,6 @@ fn setup_network_node(
         chain_id: client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
     };
-    let actor_system = ActorSystem::new();
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
@@ -150,6 +149,7 @@ fn setup_network_node(
         transaction_validity_period: genesis.config.transaction_validity_period,
     };
     let rpc_handler = spawn_rpc_handler_actor(
+        actor_system.clone(),
         rpc_handler_config,
         tx_pool,
         chunk_endorsement_tracker,
@@ -172,7 +172,8 @@ fn setup_network_node(
     );
     let chain_store =
         ChainStore::new(runtime.store().clone(), false, genesis.config.genesis_height);
-    let chunk_validation_actor = ChunkValidationActorInner::spawn_actix_actors(
+    let chunk_validation_actor = ChunkValidationActorInner::spawn_multithread_actor(
+        actor_system.clone(),
         chain_store,
         Arc::new(genesis_block),
         epoch_manager.clone(),
