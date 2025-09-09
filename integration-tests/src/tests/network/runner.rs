@@ -32,7 +32,7 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_store::genesis::initialize_genesis_state;
-use near_telemetry::TelemetryActor;
+use near_telemetry::{TelemetryActor, TelemetryConfig};
 use nearcore::NightshadeRuntime;
 use std::collections::HashSet;
 use std::future::Future;
@@ -76,7 +76,8 @@ fn setup_network_node(
     );
 
     let actor_system = ActorSystem::new();
-    let telemetry_actor = actor_system.spawn_tokio_actor(TelemetryActor::default());
+    let telemetry_actor =
+        TelemetryActor::spawn_tokio_actor(actor_system.clone(), TelemetryConfig::default());
 
     let db = node_storage.into_inner(near_store::Temperature::Hot);
     let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);

@@ -345,7 +345,7 @@ pub fn start_with_config_and_synchronization(
     };
 
     let telemetry =
-        actor_system.spawn_tokio_actor(TelemetryActor::new(config.telemetry_config.clone()));
+        TelemetryActor::spawn_tokio_actor(actor_system.clone(), config.telemetry_config.clone());
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
     let state_roots = near_store::get_genesis_state_roots(runtime.store())?
         .expect("genesis should be initialized.");
