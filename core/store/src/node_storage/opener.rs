@@ -290,6 +290,7 @@ impl<'a> StoreOpener<'a> {
             return Ok(());
         }
 
+        let config = StoreConfig::default();
         for entry in std::fs::read_dir(state_snapshots_dir)? {
             let entry = entry?;
             let snapshot_path = entry.path();
@@ -302,7 +303,7 @@ impl<'a> StoreOpener<'a> {
                 continue;
             }
 
-            let opener = NodeStorage::opener(&snapshot_path, &self.hot.config, None, None)
+            let opener = NodeStorage::opener(&snapshot_path, &config, None, None)
                 .with_migrator(self.migrator.unwrap());
             let _ = opener.open_in_mode(Mode::ReadWrite)?;
         }
