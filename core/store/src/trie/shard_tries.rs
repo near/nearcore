@@ -392,7 +392,7 @@ impl ShardTries {
     #[instrument(
         target = "memtrie",
         level = "debug",
-        "prepare_transactions",
+        "apply_memtrie_changes",
         skip_all,
         fields(
             height = block_height,
