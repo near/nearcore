@@ -8,7 +8,7 @@ use crate::config::{
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_COUNT,
-    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_COUNT,
+    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
 };
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
@@ -1559,7 +1559,7 @@ impl Runtime {
                         )
                         .is_ok()
                         {
-                            TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_COUNT.inc();
+                            TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL.inc();
                             batched_tx_mask
                         } else {
                             TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_COUNT.inc();
