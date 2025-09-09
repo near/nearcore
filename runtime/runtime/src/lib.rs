@@ -6,11 +6,15 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::metrics::{
+    TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_COUNT,
+    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_COUNT,
+};
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{
-    StorageStakingError, ValidBitmask, check_storage_stake, validate_batch_signatures,
-    validate_receipt, validate_transaction_with_known_valid_signature,
+    StorageStakingError, check_storage_stake, get_batchable_signature_and_public_key,
+    validate_receipt, validate_transaction_well_formed,
 };
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
@@ -78,6 +82,7 @@ use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
+use smallvec::SmallVec;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -1499,6 +1504,10 @@ impl Runtime {
         signed_txs: SignedValidPeriodTransactions,
         receipt_sink: &mut ReceiptSink,
     ) -> Result<(), RuntimeError> {
+        /// We track the transaction validity in a bit vector of this size. This type informs the
+        /// maximum size of the transactions' chunk processed with each rayon job.
+        type ValidBitmask = u128;
+        const MAX_BATCH_SIZE: usize = ValidBitmask::BITS as usize;
         /// Avoid the overhead of inter-thread scheduling by processing at least this many
         /// transactions for each instance of this overhead. This can reduce the number of
         /// transaction chunks for smaller lists of transactions, however.
@@ -1523,17 +1532,47 @@ impl Runtime {
                 tx_vec
                     .par_chunks(chunk_size)
                     .map(|txs| {
-                        // First, do batch signature verification for all transactions in this chunk.
-                        // Returns a bitmask of which transactions' signatures could be verified in batch.
-                        let valid_signatures = validate_batch_signatures(txs);
+                        // Prepare signatures, public keys and messages (tx hash) for batch verification.
+                        let mut batched_tx_mask: ValidBitmask = 0;
+                        let mut signatures =
+                            SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
+                        let mut verifying_keys =
+                            SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
+                        let mut messages =
+                            SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
 
-                        let mut valid_mask: ValidBitmask = 0;
+                        for (idx, tx) in txs.iter().enumerate() {
+                            if let Some((signature, public_key)) =
+                                get_batchable_signature_and_public_key(tx)
+                            {
+                                signatures.push(*signature);
+                                verifying_keys.push(public_key);
+                                messages.push(tx.hash().as_ref());
+                                batched_tx_mask |= 1 << idx;
+                            }
+                        }
+
+                        let valid_signatures = if near_crypto_ed25519_batch::safe_verify_batch(
+                            &messages,
+                            &signatures,
+                            &verifying_keys,
+                        )
+                        .is_ok()
+                        {
+                            TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_COUNT.inc();
+                            batched_tx_mask
+                        } else {
+                            TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_COUNT.inc();
+                            0
+                        };
+
+                        let mut result: ValidBitmask = 0;
                         for (idx, tx) in txs.iter().enumerate() {
                             let tx_hash = tx.hash();
                             let signature_already_verified = (valid_signatures >> idx) & 1 == 1;
 
                             let v = if signature_already_verified {
-                                validate_transaction_with_known_valid_signature(
+                                validate_transaction_well_formed(
                                     &apply_state.config,
                                     tx,
                                     protocol_version,
@@ -1551,9 +1590,9 @@ impl Runtime {
                                 tracing::debug!(?tx_hash, ?err, "transaction invalid");
                                 continue;
                             }
-                            valid_mask |= 1 << idx;
+                            result |= 1 << idx;
                         }
-                        valid_mask
+                        result
                     })
                     .collect::<Vec<_>>()
             },

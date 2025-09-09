@@ -1,8 +1,5 @@
 use crate::VerificationResult;
 use crate::config::{TransactionCost, total_prepaid_gas};
-use crate::metrics::{
-    TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE, TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS,
-};
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_crypto::{PublicKey, Signature};
@@ -27,7 +24,6 @@ use near_store::{
     StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
-use smallvec::SmallVec;
 
 pub const ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT: StorageUsage = 770;
 
@@ -40,10 +36,6 @@ pub enum StorageStakingError {
     /// Storage consistency error: an account has invalid storage usage or amount or locked amount
     StorageError(String),
 }
-
-/// We track the transaction validity in a bit vector of this size. This type informs the
-/// maximum size of the transactions' chunk processed with each rayon job.
-pub(crate) type ValidBitmask = u128;
 
 /// Checks if given account has enough balance for storage stake.
 ///
@@ -124,8 +116,10 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx)
 }
 
-/// Validates the transaction assuming that the signature is already known to be valid.
-pub(crate) fn validate_transaction_with_known_valid_signature<'a>(
+/// Validates well formnedess of a transaction's actions and with respect to the runtime config.
+///
+/// This function is similar to `validate_transaction` but does NOT verify the signature.
+pub(crate) fn validate_transaction_well_formed<'a>(
     config: &RuntimeConfig,
     signed_tx: &SignedTransaction,
     current_protocol_version: ProtocolVersion,
@@ -134,38 +128,22 @@ pub(crate) fn validate_transaction_with_known_valid_signature<'a>(
     ValidatedTransaction::check_valid_for_config(config, signed_tx)
 }
 
-/// Validates a batch of SignedTransactions. Returns a bitmask of valid transactions.
-/// Transactions with the corresponding bit set to 1 have a valid signature and can
-/// skip individual signature verification.
-pub(crate) fn validate_batch_signatures(signed_txs: &[SignedTransaction]) -> ValidBitmask {
-    const MAX_BATCH_SIZE: usize = 128;
-    let mut messages = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
-    let mut signatures = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
-    let mut keys = SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(signed_txs.len());
-    let mut batch_mask: ValidBitmask = 0;
-
-    for (i, tx) in signed_txs.iter().enumerate() {
-        let (Signature::ED25519(sig), PublicKey::ED25519(key)) =
-            (&tx.signature, tx.transaction.public_key())
-        else {
-            continue;
-        };
-        let Ok(public_key) = ed25519_dalek::VerifyingKey::from_bytes(&key.0) else {
-            continue;
-        };
-        messages.push(tx.hash().as_ref());
-        signatures.push(*sig);
-        keys.push(public_key);
-        batch_mask |= 1 << i;
-    }
-
-    if near_crypto_ed25519_batch::safe_verify_batch(&messages, &signatures, &keys).is_err() {
-        // Batch verification failed, return 0 bitmask
-        TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE.inc();
-        return 0;
-    }
-    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS.inc();
-    batch_mask
+/// Returns the signature and public key if they are of ED25519 type.
+///
+/// Used for batch signature verification, which only supports ED25519 signatures.
+/// Returns `None` if the signature or public key are not ED25519.
+pub(crate) fn get_batchable_signature_and_public_key(
+    signed_tx: &SignedTransaction,
+) -> Option<(&ed25519_dalek::Signature, ed25519_dalek::VerifyingKey)> {
+    let (Signature::ED25519(sig), PublicKey::ED25519(key)) =
+        (&signed_tx.signature, signed_tx.transaction.public_key())
+    else {
+        return None;
+    };
+    let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(&key.0) else {
+        return None;
+    };
+    Some((sig, key))
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
