@@ -56,20 +56,21 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
         return (hashes[0], vec![vec![]]);
     }
     let mut arr_len = arr.len();
+
+    // Pre-allocate paths with known capacity and estimated path lengths
+    // Each path will have at most log2(len) items
+    let max_path_len = len.ilog2() as usize;
     let mut paths: Vec<MerklePath> = (0..arr_len)
         .map(|i| {
+            let mut path = Vec::with_capacity(max_path_len);
             if i % 2 == 0 {
                 if i + 1 < arr_len {
-                    vec![MerklePathItem {
-                        hash: hashes[(i + 1) as usize],
-                        direction: Direction::Right,
-                    }]
-                } else {
-                    vec![]
+                    path.push(MerklePathItem { hash: hashes[i + 1], direction: Direction::Right });
                 }
             } else {
-                vec![MerklePathItem { hash: hashes[(i - 1) as usize], direction: Direction::Left }]
+                path.push(MerklePathItem { hash: hashes[i - 1], direction: Direction::Left });
             }
+            path
         })
         .collect();
 
@@ -88,18 +89,16 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
             hashes[i] = hash;
             if len > 1 {
                 if i % 2 == 0 {
-                    for j in 0..counter {
-                        let index = ((i + 1) * counter + j) as usize;
-                        if index < arr.len() {
-                            paths[index].push(MerklePathItem { hash, direction: Direction::Left });
-                        }
+                    let start_index = (i + 1) * counter;
+                    let end_index = ((i + 1) * counter + counter).min(arr.len());
+                    for index in start_index..end_index {
+                        paths[index].push(MerklePathItem { hash, direction: Direction::Left });
                     }
                 } else {
-                    for j in 0..counter {
-                        let index = ((i - 1) * counter + j) as usize;
-                        if index < arr.len() {
-                            paths[index].push(MerklePathItem { hash, direction: Direction::Right });
-                        }
+                    let start_index = (i - 1) * counter;
+                    let end_index = ((i - 1) * counter + counter).min(arr.len());
+                    for index in start_index..end_index {
+                        paths[index].push(MerklePathItem { hash, direction: Direction::Right });
                     }
                 }
             }
