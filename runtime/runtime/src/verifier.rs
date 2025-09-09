@@ -88,6 +88,19 @@ fn is_zero_balance_account(account: &Account) -> bool {
     account.storage_usage() <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
 }
 
+fn validate_transaction_actions(
+    config: &RuntimeConfig,
+    signed_tx: &SignedTransaction,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), InvalidTxError> {
+    validate_actions(
+        &config.wasm_config.limit_config,
+        signed_tx.transaction.actions(),
+        current_protocol_version,
+    )
+    .map_err(InvalidTxError::ActionsValidation)
+}
+
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
 #[allow(clippy::result_large_err)]
@@ -96,14 +109,22 @@ pub fn validate_transaction(
     signed_tx: SignedTransaction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
-    if let Err(err) = validate_actions(
-        &config.wasm_config.limit_config,
-        signed_tx.transaction.actions(),
-        current_protocol_version,
-    ) {
-        return Err((InvalidTxError::ActionsValidation(err), signed_tx));
+    if let Err(err) = validate_transaction_actions(&config, &signed_tx, current_protocol_version) {
+        return Err((err, signed_tx));
     }
     ValidatedTransaction::new(config, signed_tx)
+}
+
+/// Validates a transaction contains well-formed actions and is valid for the given runtime config.
+///
+/// This function is similar to `validate_transaction` but does NOT verify the signature.
+pub(crate) fn validate_transaction_well_formed<'a>(
+    config: &RuntimeConfig,
+    signed_tx: &SignedTransaction,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), InvalidTxError> {
+    validate_transaction_actions(config, signed_tx, current_protocol_version)?;
+    ValidatedTransaction::check_valid_for_config(config, signed_tx)
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
