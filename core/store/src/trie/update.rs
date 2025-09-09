@@ -219,7 +219,7 @@ impl TrieUpdate {
         target = "store::trie",
         "TrieUpdate::finalize",
         skip_all,
-        fields(committed.len = self.committed.len())
+        fields(committed.len = self.committed.len(), tag_block_production = true)
     )]
     pub fn finalize(self) -> Result<TrieUpdateResult, StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");

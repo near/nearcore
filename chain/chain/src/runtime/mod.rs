@@ -592,6 +592,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         .map(|_vr| ())
     }
 
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "runtime_prepare_transactions",
+        skip_all,
+        fields(
+            height = prev_block.height + 1,
+            shard_id = %shard_id,
+            tag_block_production = true
+        )
+    )]
     fn prepare_transactions(
         &self,
         storage_config: RuntimeStorageConfig,

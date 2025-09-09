@@ -379,6 +379,17 @@ impl ChunkProducer {
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
+    #[instrument(
+        target = "client",
+        level = "debug",
+        "producer_prepare_transactions",
+        skip_all,
+        fields(
+            height = prev_block.header().height() + 1,
+            shard_id = %shard_uid.shard_id(),
+            tag_block_production = true
+        )
+    )]
     fn prepare_transactions(
         &self,
         shard_uid: ShardUId,
