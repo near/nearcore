@@ -1,4 +1,4 @@
-use crate::config::{Mode, RocksDbCfConfig};
+use crate::config::{Mode, RocksDbCfConfig, RocksDbConfig};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
 use ::rocksdb::{
@@ -526,18 +526,31 @@ fn cf_descriptors(
 }
 
 /// DB level options
-fn common_rocksdb_options(rocksdb_config: &crate::config::RocksDbConfig) -> Options {
+fn common_rocksdb_options(rocksdb_config: &RocksDbConfig) -> Options {
+    let RocksDbConfig {
+        bytes_per_sync,
+        wal_bytes_per_sync,
+        enable_pipelined_write,
+        write_buffer_size,
+        max_bytes_for_level_base,
+        max_total_wal_size,
+        parallelism,
+        cf_high_load_overrides: _,
+        cf_medium_load_overrides: _,
+        cf_low_load_overrides: _,
+    } = rocksdb_config;
+
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
     opts.set_use_fsync(false);
     opts.set_keep_log_file_num(1);
-    opts.set_bytes_per_sync(rocksdb_config.bytes_per_sync.as_u64());
-    opts.set_wal_bytes_per_sync(rocksdb_config.wal_bytes_per_sync.as_u64());
-    opts.set_enable_pipelined_write(rocksdb_config.enable_pipelined_write);
-    opts.set_write_buffer_size(rocksdb_config.write_buffer_size.as_u64() as usize);
-    opts.set_max_bytes_for_level_base(rocksdb_config.max_bytes_for_level_base.as_u64());
-    opts.set_max_total_wal_size(rocksdb_config.max_total_wal_size.as_u64());
+    opts.set_bytes_per_sync(bytes_per_sync.as_u64());
+    opts.set_wal_bytes_per_sync(wal_bytes_per_sync.as_u64());
+    opts.set_enable_pipelined_write(*enable_pipelined_write);
+    opts.set_write_buffer_size(write_buffer_size.as_u64() as usize);
+    opts.set_max_bytes_for_level_base(max_bytes_for_level_base.as_u64());
+    opts.set_max_total_wal_size(max_total_wal_size.as_u64());
 
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
@@ -548,9 +561,8 @@ fn common_rocksdb_options(rocksdb_config: &crate::config::RocksDbConfig) -> Opti
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_stop_writes_trigger(100000000);
     } else {
-        let parallelism = rocksdb_config
-            .parallelism
-            .unwrap_or_else(|| std::cmp::max(1, num_cpus::get() as i32 / 2));
+        let parallelism =
+            parallelism.unwrap_or_else(|| std::cmp::max(1, num_cpus::get() as i32 / 2));
         opts.increase_parallelism(parallelism);
     }
     opts
@@ -646,31 +658,39 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     }
 
     // Column specific settings
-    let group_cfg = RocksDbCfConfig::resolve_for_column(col, &store_config.rocksdb);
+    let RocksDbCfConfig {
+        optimize_level_style_compaction,
+        level_zero_file_num_compaction_trigger,
+        level_zero_slowdown_writes_trigger,
+        level_zero_stop_writes_trigger,
+        max_subcompactions,
+        target_file_size_base,
+        max_write_buffer_number,
+        compaction_readahead_size,
+    } = RocksDbCfConfig::resolve_for_column(col, &store_config.rocksdb);
 
-    // Apply group defaults derived from group_cfg
-    if let Some(v) = group_cfg.optimize_level_style_compaction {
+    if let Some(v) = optimize_level_style_compaction {
         opts.optimize_level_style_compaction(v.as_u64() as usize);
     }
-    if let Some(v) = group_cfg.level_zero_file_num_compaction_trigger {
+    if let Some(v) = level_zero_file_num_compaction_trigger {
         opts.set_level_zero_file_num_compaction_trigger(v);
     }
-    if let Some(v) = group_cfg.level_zero_slowdown_writes_trigger {
+    if let Some(v) = level_zero_slowdown_writes_trigger {
         opts.set_level_zero_slowdown_writes_trigger(v);
     }
-    if let Some(v) = group_cfg.level_zero_stop_writes_trigger {
+    if let Some(v) = level_zero_stop_writes_trigger {
         opts.set_level_zero_stop_writes_trigger(v);
     }
-    if let Some(v) = group_cfg.max_subcompactions {
+    if let Some(v) = max_subcompactions {
         opts.set_max_subcompactions(v as u32);
     }
-    if let Some(v) = group_cfg.target_file_size_base {
+    if let Some(v) = target_file_size_base {
         opts.set_target_file_size_base(v.as_u64());
     }
-    if let Some(v) = group_cfg.max_write_buffer_number {
+    if let Some(v) = max_write_buffer_number {
         opts.set_max_write_buffer_number(v);
     }
-    if let Some(v) = group_cfg.compaction_readahead_size {
+    if let Some(v) = compaction_readahead_size {
         opts.set_compaction_readahead_size(v.as_u64() as usize);
     }
 
