@@ -59,7 +59,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
 
     // Pre-allocate paths with known capacity and estimated path lengths
     // Each path will have at most log2(len) items
-    let max_path_len = len.ilog2() as usize;
+    let max_path_len = len.ilog2() as usize + 1;
     let mut paths: Vec<MerklePath> = (0..arr_len)
         .map(|i| {
             let mut path = Vec::with_capacity(max_path_len);
