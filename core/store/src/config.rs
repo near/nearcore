@@ -540,7 +540,6 @@ fn default_rocksdb_max_total_wal_size() -> bytesize::ByteSize {
 /// This ensures consistency between the struct definition, overrides application and presets.
 macro_rules! define_cf_config_fields {
     ($(($field:ident, $type:ty)),* $(,)?) => {
-        #[derive(Clone)]
         pub struct RocksDbCfConfig {
             $(pub $field: $type,)*
         }
@@ -703,18 +702,15 @@ mod tests {
     }
 
     #[test]
-    fn cf_medium_override_single_field() {
-        let json = r#"{ "cf_medium_load_overrides": { "max_write_buffer_number": 12 } }"#;
+    fn cf_medium_override_fields() {
+        let json = r#"{ "cf_medium_load_overrides": { "max_write_buffer_number": 12, "compaction_readahead_size": 8388608 } }"#;
         let cfg: RocksDbConfig = serde_json::from_str(json).unwrap();
 
         // Medium: apply overrides over preset
         let medium_base = RocksDbCfConfig::medium_load_defaults();
-        let medium = cfg
-            .cf_medium_load_overrides
-            .clone()
-            .unwrap_or_default()
-            .apply_over(medium_base.clone());
+        let medium = RocksDbCfConfig::resolve_for_column(crate::DBCol::FlatState, &cfg);
         assert_eq!(medium.max_write_buffer_number, 12);
+        assert_eq!(medium.compaction_readahead_size.as_u64(), 8388608);
         // Another medium default remains intact
         assert_eq!(
             medium.target_file_size_base.as_u64(),
@@ -723,7 +719,7 @@ mod tests {
 
         // High: no overrides so keep preset
         let high_base = RocksDbCfConfig::high_load_defaults();
-        let high = cfg.cf_high_load_overrides.unwrap_or_default().apply_over(high_base.clone());
+        let high = RocksDbCfConfig::resolve_for_column(crate::DBCol::State, &cfg);
         assert_eq!(high.max_write_buffer_number, high_base.max_write_buffer_number);
     }
 }
