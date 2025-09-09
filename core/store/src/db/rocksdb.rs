@@ -627,31 +627,6 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
 
-    // Note that this function changes a lot of RocksDB parameters including:
-    //      write_buffer_size = memtable_memory_budget / 4
-    //      min_write_buffer_number_to_merge = 2
-    //      max_write_buffer_number = 6
-    //      level0_file_num_compaction_trigger = 2
-    //      target_file_size_base = memtable_memory_budget / 8
-    //      max_bytes_for_level_base = memtable_memory_budget
-    //      compaction_style = kCompactionStyleLevel
-    // Also it sets compression_per_level in a way that the first 2 levels have no compression and
-    // the rest use LZ4 compression.
-    // See the implementation here:
-    //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
-    // Increase memory budget to reduce flush/compaction frequency under heavy write load
-    opts.optimize_level_style_compaction(256 * bytesize::MIB as usize);
-    // Relax L0 triggers so background compaction interferes less with foreground writes
-    opts.set_level_zero_file_num_compaction_trigger(8);
-    opts.set_level_zero_slowdown_writes_trigger(32);
-    opts.set_level_zero_stop_writes_trigger(64);
-    // Allow more memtables in flight to absorb bursts
-    opts.set_max_write_buffer_number(4);
-    // Larger target file size reduces number of files and compactions
-    opts.set_target_file_size_base(96 * bytesize::MIB);
-    // Help compaction read sequentially by adding readahead on the device
-    opts.set_compaction_readahead_size(2 * bytesize::MIB as usize);
-
     if temp == Temperature::Hot && col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
@@ -670,6 +645,18 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     } = RocksDbCfConfig::resolve_for_column(col, &store_config.rocksdb);
 
     if let Some(v) = memtable_memory_budget {
+        // Note that this function changes a lot of RocksDB parameters including:
+        //      write_buffer_size = memtable_memory_budget / 4
+        //      min_write_buffer_number_to_merge = 2
+        //      max_write_buffer_number = 6
+        //      level0_file_num_compaction_trigger = 2
+        //      target_file_size_base = memtable_memory_budget / 8
+        //      max_bytes_for_level_base = memtable_memory_budget
+        //      compaction_style = kCompactionStyleLevel
+        // Also it sets compression_per_level in a way that the first 2 levels have no compression and
+        // the rest use LZ4 compression.
+        // See the implementation here:
+        //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
         opts.optimize_level_style_compaction(v.as_u64() as usize);
     }
     if let Some(v) = level_zero_file_num_compaction_trigger {
