@@ -16,7 +16,8 @@
 * Increase number of validators from 300 to 500. To maintain the chain safety, we increase the number of mandates per shard to 105. ([#14033](https://github.com/near/nearcore/pull/14033))
 
 ### Non-protocol Changes
-**No Changes**
+* Added a neard subcommand tool that can be used to recover data that was lost
+  due to bug in resharding. ([#14185](https://github.com/near/nearcore/pull/14185))
 
 ## [2.7.1]
 
