@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-rt.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 bytesize.workspace = true
