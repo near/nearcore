@@ -1187,8 +1187,9 @@ impl Chain {
             return;
         }
 
+        let height = block.height();
         self.optimistic_block_chunks.add_block(block);
-        self.maybe_process_optimistic_block(apply_chunks_done_sender, block.height());
+        self.maybe_process_optimistic_block(apply_chunks_done_sender, height);
     }
 
     pub fn maybe_process_optimistic_block(

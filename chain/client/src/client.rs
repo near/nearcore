@@ -1320,6 +1320,7 @@ impl Client {
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
         let chunk_header = partial_chunk.cloned_header();
+        let height = chunk_header.height_created();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
 
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
@@ -1346,7 +1347,7 @@ impl Client {
 
         self.chain.maybe_process_optimistic_block(
             Some(self.myself_sender.apply_chunks_done.clone()),
-            chunk_header.height_created(),
+            height,
         );
     }
 
