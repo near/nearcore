@@ -4139,6 +4139,7 @@ dependencies = [
  "crossbeam-channel",
  "easy-ext",
  "enum-map",
+ "futures",
  "insta",
  "itertools 0.14.0",
  "lru 0.12.3",
@@ -4268,7 +4269,6 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "lru 0.12.3",
- "near-actix-test-utils",
  "near-async",
  "near-cache",
  "near-chain",
@@ -4509,6 +4509,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
+ "tokio",
  "tracing",
 ]
 
@@ -4564,6 +4565,7 @@ dependencies = [
  "axum",
  "bs58 0.4.0",
  "easy-ext",
+ "futures",
  "near-async",
  "near-chain-configs",
  "near-client",
@@ -4641,7 +4643,6 @@ dependencies = [
  "axum",
  "axum-test",
  "borsh",
- "near-actix-test-utils",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -4661,6 +4662,7 @@ dependencies = [
  "reqwest 0.12.4",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -5575,7 +5577,6 @@ dependencies = [
  "hex",
  "indicatif",
  "itertools 0.14.0",
- "near-actix-test-utils",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -8029,6 +8030,7 @@ dependencies = [
  "strum",
  "testlib",
  "thiserror 2.0.16",
+ "tokio",
  "tracing",
  "yansi",
 ]
