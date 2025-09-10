@@ -93,6 +93,8 @@ impl SpiceChunkValidatorActor {
     }
 }
 
+// TODO(spice): Since data distributor makes sure block is available before witness is sent to the
+// chunk validator actor we don't need to handle possibility of missing blocks in this actor.
 impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         let block = match self.chain_store.get_block(&block_hash) {
@@ -261,6 +263,9 @@ impl SpiceChunkValidatorActor {
     fn handle_not_ready_state_witness(&mut self, witness: ChunkStateWitness, _witness_size: usize) {
         // TODO(spice): Implement additional checks before adding witness to pending witnesses, see Client's orphan_witness_handling.rs.
         let block_hash = witness.main_state_transition().block_hash;
+        // TODO(spice): Since at the moment witnesses may arrive before blocks we shouldn't store
+        // witnesses in HashMap since they may refer to blocks that would never arrive exhausting
+        // memory.
         self.pending_witnesses.entry(block_hash).or_default().push(witness);
     }
 
