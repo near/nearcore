@@ -98,7 +98,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
-use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -139,6 +139,13 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 pub struct ApplyChunksDoneMessage;
 
 pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct PostStateReadyMessage {
+    pub post_state: PostState,
+}
+pub type PostStateReadySender = near_async::messaging::Sender<SpanWrapped<PostStateReadyMessage>>;
 
 /// Contains information for missing chunks in a block
 pub struct BlockMissingChunks {
@@ -285,6 +292,8 @@ pub struct Chain {
     /// Determines whether client should exit if the protocol version is not supported
     /// in the next or next next epoch.
     protocol_version_check: ProtocolVersionCheckConfig,
+
+    on_post_state_ready_sender: Option<PostStateReadySender>,
 }
 
 impl Drop for Chain {
@@ -392,6 +401,7 @@ impl Chain {
             validator_signer,
             spice_core_processor,
             protocol_version_check: Default::default(),
+            on_post_state_ready_sender: None,
         })
     }
 
@@ -408,6 +418,7 @@ impl Chain {
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
         spice_core_processor: CoreStatementsProcessor,
+        on_post_state_ready_sender: Option<PostStateReadySender>,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
@@ -557,6 +568,7 @@ impl Chain {
             validator_signer,
             spice_core_processor,
             protocol_version_check: chain_config.protocol_version_check,
+            on_post_state_ready_sender,
         })
     }
 
@@ -3215,6 +3227,17 @@ impl Chain {
             })
         };
 
+        let callback = match self.on_post_state_ready_sender {
+            Some(ref sender) => {
+                let sender = sender.clone();
+                let closure = move |state: PostState| {
+                    sender.send(PostStateReadyMessage { post_state: state }.into());
+                };
+                Some(Box::new(closure) as Box<dyn PostStateReadyCallback>)
+            }
+            None => None,
+        };
+
         let runtime = self.runtime_adapter.clone();
         Ok(Some((
             shard_id,
@@ -3225,6 +3248,7 @@ impl Chain {
                     runtime.as_ref(),
                     shard_update_reason,
                     shard_context,
+                    callback,
                 )?)
             }),
         )))

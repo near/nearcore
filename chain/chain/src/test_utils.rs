@@ -89,6 +89,7 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
+        None,
     )
     .unwrap()
 }
@@ -182,6 +183,7 @@ pub fn setup_with_tx_validity_period(
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager.clone()),
+        None,
     )
     .unwrap();
     chain.init_flat_storage().unwrap();
