@@ -539,15 +539,27 @@ fn default_rocksdb_max_total_wal_size() -> bytesize::ByteSize {
 ///
 /// This ensures consistency between the struct definition, overrides application and presets.
 macro_rules! define_cf_config_fields {
-    ($(($field:ident, $type:ty)),* $(,)?) => {
+    (
+        $(#[$attrs:meta])*
+        struct RocksDbCfConfig {
+            $(
+                $(#[$field_attr:meta])*
+                $field:ident: $field_ty:ty
+            ),* $(,)?
+        }
+    ) => {
+        // Generate the base config struct with non-optional fields
         pub struct RocksDbCfConfig {
-            $(pub $field: $type,)*
+            $(pub $field: $field_ty,)*
         }
 
-        #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-        #[serde(default)]
+        // Generate the overrides struct with optional fields
+        $(#[$attrs])*
         pub struct RocksDbCfOverrides {
-            $(pub $field: Option<$type>,)*
+            $(
+                $(#[$field_attr])*
+                pub $field: Option<$field_ty>
+            ),*
         }
 
         impl RocksDbCfOverrides {
@@ -564,17 +576,21 @@ macro_rules! define_cf_config_fields {
     };
 }
 
-// This macro invocation will generate the struct `RocksDbCfConfig`.
-define_cf_config_fields!(
-    (memtable_memory_budget, bytesize::ByteSize),
-    (level_zero_file_num_compaction_trigger, i32),
-    (level_zero_slowdown_writes_trigger, i32),
-    (level_zero_stop_writes_trigger, i32),
-    (max_subcompactions, u32),
-    (target_file_size_base, bytesize::ByteSize),
-    (max_write_buffer_number, i32),
-    (compaction_readahead_size, bytesize::ByteSize),
-);
+// This macro invocation will generate the structs `RocksDbCfConfig` and `RocksDbCfOverrides`.
+define_cf_config_fields! {
+    #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    #[serde(default)]
+    struct RocksDbCfConfig {
+        memtable_memory_budget: bytesize::ByteSize,
+        level_zero_file_num_compaction_trigger: i32,
+        level_zero_slowdown_writes_trigger: i32,
+        level_zero_stop_writes_trigger: i32,
+        max_subcompactions: u32,
+        target_file_size_base: bytesize::ByteSize,
+        max_write_buffer_number: i32,
+        compaction_readahead_size: bytesize::ByteSize,
+    }
+}
 
 impl RocksDbCfConfig {
     /// Resolves the final configuration for a column family by applying overrides to presets.
