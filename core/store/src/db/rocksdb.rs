@@ -1,11 +1,13 @@
 use crate::config::Mode;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
+use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_COUNT, ROCKS_ITERATOR_LIVE_TIME};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
 use anyhow::Context;
 use itertools::Itertools;
+use near_time::Instant;
 use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::io;
@@ -262,17 +264,44 @@ impl RocksDB {
             read_options.set_iterate_upper_bound(upper_bound);
         }
         let iter = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-        RocksDBIterator(iter)
+        RocksDBIterator::new(iter)
     }
 }
 
-struct RocksDBIterator<'a>(rocksdb::DBIteratorWithThreadMode<'a, DB>);
+struct RocksDBIterator<'a> {
+    creation_time: Instant,
+    iter: rocksdb::DBIteratorWithThreadMode<'a, DB>,
+}
+
+impl<'a> RocksDBIterator<'a> {
+    fn new(iter: rocksdb::DBIteratorWithThreadMode<'a, DB>) -> Self {
+        ROCKS_CURRENT_ITERATORS.inc();
+        ROCKS_ITERATOR_COUNT.inc();
+        Self { creation_time: Instant::now(), iter }
+    }
+}
+
+impl<'a> Drop for RocksDBIterator<'a> {
+    fn drop(&mut self) {
+        let elapsed = self.creation_time.elapsed().as_secs_f64();
+        if elapsed > 30.0 {
+            tracing::warn!(
+                target: "store::db::rocksdb",
+                elapsed,
+                backtrace = %std::backtrace::Backtrace::force_capture(),
+                "rocksdb iterator held open for a long time (may cause excessive disk usage)"
+            );
+        }
+        ROCKS_ITERATOR_LIVE_TIME.inc_by(elapsed);
+        ROCKS_CURRENT_ITERATORS.dec();
+    }
+}
 
 impl<'a> Iterator for RocksDBIterator<'a> {
     type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.0.next()?.map_err(io::Error::other))
+        Some(self.iter.next()?.map_err(io::Error::other))
     }
 }
 

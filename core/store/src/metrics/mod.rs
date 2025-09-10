@@ -3,10 +3,10 @@ mod rocksdb_metrics;
 use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
 use near_o11y::metrics::{
-    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
-    try_create_histogram, try_create_histogram_vec, try_create_histogram_with_buckets,
-    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge,
-    try_create_int_gauge_vec,
+    Counter, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    exponential_buckets, try_create_counter, try_create_histogram, try_create_histogram_vec,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec,
 };
 use near_time::Duration;
 use rocksdb_metrics::export_stats_as_metrics;
@@ -581,6 +581,24 @@ pub static STORAGE_MISSING_CONTRACTS_COUNT: LazyLock<IntCounterVec> = LazyLock::
         &["context"],
     )
     .unwrap()
+});
+
+pub static ROCKS_ITERATOR_COUNT: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter("near_rocksdb_iterators_total", "Number of rocksdb iterators created")
+        .unwrap()
+});
+
+pub static ROCKS_ITERATOR_LIVE_TIME: LazyLock<Counter> = LazyLock::new(|| {
+    try_create_counter(
+        "near_rocksdb_iterator_lifetime_seconds_total",
+        "Cumulative seconds for which rocksdb iterators were alive",
+    )
+    .unwrap()
+});
+
+pub static ROCKS_CURRENT_ITERATORS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge("near_rocksdb_iterators", "Number of rocksdb iterators currently live")
+        .unwrap()
 });
 
 fn export_store_stats(store: &Store, temperature: Temperature) {
