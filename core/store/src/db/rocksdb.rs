@@ -1,4 +1,4 @@
-use crate::config::Mode;
+use crate::config::{Mode, RocksDbCfConfig, RocksDbConfig};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
 use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_COUNT, ROCKS_ITERATOR_LIVE_TIME};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
@@ -502,9 +502,11 @@ impl Database for RocksDB {
         let Some(columns_to_keep) = columns_to_keep else {
             return Ok(());
         };
-        let opts = common_rocksdb_options();
+        // For this operation (drop CF) we use the default RocksDB configuration.
+        let default_store_config = StoreConfig::default();
+        let opts = common_rocksdb_options(&default_store_config.rocksdb);
         let cfs =
-            cf_descriptors(&DBCol::iter().collect_vec(), &StoreConfig::default(), Temperature::Hot);
+            cf_descriptors(&DBCol::iter().collect_vec(), &default_store_config, Temperature::Hot);
         let mut db = DB::open_cf_descriptors(&opts, path, cfs)
             .with_context(|| format!("failed to open checkpoint at {}", path.display()))?;
         for col in DBCol::iter() {
@@ -553,19 +555,31 @@ fn cf_descriptors(
 }
 
 /// DB level options
-fn common_rocksdb_options() -> Options {
+fn common_rocksdb_options(rocksdb_config: &RocksDbConfig) -> Options {
+    let RocksDbConfig {
+        bytes_per_sync,
+        wal_bytes_per_sync,
+        enable_pipelined_write,
+        write_buffer_size,
+        max_bytes_for_level_base,
+        max_total_wal_size,
+        parallelism,
+        cf_high_load_overrides: _,
+        cf_medium_load_overrides: _,
+        cf_low_load_overrides: _,
+    } = rocksdb_config;
+
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
     opts.set_use_fsync(false);
     opts.set_keep_log_file_num(1);
-    opts.set_bytes_per_sync(bytesize::MIB);
-    // Sync WAL roughly every 1 MiB to smooth I/O and reduce latency spikes from large fsync bursts
-    opts.set_wal_bytes_per_sync(bytesize::MIB);
-    // Reduce write stall latency by enabling pipelined write path
-    opts.set_enable_pipelined_write(true);
-    opts.set_write_buffer_size(256 * bytesize::MIB as usize);
-    opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
+    opts.set_bytes_per_sync(bytes_per_sync.as_u64());
+    opts.set_wal_bytes_per_sync(wal_bytes_per_sync.as_u64());
+    opts.set_enable_pipelined_write(*enable_pipelined_write);
+    opts.set_write_buffer_size(write_buffer_size.as_u64() as usize);
+    opts.set_max_bytes_for_level_base(max_bytes_for_level_base.as_u64());
+    opts.set_max_total_wal_size(max_total_wal_size.as_u64());
 
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
@@ -576,14 +590,15 @@ fn common_rocksdb_options() -> Options {
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_stop_writes_trigger(100000000);
     } else {
-        opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
-        opts.set_max_total_wal_size(4 * bytesize::GIB);
+        let parallelism =
+            parallelism.unwrap_or_else(|| std::cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.increase_parallelism(parallelism);
     }
     opts
 }
 
 fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
-    let mut opts = common_rocksdb_options();
+    let mut opts = common_rocksdb_options(&store_config.rocksdb);
     opts.create_missing_column_families(mode.read_write());
     opts.create_if_missing(mode.can_create());
     opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
@@ -641,6 +656,23 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
 
+    if temp == Temperature::Hot && col.is_rc() {
+        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
+        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
+    }
+
+    // Column specific settings
+    let RocksDbCfConfig {
+        memtable_memory_budget,
+        level_zero_file_num_compaction_trigger,
+        level_zero_slowdown_writes_trigger,
+        level_zero_stop_writes_trigger,
+        max_subcompactions,
+        target_file_size_base,
+        max_write_buffer_number,
+        compaction_readahead_size,
+    } = RocksDbCfConfig::resolve_for_column(col, &store_config.rocksdb);
+
     // Note that this function changes a lot of RocksDB parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
     //      min_write_buffer_number_to_merge = 2
@@ -653,47 +685,15 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     // the rest use LZ4 compression.
     // See the implementation here:
     //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
-    // Increase memory budget to reduce flush/compaction frequency under heavy write load
-    opts.optimize_level_style_compaction(256 * bytesize::MIB as usize);
-    // Relax L0 triggers so background compaction interferes less with foreground writes
-    opts.set_level_zero_file_num_compaction_trigger(8);
-    opts.set_level_zero_slowdown_writes_trigger(32);
-    opts.set_level_zero_stop_writes_trigger(64);
-    // Allow more memtables in flight to absorb bursts
-    opts.set_max_write_buffer_number(4);
-    // Larger target file size reduces number of files and compactions
-    opts.set_target_file_size_base(96 * bytesize::MIB);
-    // Help compaction read sequentially by adding readahead on the device
-    opts.set_compaction_readahead_size(2 * bytesize::MIB as usize);
+    opts.optimize_level_style_compaction(memtable_memory_budget.as_u64() as usize);
+    opts.set_level_zero_file_num_compaction_trigger(level_zero_file_num_compaction_trigger);
+    opts.set_level_zero_slowdown_writes_trigger(level_zero_slowdown_writes_trigger);
+    opts.set_level_zero_stop_writes_trigger(level_zero_stop_writes_trigger);
+    opts.set_max_subcompactions(max_subcompactions);
+    opts.set_target_file_size_base(target_file_size_base.as_u64());
+    opts.set_max_write_buffer_number(max_write_buffer_number);
+    opts.set_compaction_readahead_size(compaction_readahead_size.as_u64() as usize);
 
-    if temp == Temperature::Hot && col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
-        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
-    }
-
-    // Optimize write-heavy columns to boost compaction throughput
-    match col {
-        DBCol::PartialChunks | DBCol::State | DBCol::TrieChanges => {
-            opts.optimize_level_style_compaction(1024 * bytesize::MIB as usize);
-            opts.set_level_zero_file_num_compaction_trigger(8);
-            opts.set_level_zero_slowdown_writes_trigger(32);
-            opts.set_level_zero_stop_writes_trigger(64);
-            opts.set_max_subcompactions(2);
-            opts.set_target_file_size_base(128 * bytesize::MIB);
-            opts.set_max_write_buffer_number(8);
-            opts.set_compaction_readahead_size(6 * bytesize::MIB as usize);
-        }
-        DBCol::FlatState | DBCol::Chunks | DBCol::StateChanges | DBCol::Transactions => {
-            opts.optimize_level_style_compaction(512 * bytesize::MIB as usize);
-            opts.set_level_zero_file_num_compaction_trigger(8);
-            opts.set_level_zero_slowdown_writes_trigger(32);
-            opts.set_level_zero_stop_writes_trigger(64);
-            opts.set_target_file_size_base(128 * bytesize::MIB);
-            opts.set_max_write_buffer_number(6);
-            opts.set_compaction_readahead_size(4 * bytesize::MIB as usize);
-        }
-        _ => {}
-    }
     opts
 }
 
