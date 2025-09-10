@@ -4487,7 +4487,6 @@ dependencies = [
 name = "near-fork-network"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "chrono",
  "clap",
