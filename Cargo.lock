@@ -4260,7 +4260,6 @@ name = "near-client"
 version = "0.0.0"
 dependencies = [
  "actix",
- "actix-rt",
  "anyhow",
  "assert_matches",
  "borsh",
@@ -4565,7 +4564,6 @@ dependencies = [
  "axum",
  "bs58 0.4.0",
  "easy-ext",
- "futures",
  "near-async",
  "near-chain-configs",
  "near-client",
@@ -4662,7 +4660,6 @@ dependencies = [
  "reqwest 0.12.4",
  "serde_json",
  "tempfile",
- "tokio",
 ]
 
 [[package]]
@@ -4974,7 +4971,6 @@ dependencies = [
 name = "near-rosetta-rpc"
 version = "0.0.0"
 dependencies = [
- "actix",
  "axum",
  "derive_more 2.0.1",
  "futures",
@@ -5052,7 +5048,6 @@ dependencies = [
 name = "near-state-parts-dump-check"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "axum",
  "borsh",
@@ -5080,7 +5075,6 @@ name = "near-store"
 version = "0.0.0"
 dependencies = [
  "actix",
- "actix-rt",
  "anyhow",
  "assert_matches",
  "bencher",
@@ -5566,7 +5560,6 @@ dependencies = [
 name = "nearcore"
 version = "0.0.0"
 dependencies = [
- "actix-rt",
  "anyhow",
  "bencher",
  "borsh",
@@ -7992,7 +7985,6 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 name = "state-viewer"
 version = "0.0.0"
 dependencies = [
- "actix",
  "anyhow",
  "borsh",
  "bytesize 1.1.0",
