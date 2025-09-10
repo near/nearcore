@@ -1195,6 +1195,9 @@ impl Chain {
         &mut self,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
+        let _span =
+            tracing::debug_span!(target: "client", "maybe_process_optimistic_block", tag_block_production = true, tag_optimistic = true)
+                .entered();
         let Some((block, chunks)) = self.optimistic_block_chunks.take_latest_ready_block() else {
             return;
         };
