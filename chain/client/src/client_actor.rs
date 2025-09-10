@@ -74,6 +74,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -1308,14 +1309,25 @@ impl ClientActorInner {
         tracing::warn!(target: "client", "Received PostStateReadyMessage: {:?}", msg);
 
         // todo - check if is chunk producer for next height
-        self.client.chunk_producer.start_prepare_transactions_job(
-            msg.key,
-            msg.shard_id,
-            msg.shard_uid,
-            msg.post_state.trie_update,
-            &msg.prev_block,
-            msg.prev_chunk_tx_hashes,
-        );
+        let cpk = ChunkProductionKey {
+            shard_id: msg.shard_id,
+            epoch_id: *msg.prev_block.header().epoch_id(),
+            height_created: msg.prev_block.header().height() + 2,
+        };
+        if let Ok(v) = self.client.epoch_manager.get_chunk_producer_info(&cpk) {
+            if let Some(val) = self.client.validator_signer.get() {
+                if v.account_id() == val.validator_id() {
+                    self.client.chunk_producer.start_prepare_transactions_job(
+                        msg.key,
+                        msg.shard_id,
+                        msg.shard_uid,
+                        msg.post_state.trie_update,
+                        &msg.prev_block,
+                        msg.prev_chunk_tx_hashes,
+                    );
+                }
+            }
+        }
     }
 
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't
