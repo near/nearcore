@@ -531,7 +531,7 @@ impl ChunkProducer {
 
         self.prepare_transactions_spawner.spawn("prepare_transactions", move || {
             let mut pool_guard = tx_pool.lock();
-            let (prepared_transactions, skipped_tranasctions) =
+            let (prepared_transactions, skipped_transactions) =
                 if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) {
                     runtime_adapter
                         .prepare_transactions(
@@ -552,7 +552,7 @@ impl ChunkProducer {
                 };
             pool_guard
                 .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
-            pool_guard.reintroduce_transactions(shard_uid, skipped_tranasctions.0);
+            pool_guard.reintroduce_transactions(shard_uid, skipped_transactions.0);
 
             *res_sender.0.lock().unwrap() = Some(Arc::new(Ok(prepared_transactions)));
             res_sender.1.notify_all();
