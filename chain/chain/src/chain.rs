@@ -1188,15 +1188,16 @@ impl Chain {
         }
 
         self.optimistic_block_chunks.add_block(block);
-        self.maybe_process_optimistic_block(apply_chunks_done_sender);
+        self.maybe_process_optimistic_block(apply_chunks_done_sender, block.height());
     }
 
     pub fn maybe_process_optimistic_block(
         &mut self,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        height: BlockHeight,
     ) {
         let _span =
-            tracing::debug_span!(target: "client", "maybe_process_optimistic_block", tag_block_production = true, tag_optimistic = true)
+            tracing::debug_span!(target: "client", "maybe_process_optimistic_block", height, tag_block_production = true, tag_optimistic = true)
                 .entered();
         let Some((block, chunks)) = self.optimistic_block_chunks.take_latest_ready_block() else {
             return;

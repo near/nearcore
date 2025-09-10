@@ -1427,9 +1427,10 @@ impl ClientActorInner {
         self.client.save_optimistic_block(&optimistic_block);
         self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
 
-        self.client.chain.maybe_process_optimistic_block(Some(
-            self.client.myself_sender.apply_chunks_done.clone(),
-        ));
+        self.client.chain.maybe_process_optimistic_block(
+            Some(self.client.myself_sender.apply_chunks_done.clone()),
+            next_height,
+        );
 
         Ok(())
     }

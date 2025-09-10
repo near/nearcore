@@ -1344,8 +1344,10 @@ impl Client {
         // If this was the last chunk that was missing for a block, it will be processed now.
         self.process_blocks_with_missing_chunks(apply_chunks_done_sender);
 
-        self.chain
-            .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
+        self.chain.maybe_process_optimistic_block(
+            Some(self.myself_sender.apply_chunks_done.clone()),
+            chunk_header.height_created(),
+        );
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
