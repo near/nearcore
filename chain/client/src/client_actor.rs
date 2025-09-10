@@ -1306,6 +1306,16 @@ impl ClientActorInner {
 
     fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
         tracing::warn!(target: "client", "Received PostStateReadyMessage: {:?}", msg);
+
+        // todo - check if is chunk producer for next height
+        self.client.chunk_producer.start_prepare_transactions_job(
+            msg.key,
+            msg.shard_id,
+            msg.shard_uid,
+            msg.post_state.trie_update,
+            &msg.prev_block,
+            msg.prev_chunk_tx_hashes,
+        );
     }
 
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't

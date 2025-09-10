@@ -1,4 +1,7 @@
+use std::collections::HashSet;
+
 use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::Either;
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::MutableConfigValue;
@@ -38,6 +41,7 @@ use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
+use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
@@ -347,6 +351,8 @@ pub struct PreparedTransactions {
     pub limited_by: Option<PrepareTransactionsLimit>,
 }
 
+pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
+
 /// Chunk producer prepares transactions from the transaction pool
 /// until it hits some limit (too many transactions, too much gas used, etc).
 /// This enum describes which limit was hit when preparing transactions.
@@ -438,13 +444,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn prepare_transactions(
         &self,
-        storage: RuntimeStorageConfig,
+        storage: Either<RuntimeStorageConfig, TrieUpdate>,
         shard_id: ShardId,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
-    ) -> Result<PreparedTransactions, Error>;
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`

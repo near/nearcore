@@ -1421,24 +1421,27 @@ fn prepare_transactions(
     let block = chain.get_block(&prev_hash).unwrap();
     let congestion_info = block.block_congestion_info();
 
-    env.runtime.prepare_transactions(
-        storage_config,
-        shard_id,
-        PrepareTransactionsBlockContext {
-            next_gas_price: env.runtime.genesis_config.min_gas_price,
-            height: env.head.height,
-            block_hash: env.head.last_block_hash,
-            congestion_info,
-        },
-        transaction_groups,
-        &mut |tx: &SignedTransaction| -> bool {
-            chain
-                .chain_store()
-                .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
-                .is_ok()
-        },
-        default_produce_chunk_add_transactions_time_limit(),
-    )
+    env.runtime
+        .prepare_transactions(
+            Either::Left(storage_config),
+            shard_id,
+            PrepareTransactionsBlockContext {
+                next_gas_price: env.runtime.genesis_config.min_gas_price,
+                height: env.head.height,
+                block_hash: env.head.last_block_hash,
+                congestion_info,
+            },
+            transaction_groups,
+            &mut |tx: &SignedTransaction| -> bool {
+                chain
+                    .chain_store()
+                    .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
+                    .is_ok()
+            },
+            HashSet::new(),
+            default_produce_chunk_add_transactions_time_limit(),
+        )
+        .map(|r| r.0)
 }
 
 /// Check that transactions validation fails if provided empty storage proof.

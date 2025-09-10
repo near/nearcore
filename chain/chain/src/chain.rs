@@ -144,6 +144,11 @@ pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<Apply
 #[rtype(result = "()")]
 pub struct PostStateReadyMessage {
     pub post_state: PostState,
+    pub shard_id: ShardId,
+    pub shard_uid: ShardUId,
+    pub prev_block: Block,
+    pub key: CachedShardUpdateKey,
+    pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
 }
 pub type PostStateReadySender = near_async::messaging::Sender<SpanWrapped<PostStateReadyMessage>>;
 
@@ -3136,6 +3141,7 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_id = shard_layout.get_shard_id(shard_index)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let shard_context = self.get_shard_context(prev_hash, &epoch_id, shard_id, mode)?;
         if !shard_context.should_apply_chunk {
             return Ok(None);
@@ -3159,6 +3165,8 @@ impl Chain {
             }
         }
         debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
+
+        let mut tx_hashes = HashSet::new();
 
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
@@ -3207,8 +3215,10 @@ impl Chain {
             )?;
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
-            let transactions =
-                SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list);
+            let chunk_transactions = chunk.into_transactions();
+            tx_hashes = chunk_transactions.iter().map(|tx| tx.get_hash()).collect();
+            let transactions: SignedValidPeriodTransactions =
+                SignedValidPeriodTransactions::new(chunk_transactions, tx_valid_list);
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
@@ -3230,8 +3240,19 @@ impl Chain {
         let callback = match self.on_post_state_ready_sender {
             Some(ref sender) => {
                 let sender = sender.clone();
+                let prev_block = prev_block.clone();
                 let closure = move |state: PostState| {
-                    sender.send(PostStateReadyMessage { post_state: state }.into());
+                    sender.send(
+                        PostStateReadyMessage {
+                            post_state: state,
+                            shard_id,
+                            shard_uid,
+                            prev_block: prev_block.clone(),
+                            key: cached_shard_update_key,
+                            prev_chunk_tx_hashes: tx_hashes.clone(),
+                        }
+                        .into(),
+                    );
                 };
                 Some(Box::new(closure) as Box<dyn PostStateReadyCallback>)
             }
