@@ -3,11 +3,7 @@
 #![allow(clippy::arc_with_non_send_sync)]
 
 use crate::utils::peer_manager_mock::PeerManagerMock;
-use actix::{Actor, Context};
-use near_async::actix::futures::ActixFutureSpawner;
-use near_async::messaging::{
-    IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
-};
+use near_async::messaging::{CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender, noop};
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
@@ -71,6 +67,7 @@ pub const MAX_BLOCK_PROD_TIME: Duration = Duration::milliseconds(200);
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 fn setup(
     clock: Clock,
+    actor_system: ActorSystem,
     validators: Vec<AccountId>,
     epoch_length: BlockHeightDelta,
     account_id: AccountId,
@@ -143,7 +140,6 @@ fn setup(
     let shard_tracker =
         ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
 
-    let actor_system = ActorSystem::new();
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), TelemetryConfig::default());
     let config = {
@@ -215,7 +211,7 @@ fn setup(
         shard_tracker.clone(),
         runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        Arc::new(ActixFutureSpawner),
+        actor_system.new_future_spawner().into(),
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
         signer.clone(),
@@ -280,21 +276,23 @@ fn setup(
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
 pub fn setup_mock(
     clock: Clock,
+    actor_system: ActorSystem,
     validators: Vec<AccountId>,
     account_id: AccountId,
     skip_sync_wait: bool,
     enable_doomslug: bool,
     peer_manager_mock: Box<
         dyn FnMut(
-            &PeerManagerMessageRequest,
-            &mut Context<PeerManagerMock>,
-            TokioRuntimeHandle<ClientActorInner>,
-            MultithreadRuntimeHandle<RpcHandler>,
-        ) -> PeerManagerMessageResponse,
+                &PeerManagerMessageRequest,
+                TokioRuntimeHandle<ClientActorInner>,
+                MultithreadRuntimeHandle<RpcHandler>,
+            ) -> PeerManagerMessageResponse
+            + Send,
     >,
 ) -> ActorHandlesForTesting {
     setup_mock_with_validity_period(
         clock,
+        actor_system,
         validators,
         account_id,
         skip_sync_wait,
@@ -306,17 +304,18 @@ pub fn setup_mock(
 
 pub fn setup_mock_with_validity_period(
     clock: Clock,
+    actor_system: ActorSystem,
     validators: Vec<AccountId>,
     account_id: AccountId,
     skip_sync_wait: bool,
     enable_doomslug: bool,
     mut peermanager_mock: Box<
         dyn FnMut(
-            &PeerManagerMessageRequest,
-            &mut Context<PeerManagerMock>,
-            TokioRuntimeHandle<ClientActorInner>,
-            MultithreadRuntimeHandle<RpcHandler>,
-        ) -> PeerManagerMessageResponse,
+                &PeerManagerMessageRequest,
+                TokioRuntimeHandle<ClientActorInner>,
+                MultithreadRuntimeHandle<RpcHandler>,
+            ) -> PeerManagerMessageResponse
+            + Send,
     >,
     transaction_validity_period: NumBlocks,
 ) -> ActorHandlesForTesting {
@@ -330,6 +329,7 @@ pub fn setup_mock_with_validity_period(
         runtime_tempdir,
     ) = setup(
         clock.clone(),
+        actor_system.clone(),
         validators,
         10,
         account_id,
@@ -347,10 +347,9 @@ pub fn setup_mock_with_validity_period(
     let client_addr1 = client_addr.clone();
     let rpc_handler_addr1 = rpc_handler_addr.clone();
 
-    let network_actor = PeerManagerMock::new(move |msg, ctx| {
-        peermanager_mock(&msg, ctx, client_addr1.clone(), rpc_handler_addr1.clone())
-    })
-    .start();
+    let network_actor = actor_system.spawn_tokio_actor(PeerManagerMock::new(move |msg| {
+        peermanager_mock(&msg, client_addr1.clone(), rpc_handler_addr1.clone())
+    }));
 
     network_adapter.bind(network_actor);
 
@@ -380,6 +379,7 @@ pub struct ActorHandlesForTesting {
 /// Sets up ClientActor and ViewClientActor without network.
 pub fn setup_no_network(
     clock: Clock,
+    actor_system: ActorSystem,
     validators: Vec<AccountId>,
     account_id: AccountId,
     skip_sync_wait: bool,
@@ -387,6 +387,7 @@ pub fn setup_no_network(
 ) -> ActorHandlesForTesting {
     setup_no_network_with_validity_period(
         clock,
+        actor_system,
         validators,
         account_id,
         skip_sync_wait,
@@ -397,6 +398,7 @@ pub fn setup_no_network(
 
 pub fn setup_no_network_with_validity_period(
     clock: Clock,
+    actor_system: ActorSystem,
     validators: Vec<AccountId>,
     account_id: AccountId,
     skip_sync_wait: bool,
@@ -406,11 +408,12 @@ pub fn setup_no_network_with_validity_period(
     let my_account_id = account_id.clone();
     setup_mock_with_validity_period(
         clock,
+        actor_system,
         validators,
         account_id,
         skip_sync_wait,
         enable_doomslug,
-        Box::new(move |request, _, _client, rpc_handler| {
+        Box::new(move |request, _client, rpc_handler| {
             // Handle network layer sending messages to self
             match request {
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ChunkEndorsement(
@@ -418,10 +421,7 @@ pub fn setup_no_network_with_validity_period(
                     endorsement,
                 )) => {
                     if account_id == &my_account_id {
-                        let future =
-                            rpc_handler.send_async(ChunkEndorsementMessage(endorsement.clone()));
-                        // Don't ignore the future or else the message may not actually be handled.
-                        actix::spawn(future);
+                        rpc_handler.send(ChunkEndorsementMessage(endorsement.clone()));
                     }
                 }
                 _ => {}
@@ -434,6 +434,7 @@ pub fn setup_no_network_with_validity_period(
 
 pub fn setup_client_with_runtime(
     clock: Clock,
+    actor_system: ActorSystem,
     num_validator_seats: NumSeats,
     enable_doomslug: bool,
     network_adapter: PeerManagerAdapter,
@@ -487,7 +488,7 @@ pub fn setup_client_with_runtime(
         multi_spawner,
         partial_witness_adapter,
         resharding_sender,
-        Arc::new(ActixFutureSpawner),
+        actor_system.new_future_spawner().into(),
         noop().into_multi_sender(), // state sync ignored for these tests
         noop().into_multi_sender(), // apply chunks ping not necessary for these tests
         chunk_validation_sender,

@@ -32,6 +32,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 wat.workspace = true
 
