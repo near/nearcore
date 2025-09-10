@@ -1,6 +1,7 @@
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
 use itertools::{Either, Itertools};
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
     ApplyChunkBlockContext, BlockType, PrepareTransactionsBlockContext, PreparedTransactions,
@@ -94,6 +95,7 @@ pub struct ChunkProducer {
 
     /// previous chunk update id -> prepared transactions for the next chunk
     prepare_txs_jobs: lru::LruCache<CachedShardUpdateKey, PrepareTransactionsJobHandle>,
+    prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl ChunkProducer {
@@ -105,6 +107,7 @@ impl ChunkProducer {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         rng_seed: RngSeed,
         transaction_pool_size_limit: Option<u64>,
+        prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let data_parts = epoch_manager.num_data_parts();
         let parity_parts = epoch_manager.num_total_parts() - data_parts;
@@ -130,6 +133,7 @@ impl ChunkProducer {
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
             ),
             prepare_txs_jobs: lru::LruCache::new(NonZeroUsize::new(64).unwrap()),
+            prepare_transactions_spawner,
         }
     }
 
@@ -294,7 +298,15 @@ impl ChunkProducer {
                 Chain::get_cached_shard_update_key(&prev_block_context, &chunks, shard_id).unwrap();
             match self.prepare_txs_jobs.get(&prev_chunk_shard_update_key) {
                 Some(job) => match &*job.get_results() {
-                    Ok(txs) => Some(txs.clone()),
+                    Ok(txs) => {
+                        tracing::warn!(
+                            target: "client",
+                            %next_height,
+                            %shard_id,
+                            "Using cached prepared transactions",
+                        );
+                        Some(txs.clone())
+                    }
                     Err(err) => {
                         tracing::error!("Error preparing txs! {:?}", err);
                         None
@@ -517,8 +529,7 @@ impl ChunkProducer {
         let job_handle = PrepareTransactionsJobHandle { result: res_sender.clone() };
         self.prepare_txs_jobs.push(key, job_handle);
 
-        // todo - use asynccomputationspawner?
-        std::thread::spawn(move || {
+        self.prepare_transactions_spawner.spawn("prepare_transactions", move || {
             let mut pool_guard = tx_pool.lock();
             let (prepared_transactions, skipped_tranasctions) =
                 if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) {

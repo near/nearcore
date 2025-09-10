@@ -243,7 +243,7 @@ impl NightshadeRuntime {
         );
 
         // XXX
-        eprintln!("on_post_state_ready.is_some() = {}", on_post_state_ready.is_some());
+        // eprintln!("on_post_state_ready.is_some() = {}", on_post_state_ready.is_some());
         let apply_state = ApplyState {
             apply_reason,
             block_height,

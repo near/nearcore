@@ -201,7 +201,7 @@ pub fn do_deploy_contract(
     tracing::info!(target: "test", "Deploying contract.");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
@@ -225,7 +225,7 @@ pub fn do_call_contract(
         args,
         nonce,
     );
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 

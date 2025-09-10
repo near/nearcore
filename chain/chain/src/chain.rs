@@ -99,7 +99,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
 use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+// use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -140,7 +140,7 @@ pub struct ApplyChunksDoneMessage;
 
 pub type ApplyChunksDoneSender = near_async::messaging::Sender<SpanWrapped<ApplyChunksDoneMessage>>;
 
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct PostStateReadyMessage {
     pub post_state: PostState,
@@ -151,6 +151,19 @@ pub struct PostStateReadyMessage {
     pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
 }
 pub type PostStateReadySender = near_async::messaging::Sender<SpanWrapped<PostStateReadyMessage>>;
+
+impl Debug for PostStateReadyMessage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PostStateReadyMessage")
+            .field("post_state", &self.post_state)
+            .field("shard_id", &self.shard_id)
+            .field("shard_uid", &self.shard_uid)
+            .field("prev_block_height", &self.prev_block.header().height())
+            .field("key", &self.key)
+            .field("prev_chunk_tx_hashes", &self.prev_chunk_tx_hashes.len())
+            .finish()
+    }
+}
 
 /// Contains information for missing chunks in a block
 pub struct BlockMissingChunks {
@@ -3747,7 +3760,8 @@ pub fn do_apply_chunks(
 ) -> Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)> {
     let parent_span =
         tracing::debug_span!(target: "chain", "do_apply_chunks", block_height, ?block).entered();
-    work.into_par_iter()
+    // XXX: put back, need async computation spawner here
+    work.into_iter()
         .map(|(shard_id, cached_shard_update_key, task)| {
             // As chunks can be processed in parallel, make sure they are all tracked as children of
             // a single span.

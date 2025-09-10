@@ -93,7 +93,8 @@ impl TrieUpdate {
     pub fn clone_for_tx_preparation(&self) -> TrieUpdate {
         Self {
             trie: self.trie.recording_reads_new_recorder(),
-            contract_storage: self.contract_storage.clone(),
+            // TODO: figure this out
+            contract_storage: ContractStorage::new(self.trie.storage.clone()),
             committed: self.committed.clone(),
             prospective: self.prospective.clone(),
         }
