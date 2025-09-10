@@ -41,6 +41,7 @@ use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
+use near_store::config::STATE_SNAPSHOT_DIR;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::trie::AccessOptions;
@@ -140,7 +141,7 @@ impl TestEnv {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig::enabled(dir.path(), "data", "state_snapshot"),
+            StateSnapshotConfig::enabled(dir.path(), "data", STATE_SNAPSHOT_DIR),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();

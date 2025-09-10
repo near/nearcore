@@ -1,5 +1,5 @@
 use crate::archive::cloud_storage::CloudStorageOpener;
-use crate::config::{CloudStorageConfig, STATE_SNAPSHOT_DIR, StateSnapshotType};
+use crate::config::{CloudStorageConfig, StateSnapshotType, state_snapshot_dir_from_full_db_path};
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
@@ -274,7 +274,7 @@ impl<'a> StoreOpener<'a> {
         }
 
         let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
-            StateSnapshotType::Enabled => self.hot.path.join(STATE_SNAPSHOT_DIR),
+            StateSnapshotType::Enabled => state_snapshot_dir_from_full_db_path(&self.hot.path),
             StateSnapshotType::Disabled => {
                 tracing::debug!(target: "db_opener", "State snapshots are disabled, skipping state snapshots migration");
                 return Ok(());

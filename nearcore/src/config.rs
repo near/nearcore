@@ -54,9 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{
-    CloudStorageConfig, STATE_SNAPSHOT_DIR, SplitStorageConfig, StateSnapshotType,
-};
+use near_store::config::{CloudStorageConfig, SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -781,14 +779,11 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
-        #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
         let state_snapshot_config =
             match config.config.store.state_snapshot_config.state_snapshot_type {
-                StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
-                    home_dir,
-                    config.config.store.path.as_ref().unwrap_or(&"data".into()),
-                    STATE_SNAPSHOT_DIR,
-                ),
+                StateSnapshotType::Enabled => StateSnapshotConfig::Enabled {
+                    state_snapshots_dir: config.config.store.state_snapshot_dir_from_home(home_dir),
+                },
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };
         // FIXME: this (and other contract runtime resources) should probably get constructed by
