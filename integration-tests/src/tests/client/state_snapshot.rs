@@ -60,7 +60,8 @@ fn set_up_test_env_for_state_snapshots(
 ) -> StateSnapshotTestEnv {
     let home_dir =
         tempfile::Builder::new().prefix("storage").tempdir().unwrap().path().to_path_buf();
-    let enabled_state_snapshot_config= StateSnapshotConfig::enabled(home_dir, "data", STATE_SNAPSHOT_DIR);
+    let enabled_state_snapshot_config =
+        StateSnapshotConfig::enabled(home_dir, "data", STATE_SNAPSHOT_DIR);
     let state_snapshots_dir = enabled_state_snapshot_config.state_snapshots_dir().unwrap().into();
     let state_snapshot_config = match snapshot_type {
         StateSnapshotType::Enabled => enabled_state_snapshot_config,
