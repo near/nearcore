@@ -3,7 +3,7 @@ use std::sync::Arc;
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
-use crate::user::{AsyncUser, User};
+use crate::user::User;
 use near_chain_configs::Genesis;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::TrackedShardsConfig;
@@ -81,10 +81,6 @@ pub trait Node: Send + Sync {
     fn is_running(&self) -> bool;
 
     fn user(&self) -> Box<dyn User>;
-
-    fn async_user(&self) -> Box<dyn AsyncUser> {
-        unimplemented!()
-    }
 
     fn as_thread_ref(&self) -> &ThreadNode {
         unimplemented!()

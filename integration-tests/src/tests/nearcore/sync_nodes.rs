@@ -15,7 +15,6 @@ use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use nearcore::{load_test_config, start_with_config};
-use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -74,15 +73,12 @@ fn ultra_slow_test_sync_state_stake_change() {
 
             let started = Arc::new(AtomicBool::new(false));
             let dir2_path = dir2.path().to_path_buf();
-            let arbiters_holder = Arc::new(RwLock::new(vec![]));
-            let arbiters_holder2 = arbiters_holder;
             let actor_system = actor_system.clone();
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let started_copy = started.clone();
                     let near2_copy = near2.clone();
                     let dir2_path_copy = dir2_path.clone();
-                    let arbiters_holder2 = arbiters_holder2.clone();
                     let actor = view_client1.send_async(GetBlock::latest());
                     let actor_system = actor_system.clone();
                     let actor = actor.then(move |res| {
@@ -91,14 +87,13 @@ fn ultra_slow_test_sync_state_stake_change() {
                         if !started_copy.load(Ordering::SeqCst) && latest_height > 2 * epoch_length
                         {
                             started_copy.store(true, Ordering::SeqCst);
-                            let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
+                            let nearcore::NearNode { view_client: view_client2, .. } =
                                 start_with_config(
                                     &dir2_path_copy,
                                     near2_copy,
                                     actor_system.clone(),
                                 )
                                 .expect("start_with_config");
-                            *arbiters_holder2.write() = arbiters;
 
                             WaitOrTimeoutActor::new(
                                 Box::new(move |_ctx| {

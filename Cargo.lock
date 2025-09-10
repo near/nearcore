@@ -3393,7 +3393,6 @@ name = "integration-tests"
 version = "0.0.0"
 dependencies = [
  "actix",
- "actix-rt",
  "anyhow",
  "assert_matches",
  "aurora-engine-transactions",
@@ -3451,6 +3450,7 @@ dependencies = [
  "thiserror 2.0.16",
  "time",
  "tokio",
+ "tokio-util",
  "tracing",
  "wat",
 ]
