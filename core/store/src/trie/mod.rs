@@ -1687,8 +1687,7 @@ impl Trie {
         self.disk_iter_with_prune_condition(None)
     }
 
-    #[cfg(test)]
-    pub(crate) fn disk_iter_with_max_depth(
+    pub fn disk_iter_with_max_depth(
         &self,
         max_depth: usize,
     ) -> Result<DiskTrieIterator, StorageError> {

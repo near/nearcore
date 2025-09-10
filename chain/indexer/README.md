@@ -47,30 +47,20 @@ $ NEAR_ENV=local near --keyPath ~/.near/localnet/validator_key.json \
 
 ### testnet / betanet
 
-To run the NEAR Indexer connected to testnet or betanet we need to have configs and keys prepopulated, you can get them with the NEAR Indexer Example like above with a little change. Follow the instructions below to run non-validating node (leaving account ID empty).
+To run the NEAR Indexer connected to testnet we need to have configs and keys prepopulated, you can get them with the NEAR Indexer Example like above with a little change. Follow the instructions below to run non-validating node (leaving account ID empty).
 
 ```bash
-cargo run --release -- --home-dir ~/.near/testnet init --chain-id testnet --download
+cargo run --release -- --home-dir ~/.near/testnet init --chain-id testnet --download-config rpc --download-genesis
 ```
 
-The above code will download the official genesis config and generate necessary configs. You can replace `testnet` in the command above to different network ID `betanet`.
+The above code will download the official genesis and config.
+The recommended config is accessible at:
+* [testnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/testnet/rpc/config.json)
+* [mainnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/rpc/config.json)
 
-**NB!** According to changes in `nearcore` config generation we don't fill all the necessary fields in the config file. While this issue is open <https://github.com/nearprotocol/nearcore/issues/3156> you need to download config you want and replace the generated one manually.
+This configuration is intended for RPC nodes. Any extra settings required for the indexer should be manually added to the configuration file `config.json` in your `--home-dir` (e.g. `~/.near/testnet/config.json`).
 
-* [testnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/testnet/config.json)
-* [betanet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/betanet/config.json)
-* [mainnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/config.json)
-
-Replace `config.json` in your `--home-dir` (e.g. `~/.near/testnet/config.json`) with downloaded one.
-
-Configs for the specified network are in the `--home-dir` provided folder. We need to ensure that NEAR Indexer follows all the necessary shards, so `"tracked_shards"` parameters in `~/.near/testnet/config.json` needs to be configured properly. For example, with a single shared network, you just add the shard #0 to the list:
-
-```text
-...
-"tracked_shards": [0],
-...
-```
-
+Configs for the specified network are in the `--home-dir` provided folder. We need to ensure that NEAR Indexer follows all the necessary shards, so set `"tracked_shards_config": "AllShards"` parameters in `~/.near/testnet/config.json`.
 Hint: See the Tweaks section below to learn more about further configuration options.
 
 After that we can run NEAR Indexer.
@@ -85,11 +75,28 @@ After the network is synced, you should see logs of every block produced in Test
 
 By default, nearcore is configured to do as little work as possible while still operating on an up-to-date state. Indexers may have different requirements, so there is no solution that would work for everyone, and thus we are going to provide you with the set of knobs you can tune for your requirements.
 
-As already has been mentioned above, the most common tweak you need to apply is listing all the shards you want to index data from; to do that, you should ensure that `"tracked_shards"` in the `config.json` lists all the shard IDs, e.g. for the current betanet and testnet, which have a single shard:
+As already has been mentioned above, the most common tweak you need to apply is listing all the shards you want to index data from; to do that, you should ensure that `"tracked_shards_config"` in the `config.json` lists all the shard UIDs:
 
 ```json
 ...
-"tracked_shards": [0],
+"tracked_shards_config": {
+       "Shards": [
+              "s3.v3",
+              "s4.v3"
+       ]
+},
+...
+```
+
+Or, if you want to track specific accounts:
+```json
+...
+"tracked_shards_config": {
+       "Accounts": [
+              "account_a",
+              "account_b"
+       ]
+},
 ...
 ```
 

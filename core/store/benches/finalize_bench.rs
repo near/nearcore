@@ -28,7 +28,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
 };
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, Gas, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
@@ -97,7 +97,7 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         args: vec![42u8; 2_000_000],
         method_name: "foo".to_owned(),
-        gas: 10_000_000_000_000u64,
+        gas: Gas::from_teragas(10),
         deposit: 1,
     }));
 
@@ -123,8 +123,8 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
         1,
         height,
         shard_id,
-        0,
-        0,
+        Gas::ZERO,
+        Gas::ZERO,
         0,
         CryptoHash::default(),
         CryptoHash::default(),

@@ -3,6 +3,7 @@ use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::{REAL_CONTRACTS_SAMPLE, utils::read_resource};
 use near_parameters::RuntimeConfigStore;
 use near_parameters::vm::VMKind;
+use near_primitives::types::Gas;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
@@ -30,7 +31,7 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
         account_locked_balance: 1u128,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(18),
+        prepaid_gas: Gas::from_teragas(1_000_000),
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
@@ -80,7 +81,7 @@ fn precompilation_cost(
     }
 
     // Motivation behind these values is the same as in `fn action_deploy_contract_per_byte`.
-    let negative_base_tolerance = 369_531_500_000u64;
+    let negative_base_tolerance = Gas::from_gas(369_531_500_000u64);
     let rel_factor_tolerance = 0.001;
     let (a, b) = GasCost::least_squares_method_gas_cost(
         &xs,
@@ -115,8 +116,9 @@ fn precompilation_cost(
         let contract = ContractCode::new(raw_bytes.to_vec(), None);
         let x = raw_bytes.len() as u64;
         let y = measure_contract(vm_kind, gas_metric, &contract, cache);
-        let expect = corrected_a.to_gas() as i128 + corrected_b.to_gas() as i128 * (x as i128);
-        let error = expect - (y.to_gas() as i128);
+        let expect = corrected_a.to_gas().as_gas() as i128
+            + corrected_b.to_gas().as_gas() as i128 * (x as i128);
+        let error = expect - (y.to_gas().as_gas() as i128);
         if gas_metric == GasMetric::ICount {
             // Time based metric may lead to unpredictable results.
             assert!(error >= 0);

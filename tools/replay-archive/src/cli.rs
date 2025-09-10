@@ -197,7 +197,7 @@ impl ReplayController {
             }
         }
         self.progress_reporter
-            .inc_and_report_progress(self.next_height, total_gas_burnt.unwrap_or(0));
+            .inc_and_report_progress(self.next_height, total_gas_burnt.unwrap_or(Gas::ZERO));
         self.next_height += 1;
         Ok(self.next_height <= self.end_height)
     }
@@ -231,7 +231,7 @@ impl ReplayController {
         let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
 
         let chunks = block.chunks();
-        let mut total_gas_burnt: u64 = 0;
+        let mut total_gas_burnt = Gas::ZERO;
         // TODO: Parallelize this loop.
         for shard_id in 0..chunks.len() {
             let chunk_header = &chunks[shard_id];
@@ -243,7 +243,8 @@ impl ReplayController {
             let replay_output = self
                 .replay_chunk(&block, &prev_block, shard_uid, chunk_header, prev_chunk_header)
                 .context("Failed to replay the chunk")?;
-            total_gas_burnt += replay_output.chunk_extra.gas_used();
+            total_gas_burnt =
+                total_gas_burnt.checked_add(replay_output.chunk_extra.gas_used()).unwrap();
 
             // Save chunk extra and outgoing receipts for future reads.
             let mut store_update = self.chain_store.store_update();

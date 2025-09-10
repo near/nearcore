@@ -53,7 +53,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         account_locked_balance: 0,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(14),
+        prepaid_gas: near_primitives_core::types::Gas::from_teragas(100),
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
@@ -65,7 +65,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let mut context = create_context(vec![]);
-    context.prepaid_gas = 10u64.pow(14);
+    context.prepaid_gas = near_primitives_core::types::Gas::from_teragas(100);
     let config = test_vm_config(Some(vm_kind));
     let fees = Arc::new(RuntimeFeesConfig::test());
     let gas_counter = context.make_gas_counter(&config);

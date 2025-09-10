@@ -18,9 +18,9 @@ use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Gas};
 use std::iter;
 
-const GAS_1_MICROSECOND: Gas = 1_000_000_000;
-const GAS_1_NANOSECOND: Gas = 1_000_000;
-const GAS_100_PICOSECONDS: Gas = 100_000;
+const GAS_1_MICROSECOND: Gas = Gas::from_gigagas(1);
+const GAS_1_NANOSECOND: Gas = Gas::from_gas(1_000_000);
+const GAS_100_PICOSECONDS: Gas = Gas::from_gas(100_000);
 
 /// A builder object for constructing action cost estimations.
 ///
@@ -307,7 +307,7 @@ impl ActionEstimation {
             Statistic::Average => average_cost(gas_results),
             Statistic::Percentile(rank) => percentiles(gas_results, &[rank]).next().unwrap(),
         };
-        let gas_tolerance = self.inner_iters as u64 * self.min_gas;
+        let gas_tolerance = self.min_gas.checked_mul(self.inner_iters as u64).unwrap();
         let gas_per_action = cost_per_tx
             .saturating_sub(&base, &NonNegativeTolerance::AbsoluteTolerance(gas_tolerance))
             / self.inner_iters as u64;
@@ -747,7 +747,7 @@ fn function_call_action(size: ActionSize) -> Action {
     Action::FunctionCall(Box::new(near_primitives::transaction::FunctionCallAction {
         method_name,
         args: vec![1u8; arg_len],
-        gas: 3 * 10u64.pow(12), // 3 Tgas, to allow 100 copies in the same receipt
+        gas: Gas::from_teragas(3), // 3 Tgas, to allow 100 copies in the same receipt
         deposit: 10u128.pow(24),
     }))
 }

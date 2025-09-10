@@ -156,8 +156,8 @@ impl HighLoadStatsCommand {
             anyhow::anyhow!("Block header not found for {height} with {block_hash_vec:?}")
         })?;
 
-        let mut gas_used = vec![0; 4];
-        let mut gas_used_by_account = vec![0; 4];
+        let mut gas_used = vec![Gas::ZERO; 4];
+        let mut gas_used_by_account = vec![Gas::ZERO; 4];
         let mut tx_by_account = vec![0; 4];
         let mut receipts_by_account = vec![0; 4];
 
@@ -188,9 +188,10 @@ impl HighLoadStatsCommand {
                     .outcome;
 
                 let (account_id, gas_used_by_tx) = (outcome.executor_id, outcome.gas_burnt);
-                gas_used[shard_index] += gas_used_by_tx;
+                gas_used[shard_index] = gas_used[shard_index].checked_add(gas_used_by_tx).unwrap();
                 if account_id == target_account_id {
-                    gas_used_by_account[shard_index] += gas_used_by_tx;
+                    gas_used_by_account[shard_index] =
+                        gas_used_by_account[shard_index].checked_add(gas_used_by_tx).unwrap();
                     tx_by_account[shard_index] += 1;
                     receipts_by_account[shard_index] += outcome.receipt_ids.len();
                 }

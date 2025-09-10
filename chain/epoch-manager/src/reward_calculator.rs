@@ -5,7 +5,7 @@ use primitive_types::{U256, U512};
 
 use near_chain_configs::GenesisConfig;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolVersion};
 
 use crate::validator_stats::get_validator_online_ratio;
 
@@ -58,13 +58,18 @@ impl RewardCalculator {
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
         validator_stake: &HashMap<AccountId, Balance>,
         total_supply: Balance,
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
         epoch_duration: u64,
         online_thresholds: ValidatorOnlineThresholds,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        let use_hardcoded_value = protocol_version > self.genesis_protocol_version;
+        // For mainnet and testnet, use hardcoded values of 5% inflation and
+        // 10% protocol reward rate.
+        // For other chains, use the values from the genesis config.
+        // TODO: make them configurable based on protocol version, e.g. by
+        // moving to the epoch config.
+        let use_hardcoded_value = self.genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION;
         let max_inflation_rate =
             if use_hardcoded_value { Rational32::new_raw(1, 20) } else { self.max_inflation_rate };
         let protocol_reward_rate = if use_hardcoded_value {

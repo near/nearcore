@@ -12,10 +12,11 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-web.workspace = true
 anyhow.workspace = true
+axum.workspace = true
 chrono.workspace = true
 clap.workspace = true
+time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 

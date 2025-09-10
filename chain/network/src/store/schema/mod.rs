@@ -213,7 +213,7 @@ impl Store {
         "Store::commit",
         skip_all
     )]
-    pub fn commit(&mut self, update: StoreUpdate) -> Result<(), Error> {
+    pub fn commit(&self, update: StoreUpdate) -> Result<(), Error> {
         self.0.write(update.0)
     }
 

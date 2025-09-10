@@ -111,7 +111,10 @@ pub struct ReceiptGroupV0 {
 impl ReceiptGroup {
     /// Create a new group which will contain one receipt with this size and gas.
     pub fn new(receipt_size: ByteSize, receipt_gas: Gas) -> ReceiptGroup {
-        ReceiptGroup::V0(ReceiptGroupV0 { size: receipt_size.as_u64(), gas: receipt_gas.into() })
+        ReceiptGroup::V0(ReceiptGroupV0 {
+            size: receipt_size.as_u64(),
+            gas: receipt_gas.as_gas().into(),
+        })
     }
 
     /// Total size of receipts in this group.
@@ -187,7 +190,7 @@ impl ReceiptGroupsConfig {
 
         let mut group_gas = last_group.gas();
         add_gas_checked(&mut group_gas, new_receipt_gas);
-        if group_gas > self.gas_upper_bound.into() {
+        if group_gas > self.gas_upper_bound.as_gas().into() {
             // The new group would have too much gas, start a new group.
             return true;
         }
@@ -407,13 +410,14 @@ fn subtract_size_checked(total: &mut u64, delta: ByteSize) {
 
 fn add_gas_checked(total: &mut u128, delta: Gas) {
     *total = total
-        .checked_add(delta.into())
+        .checked_add(delta.as_gas().into())
         .expect("add_gas_checked - Overflow! Total gas doesn't fit into u128!");
 }
 
 fn subtract_gas_checked(total: &mut u128, delta: Gas) {
-    *total =
-        total.checked_sub(delta.into()).expect("subtract_gas_checked - Underflow! Negative gas!")
+    *total = total
+        .checked_sub(delta.as_gas().into())
+        .expect("subtract_gas_checked - Underflow! Negative gas!")
 }
 
 #[cfg(test)]
@@ -439,24 +443,44 @@ mod tests {
 
     #[test]
     fn test_receipt_groups_config() {
-        let config =
-            ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: 100 };
+        let config = ReceiptGroupsConfig {
+            size_upper_bound: ByteSize::kb(100),
+            gas_upper_bound: Gas::from_gas(100),
+        };
 
-        let group = ReceiptGroup::new(ByteSize::kb(50), 50);
+        let group = ReceiptGroup::new(ByteSize::kb(50), Gas::from_gas(50));
 
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(10), 0), false);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(50), 0), false);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(100), 0), true);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), 0), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(10), Gas::ZERO), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(50), Gas::ZERO), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(100), Gas::ZERO), true);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::ZERO), false);
 
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), 10), false);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), 50), false);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), 100), true);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), 0), false);
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(10)),
+            false
+        );
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(50)),
+            false
+        );
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(0), Gas::from_gas(100)),
+            true
+        );
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), Gas::ZERO), false);
 
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(10), 30), false);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(100), 30), true);
-        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(30), 100), true);
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(10), Gas::from_gas(30)),
+            false
+        );
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(100), Gas::from_gas(30)),
+            true
+        );
+        assert_eq!(
+            config.should_start_new_group(&group, ByteSize::kb(30), Gas::from_gas(100)),
+            true
+        );
     }
 
     fn make_trie_update() -> TrieUpdate {
@@ -488,40 +512,44 @@ mod tests {
 
         assert_eq!(group_sizes(&queue, trie_update), Vec::<u64>::new());
 
-        queue.update_on_receipt_pushed(ten_kb, 10, trie_update, &config).unwrap();
+        queue.update_on_receipt_pushed(ten_kb, Gas::from_gas(10), trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![10_000]);
 
-        queue.update_on_receipt_pushed(ten_kb, 10, trie_update, &config).unwrap();
+        queue.update_on_receipt_pushed(ten_kb, Gas::from_gas(10), trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![20_000]);
 
-        queue.update_on_receipt_pushed(fifty_kb, 10, trie_update, &config).unwrap();
+        queue.update_on_receipt_pushed(fifty_kb, Gas::from_gas(10), trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![70_000]);
 
-        queue.update_on_receipt_popped(ten_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), trie_update).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000]);
 
-        queue.update_on_receipt_pushed(hundred_kb, 10, trie_update, &config).unwrap();
+        queue
+            .update_on_receipt_pushed(hundred_kb, Gas::from_gas(10), trie_update, &config)
+            .unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000]);
 
-        queue.update_on_receipt_pushed(ten_kb, 10, trie_update, &config).unwrap();
+        queue.update_on_receipt_pushed(ten_kb, Gas::from_gas(10), trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000, 10_000]);
 
-        queue.update_on_receipt_pushed(two_hundred_kb, 10, trie_update, &config).unwrap();
+        queue
+            .update_on_receipt_pushed(two_hundred_kb, Gas::from_gas(10), trie_update, &config)
+            .unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000, 10_000, 200_000]);
 
-        queue.update_on_receipt_popped(ten_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), trie_update).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![50_000, 100_000, 10_000, 200_000]);
 
-        queue.update_on_receipt_popped(fifty_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_popped(fifty_kb, Gas::from_gas(10), trie_update).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![100_000, 10_000, 200_000]);
 
-        queue.update_on_receipt_popped(hundred_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_popped(hundred_kb, Gas::from_gas(10), trie_update).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![10_000, 200_000]);
 
-        queue.update_on_receipt_popped(ten_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_popped(ten_kb, Gas::from_gas(10), trie_update).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![200_000]);
 
-        queue.update_on_receipt_popped(two_hundred_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_popped(two_hundred_kb, Gas::from_gas(10), trie_update).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), Vec::<u64>::new());
     }
 
@@ -560,7 +588,7 @@ mod tests {
         ) {
             let new_receipt_group = TestReceiptGroup {
                 total_size: receipt_size.as_u64().into(),
-                total_gas: receipt_gas.into(),
+                total_gas: receipt_gas.as_gas().into(),
                 receipts_num: 1,
             };
 
@@ -573,7 +601,7 @@ mod tests {
                     } else {
                         self.groups.push_back(TestReceiptGroup {
                             total_size: last_group.total_size + receipt_size.as_u64() as u128,
-                            total_gas: last_group.total_gas + receipt_gas as u128,
+                            total_gas: last_group.total_gas + u128::from(receipt_gas.as_gas()),
                             receipts_num: last_group.receipts_num + 1,
                         });
                     }
@@ -585,7 +613,7 @@ mod tests {
         pub fn update_on_receipt_popped(&mut self, receipt_size: ByteSize, receipt_gas: Gas) {
             let mut first_group = self.groups.pop_front().unwrap();
             first_group.total_size -= receipt_size.as_u64() as u128;
-            first_group.total_gas -= receipt_gas as u128;
+            first_group.total_gas -= u128::from(receipt_gas.as_gas());
             first_group.receipts_num -= 1;
 
             if first_group.receipts_num > 0 {
@@ -602,8 +630,10 @@ mod tests {
     fn receipt_groups_queue_random_test(rng_seed: u64) {
         let rng = &mut ChaCha20Rng::seed_from_u64(rng_seed);
 
-        let config =
-            ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: 100_000 };
+        let config = ReceiptGroupsConfig {
+            size_upper_bound: ByteSize::kb(100),
+            gas_upper_bound: Gas::from_gas(100_000),
+        };
         let mut groups_queue = ReceiptGroupsQueue::new(ShardId::new(0));
         let mut test_queue = TestReceiptGroupQueue::new();
         let mut buffered_receipts: VecDeque<(ByteSize, Gas)> = VecDeque::new();
@@ -616,7 +646,7 @@ mod tests {
         let mut receipts: Vec<(ByteSize, Gas)> = Vec::new();
         for _ in 0..num_receipts {
             let receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
-            let receipt_gas = rng.gen_range(min_receipt_gas..max_receipt_gas);
+            let receipt_gas = Gas::from_gas(rng.gen_range(min_receipt_gas..max_receipt_gas));
             receipts.push((receipt_size, receipt_gas));
         }
 
@@ -673,7 +703,7 @@ mod tests {
             let expected_total_size: u64 =
                 buffered_receipts.iter().map(|(size, _)| size.as_u64()).sum();
             let expected_total_gas =
-                buffered_receipts.iter().map(|(_, gas)| *gas as u128).sum::<u128>();
+                buffered_receipts.iter().map(|(_, gas)| u128::from(gas.as_gas())).sum::<u128>();
             assert_eq!(total_size, expected_total_size);
             assert_eq!(total_gas, expected_total_gas);
             assert_eq!(groups_queue.total_receipts_num(), buffered_receipts.len() as u64);
@@ -705,18 +735,20 @@ mod tests {
 
             let initial_receipts_num = rng.gen_range(1..100);
 
+            let receipt_gas = Gas::from_gas(1);
+
             let mut buffered_receipts = VecDeque::new();
             let mut test_queue = TestReceiptGroupQueue::new();
             for _ in 0..initial_receipts_num {
                 let receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
                 buffered_receipts.push_back(receipt_size);
-                test_queue.update_on_receipt_pushed(receipt_size, 1, &groups_config);
+                test_queue.update_on_receipt_pushed(receipt_size, receipt_gas, &groups_config);
             }
 
             let pop_push_num = rng.gen_range(0..100);
             for _ in 0..pop_push_num {
                 let popped_receipt_size = buffered_receipts.pop_front().unwrap();
-                test_queue.update_on_receipt_popped(popped_receipt_size, 1);
+                test_queue.update_on_receipt_popped(popped_receipt_size, receipt_gas);
 
                 // Ideal bandwidth request produced from individual receipt sizes.
                 let ideal_bandwidth_request = BandwidthRequest::make_from_receipt_sizes(
@@ -739,7 +771,7 @@ mod tests {
 
                 let new_receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
                 buffered_receipts.push_back(new_receipt_size);
-                test_queue.update_on_receipt_pushed(new_receipt_size, 1, &groups_config);
+                test_queue.update_on_receipt_pushed(new_receipt_size, receipt_gas, &groups_config);
             }
         }
     }

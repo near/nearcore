@@ -501,6 +501,7 @@ mod tests {
     };
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::AccountId;
+    use near_primitives::types::Gas;
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, test_populate_store, test_populate_store_rc,
         test_populate_trie,
@@ -578,7 +579,7 @@ mod tests {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "foo".to_owned(),
                 args: vec![],
-                gas: 1000,
+                gas: Gas::from_gas(1000),
                 deposit: 0,
             }))],
         );
@@ -685,7 +686,7 @@ mod tests {
             outcome: ExecutionOutcome {
                 logs: vec![],
                 receipt_ids,
-                gas_burnt: 100,
+                gas_burnt: Gas::from_gas(100),
                 compute_usage: Some(200),
                 tokens_burnt: 2000,
                 executor_id: "someone.near".parse().unwrap(),

@@ -150,7 +150,7 @@ impl<'c> EstimatorContext<'c> {
         wasm_config.limit_config = LimitConfig {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
-            max_gas_burnt: u64::MAX,
+            max_gas_burnt: Gas::MAX,
             max_register_size: u64::MAX,
             max_number_logs: u64::MAX,
 
@@ -159,7 +159,7 @@ impl<'c> EstimatorContext<'c> {
             max_number_input_data_dependencies: u64::MAX,
             max_length_storage_key: u64::MAX,
 
-            max_total_prepaid_gas: u64::MAX,
+            max_total_prepaid_gas: Gas::MAX,
 
             ..wasm_config.limit_config
         };
@@ -395,10 +395,10 @@ impl Testbed<'_> {
                 .collect(),
         };
 
-        let mut total_burnt_gas = 0;
+        let mut total_burnt_gas = Gas::ZERO;
         if !allow_failures {
             for outcome in &apply_result.outcomes {
-                total_burnt_gas += outcome.outcome.gas_burnt;
+                total_burnt_gas = total_burnt_gas.checked_add(outcome.outcome.gas_burnt).unwrap();
                 match &outcome.outcome.status {
                     ExecutionStatus::Failure(e) => panic!("Execution failed {:#?}", e),
                     _ => (),

@@ -326,6 +326,7 @@ impl<'a> NodeStateBuilder<'a> {
                 external_storage_fallback_threshold: 0,
             }),
             concurrency: Default::default(),
+            parts_compression_lvl: Default::default(),
         };
 
         if let Some(config_modifier) = self.config_modifier {

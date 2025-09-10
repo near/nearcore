@@ -16,8 +16,8 @@ use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{Gas, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_store::ShardUId;
 use std::sync::Arc;
@@ -224,15 +224,16 @@ enum BadCongestionInfoMode {
 
 impl BadCongestionInfoMode {
     fn corrupt(&self, congestion_info: &mut CongestionInfo) {
+        let congestion_info_test_gas_amount = Gas::from_gas(1);
         match self {
             BadCongestionInfoMode::CorruptReceiptBytes => {
                 congestion_info.add_receipt_bytes(1).unwrap();
             }
             BadCongestionInfoMode::CorruptDelayedReceiptsBytes => {
-                congestion_info.add_delayed_receipt_gas(1).unwrap();
+                congestion_info.add_delayed_receipt_gas(congestion_info_test_gas_amount).unwrap();
             }
             BadCongestionInfoMode::CorruptBufferedReceiptsBytes => {
-                congestion_info.add_buffered_receipt_gas(1).unwrap();
+                congestion_info.add_buffered_receipt_gas(congestion_info_test_gas_amount).unwrap();
             }
             BadCongestionInfoMode::CorruptAllowedShard => {
                 congestion_info.set_allowed_shard(u16::MAX);

@@ -46,7 +46,7 @@ use near_primitives::types::AccountId;
 use near_primitives::types::ChunkExecutionResult;
 use near_primitives::types::EpochId;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{ShardId, ShardIndex};
+use near_primitives::types::{Gas, ShardId, ShardIndex};
 use near_primitives::utils::get_receipt_proof_key;
 use near_primitives::utils::get_receipt_proof_target_shard_prefix;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -328,7 +328,6 @@ impl ChunkExecutorActor {
         mut incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
         mut state_patch: SandboxStatePatch,
     ) -> Result<(), Error> {
-        let block_hash = block.hash();
         let header = block.header();
         let prev_hash = header.prev_hash();
         let prev_block = self.chain_store.get_block(prev_hash)?;
@@ -351,7 +350,7 @@ impl ChunkExecutorActor {
             // If we don't care about shard we wouldn't have relevant incoming receipts.
             if !self.shard_tracker.should_apply_chunk(
                 ApplyChunksMode::IsCaughtUp,
-                block_hash,
+                prev_hash,
                 shard_id,
             ) {
                 continue;
@@ -725,7 +724,7 @@ impl ChunkExecutorActor {
 }
 
 fn new_execution_result(
-    gas_limit: &u64,
+    gas_limit: &Gas,
     apply_result: &ApplyChunkResult,
     outgoing_receipts_root: CryptoHash,
 ) -> ChunkExecutionResult {

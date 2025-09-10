@@ -10,6 +10,14 @@
 * Add a new configuration option `save_tx_outcomes` ([#13610](https://github.com/near/nearcore/pull/13610)). When set to `false`, per-transaction outcomes are not written to the db to improve validator throughput. Disabling this config means transactions processed by the node will not be queryable by transaction hash, however this is not needed for validators to perform their duties. The default for archive and RPC nodes is `true`.
 * Updated the recommended operating system network settings for running `neard` ([#14012](https://github.com/near/nearcore/pull/14012)).
 
+## [2.8.0]
+
+### Protocol Changes
+* Increase number of validators from 300 to 500. To maintain the chain safety, we increase the number of mandates per shard to 105. ([#14033](https://github.com/near/nearcore/pull/14033))
+
+### Non-protocol Changes
+**No Changes**
+
 ## [2.7.1]
 
 ### Non-protocol changes

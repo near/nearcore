@@ -1,9 +1,9 @@
 use near_o11y::metrics::{
     Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec,
-    IntGauge, IntGaugeVec, exponential_buckets, linear_buckets, try_create_counter,
-    try_create_counter_vec, try_create_gauge, try_create_gauge_vec, try_create_histogram,
-    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
-    try_create_int_gauge, try_create_int_gauge_vec,
+    IntGauge, IntGaugeVec, exponential_buckets, fine_grained_time_buckets, linear_buckets,
+    try_create_counter, try_create_counter_vec, try_create_gauge, try_create_gauge_vec,
+    try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec,
 };
 use near_store::db::metadata::DB_VERSION;
 use std::sync::LazyLock;
@@ -606,7 +606,7 @@ pub(crate) static CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME: LazyLock<Histogram
             "near_chunk_state_witness_network_roundtrip_time",
             "Time in seconds between sending state witness through the network to chunk producer and receiving the corresponding ack message",
             &["witness_size_bucket"],
-            Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+            Some(fine_grained_time_buckets()),
         )
         .unwrap()
     });
@@ -682,7 +682,7 @@ pub(crate) static PARTIAL_WITNESS_TIME_TO_LAST_PART: LazyLock<HistogramVec> = La
         "near_partial_witness_time_to_last_part",
         "Time taken from receiving first partial witness part to receiving enough parts to decode the state witness",
         &["shard_id"],
-        Some(exponential_buckets(0.001, 2.0, 13).unwrap()),
+        Some(fine_grained_time_buckets()),
     )
     .unwrap()
 });
@@ -693,7 +693,7 @@ pub(crate) static PARTIAL_CONTRACT_DEPLOYS_TIME_TO_LAST_PART: LazyLock<Histogram
         "near_partial_contract_deploys_time_to_last_part",
         "Time taken from receiving first partial contract deploys to receiving enough parts to decode",
         &["shard_id"],
-        Some(exponential_buckets(0.05, 2.0, 10).unwrap()),
+        Some(fine_grained_time_buckets()),
     )
     .unwrap()
     });

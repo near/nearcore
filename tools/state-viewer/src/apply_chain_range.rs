@@ -23,7 +23,7 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, Gas, ShardId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -344,13 +344,13 @@ fn apply_block_from_range(
         ApplicationInputOrSkip::Skip(skip_reason) => {
             match &skip_reason {
                 SkipReason::BlockNotAvailable => {
-                    progress_reporter.inc_and_report_progress(height, 0);
+                    progress_reporter.inc_and_report_progress(height, Gas::ZERO);
                 }
                 SkipReason::GenesisBlock => {
                     if verbose_output {
                         println!("Skipping the genesis block #{}.", height);
                     }
-                    progress_reporter.inc_and_report_progress(height, 0);
+                    progress_reporter.inc_and_report_progress(height, Gas::ZERO);
                 }
                 SkipReason::PrevBlockNotAvailable(block, chunk_header) => {
                     if verbose_output {
@@ -376,7 +376,7 @@ fn apply_block_from_range(
                             chunk_header.is_new_chunk(height)
                         ),
                     );
-                    progress_reporter.inc_and_report_progress(height, 0)
+                    progress_reporter.inc_and_report_progress(height, Gas::ZERO)
                 }
                 SkipReason::NoContractTransactions => {
                     progress_reporter.skipped.fetch_add(1, Ordering::Relaxed);
@@ -389,7 +389,7 @@ fn apply_block_from_range(
                             skip_reason.explanation()
                         );
                     }
-                    progress_reporter.inc_and_report_progress(height, 0)
+                    progress_reporter.inc_and_report_progress(height, Gas::ZERO)
                 }
             }
             return;
@@ -822,7 +822,7 @@ fn benchmark_chunk_application(
         let chunk_application_start_time = Instant::now();
         let apply_result = apply_chunk_from_input(cur_input, &*runtime_adapter);
         total_chunk_application_time += chunk_application_start_time.elapsed();
-        total_gas_burned += apply_result.total_gas_burnt as u128;
+        total_gas_burned += u128::from(apply_result.total_gas_burnt.as_gas());
 
         if i == 1 || last_report_time.elapsed() >= report_interval {
             println!(

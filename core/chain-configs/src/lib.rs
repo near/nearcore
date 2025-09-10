@@ -11,7 +11,8 @@ mod updatable_config;
 
 pub use client_config::{
     ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig,
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
+    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL, DumpConfig, EpochSyncConfig,
     ExternalStorageConfig, ExternalStorageLocation, GCConfig, LogSummaryStyle,
     MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle,
@@ -51,7 +52,7 @@ pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
 
 /// Initial gas limit.
-pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
+pub const INITIAL_GAS_LIMIT: Gas = Gas::from_teragas(1000);
 
 /// Criterion for kicking out block producers.
 pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;

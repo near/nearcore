@@ -40,7 +40,7 @@ use near_primitives::receipt::{
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, Nonce, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, BlockHeight, Gas, Nonce, ShardId, ShardIndex};
 use near_store::adapter::StoreAdapter;
 use near_store::trie::outgoing_metadata::{ReceiptGroupsConfig, ReceiptGroupsQueue};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
@@ -57,8 +57,8 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
+use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
-use crate::utils::{ONE_NEAR, TGAS};
 
 /// 3 shards, random receipt sizes
 #[test]
@@ -751,7 +751,7 @@ fn make_send_receipt_transaction(
             actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: method_name.clone(),
                 args: Vec::new(),
-                gas: 0,
+                gas: Gas::ZERO,
                 deposit: 0,
             }))],
         }),
@@ -775,7 +775,7 @@ fn make_send_receipt_transaction(
         })
         .to_string()
         .into_bytes(),
-        300 * TGAS,
+        Gas::from_teragas(300),
         last_block_hash,
     )
 }

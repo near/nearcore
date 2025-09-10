@@ -5,6 +5,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::AccountId;
+use near_primitives::types::Gas;
 use rand::Rng;
 use rand::prelude::ThreadRng;
 use rand::seq::SliceRandom;
@@ -76,7 +77,7 @@ impl TransactionBuilder {
         let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: method.to_string(),
             args,
-            gas: 10u64.pow(18),
+            gas: Gas::from_teragas(1_000_000),
             deposit: 0,
         }))];
         self.transaction_from_actions(sender, receiver, actions)

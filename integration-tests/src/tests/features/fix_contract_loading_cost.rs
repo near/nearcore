@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
@@ -95,5 +95,5 @@ fn preparation_error_gas_cost() {
     let loading_base = 35_445_963;
     let loading_byte = 1_089_295;
     let loading_cost = loading_base + contract_size as u64 * loading_byte;
-    assert_eq!(old_gas + loading_cost, new_gas);
+    assert_eq!(old_gas.checked_add(Gas::from_gas(loading_cost)).unwrap(), new_gas);
 }

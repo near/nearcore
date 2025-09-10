@@ -156,6 +156,12 @@ fn test_smart_contract_reward_runtime() {
 }
 
 #[test]
+fn test_transaction_invalid_signature_runtime() {
+    let node = create_runtime_node();
+    test_transaction_invalid_signature(node);
+}
+
+#[test]
 fn test_send_money_over_balance_runtime() {
     let node = create_runtime_node();
     test_send_money_over_balance(node);

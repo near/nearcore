@@ -13,8 +13,9 @@ import re
 import sys
 import time
 import numpy as np
-from functools import wraps
 from typing import Optional
+import os
+import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -424,8 +425,14 @@ def new_test_cmd(ctx: CommandContext):
     targeted = nodes + to_list(traffic_generator)
 
     logger.info(f'resetting/initializing home dirs')
+
+    if traffic_generator:
+        rpc_ip = traffic_generator.ip_addr()
+    else:
+        rpc_ip = '0.0.0.0'
     test_keys = pmap(
-        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id()), targeted)
+        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id(), rpc_ip),
+        targeted)
 
     stake_distribution = build_stake_distribution(
         getattr(args, 'stake_distribution', None), args.num_seats)
@@ -697,7 +704,7 @@ def clear_scheduled_cmds(ctx: CommandContext):
     logger.info(
         f'Clearing scheduled commands matching "{filter}" from {",".join([h.name() for h in targeted])}'
     )
-    cmd = f'systemctl --user stop "{filter}"'
+    cmd = f'systemctl --user stop "{filter}"; systemctl --user reset-failed "{filter}"'
     _run_remote(targeted, cmd)
 
 

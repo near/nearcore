@@ -7,7 +7,10 @@ use crate::analyze_high_load::HighLoadStatsCommand;
 use crate::compact::RunCompactionCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
-use crate::memtrie::{FindBoundaryAccountCommand, LoadMemTrieCommand, SplitShardTrieCommand};
+use crate::memtrie::{
+    ArchivalDataLossRecoveryCommand, FindBoundaryAccountCommand, LoadMemTrieCommand,
+    SplitShardTrieCommand,
+};
 use crate::run_migrations::RunMigrationsCommand;
 use crate::set_version::SetVersionCommand;
 use crate::state_perf::StatePerfCommand;
@@ -57,6 +60,8 @@ enum SubCommand {
     SplitShardTrie(SplitShardTrieCommand),
     /// Find a split account for the given shard based on `memory_usage` stored in trie nodes.
     FindBoundaryAccount(FindBoundaryAccountCommand),
+    /// Recover the archival data that was lost during resharding.
+    ArchivalDataLossRecovery(ArchivalDataLossRecoveryCommand),
 
     /// Write CryptoHash to DB
     WriteCryptoHash(WriteCryptoHashCommand),
@@ -93,6 +98,7 @@ impl DatabaseCommand {
             SubCommand::LoadMemTrie(cmd) => cmd.run(home, genesis_validation),
             SubCommand::SplitShardTrie(cmd) => cmd.run(home, genesis_validation),
             SubCommand::FindBoundaryAccount(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::ArchivalDataLossRecovery(cmd) => cmd.run(home, genesis_validation),
             SubCommand::WriteCryptoHash(cmd) => cmd.run(home, genesis_validation),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),

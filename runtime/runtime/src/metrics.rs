@@ -31,6 +31,26 @@ pub static TRANSACTION_APPLIED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub static TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL: LazyLock<IntCounter> = LazyLock::new(
+    || {
+        try_create_int_counter(
+        "near_transaction_batch_signature_verify_success_total",
+        "The number of successful transaction batch signature verifications since starting this node",
+    )
+    .unwrap()
+    },
+);
+
+pub static TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL: LazyLock<IntCounter> = LazyLock::new(
+    || {
+        try_create_int_counter(
+        "near_transaction_batch_signature_verify_failure_total",
+        "The number of transaction batch signature verifications that failed since starting this node",
+    )
+    .unwrap()
+    },
+);
+
 pub static TRANSACTION_PROCESSED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_transaction_processed_total",
@@ -791,7 +811,7 @@ fn report_outgoing_buffers(
 
         CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS
             .with_label_values(&[&sender_shard_label, &receiver_shard_label])
-            .set(i64::try_from(unused_capacity.gas).unwrap_or(i64::MAX));
+            .set(i64::try_from(unused_capacity.gas.as_gas()).unwrap_or(i64::MAX));
 
         if let Some(len) = inner.outgoing_buffers.buffer_len(*receiver_shard_id) {
             CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN

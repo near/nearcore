@@ -1,10 +1,8 @@
 use crate::{ClientSender, Config, TxGenerator, ViewClientSender};
-use actix::Actor;
-use near_async::actix::wrapper::ActixWrapper;
+use near_async::ActorSystem;
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::{self};
-
-pub type TxGeneratorActor = ActixWrapper<GeneratorActorImpl>;
+use near_async::tokio::TokioRuntimeHandle;
 
 pub struct GeneratorActorImpl {
     tx_generator: TxGenerator,
@@ -31,14 +29,11 @@ impl GeneratorActorImpl {
 }
 
 pub fn start_tx_generator(
+    actor_system: ActorSystem,
     config: Config,
     client_sender: ClientSender,
     view_client_sender: ViewClientSender,
-) -> actix::Addr<TxGeneratorActor> {
-    let arbiter = actix::Arbiter::new();
+) -> TokioRuntimeHandle<GeneratorActorImpl> {
     let tx_generator = TxGenerator::new(config, client_sender, view_client_sender).unwrap();
-    TxGeneratorActor::start_in_arbiter(&arbiter.handle(), move |_| {
-        let actor_impl = GeneratorActorImpl { tx_generator };
-        ActixWrapper::new(actor_impl)
-    })
+    actor_system.spawn_tokio_actor(GeneratorActorImpl { tx_generator })
 }

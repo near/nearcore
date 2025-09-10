@@ -14,6 +14,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
     TransferAction,
 };
+use near_primitives::types::Gas;
 use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
@@ -327,7 +328,8 @@ fn test_wallet_contract_interaction() {
     let runtime_config = env.get_runtime_config(0, tip.epoch_id);
     let gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
     let refund_penalty =
-        runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas) as u128 * gas_price;
+        u128::from(runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas())
+            * gas_price;
 
     assert_eq!(final_receiver_balance - init_receiver_balance, transfer_amount);
     let wallet_balance_diff = init_wallet_balance - final_wallet_balance;
@@ -388,7 +390,7 @@ pub fn create_rlp_execute_tx(
     let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "rlp_execute".into(),
         args,
-        gas: 300_000_000_000_000,
+        gas: Gas::from_teragas(300),
         deposit: 0,
     }))];
     let nonce = view_nonce(env, near_signer.account_id, near_signer.signer.public_key()) + 1;

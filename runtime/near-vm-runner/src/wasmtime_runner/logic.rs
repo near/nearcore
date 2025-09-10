@@ -834,13 +834,13 @@ pub fn attached_deposit(caller: &mut Caller<'_, Ctx>, balance_ptr: u64) -> Resul
 /// # Cost
 ///
 /// `base`
-pub fn prepaid_gas(caller: &mut Caller<'_, Ctx>) -> Result<Gas> {
+pub fn prepaid_gas(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
     let ctx = caller.data_mut();
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView { method_name: "prepaid_gas".to_string() }.into());
     }
-    Ok(ctx.context.prepaid_gas)
+    Ok(ctx.context.prepaid_gas.as_gas())
 }
 
 /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
@@ -852,13 +852,13 @@ pub fn prepaid_gas(caller: &mut Caller<'_, Ctx>) -> Result<Gas> {
 /// # Cost
 ///
 /// `base`
-pub fn used_gas(caller: &mut Caller<'_, Ctx>) -> Result<Gas> {
+pub fn used_gas(caller: &mut Caller<'_, Ctx>) -> Result<u64> {
     let ctx = caller.data_mut();
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
         return Err(HostError::ProhibitedInView { method_name: "used_gas".to_string() }.into());
     }
-    Ok(ctx.result_state.gas_counter.used_gas())
+    Ok(ctx.result_state.gas_counter.used_gas().as_gas())
 }
 
 // ############
@@ -1864,8 +1864,8 @@ pub fn ed25519_verify(
 /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
 /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
 /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
-pub fn consume_gas(gas_counter: &mut GasCounter, gas: Gas) -> Result<()> {
-    gas_counter.burn_gas(Gas::from(gas))
+pub fn consume_gas(gas_counter: &mut GasCounter, gas: u64) -> Result<()> {
+    gas_counter.burn_gas(Gas::from_gas(gas))
 }
 
 pub fn gas_opcodes(result_state: &mut ExecutionResultState, opcodes: u32) -> Result<()> {
@@ -1877,7 +1877,7 @@ pub fn gas_opcodes(result_state: &mut ExecutionResultState, opcodes: u32) -> Res
 
 /// An alias for [`consume_gas`].
 #[cfg(feature = "test_features")]
-pub fn burn_gas(caller: &mut Caller<'_, Ctx>, gas: Gas) -> Result<()> {
+pub fn burn_gas(caller: &mut Caller<'_, Ctx>, gas: u64) -> Result<()> {
     consume_gas(&mut caller.data_mut().result_state.gas_counter, gas)
 }
 
@@ -1966,7 +1966,7 @@ pub fn promise_create(
     arguments_len: u64,
     arguments_ptr: u64,
     amount_ptr: u64,
-    gas: Gas,
+    gas: u64,
 ) -> Result<u64> {
     let new_promise_idx = promise_batch_create(caller, account_id_len, account_id_ptr)?;
     promise_batch_action_function_call(
@@ -2621,7 +2621,7 @@ pub fn promise_batch_action_function_call(
     arguments_len: u64,
     arguments_ptr: u64,
     amount_ptr: u64,
-    gas: Gas,
+    gas: u64,
 ) -> Result<()> {
     promise_batch_action_function_call_weight(
         caller,
@@ -2680,7 +2680,7 @@ pub fn promise_batch_action_function_call_weight(
     arguments_len: u64,
     arguments_ptr: u64,
     amount_ptr: u64,
-    gas: Gas,
+    gas: u64,
     gas_weight: u64,
 ) -> Result<()> {
     let memory = caller.data().memory;
@@ -2736,14 +2736,14 @@ pub fn promise_batch_action_function_call_weight(
         sir,
     )?;
     // Prepaid gas
-    ctx.result_state.gas_counter.prepay_gas(gas)?;
+    ctx.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
     ctx.result_state.deduct_balance(amount)?;
     ctx.ext.append_action_function_call_weight(
         receipt_idx,
         method_name,
         arguments,
         amount,
-        gas,
+        Gas::from_gas(gas),
         GasWeight(gas_weight),
     )
 }
@@ -3165,7 +3165,7 @@ pub fn promise_yield_create(
     method_name_ptr: u64,
     arguments_len: u64,
     arguments_ptr: u64,
-    gas: Gas,
+    gas: u64,
     gas_weight: u64,
     register_id: u64,
 ) -> Result<u64> {
@@ -3207,7 +3207,7 @@ pub fn promise_yield_create(
     let num_bytes = method_name.len() as u64 + arguments.len() as u64;
     ctx.result_state.gas_counter.pay_per(yield_create_byte, num_bytes)?;
     // Prepay gas for the callback so that it cannot be used for this execution any longer.
-    ctx.result_state.gas_counter.prepay_gas(gas)?;
+    ctx.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
 
     // Here we are creating a receipt with a single data dependency which will then be
     // resolved by the resume call.
@@ -3234,7 +3234,7 @@ pub fn promise_yield_create(
         method_name,
         arguments,
         0,
-        gas,
+        Gas::from_gas(gas),
         GasWeight(gas_weight),
     )?;
 
@@ -3465,7 +3465,7 @@ pub fn value_return(caller: &mut Caller<'_, Ctx>, value_len: u64, value_ptr: u64
         value_ptr,
         value_len,
     )?;
-    let mut burn_gas: Gas = 0;
+    let mut burn_gas: Gas = Gas::ZERO;
     let num_bytes = return_val.len() as u64;
     if num_bytes > ctx.config.limit_config.max_length_returned_data {
         return Err(HostError::ReturnedValueLengthExceeded {
@@ -4126,10 +4126,10 @@ pub fn pay_action_per_byte(
 ) -> Result<()> {
     let per_byte_fee = fees_config.fee(action);
     let burn_gas =
-        num_bytes.checked_mul(per_byte_fee.send_fee(sir)).ok_or(HostError::IntegerOverflow)?;
+        per_byte_fee.send_fee(sir).checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?;
     let use_gas = burn_gas
         .checked_add(
-            num_bytes.checked_mul(per_byte_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?,
+            per_byte_fee.exec_fee().checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?,
         )
         .ok_or(HostError::IntegerOverflow)?;
     gas_counter.pay_action_accumulated(burn_gas, use_gas, action)

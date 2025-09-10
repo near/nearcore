@@ -20,7 +20,9 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
+use near_primitives::types::{
+    AccountId, Balance, EpochId, Gas, ShardId, StateChangeCause, StateRoot,
+};
 use near_primitives::utils::to_timestamp;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
@@ -283,7 +285,7 @@ impl GenesisBuilder {
                 &state_root,
                 CryptoHash::default(),
                 vec![],
-                0,
+                Gas::ZERO,
                 self.genesis.config.gas_limit,
                 0,
                 Some(congestion_info),

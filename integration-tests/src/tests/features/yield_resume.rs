@@ -9,6 +9,7 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::AccountId;
+use near_primitives::types::Gas;
 use near_primitives::views::FinalExecutionStatus;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -56,7 +57,7 @@ fn prepare_env(test_env_gas_limit: Option<u64>) -> TestEnv {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     if let Some(gas_limit) = test_env_gas_limit {
-        genesis.config.gas_limit = gas_limit;
+        genesis.config.gas_limit = Gas::from_gas(gas_limit);
     }
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -110,7 +111,7 @@ fn yield_then_resume() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_create_return_promise".to_string(),
             args: yield_payload.clone(),
-            gas: 300_000_000_000_000,
+            gas: Gas::from_teragas(300),
             deposit: 0,
         }))],
         *genesis_block.hash(),
@@ -142,7 +143,7 @@ fn yield_then_resume() {
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
             args: yield_payload,
-            gas: 300_000_000_000_000,
+            gas: Gas::from_teragas(300),
             deposit: 0,
         }))],
         *genesis_block.hash(),

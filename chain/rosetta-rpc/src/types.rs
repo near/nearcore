@@ -1,9 +1,5 @@
 use std::fmt;
 
-use utoipa::ToSchema;
-use utoipa::openapi::RefOr;
-use utoipa::openapi::schema::{ObjectBuilder, Schema, SchemaType};
-
 #[derive(
     Eq,
     Ord,
@@ -25,14 +21,5 @@ pub struct AccountId(near_primitives::types::AccountId);
 impl fmt::Debug for AccountId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&self.0, f)
-    }
-}
-
-impl ToSchema<'_> for AccountId {
-    fn schema() -> (&'static str, RefOr<Schema>) {
-        (
-            "AccountId",
-            RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::String).build())),
-        )
     }
 }

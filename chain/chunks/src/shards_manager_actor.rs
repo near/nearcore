@@ -921,6 +921,16 @@ impl ShardsManagerActor {
         request: PartialEncodedChunkRequestMsg,
     ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
         let (src, mut response_msg) = self.prepare_partial_encoded_chunk_response_unsorted(request);
+        match src {
+            PartialEncodedChunkResponseSource::InMemoryCache => {
+                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_CACHE_HIT.inc();
+            }
+            PartialEncodedChunkResponseSource::None
+            | PartialEncodedChunkResponseSource::PartialChunkOnDisk
+            | PartialEncodedChunkResponseSource::ShardChunkOnDisk => {
+                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_CACHE_MISS.inc();
+            }
+        }
         // Note that the PartialChunks column is a write-once column, and needs
         // the values to be deterministic.
         response_msg.receipts.sort();
@@ -1534,6 +1544,7 @@ impl ShardsManagerActor {
                 .encoded_chunks
                 .height_within_horizon(partial_encoded_chunk.header.height_created())
             {
+                metrics::PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON.inc();
                 return Err(Error::ChainError(near_chain::Error::InvalidChunkHeight));
             }
             // We shouldn't process un-requested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
@@ -1752,8 +1763,16 @@ impl ShardsManagerActor {
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry, me)?;
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry)?;
-
         let can_reconstruct = entry.parts.len() >= self.epoch_manager.num_data_parts();
+
+        if can_reconstruct {
+            self.encoded_chunks.mark_can_reconstruct(&chunk_hash);
+        }
+
+        if have_all_receipts {
+            self.encoded_chunks.mark_received_all_receipts(&chunk_hash);
+        }
+
         let chunk_producer = self
             .epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {
@@ -1764,6 +1783,7 @@ impl ShardsManagerActor {
             .take_account_id();
 
         if have_all_parts {
+            self.encoded_chunks.mark_received_all_parts(&chunk_hash);
             if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
                 self.client_adapter.send(
                     ShardsManagerResponse::ChunkHeaderReadyForInclusion {

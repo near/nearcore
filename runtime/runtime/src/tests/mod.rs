@@ -16,7 +16,7 @@ use crate::ApplyState;
 mod apply;
 
 const GAS_PRICE: Balance = 5000;
-const MAX_ATTACHED_GAS: Gas = 300 * 10u64.pow(12);
+const MAX_ATTACHED_GAS: Gas = Gas::from_teragas(300);
 
 fn to_yocto(near: Balance) -> Balance {
     near * 10u128.pow(24)
@@ -86,7 +86,7 @@ fn set_sha256_cost(
 ) -> ParameterCost {
     let mut free_config = RuntimeConfig::free();
     let sha256_cost =
-        ParameterCost { gas: Gas::from(gas_cost), compute: Compute::from(compute_cost) };
+        ParameterCost { gas: Gas::from_gas(gas_cost), compute: Compute::from(compute_cost) };
     let wasm_config = Arc::make_mut(&mut free_config.wasm_config);
     wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
     apply_state.config = Arc::new(free_config);

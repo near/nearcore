@@ -1,8 +1,12 @@
 mod metrics;
 
 use futures::FutureExt;
+use near_async::ActorSystem;
+use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Duration, Instant};
+use near_async::tokio::TokioRuntimeHandle;
+use near_performance_metrics as _; // Suppress cargo machete
 use near_performance_metrics_macros::perf;
 use reqwest::Client;
 use std::ops::Sub;
@@ -37,21 +41,16 @@ pub struct TelemetryEvent {
 }
 
 pub struct TelemetryActor {
+    handle: TokioRuntimeHandle<TelemetryActor>,
     config: TelemetryConfig,
     client: Client,
     last_telemetry_update: Instant,
 }
 
-impl Default for TelemetryActor {
-    fn default() -> Self {
-        Self::new(TelemetryConfig::default())
-    }
-}
-
 impl Actor for TelemetryActor {}
 
 impl TelemetryActor {
-    pub fn new(config: TelemetryConfig) -> Self {
+    fn new(handle: TokioRuntimeHandle<TelemetryActor>, config: TelemetryConfig) -> Self {
         for endpoint in &config.endpoints {
             if endpoint.is_empty() {
                 panic!(
@@ -68,11 +67,23 @@ impl TelemetryActor {
 
         let reporting_interval = config.reporting_interval;
         Self {
+            handle,
             config,
             client,
             // Let the node report telemetry info at the startup.
             last_telemetry_update: Instant::now().sub(reporting_interval),
         }
+    }
+
+    pub fn spawn_tokio_actor(
+        actor_system: ActorSystem,
+        config: TelemetryConfig,
+    ) -> TokioRuntimeHandle<TelemetryActor> {
+        let builder = actor_system.new_tokio_builder();
+        let handle = builder.handle();
+        let actor = TelemetryActor::new(handle.clone(), config);
+        builder.spawn_tokio_actor(actor);
+        handle
     }
 }
 
@@ -89,8 +100,8 @@ impl Handler<TelemetryEvent> for TelemetryActor {
         for endpoint in &self.config.endpoints {
             let endpoint = endpoint.clone();
             let client = self.client.clone();
-            near_performance_metrics::actix::spawn(
-                "telemetry",
+            self.handle.spawn(
+                "send telemetry",
                 client
                     .post(endpoint.clone())
                     .header("Content-Type", "application/json")

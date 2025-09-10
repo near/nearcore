@@ -53,7 +53,7 @@ impl FromStr for CostTable {
             }
 
             let cost = cost.parse()?;
-            let value = gas.replace('_', "").parse()?;
+            let value = Gas::from_gas(gas.replace('_', "").parse()?);
 
             res.add(cost, value)
         }
@@ -78,7 +78,9 @@ impl fmt::Display for CostTableDiff {
         writeln!(f, "{:<35} {:>25} {:>25} {:>13}", "Cost", "First", "Second", "Second/First")?;
 
         let mut biggest_diff_first = self.map.iter().collect::<Vec<_>>();
-        biggest_diff_first.sort_by_key(|&(_, &(f, s))| Ratio::new(f, s).max(Ratio::new(s, f)));
+        biggest_diff_first.sort_by_key(|&(_, &(f, s))| {
+            Ratio::new(f.as_gas(), s.as_gas()).max(Ratio::new(s.as_gas(), f.as_gas()))
+        });
         biggest_diff_first.reverse();
 
         for (&cost, &(first, second)) in biggest_diff_first {
@@ -88,28 +90,29 @@ impl fmt::Display for CostTableDiff {
                 cost.to_string(),
                 format_gas(first),
                 format_gas(second),
-                second as f64 / first as f64,
+                second.as_gas() as f64 / first.as_gas() as f64,
             )?
         }
         Ok(())
     }
 }
 
-pub(crate) fn format_gas(mut n: Gas) -> String {
+pub(crate) fn format_gas(n: Gas) -> String {
+    let mut n_value = n.as_gas();
     let mut parts = Vec::new();
-    while n >= 1000 {
-        parts.push(format!("{:03?}", n % 1000));
-        n /= 1000;
+    while n_value >= 1000 {
+        parts.push(format!("{:03}", n_value % 1000));
+        n_value /= 1000;
     }
-    parts.push(n.to_string());
+    parts.push(n_value.to_string());
     parts.reverse();
     parts.join("_")
 }
 
 #[test]
 fn test_separate_thousands() {
-    assert_eq!(format_gas(0).as_str(), "0");
-    assert_eq!(format_gas(999).as_str(), "999");
-    assert_eq!(format_gas(1000).as_str(), "1_000");
-    assert_eq!(format_gas(u64::MAX).as_str(), "18_446_744_073_709_551_615");
+    assert_eq!(format_gas(Gas::ZERO).as_str(), "0");
+    assert_eq!(format_gas(Gas::from_gas(999)).as_str(), "999");
+    assert_eq!(format_gas(Gas::from_gas(1000)).as_str(), "1_000");
+    assert_eq!(format_gas(Gas::MAX).as_str(), "18_446_744_073_709_551_615");
 }

@@ -7,8 +7,8 @@ import json
 import os
 import sys
 import re
-from functools import wraps
 from typing import Optional
+import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -50,10 +50,21 @@ class RemoteNeardRunner:
         cmd_utils.run_cmd(self.node, cmd)
 
     def upload_neard_runner(self):
-        self.node.machine.upload('tests/mocknet/helpers/neard_runner.py',
-                                 self.neard_runner_home,
-                                 switch_user='ubuntu')
-        self.node.machine.upload('tests/mocknet/helpers/requirements.txt',
+        files = [
+            # Defines the interaction between the node with neard and the user.
+            'neard_runner.py',
+            # Python dependencies for the node.
+            'requirements.txt',
+            # Script to setup near-cli for the node.
+            'setup-near-cli.sh',
+            # Script for the validator node to send a stake proposal.
+            'send-stake-proposal.sh'
+        ]
+        tmp_file = tempfile.NamedTemporaryFile(mode='w', delete=True)
+        tmp_file.write('\n'.join(files))
+        tmp_file.flush()
+        source = f"--files-from={tmp_file.name} tests/mocknet/helpers"
+        self.node.machine.upload(source,
                                  self.neard_runner_home,
                                  switch_user='ubuntu')
 

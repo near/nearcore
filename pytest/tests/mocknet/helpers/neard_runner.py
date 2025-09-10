@@ -314,6 +314,7 @@ class NeardRunner:
     # if force is set to true all binaries will be downloaded, otherwise only the missing ones
     def download_binaries(self, force):
         binaries = self.parse_binaries_config()
+        logging.info(f'downloading binaries: {binaries}')
         try:
             os.mkdir(self.home_path('binaries'))
         except FileExistsError:
@@ -476,11 +477,12 @@ class NeardRunner:
                         self.target_near_home_path(path))
 
     def set_node_type_config(self, role, can_validate, want_state_dump,
-                             mocknet_id):
+                             mocknet_id, rpc_addr):
         self.config['role'] = role
         self.config['can_validate'] = can_validate
         self.config['want_state_dump'] = want_state_dump
         self.config['mocknet_id'] = mocknet_id
+        self.config['rpc_addr'] = rpc_addr
         self.save_config()
 
     # This RPC method tells to stop neard and re-initialize its home dir. This returns the
@@ -496,6 +498,7 @@ class NeardRunner:
                     role,
                     can_validate=True,
                     want_state_dump=False,
+                    rpc_ip='0.0.0.0',
                     rpc_port=3030,
                     protocol_port=24567,
                     validator_id=None):
@@ -536,8 +539,9 @@ class NeardRunner:
             except FileNotFoundError:
                 pass
 
+            rpc_addr = f'{rpc_ip}:{rpc_port}'
             self.set_node_type_config(role, can_validate, want_state_dump,
-                                      mocknet_id)
+                                      mocknet_id, rpc_addr)
 
             self.reset_current_neard_path()
 
@@ -1184,6 +1188,24 @@ class NeardRunner:
             config['store']['load_mem_tries_for_tracked_shards'] = False
         return config
 
+    def _configure_near_cli(self, new_chain_id=None):
+        setup_near_cli_cmd = [
+            'bash',
+            self.home_path('setup-near-cli.sh'),
+            new_chain_id if new_chain_id else 'mocknet',
+            self.config['rpc_addr'],
+        ]
+        setup_result = subprocess.run(setup_near_cli_cmd,
+                                      capture_output=True,
+                                      text=True)
+        if setup_result.returncode != 0:
+            error_msg = f"Failed to setup near-cli: {setup_result.stderr}"
+            logging.error(error_msg)
+            self.set_state(TestState.ERROR, data=error_msg)
+            return
+
+        logging.info(f"near-cli successfully set up")
+
     def network_init(self):
         # wait til we get a network_init RPC
         if not os.path.exists(self.home_path('validators.json')):
@@ -1204,13 +1226,14 @@ class NeardRunner:
         with open(self.target_near_home_path('config.json'), 'w') as f:
             config = json.dump(config, f, indent=2)
 
+        new_chain_id = n.get('new_chain_id')
+        self._configure_near_cli(new_chain_id=new_chain_id)
+
         # Chunk validator nodes don't have state originally.
         # They need to download it from the setup folder, once it appears.
         if self.config.get('role') == 'validator':
             self.set_state(TestState.AWAITING_SETUP_AVAILABILITY)
             return
-
-        new_chain_id = n.get('new_chain_id')
 
         if n['state_source'] == 'empty':
             self.remove_data_dir()

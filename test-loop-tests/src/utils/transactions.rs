@@ -22,7 +22,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, Gas};
 use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -30,7 +30,6 @@ use parking_lot::Mutex;
 
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::TGAS;
 
 use super::client_queries::ClientQueries;
 use super::{ONE_NEAR, get_node_data};
@@ -385,7 +384,7 @@ pub fn call_contract(
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
     let signer = create_user_test_signer(sender_id);
-    let attach_gas = 300 * TGAS;
+    let attach_gas = Gas::from_teragas(300);
     let deposit = 0;
 
     let tx = SignedTransaction::call(

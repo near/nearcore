@@ -16,7 +16,7 @@ use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
-    ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSyncActor,
+    ChunkValidationActorInner, ChunkValidationSender,
 };
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
@@ -25,11 +25,11 @@ use crate::sync::state::chain_requests::{
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{AsyncComputationMultiSpawner, StatusResponse, metrics};
-use near_async::actix::wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender, noop,
 };
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
@@ -95,8 +95,6 @@ const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
 
-pub type ClientActor = ActixWrapper<ClientActorInner>;
-
 /// Returns random seed sampled from the current thread
 fn random_seed_from_thread() -> RngSeed {
     let mut rng_seed: RngSeed = [0; 32];
@@ -125,7 +123,7 @@ pub struct StartClientResult {
     pub client_actor: TokioRuntimeHandle<ClientActorInner>,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
-    pub chunk_validation_actor: actix::Addr<ChunkValidationSyncActor>,
+    pub chunk_validation_actor: MultithreadRuntimeHandle<ChunkValidationActorInner>,
 }
 
 /// Starts client in a separate Arbiter (thread).
@@ -201,7 +199,8 @@ pub fn start_client(
     let genesis_block = client.chain.genesis_block();
     let num_chunk_validation_threads = client.config.chunk_validation_threads;
 
-    let chunk_validation_actor_addr = ChunkValidationActorInner::spawn_actix_actors(
+    let chunk_validation_actor_addr = ChunkValidationActorInner::spawn_multithread_actor(
+        actor_system.clone(),
         client.chain.chain_store().clone(),
         genesis_block,
         epoch_manager.clone(),

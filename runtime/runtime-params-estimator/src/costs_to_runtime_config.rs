@@ -6,6 +6,7 @@ use near_parameters::{
     AccountCreationConfig, ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost,
     RuntimeConfig, RuntimeConfigStore, RuntimeFeesConfig,
 };
+use near_primitives::types::Gas;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
 
@@ -32,7 +33,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         wasm_config: Arc::new(VMConfig {
             ext_costs: ext_costs_config(cost_table)?,
             grow_mem_cost: 1,
-            regular_op_cost: u32::try_from(regular_op_cost).unwrap(),
+            regular_op_cost: u32::try_from(regular_op_cost.as_gas()).unwrap(),
             limit_config: vm_limit_config,
             ..*latest_runtime_config.wasm_config
         }),
@@ -50,7 +51,11 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
         let total_gas =
             cost_table.get(cost).with_context(|| format!("undefined cost: {}", cost))?;
         // Split the total cost evenly between send and execution fee.
-        Ok(Fee { send_sir: total_gas / 2, send_not_sir: total_gas / 2, execution: total_gas / 2 })
+        Ok(Fee {
+            send_sir: total_gas.checked_div(2).unwrap(),
+            send_not_sir: total_gas.checked_div(2).unwrap(),
+            execution: total_gas.checked_div(2).unwrap(),
+        })
     };
 
     let config_store = RuntimeConfigStore::new(None);
@@ -88,22 +93,22 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
         costs: enum_map::enum_map! {
             // TODO: storage_iter_* operations below are deprecated, so just hardcode zero price,
             // and remove those operations ASAP.
-            ExtCosts::storage_iter_create_prefix_base => 0,
-            ExtCosts::storage_iter_create_prefix_byte => 0,
-            ExtCosts::storage_iter_create_range_base => 0,
-            ExtCosts::storage_iter_create_from_byte => 0,
-            ExtCosts::storage_iter_create_to_byte => 0,
-            ExtCosts::storage_iter_next_base => 0,
-            ExtCosts::storage_iter_next_key_byte => 0,
-            ExtCosts::storage_iter_next_value_byte => 0,
+            ExtCosts::storage_iter_create_prefix_base => Gas::ZERO,
+            ExtCosts::storage_iter_create_prefix_byte => Gas::ZERO,
+            ExtCosts::storage_iter_create_range_base => Gas::ZERO,
+            ExtCosts::storage_iter_create_from_byte => Gas::ZERO,
+            ExtCosts::storage_iter_create_to_byte => Gas::ZERO,
+            ExtCosts::storage_iter_next_base => Gas::ZERO,
+            ExtCosts::storage_iter_next_key_byte => Gas::ZERO,
+            ExtCosts::storage_iter_next_value_byte => Gas::ZERO,
             // TODO: accurately price host functions that expose validator information.
-            ExtCosts::validator_stake_base => 303944908800,
-            ExtCosts::validator_total_stake_base => 303944908800,
+            ExtCosts::validator_stake_base => Gas::from_gas(303944908800),
+            ExtCosts::validator_total_stake_base => Gas::from_gas(303944908800),
             cost => {
                 let estimation = estimation(cost).with_context(|| format!("external WASM cost has no estimation defined: {}", cost))?;
                 cost_table.get(estimation).with_context(|| format!("undefined external WASM cost: {}", cost))?
             },
-        }.map(|_, value| ParameterCost { gas: value, compute: value }),
+        }.map(|_, value| ParameterCost { gas: value, compute: value.as_gas() }),
     })
 }
 

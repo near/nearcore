@@ -18,7 +18,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountInfo, EpochId, ShardId};
+use near_primitives::types::{AccountInfo, EpochId, Gas, ShardId};
 use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
@@ -80,7 +80,7 @@ fn run_chunk_validation_test(
         // this must still have the same length as the number of shards,
         // or else the genesis fails validation.
         num_block_producer_seats_per_shard: vec![8; num_shards],
-        gas_limit: 10u64.pow(15),
+        gas_limit: Gas::from_teragas(1000),
         transaction_validity_period: 120,
         // Needed to completely avoid validator kickouts as we want to test
         // missing chunks functionality.
@@ -507,7 +507,8 @@ fn test_eth_implicit_accounts() {
     // The only tokens lost in the transaction are due to gas and refund penalty
     let max_gas_cost = ONE_NEAR / 500;
     let max_refund_cost =
-        runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas) as u128 * gas_price;
+        u128::from(runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas).as_gas())
+            * gas_price;
     let tx_cost =
         (alice_init_balance + bob_init_balance) - (alice_final_balance + bob_final_balance);
     assert_eq!(alice_final_balance, alice_init_balance - transfer_amount - tx_cost);

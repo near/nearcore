@@ -6,6 +6,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
+use near_primitives::types::Gas;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 pub mod runtime_group_tools;
@@ -16,9 +17,9 @@ pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
 /// One NEAR, divisible by 10^24.
 pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 
-const GAS_1: u64 = 900_000_000_000_000;
-const GAS_2: u64 = GAS_1 / 3;
-const GAS_3: u64 = GAS_2 / 3;
+const GAS_1: Gas = Gas::from_teragas(900);
+const GAS_2: Gas = GAS_1.checked_div(3).unwrap();
+const GAS_3: Gas = GAS_2.checked_div(3).unwrap();
 
 #[test]
 fn test_simple_func_call() {

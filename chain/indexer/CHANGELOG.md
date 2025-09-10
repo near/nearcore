@@ -8,7 +8,8 @@ Remove `near_config` and `client_actors` methods from `Indexer`.
 Instead `NearNode` can be bootstrapped in the client code and then indexer instance
 is created with `Indexer::from_near_node(..)`:
 ```
-  let near_config = indexer_config.derive_near_config();
+  let near_config = indexer_config.load_near_config()
+      .expect("failed to load near config");
   let near_node = Indexer::start_near_node(&indexer_config, near_config.clone())
       .expect("failed to start near node);
   let indexer = Indexer::from_near_node(indexer_config, near_config, &near_node);
