@@ -1069,6 +1069,7 @@ mod tests {
                 runtime.store().chain_store(),
                 epoch_manager.clone(),
             ),
+            None,
         )
         .unwrap();
         for shard_uid in shard_layout.shard_uids() {

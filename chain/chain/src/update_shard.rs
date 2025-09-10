@@ -12,7 +12,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::{PostStateReadyCallback, SignedValidPeriodTransactions};
 
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.
@@ -88,6 +88,7 @@ pub fn process_shard_update(
     runtime: &dyn RuntimeAdapter,
     shard_update_reason: ShardUpdateReason,
     shard_context: ShardContext,
+    on_post_state_ready: Option<PostStateReadyCallback>,
 ) -> Result<ShardUpdateResult, Error> {
     Ok(match shard_update_reason {
         ShardUpdateReason::NewChunk(data) => ShardUpdateResult::NewChunk(apply_new_chunk(
@@ -96,6 +97,7 @@ pub fn process_shard_update(
             data,
             shard_context,
             runtime,
+            on_post_state_ready,
         )?),
         ShardUpdateReason::OldChunk(data) => ShardUpdateResult::OldChunk(apply_old_chunk(
             ApplyChunkReason::UpdateTrackedShard,
@@ -115,6 +117,7 @@ pub fn apply_new_chunk(
     data: NewChunkData,
     shard_context: ShardContext,
     runtime: &dyn RuntimeAdapter,
+    on_post_state_ready: Option<PostStateReadyCallback>,
 ) -> Result<NewChunkResult, Error> {
     let NewChunkData { chunk_header, transactions, block, receipts, storage_context } = data;
     let shard_id = shard_context.shard_uid.shard_id();
@@ -148,6 +151,7 @@ pub fn apply_new_chunk(
             last_validator_proposals: chunk_header.prev_validator_proposals(),
             gas_limit,
             is_new_chunk: true,
+            on_post_state_ready,
         },
         block,
         &receipts,
@@ -197,6 +201,7 @@ pub fn apply_old_chunk(
             last_validator_proposals: prev_chunk_extra.validator_proposals(),
             gas_limit: prev_chunk_extra.gas_limit(),
             is_new_chunk: false,
+            on_post_state_ready: None,
         },
         block,
         &[],
