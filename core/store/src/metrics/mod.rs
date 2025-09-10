@@ -591,7 +591,7 @@ pub static ROCKS_ITERATOR_COUNT: LazyLock<IntCounter> = LazyLock::new(|| {
 pub static ROCKS_ITERATOR_LIVE_TIME: LazyLock<Counter> = LazyLock::new(|| {
     try_create_counter(
         "near_rocksdb_iterator_lifetime_seconds_total",
-        "Number of rocksdb iterators created",
+        "Cumulative seconds for which rocksdb iterators were alive",
     )
     .unwrap()
 });
