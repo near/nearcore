@@ -9,8 +9,11 @@
         }
     },
     "store": {
-       "load_mem_tries_for_tracked_shards": true,
-       "col_flat_state_cache_size": 32000000
+        "load_mem_tries_for_tracked_shards": true,
+        "col_flat_state_cache_size": 32000000,
+        "state_snapshot_config": {
+            "state_snapshot_type": "Disabled"
+        }
     },
     "view_client_threads": 4,
     "produce_chunk_add_transactions_time_limit": {
@@ -39,5 +42,6 @@
             "nanos": 10000000
         }
     },
-    "save_tx_outcomes": false
+    "save_tx_outcomes": false,
+    "gc_num_epochs_to_keep": 3
 }
