@@ -366,7 +366,7 @@ pub enum PrepareTransactionsLimit {
 }
 
 /// Information from the previous block used to prepare transactions for the block after it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PrepareTransactionsBlockContext {
     pub next_gas_price: Balance,
     pub height: BlockHeight,
