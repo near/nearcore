@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
@@ -22,6 +21,7 @@ rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strum.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 
 near-async.workspace = true

@@ -27,8 +27,6 @@ where
     }
 }
 
-pub type ActixResult<T> = <T as actix::Message>::Result;
-
 impl<M, A> CanSend<MessageWithCallback<M, M::Result>> for actix::Addr<A>
 where
     M: actix::Message + Send + 'static,
