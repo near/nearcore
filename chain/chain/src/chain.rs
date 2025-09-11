@@ -31,7 +31,7 @@ use crate::store::{
 };
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
-    RuntimeAdapter, StorageDataSource,
+    PrepareTransactionsBlockContext, RuntimeAdapter, StorageDataSource,
 };
 pub use crate::update_shard::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
@@ -146,7 +146,7 @@ pub struct PostStateReadyMessage {
     pub post_state: PostState,
     pub shard_id: ShardId,
     pub shard_uid: ShardUId,
-    pub prev_block: Block,
+    pub prev_block_context: PrepareTransactionsBlockContext,
     pub key: CachedShardUpdateKey,
     pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
 }
@@ -158,7 +158,7 @@ impl Debug for PostStateReadyMessage {
             .field("post_state", &self.post_state)
             .field("shard_id", &self.shard_id)
             .field("shard_uid", &self.shard_uid)
-            .field("prev_block_height", &self.prev_block.header().height())
+            .field("prev_block_context", &self.prev_block_context)
             .field("key", &self.key)
             .field("prev_chunk_tx_hashes", &self.prev_chunk_tx_hashes.len())
             .finish()
@@ -3180,6 +3180,23 @@ impl Chain {
         debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 
         let mut tx_hashes = HashSet::new();
+        let next_chunk_prepare_context = {
+            let gas_used = chunk_headers.compute_gas_used();
+            let gas_limit = chunk_headers.compute_gas_limit();
+            PrepareTransactionsBlockContext {
+                next_gas_price: Block::compute_next_gas_price(
+                    prev_block.header().next_gas_price(),
+                    gas_used,
+                    gas_limit,
+                    self.block_economics_config.gas_price_adjustment_rate(),
+                    self.block_economics_config.min_gas_price(),
+                    self.block_economics_config.max_gas_price(),
+                ),
+                height: block.height,
+                next_epoch_id: epoch_id, // todo - that might be wrong, but we probably can't predict it reliably.
+                congestion_info: block.congestion_info.clone(),
+            }
+        };
 
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
@@ -3253,14 +3270,13 @@ impl Chain {
         let callback = match self.on_post_state_ready_sender {
             Some(ref sender) => {
                 let sender = sender.clone();
-                let prev_block = prev_block.clone();
                 let closure = move |state: PostState| {
                     sender.send(
                         PostStateReadyMessage {
                             post_state: state,
                             shard_id,
                             shard_uid,
-                            prev_block: prev_block.clone(),
+                            prev_block_context: next_chunk_prepare_context.clone(),
                             key: cached_shard_update_key,
                             prev_chunk_tx_hashes: tx_hashes.clone(),
                         }

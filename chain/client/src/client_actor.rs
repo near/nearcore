@@ -1311,8 +1311,8 @@ impl ClientActorInner {
         // todo - check if is chunk producer for next height
         let cpk = ChunkProductionKey {
             shard_id: msg.shard_id,
-            epoch_id: *msg.prev_block.header().epoch_id(),
-            height_created: msg.prev_block.header().height() + 2,
+            epoch_id: msg.prev_block_context.next_epoch_id,
+            height_created: msg.prev_block_context.height + 1,
         };
         if let Ok(v) = self.client.epoch_manager.get_chunk_producer_info(&cpk) {
             if let Some(val) = self.client.validator_signer.get() {
@@ -1323,7 +1323,7 @@ impl ClientActorInner {
                         msg.shard_id,
                         msg.shard_uid,
                         msg.post_state.trie_update,
-                        &msg.prev_block,
+                        msg.prev_block_context,
                         msg.prev_chunk_tx_hashes,
                     );
                 }

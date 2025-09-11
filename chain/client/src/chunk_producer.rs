@@ -492,11 +492,13 @@ impl ChunkProducer {
                 source: near_chain::types::StorageDataSource::Db,
                 state_patch: Default::default(),
             };
+            let prepare_block_context =
+                PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
             self.runtime_adapter
                 .prepare_transactions(
                     Either::Left(storage_config),
                     shard_id,
-                    prev_block.into(),
+                    prepare_block_context,
                     &mut iter,
                     chain_validate,
                     HashSet::new(),
@@ -528,14 +530,13 @@ impl ChunkProducer {
         shard_id: ShardId,
         shard_uid: ShardUId,
         state: TrieUpdate,
-        prev_block: &Block,
+        prev_block_context: PrepareTransactionsBlockContext,
         prev_chunk_tx_hashes: HashSet<CryptoHash>,
     ) {
         if cfg!(feature = "protocol_feature_spice") {
             return;
         }
 
-        let block_context: PrepareTransactionsBlockContext = prev_block.into();
         let tx_pool = self.sharded_tx_pool.clone();
         let runtime_adapter = self.runtime_adapter.clone();
         let time_limit = self.chunk_transactions_time_limit.get();
@@ -553,7 +554,7 @@ impl ChunkProducer {
                         .prepare_transactions(
                             Either::Right(state),
                             shard_id,
-                            block_context,
+                            prev_block_context,
                             &mut iter,
                             &(|_tx: &SignedTransaction| true), // todo - use self.chain to create chain_validate?
                             prev_chunk_tx_hashes,
