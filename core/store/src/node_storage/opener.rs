@@ -682,8 +682,8 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
         .map_err(StoreOpenerError::CheckpointError)?;
 
     // As only path from config is used in StoreOpener, default config with custom path will do.
-    let mut config = StoreConfig::state_snapshot_store_config();
-    config.path = Some(checkpoint_path);
+    let config =
+        StoreConfig { path: Some(checkpoint_path), ..StoreConfig::state_snapshot_store_config() };
     let opener = NodeStorage::opener(checkpoint_base_path, &config, None, None);
     // This will create all the column families that were dropped by create_checkpoint(),
     // but all the data and associated files that were in them previously should be gone.
