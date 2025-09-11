@@ -315,7 +315,7 @@ pub struct ClientActorInner {
     /// Without spice should be a noop sender.
     spice_chunk_validator_sender: Sender<ProcessedBlock>,
 
-    /// With spice spice data distributor receives spice data for what it requires block
+    /// With spice spice data distributor receives spice data; for that it requires block
     /// information. Since data may arrive before blocks it needs to be aware of new blocks.
     /// Without spice should be a noop sender.
     spice_data_distributor_sender: Sender<ProcessedBlock>,

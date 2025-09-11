@@ -144,20 +144,15 @@ fn setup(num_chunk_producers: usize, num_validators: usize) -> (Genesis, Chain) 
     let genesis_block = chain.genesis_block();
     let first_block = build_block(epoch_manager, &genesis_block);
     let second_block = build_block(epoch_manager, &first_block);
-    process_block_sync(
-        &mut chain,
-        first_block.into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
-    process_block_sync(
-        &mut chain,
-        second_block.into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
+    for block in [first_block, second_block] {
+        process_block_sync(
+            &mut chain,
+            block.into(),
+            Provenance::PRODUCED,
+            &mut BlockProcessingArtifact::default(),
+        )
+        .unwrap();
+    }
     (genesis, chain)
 }
 
@@ -299,10 +294,10 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
         recipient_accounts.remove(producer);
     }
 
-    let (producer_messages_sc, mut producer_messages_rc) = unbounded_channel();
+    let (producers_messages_sc, mut producers_messages_rc) = unbounded_channel();
     let mut producers = producer_accounts
         .iter()
-        .map(|producer| new_actor(producer_messages_sc.clone(), &chain, producer))
+        .map(|producer| new_actor(producers_messages_sc.clone(), &chain, producer))
         .collect_vec();
     for producer in &mut producers {
         producer.handle(SpiceDistributorStateWitness { state_witness: state_witness.clone() })
@@ -314,7 +309,7 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
     // Separate chain makes sure that receiver doesn't share storage with producers.
     let receiver_chain = new_chain(&chain, &genesis);
     let mut reciever = new_actor(receiver_messages_sc, &receiver_chain, validator);
-    while let Ok(message) = producer_messages_rc.try_recv() {
+    while let Ok(message) = producers_messages_rc.try_recv() {
         let OutgoingMessage::NetworkRequests {
             request: NetworkRequests::SpicePartialData { partial_data, recipients },
             sender,
@@ -357,16 +352,16 @@ fn test_witness_is_distributed_to_all_validators_impl(
         recipient_accounts.remove(producer);
     }
 
-    let (producer_messages_sc, mut producer_messages_rc) = unbounded_channel();
+    let (producers_messages_sc, mut producers_messages_rc) = unbounded_channel();
     let mut producers = producer_accounts
         .iter()
-        .map(|producer| new_actor(producer_messages_sc.clone(), &chain, producer))
+        .map(|producer| new_actor(producers_messages_sc.clone(), &chain, producer))
         .collect_vec();
     for producer in &mut producers {
         producer.handle(SpiceDistributorStateWitness { state_witness: state_witness.clone() })
     }
 
-    while let Ok(message) = producer_messages_rc.try_recv() {
+    while let Ok(message) = producers_messages_rc.try_recv() {
         let OutgoingMessage::NetworkRequests {
             request: NetworkRequests::SpicePartialData { recipients: message_recipients, .. },
             ..
@@ -433,10 +428,10 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
     let producer_accounts = &receipt_producer_accounts(&chain, &block, &receipt_proof);
     let recipient_accounts = &receipt_recipients_accounts(&chain, &block, &receipt_proof);
 
-    let (producer_messages_sc, mut producer_messages_rc) = unbounded_channel();
+    let (producers_messages_sc, mut producers_messages_rc) = unbounded_channel();
     let mut producers = producer_accounts
         .iter()
-        .map(|producer| new_actor(producer_messages_sc.clone(), &chain, producer))
+        .map(|producer| new_actor(producers_messages_sc.clone(), &chain, producer))
         .collect_vec();
     for producer in &mut producers {
         producer.handle(SpiceDistributorOutogingReceipts {
@@ -451,7 +446,7 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
     // Separate chain makes sure that receiver doesn't share storage with producers.
     let receiver_chain = new_chain(&chain, &genesis);
     let mut reciever = new_actor(receiver_messages_sc, &receiver_chain, reciever_account);
-    while let Ok(message) = producer_messages_rc.try_recv() {
+    while let Ok(message) = producers_messages_rc.try_recv() {
         let OutgoingMessage::NetworkRequests {
             request: NetworkRequests::SpicePartialData { partial_data, recipients },
             sender,
@@ -487,10 +482,10 @@ fn test_receipts_are_distributed_to_all_validators_impl(num_chunk_producers: usi
     let producer_accounts = &receipt_producer_accounts(&chain, &block, &receipt_proof);
     let recipient_accounts = &receipt_recipients_accounts(&chain, &block, &receipt_proof);
 
-    let (producer_messages_sc, mut producer_messages_rc) = unbounded_channel();
+    let (producers_messages_sc, mut producers_messages_rc) = unbounded_channel();
     let mut producers = producer_accounts
         .iter()
-        .map(|producer| new_actor(producer_messages_sc.clone(), &chain, producer))
+        .map(|producer| new_actor(producers_messages_sc.clone(), &chain, producer))
         .collect_vec();
     for producer in &mut producers {
         producer.handle(SpiceDistributorOutogingReceipts {
@@ -500,7 +495,7 @@ fn test_receipts_are_distributed_to_all_validators_impl(num_chunk_producers: usi
     }
 
     let recipients: HashSet<AccountId> = HashSet::from_iter(recipient_accounts.iter().cloned());
-    while let Ok(message) = producer_messages_rc.try_recv() {
+    while let Ok(message) = producers_messages_rc.try_recv() {
         let OutgoingMessage::NetworkRequests {
             request: NetworkRequests::SpicePartialData { recipients: message_recipients, .. },
             ..

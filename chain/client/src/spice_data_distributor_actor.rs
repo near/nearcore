@@ -56,11 +56,11 @@ pub(crate) enum Error {
     DataIsAlreadyDecoded,
     #[error("receipts are already known")]
     ReceiptsAreKnown,
-    #[error("witness id's shard_id in invalid")]
+    #[error("witness id shard_id in invalid")]
     InvalidWitnessShardId,
-    #[error("witness shard_id in invalid")]
+    #[error("decoded witness shard_id in invalid")]
     InvalidDecodedWitnessShardId,
-    #[error("witness block hash in invalid")]
+    #[error("decoded witness block hash in invalid")]
     InvalidDecodedWitnessBlockHash,
     #[error("witness is already validated")]
     WitnessAlreadyValidated,
@@ -68,13 +68,13 @@ pub(crate) enum Error {
     InvalidCommitmentRoot,
     #[error("decoded data doesn't match commitment hash")]
     InvalidCommitmentHash,
-    #[error("receipt proof id's to_shard_id is invalid")]
+    #[error("receipt proof id to_shard_id is invalid")]
     InvalidReceiptToShardId,
-    #[error("receipt proof to_shard_id is invalid")]
+    #[error("decoded receipt proof to_shard_id is invalid")]
     InvalidDecodedReceiptToShardId,
-    #[error("receipt proof id's from_shard_id is invalid")]
+    #[error("receipt proof id from_shard_id is invalid")]
     InvalidReceiptFromShardId,
-    #[error("receipt proof from_shard_id is invalid")]
+    #[error("decoded receipt proof from_shard_id is invalid")]
     InvalidDecodedReceiptFromShardId,
     #[error("parts is empty")]
     PartsIsEmpty,
@@ -107,7 +107,8 @@ pub struct SpiceDataDistributorActor {
     // TODO(spice): handle the possibility of receiving parts for dubious data.
     data_parts: HashMap<(SpiceDataIdentifier, SpiceDataCommitment), DataPartsEntry>,
 
-    // Key is block hash, value is data with sender
+    /// SpicePartialData which we cannot decode or validate yet because of missing corresponding block.
+    /// Key is block hash, value is data with sender
     pending_partial_data: LruCache<CryptoHash, Vec<(SpicePartialData, AccountId)>>,
 }
 
@@ -236,7 +237,7 @@ impl SpiceDataDistributorActor {
         }
     }
 
-    // TODO(spice): persist data before distributing keyed by id to allow it being re-requested.
+    // TODO(spice): before distributing persist data keyed by id to allow it being re-requested.
     fn distribute_data(
         &mut self,
         data_id: SpiceDataIdentifier,
@@ -244,7 +245,8 @@ impl SpiceDataDistributorActor {
     ) -> Result<(), Error> {
         let block = self.chain_store.get_block(data_id.block_hash())?;
         let Some(signer) = self.validator_signer.get() else {
-            return Ok(());
+            debug_assert!(false);
+            return Err(Error::Other("trying to distribute data without validator_signer"));
         };
         let me = signer.validator_id();
         let (recipients, producers) = self.recipients_and_producers(&data_id, &block)?;
@@ -297,10 +299,8 @@ impl SpiceDataDistributorActor {
             SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id, block_hash } => {
                 debug_assert_eq!(block.hash(), block_hash);
                 let epoch_id = block.header().epoch_id();
-                let next_block_epoch_id = self
-                    .epoch_manager
-                    .get_epoch_id_from_prev_block(block_hash)
-                    .map_err(near_chain::Error::from)?;
+                let next_block_epoch_id =
+                    self.epoch_manager.get_epoch_id_from_prev_block(block_hash)?;
                 // TODO(spice-resharding): validate whether from_shard_id and to_shard_id would be
                 // correct when resharding.
                 let producers = self
@@ -361,7 +361,7 @@ impl SpiceDataDistributorActor {
         sender: AccountId,
     ) -> Result<(), Error> {
         let Some(signer) = self.validator_signer.get() else {
-            return Ok(());
+            return Err(Error::Other("cannot receive data without validator_signer"));
         };
         let me = signer.validator_id();
 
@@ -376,9 +376,10 @@ impl SpiceDataDistributorActor {
         if data.parts.is_empty() {
             return Err(Error::PartsIsEmpty);
         }
-        let block_hash = id.block_hash();
         // TODO(spice): Verify that size of partial data isn't too large.
-        self.pending_partial_data.get_or_insert_mut(*block_hash, Vec::new).push((data, sender));
+        self.pending_partial_data
+            .get_or_insert_mut(*id.block_hash(), Vec::new)
+            .push((data, sender));
         Ok(())
     }
 
@@ -389,7 +390,7 @@ impl SpiceDataDistributorActor {
         block: &Block,
     ) -> Result<(), Error> {
         let Some(signer) = self.validator_signer.get() else {
-            return Ok(());
+            return Err(Error::Other("cannot receive data without validator_signer"));
         };
         let me = signer.validator_id();
 
@@ -423,7 +424,9 @@ impl SpiceDataDistributorActor {
             ) {
                 return Err(Error::InvalidCommitmentRoot);
             }
-            match entry.tracker.insert_part(part_ord as usize, part, None) {
+            // TODO(spice): Verify that size of partial data isn't too large.
+            let create_decode_span = None;
+            match entry.tracker.insert_part(part_ord as usize, part, create_decode_span) {
                 reed_solomon::InsertPartResult::Accepted => {}
                 reed_solomon::InsertPartResult::PartAlreadyAvailable => {}
                 reed_solomon::InsertPartResult::InvalidPartOrd => {
@@ -546,11 +549,13 @@ impl SpiceDataDistributorActor {
                 let shard_layout =
                     self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
                 let shard_ids: HashSet<_> = shard_layout.shard_ids().collect();
-                if !shard_ids.contains(to_shard_id) {
-                    return Err(Error::InvalidReceiptToShardId);
-                }
                 if !shard_ids.contains(from_shard_id) {
                     return Err(Error::InvalidReceiptFromShardId);
+                }
+                // TODO(spice-resharding): If to_shard_id may be from the next_epoch this check
+                // needs to be adjusted.
+                if !shard_ids.contains(to_shard_id) {
+                    return Err(Error::InvalidReceiptToShardId);
                 }
             }
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
@@ -574,6 +579,8 @@ impl SpiceDataDistributorActor {
         } else {
             let final_head = self.chain_store.final_head()?;
             // Since block doesn't exist it has to be after the final head.
+            // Here we assume we aren't catching up.
+            // TODO(spice): consider if this needs to be adjusted when implementing various syncs.
             vec![final_head.epoch_id, final_head.next_epoch_id]
         };
         Ok(possible_epoch_ids)

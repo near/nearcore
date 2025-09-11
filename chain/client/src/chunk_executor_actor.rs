@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use lru::LruCache;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::CanSend;
@@ -78,11 +76,7 @@ pub struct ChunkExecutorActor {
     data_distributor_adapter: SpiceDataDistributorAdapter,
 
     blocks_in_execution: HashSet<CryptoHash>,
-    // TODO(spice): Notify data distributor of expired entries so it can de-prioritize relevant
-    // senders accordingly.
-    // TODO(spice): Track unverified receipts only for blocks within some distance in height from
-    // head by keeping track of height of each unknown block.
-    pending_unverified_receipts: LruCache<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
+    pending_unverified_receipts: HashMap<CryptoHash, Vec<ExecutorIncomingUnverifiedReceipts>>,
 
     // Hash of the genesis block.
     genesis_hash: CryptoHash,
@@ -111,7 +105,6 @@ impl ChunkExecutorActor {
         data_distributor_adapter: SpiceDataDistributorAdapter,
         save_latest_witnesses: bool,
     ) -> Self {
-        const PENDING_RECEIPTS_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(10).unwrap();
         Self {
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
             runtime_adapter,
@@ -127,7 +120,7 @@ impl ChunkExecutorActor {
             chunk_endorsement_tracker,
             save_latest_witnesses,
             data_distributor_adapter,
-            pending_unverified_receipts: LruCache::new(PENDING_RECEIPTS_CACHE_SIZE),
+            pending_unverified_receipts: HashMap::new(),
         }
     }
 }
@@ -452,16 +445,11 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    fn send_outgoing_receipts(
-        &self,
-        block: &Block,
-        receipt_proofs: Vec<ReceiptProof>,
-    ) -> Result<(), Error> {
+    fn send_outgoing_receipts(&self, block: &Block, receipt_proofs: Vec<ReceiptProof>) {
         let block_hash = *block.hash();
         tracing::debug!(target: "chunk_executor", %block_hash, ?receipt_proofs, "sending outgoing receipts");
         self.data_distributor_adapter
             .send(SpiceDistributorOutogingReceipts { block_hash, receipt_proofs });
-        Ok(())
     }
 
     fn process_apply_chunk_results(
@@ -489,7 +477,7 @@ impl ChunkExecutorActor {
                     new_chunk_result.apply_result.outgoing_receipts.clone(),
                 )?;
             self.save_produced_receipts(&block_hash, &receipt_proofs)?;
-            self.send_outgoing_receipts(&block, receipt_proofs)?;
+            self.send_outgoing_receipts(&block, receipt_proofs);
 
             self.distribute_witness(&block, my_signer, new_chunk_result, outgoing_receipts_root)?;
         }
@@ -777,13 +765,7 @@ impl ChunkExecutorActor {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<ReceiptVerificationContext, Error> {
-        let block = match self.chain_store.get_block(block_hash) {
-            Ok(block) => block,
-            Err(Error::DBNotFoundErr(_)) => {
-                return Ok(ReceiptVerificationContext::NotReady);
-            }
-            Err(err) => return Err(err),
-        };
+        let block = self.chain_store.get_block(block_hash)?;
         if !self.core_processor.all_execution_results_exist(&block)? {
             return Ok(ReceiptVerificationContext::NotReady);
         }
@@ -805,9 +787,7 @@ impl ChunkExecutorActor {
             }
             ReceiptVerificationContext::NotReady => {
                 tracing::debug!(target: "chunk_executor", %block_hash, "not yet ready for verificaiton of receipts");
-                self.pending_unverified_receipts
-                    .get_or_insert_mut(block_hash, || Vec::new())
-                    .push(receipts);
+                self.pending_unverified_receipts.entry(block_hash).or_default().push(receipts);
                 return Ok(());
             }
         };
@@ -822,7 +802,7 @@ impl ChunkExecutorActor {
         let ReceiptVerificationContext::Ready { execution_results } = verification_context else {
             return Ok(());
         };
-        let pending_receipts = self.pending_unverified_receipts.pop(block_hash);
+        let pending_receipts = self.pending_unverified_receipts.remove(block_hash);
         for receipt in pending_receipts.into_iter().flatten() {
             let verified_receipts = match receipt.verify(&execution_results) {
                 Ok(verified_receipts) => verified_receipts,

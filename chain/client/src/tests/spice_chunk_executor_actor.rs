@@ -413,19 +413,16 @@ fn record_endorsements(actors: &mut [TestActor], block: &Block) {
 fn test_executing_blocks() {
     let (outgoing_sc, mut outoging_rc) = unbounded();
     let mut actors = setup_with_shards(3, outgoing_sc);
-    let mut prev_block = actors[0].chain.genesis_block();
-    for i in 0..5 {
-        let block = produce_block(&mut actors, &prev_block);
-        prev_block = block.clone();
-
+    let blocks = produce_n_blocks(&mut actors, 5);
+    for (i, block) in blocks.iter().enumerate() {
         for actor in &mut actors {
             assert!(!block_executed(&actor, &block), "block #{} is already executed", i + 1);
             actor
                 .handle_with_internal_events(ProcessedBlock { block_hash: *block.header().hash() });
             assert!(block_executed(&actor, &block), "failed to execute block #{}", i + 1);
         }
-        record_endorsements(&mut actors, &block);
         simulate_outgoing_messages(&mut actors, &mut outoging_rc);
+        record_endorsements(&mut actors, &block);
     }
 }
 
@@ -551,24 +548,22 @@ fn test_not_executing_without_receipts() {
 fn test_executing_forks() {
     let (outgoing_sc, mut outoging_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
-    let genesis = actors[0].chain.genesis_block();
-    let first_block = produce_block(&mut actors, &genesis);
+    let blocks = produce_n_blocks(&mut actors, 3);
 
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *first_block.hash() });
-        assert!(block_executed(&actor, &first_block));
+        actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+        assert!(block_executed(&actor, &blocks[0]));
     }
 
-    record_endorsements(&mut actors, &first_block);
     simulate_outgoing_messages(&mut actors, &mut outoging_rc);
+    record_endorsements(&mut actors, &blocks[0]);
 
-    let second_block = produce_block(&mut actors, &first_block);
-    let fork_block = produce_block(&mut actors, &first_block);
-    assert!(!block_executed(&actors[0], &second_block));
+    let fork_block = produce_block(&mut actors, &blocks[0]);
+    assert!(!block_executed(&actors[0], &blocks[1]));
     assert!(!block_executed(&actors[0], &fork_block));
 
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *second_block.hash() });
-    assert!(block_executed(&actors[0], &second_block));
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
+    assert!(block_executed(&actors[0], &blocks[1]));
     assert!(!block_executed(&actors[0], &fork_block));
 
     actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });

@@ -263,9 +263,6 @@ impl SpiceChunkValidatorActor {
     fn handle_not_ready_state_witness(&mut self, witness: ChunkStateWitness, _witness_size: usize) {
         // TODO(spice): Implement additional checks before adding witness to pending witnesses, see Client's orphan_witness_handling.rs.
         let block_hash = witness.main_state_transition().block_hash;
-        // TODO(spice): Since at the moment witnesses may arrive before blocks we shouldn't store
-        // witnesses in HashMap since they may refer to blocks that would never arrive exhausting
-        // memory.
         self.pending_witnesses.entry(block_hash).or_default().push(witness);
     }
 
