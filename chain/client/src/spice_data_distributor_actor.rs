@@ -37,7 +37,6 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::AccountId;
 use near_primitives::types::EpochId;
-use near_primitives::types::ShardId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 
@@ -46,17 +45,51 @@ use crate::chunk_executor_actor::ProcessedBlock;
 use crate::chunk_executor_actor::receipt_proof_exists;
 
 #[derive(Debug, thiserror::Error)]
-enum Error {
+pub(crate) enum Error {
     #[error("Near chain error: {0}")]
     NearChainError(#[from] near_chain::Error),
-    #[error("Epoch error: {0}")]
-    EpochError(#[from] EpochError),
-    #[error("not relevant data: {0}")]
-    NotRelevantData(&'static str),
-    #[error("invalid data id: {0}")]
-    InvalidDataId(&'static str),
-    #[error("invalid partial data: {0}")]
-    InvalidPartialData(&'static str),
+    #[error("sender is not in the set of producers")]
+    SenderIsNotProducer,
+    #[error("node is not in the set of recipients")]
+    NodeIsNotRecipient,
+    #[error("data is already decoded")]
+    DataIsAlreadyDecoded,
+    #[error("receipts are already known")]
+    ReceiptsAreKnown,
+    #[error("witness id's shard_id in invalid")]
+    InvalidWitnessShardId,
+    #[error("witness shard_id in invalid")]
+    InvalidDecodedWitnessShardId,
+    #[error("witness block hash in invalid")]
+    InvalidDecodedWitnessBlockHash,
+    #[error("witness is already validated")]
+    WitnessAlreadyValidated,
+    #[error("part doesn't match commitment root")]
+    InvalidCommitmentRoot,
+    #[error("decoded data doesn't match commitment hash")]
+    InvalidCommitmentHash,
+    #[error("receipt proof id's to_shard_id is invalid")]
+    InvalidReceiptToShardId,
+    #[error("receipt proof to_shard_id is invalid")]
+    InvalidDecodedReceiptToShardId,
+    #[error("receipt proof id's from_shard_id is invalid")]
+    InvalidReceiptFromShardId,
+    #[error("receipt proof from_shard_id is invalid")]
+    InvalidDecodedReceiptFromShardId,
+    #[error("parts is empty")]
+    PartsIsEmpty,
+    #[error("decoded data doesn't match id")]
+    IdAndDataMismatch,
+    #[error("error decoding the data: {0}")]
+    DecodeError(std::io::Error),
+    #[error("other error: {0}")]
+    Other(&'static str),
+}
+
+impl From<EpochError> for Error {
+    fn from(value: EpochError) -> Self {
+        Error::NearChainError(near_chain::Error::from(value))
+    }
 }
 
 // TODO(spice): Separate actor into separate sender and receiver actors.
@@ -94,7 +127,7 @@ struct DataPartsEntry {
 #[derive(Debug, BorshSerialize, BorshDeserialize)]
 enum SpiceData {
     ReceiptProof(ReceiptProof),
-    StateWitness(ChunkStateWitness),
+    StateWitness(Box<ChunkStateWitness>),
 }
 
 impl ReedSolomonEncoderSerialize for SpiceData {}
@@ -128,7 +161,8 @@ impl Handler<SpiceDistributorOutogingReceipts> for SpiceDataDistributorActor {
                 from_shard_id: proof.1.from_shard_id,
                 to_shard_id: proof.1.to_shard_id,
             };
-            if let Err(err) = self.distribute_data(&data_id, &SpiceData::ReceiptProof(proof)) {
+            if let Err(err) = self.distribute_data(data_id.clone(), &SpiceData::ReceiptProof(proof))
+            {
                 tracing::error!(target: "spice_data_distribution", ?err, ?data_id, "failed to distribute receipt proof");
             }
         }
@@ -146,7 +180,9 @@ impl Handler<SpiceDistributorStateWitness> for SpiceDataDistributorActor {
             shard_id: key.shard_id,
         };
         // TODO(spice): compress witness before distributing.
-        if let Err(err) = self.distribute_data(&data_id, &SpiceData::StateWitness(state_witness)) {
+        if let Err(err) =
+            self.distribute_data(data_id.clone(), &SpiceData::StateWitness(Box::new(state_witness)))
+        {
             tracing::error!(target: "spice_data_distribution", ?err, ?data_id, "failed to distribute state witness");
         }
     }
@@ -203,7 +239,7 @@ impl SpiceDataDistributorActor {
     // TODO(spice): persist data before distributing keyed by id to allow it being re-requested.
     fn distribute_data(
         &mut self,
-        data_id: &SpiceDataIdentifier,
+        data_id: SpiceDataIdentifier,
         data: &SpiceData,
     ) -> Result<(), Error> {
         let block = self.chain_store.get_block(data_id.block_hash())?;
@@ -235,8 +271,8 @@ impl SpiceDataDistributorActor {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::SpicePartialData {
                 partial_data: SpicePartialData {
-                    id: data_id.clone(),
-                    commitment: commitment.clone(),
+                    id: data_id,
+                    commitment,
                     parts: vec![SpiceDataPart {
                         part_ord: me_ord as u64,
                         part: boxed_parts[me_ord].take().unwrap(),
@@ -261,8 +297,10 @@ impl SpiceDataDistributorActor {
             SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id, block_hash } => {
                 debug_assert_eq!(block.hash(), block_hash);
                 let epoch_id = block.header().epoch_id();
-                let next_block_epoch_id =
-                    self.epoch_manager.get_epoch_id_from_prev_block(block_hash)?;
+                let next_block_epoch_id = self
+                    .epoch_manager
+                    .get_epoch_id_from_prev_block(block_hash)
+                    .map_err(near_chain::Error::from)?;
                 // TODO(spice-resharding): validate whether from_shard_id and to_shard_id would be
                 // correct when resharding.
                 let producers = self
@@ -283,9 +321,7 @@ impl SpiceDataDistributorActor {
                     .iter_raw()
                     .find(|chunk| &chunk.shard_id() == shard_id)
                     .map(ShardChunkHeader::height_created)
-                    .ok_or_else(|| {
-                        Error::InvalidDataId("block doesn't contain chunk for shard_id")
-                    })?;
+                    .ok_or(Error::InvalidWitnessShardId)?;
                 let validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
                     epoch_id,
                     *shard_id,
@@ -303,7 +339,11 @@ impl SpiceDataDistributorActor {
         Ok((recipients_set, producers))
     }
 
-    fn receive_data(&mut self, data: SpicePartialData, sender: AccountId) -> Result<(), Error> {
+    pub(crate) fn receive_data(
+        &mut self,
+        data: SpicePartialData,
+        sender: AccountId,
+    ) -> Result<(), Error> {
         let block_hash = data.id.block_hash();
         let block = match self.chain_store.get_block(block_hash) {
             Ok(block) => block,
@@ -328,39 +368,13 @@ impl SpiceDataDistributorActor {
         let id = &data.id;
         let possible_epoch_ids = self.possible_epoch_ids(id)?;
         if !self.possible_producers(id, &possible_epoch_ids)?.contains(&sender) {
-            return Err(Error::InvalidPartialData(
-                "sender is not in the set of possible producers",
-            ));
+            return Err(Error::SenderIsNotProducer);
         }
         if !self.possible_recipients(id, &possible_epoch_ids)?.contains(me) {
-            return Err(Error::InvalidPartialData(
-                "sender is not in the set of possible producers",
-            ));
-        }
-        let possible_shard_ids = self.possible_shard_ids(&possible_epoch_ids)?;
-        match id {
-            SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id, .. } => {
-                if !possible_shard_ids.contains(from_shard_id) {
-                    return Err(Error::InvalidDataId(
-                        "from_shard_id is not in the set of possible shard_ids for the block",
-                    ));
-                }
-                if !possible_shard_ids.contains(to_shard_id) {
-                    return Err(Error::InvalidDataId(
-                        "to_shard_id is not in the set of possible shard_ids for the block",
-                    ));
-                }
-            }
-            SpiceDataIdentifier::Witness { shard_id, .. } => {
-                if !possible_shard_ids.contains(shard_id) {
-                    return Err(Error::InvalidDataId(
-                        "shard_id is not in the set of possible shard_ids for the block",
-                    ));
-                }
-            }
+            return Err(Error::NodeIsNotRecipient);
         }
         if data.parts.is_empty() {
-            return Err(Error::InvalidPartialData("parts is empty"));
+            return Err(Error::PartsIsEmpty);
         }
         let block_hash = id.block_hash();
         // TODO(spice): Verify that size of partial data isn't too large.
@@ -382,10 +396,10 @@ impl SpiceDataDistributorActor {
         self.verify_data_id(&id, block)?;
         let (recipients, producers) = self.recipients_and_producers(&id, block)?;
         if !producers.contains(&sender) {
-            return Err(Error::InvalidPartialData("sender is not in the set of producers"));
+            return Err(Error::SenderIsNotProducer);
         }
         if !recipients.contains(me) {
-            return Err(Error::NotRelevantData("node is not in the set of recipients"));
+            return Err(Error::NodeIsNotRecipient);
         }
         let data_parts_key = (id.clone(), commitment.clone());
         self.verify_data_is_relevant(me, &data_parts_key, block)?;
@@ -407,21 +421,25 @@ impl SpiceDataDistributorActor {
                 part_ord,
                 total_parts as u64,
             ) {
-                return Err(Error::InvalidDataId("part doesn't align with commitment root"));
+                return Err(Error::InvalidCommitmentRoot);
             }
             match entry.tracker.insert_part(part_ord as usize, part, None) {
                 reed_solomon::InsertPartResult::Accepted => {}
                 reed_solomon::InsertPartResult::PartAlreadyAvailable => {}
                 reed_solomon::InsertPartResult::InvalidPartOrd => {
-                    return Err(Error::InvalidPartialData("invalid part_ord"));
+                    debug_assert!(
+                        false,
+                        "verification with merkle_proof should make sure part_ord is correct"
+                    );
+                    return Err(Error::Other(
+                        "verification with merkle_proof passed, but part_ord is still invalid",
+                    ));
                 }
                 reed_solomon::InsertPartResult::Decoded(Ok(data)) => {
                     entry.decoded = true;
                     let data_hash = hash(&borsh::to_vec(&data).unwrap());
                     if data_hash != commitment.hash {
-                        return Err(Error::InvalidPartialData(
-                            "decoded data doesn't match hash in commitment",
-                        ));
+                        return Err(Error::InvalidCommitmentHash);
                     }
                     match data {
                         SpiceData::ReceiptProof(receipt_proof) => {
@@ -431,19 +449,13 @@ impl SpiceDataDistributorActor {
                                 to_shard_id,
                             } = id
                             else {
-                                return Err(Error::InvalidPartialData(
-                                    "id doesn't match receipt proof data",
-                                ));
+                                return Err(Error::IdAndDataMismatch);
                             };
                             if to_shard_id != receipt_proof.1.to_shard_id {
-                                return Err(Error::InvalidPartialData(
-                                    "to_shard_id in id doesn't match decoded receipt proof",
-                                ));
+                                return Err(Error::InvalidDecodedReceiptToShardId);
                             }
                             if from_shard_id != receipt_proof.1.from_shard_id {
-                                return Err(Error::InvalidPartialData(
-                                    "from_shard_id in id doesn't match decoded receipt proof",
-                                ));
+                                return Err(Error::InvalidDecodedReceiptFromShardId);
                             }
                             self.executor_sender.send(ExecutorIncomingUnverifiedReceipts {
                                 receipt_proof,
@@ -452,25 +464,19 @@ impl SpiceDataDistributorActor {
                         }
                         SpiceData::StateWitness(witness) => {
                             let SpiceDataIdentifier::Witness { block_hash, shard_id } = &id else {
-                                return Err(Error::InvalidPartialData(
-                                    "id doesn't match witness data",
-                                ));
+                                return Err(Error::IdAndDataMismatch);
                             };
                             let key = witness.chunk_production_key();
                             if &key.shard_id != shard_id {
-                                return Err(Error::InvalidPartialData(
-                                    "id doesn't match witness' shard_id",
-                                ));
+                                return Err(Error::InvalidDecodedWitnessShardId);
                             }
                             if &witness.main_state_transition().block_hash != block_hash {
-                                return Err(Error::InvalidPartialData(
-                                    "id doesn't match witness' main main_state_transition block_hash",
-                                ));
+                                return Err(Error::InvalidDecodedWitnessBlockHash);
                             }
 
                             self.witness_validator_sender.send(
                                 ChunkStateWitnessMessage {
-                                    witness,
+                                    witness: *witness,
                                     raw_witness_size: encoded_length as usize,
                                     processing_done_tracker: None,
                                 }
@@ -480,7 +486,7 @@ impl SpiceDataDistributorActor {
                     }
                 }
                 reed_solomon::InsertPartResult::Decoded(Err(err)) => {
-                    return Err(Error::from(near_chain::Error::from(err)));
+                    return Err(Error::DecodeError(err));
                 }
             }
         }
@@ -495,7 +501,7 @@ impl SpiceDataDistributorActor {
     ) -> Result<(), Error> {
         if let Some(entry) = self.data_parts.get(&data_parts_key) {
             if entry.decoded {
-                return Err(Error::NotRelevantData("data is already decoded"));
+                return Err(Error::DataIsAlreadyDecoded);
             }
         }
         let id = &data_parts_key.0;
@@ -510,22 +516,23 @@ impl SpiceDataDistributorActor {
                 )
                 .map_err(near_chain::Error::from)?
                 {
-                    return Err(Error::NotRelevantData("receipts are already known"));
+                    return Err(Error::ReceiptsAreKnown);
                 }
             }
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
                 debug_assert_eq!(block_hash, block.hash());
                 let chunks = block.chunks();
-                let chunk =
-                    chunks.iter_raw().find(|chunk| &chunk.shard_id() == shard_id).ok_or_else(
-                        || Error::InvalidDataId("block doesn't contain chunk with shard_id"),
-                    )?;
+                let chunk = chunks
+                    .iter_raw()
+                    .find(|chunk| &chunk.shard_id() == shard_id)
+                    .ok_or(Error::InvalidWitnessShardId)?;
+                // TODO(spice): Check for unsuccessful validations as well.
                 if self
                     .core_processor
                     .endorsement_exists(block, chunk, me)
                     .map_err(near_chain::Error::from)?
                 {
-                    return Err(Error::NotRelevantData("witness is already validated"));
+                    return Err(Error::WitnessAlreadyValidated);
                 }
             }
         }
@@ -540,10 +547,10 @@ impl SpiceDataDistributorActor {
                     self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
                 let shard_ids: HashSet<_> = shard_layout.shard_ids().collect();
                 if !shard_ids.contains(to_shard_id) {
-                    return Err(Error::InvalidDataId("to_shard_id is not in shards for epoch"));
+                    return Err(Error::InvalidReceiptToShardId);
                 }
                 if !shard_ids.contains(from_shard_id) {
-                    return Err(Error::InvalidDataId("from_shard_id is not in shards for epoch"));
+                    return Err(Error::InvalidReceiptFromShardId);
                 }
             }
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
@@ -552,14 +559,14 @@ impl SpiceDataDistributorActor {
                     self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
                 let shard_ids: HashSet<_> = shard_layout.shard_ids().collect();
                 if !shard_ids.contains(shard_id) {
-                    return Err(Error::InvalidDataId("shard_id is not in shards for epoch"));
+                    return Err(Error::InvalidWitnessShardId);
                 }
             }
         }
         Ok(())
     }
 
-    fn possible_epoch_ids(&mut self, id: &SpiceDataIdentifier) -> Result<Vec<EpochId>, Error> {
+    fn possible_epoch_ids(&self, id: &SpiceDataIdentifier) -> Result<Vec<EpochId>, Error> {
         let block_hash = id.block_hash();
         let possible_epoch_ids = if self.chain_store.block_exists(block_hash)? {
             let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
@@ -622,18 +629,6 @@ impl SpiceDataDistributorActor {
             }
         }
         Ok(possible_recipients)
-    }
-
-    fn possible_shard_ids(
-        &self,
-        possible_epoch_ids: &[EpochId],
-    ) -> Result<HashSet<ShardId>, Error> {
-        let mut possible_shard_ids = HashSet::new();
-        for epoch_id in possible_epoch_ids {
-            let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-            possible_shard_ids.extend(shard_layout.shard_ids());
-        }
-        Ok(possible_shard_ids)
     }
 
     fn process_pending_partial_data(&mut self, block_hash: CryptoHash) -> Result<(), Error> {

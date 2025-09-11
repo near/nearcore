@@ -82,6 +82,7 @@ where
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum OutgoingMessage {
     NetworkRequests(NetworkRequests),
     SpiceDistributorOutogingReceipts(SpiceDistributorOutogingReceipts),
@@ -130,28 +131,27 @@ impl TestActor {
             set_chain_info_sender: near_async::messaging::noop().into_sender(),
             state_sync_event_sender: near_async::messaging::noop().into_sender(),
             request_sender: Sender::from_fn({
-                let outoging_sc = outgoing_sc.clone();
+                let outgoing_sc = outgoing_sc.clone();
                 move |message: PeerManagerMessageRequest| {
                     let PeerManagerMessageRequest::NetworkRequests(request) = message else {
                         unreachable!()
                     };
-                    outoging_sc.unbounded_send(OutgoingMessage::NetworkRequests(request)).unwrap();
+                    outgoing_sc.unbounded_send(OutgoingMessage::NetworkRequests(request)).unwrap();
                 }
             }),
         };
         let data_distributor_adapter = SpiceDataDistributorAdapter {
             receips: Sender::from_fn({
-                let outoging_sc = outgoing_sc.clone();
+                let outgoing_sc = outgoing_sc.clone();
                 move |message| {
-                    outoging_sc
+                    outgoing_sc
                         .unbounded_send(OutgoingMessage::SpiceDistributorOutogingReceipts(message))
                         .unwrap();
                 }
             }),
             witness: Sender::from_fn({
-                let outoging_sc = outgoing_sc.clone();
                 move |message| {
-                    outoging_sc
+                    outgoing_sc
                         .unbounded_send(OutgoingMessage::SpiceDistributorStateWitness(message))
                         .unwrap();
                 }
@@ -206,7 +206,7 @@ impl TestActor {
 
 fn setup_with_shards(
     num_shards: usize,
-    outoging_sc: UnboundedSender<OutgoingMessage>,
+    outgoing_sc: UnboundedSender<OutgoingMessage>,
 ) -> Vec<TestActor> {
     init_test_logger();
 
@@ -235,7 +235,7 @@ fn setup_with_shards(
         .zip(shard_layout.shard_uids())
         .map(|(signer, shard_uuid)| {
             let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
-            TestActor::new(genesis.clone(), validator_signer, vec![shard_uuid], outoging_sc.clone())
+            TestActor::new(genesis.clone(), validator_signer, vec![shard_uuid], outgoing_sc.clone())
         })
         .collect::<Vec<_>>()
         .try_into()
@@ -243,7 +243,7 @@ fn setup_with_shards(
 }
 
 /// Returns 2 TestActor instances first validators and second not.
-fn setup_with_non_validator(outoging_sc: UnboundedSender<OutgoingMessage>) -> [TestActor; 2] {
+fn setup_with_non_validator(outgoing_sc: UnboundedSender<OutgoingMessage>) -> [TestActor; 2] {
     init_test_logger();
     let signer = Arc::new(create_test_signer("test1"));
     let shard_layout = ShardLayout::multi_shard(2, 0);
@@ -259,13 +259,13 @@ fn setup_with_non_validator(outoging_sc: UnboundedSender<OutgoingMessage>) -> [T
             genesis.clone(),
             MutableConfigValue::new(Some(signer), "validator_signer"),
             shard_layout.shard_uids().collect(),
-            outoging_sc.clone(),
+            outgoing_sc.clone(),
         ),
         TestActor::new(
             genesis,
             MutableConfigValue::new(None, "validator_signer"),
             shard_layout.shard_uids().collect(),
-            outoging_sc,
+            outgoing_sc,
         ),
     ]
 }
