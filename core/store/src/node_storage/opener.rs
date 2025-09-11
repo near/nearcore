@@ -1,9 +1,11 @@
 use crate::archive::cloud_storage::CloudStorageOpener;
-use crate::config::{CloudStorageConfig, StateSnapshotType, state_snapshot_dir_from_full_db_path};
+use crate::config::{CloudStorageConfig, StateSnapshotType};
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
-use crate::{DBCol, DBTransaction, Mode, NodeStorage, Store, StoreConfig, Temperature};
+use crate::{
+    DBCol, DBTransaction, Mode, NodeStorage, StateSnapshotConfig, Store, StoreConfig, Temperature,
+};
 use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
@@ -274,7 +276,11 @@ impl<'a> StoreOpener<'a> {
         }
 
         let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
-            StateSnapshotType::Enabled => state_snapshot_dir_from_full_db_path(&self.hot.path),
+            StateSnapshotType::Enabled => {
+                // At this point, the self.hot.path was built from home_dir and store_config.path.
+                let config = StateSnapshotConfig::enabled(&self.hot.path);
+                config.state_snapshots_dir().unwrap().to_path_buf()
+            }
             StateSnapshotType::Disabled => {
                 tracing::debug!(target: "db_opener", "State snapshots are disabled, skipping state snapshots migration");
                 return Ok(());

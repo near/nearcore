@@ -779,11 +779,12 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
+        #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
         let state_snapshot_config =
             match config.config.store.state_snapshot_config.state_snapshot_type {
-                StateSnapshotType::Enabled => StateSnapshotConfig::Enabled {
-                    state_snapshots_dir: config.config.store.state_snapshot_dir_from_home(home_dir),
-                },
+                StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
+                    home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into())),
+                ),
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };
         // FIXME: this (and other contract runtime resources) should probably get constructed by

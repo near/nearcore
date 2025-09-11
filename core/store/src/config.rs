@@ -10,8 +10,6 @@ use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION}
 use near_time::Duration;
 use std::{collections::HashMap, str::FromStr};
 
-pub const STATE_SNAPSHOT_DIR: &str = "state_snapshot";
-
 // known cache access patterns per prominent contract account
 // used to derive config `per_account_max_bytes`
 const PER_ACCOUNT_CACHE_SIZE: &[(&'static str, bytesize::ByteSize)] = &[
@@ -127,12 +125,6 @@ impl StoreConfig {
         Self::default()
     }
 
-    pub fn state_snapshot_dir_from_home(&self, home_dir: &std::path::Path) -> std::path::PathBuf {
-        #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
-        let full_db_path = home_dir.join(self.path.as_ref().unwrap_or(&"data".into()));
-        state_snapshot_dir_from_full_db_path(&full_db_path)
-    }
-
     pub fn enable_state_snapshot(&mut self) {
         self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Enabled;
     }
@@ -140,10 +132,6 @@ impl StoreConfig {
     pub fn disable_state_snapshot(&mut self) {
         self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Disabled;
     }
-}
-
-pub fn state_snapshot_dir_from_full_db_path(full_db_path: &std::path::Path) -> std::path::PathBuf {
-    full_db_path.join(STATE_SNAPSHOT_DIR)
 }
 
 /// Config used to control state snapshot creation. This is used for state sync and resharding.

@@ -138,19 +138,14 @@ pub enum StateSnapshotConfig {
 }
 
 impl StateSnapshotConfig {
-    pub fn enabled(
-        home_dir: impl AsRef<Path>,
-        hot_store_path: impl AsRef<Path>,
-        state_snapshots_subdir: impl AsRef<Path>,
-    ) -> Self {
+    const STATE_SNAPSHOT_DIR: &str = "state_snapshot";
+
+    pub fn enabled(hot_store_path: impl AsRef<Path>) -> Self {
         // Assumptions:
         // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
         // * The best place for checkpoints is within the `hot_store_path`, because that directory is often a separate disk.
         Self::Enabled {
-            state_snapshots_dir: home_dir
-                .as_ref()
-                .join(hot_store_path)
-                .join(state_snapshots_subdir),
+            state_snapshots_dir: hot_store_path.as_ref().join(Self::STATE_SNAPSHOT_DIR),
         }
     }
 
