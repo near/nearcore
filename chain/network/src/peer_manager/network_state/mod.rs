@@ -38,8 +38,9 @@ use crate::types::{
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
+use near_async::futures::FutureSpawner;
 use near_async::messaging::{CanSend, SendAsync, Sender};
-use near_async::time;
+use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -98,10 +99,8 @@ pub(crate) struct NetworkState {
     /// Async methods of NetworkState are not cancellable,
     /// so calling them from, for example, PeerActor is dangerous because
     /// PeerActor can be stopped at any moment.
-    /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
+    /// WARNING: DO NOT spawn infinite futures/background loops on this runtime,
     /// as it will be automatically closed only when the NetworkState is dropped.
-    /// WARNING: actix actors can be spawned only when actix::System::current() is set.
-    /// DO NOT spawn actors from a task on this runtime.
     runtime: Runtime,
     /// PeerManager config.
     pub config: config::VerifiedConfig,
@@ -181,6 +180,7 @@ pub(crate) struct NetworkState {
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
+        future_spawner: &dyn FutureSpawner,
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
@@ -229,7 +229,10 @@ impl NetworkState {
             )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
-            add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            add_edges_demux: demux::Demux::new(
+                config.routing_table_update_rate_limit,
+                future_spawner,
+            ),
             #[cfg(feature = "distance_vector_routing")]
             update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
@@ -467,6 +470,7 @@ impl NetworkState {
     pub async fn reconnect(
         self: &Arc<Self>,
         clock: time::Clock,
+        actor_system: ActorSystem,
         peer_info: PeerInfo,
         max_attempts: usize,
     ) {
@@ -479,9 +483,15 @@ impl NetworkState {
                     tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
                         .await
                         .context("tcp::Stream::connect()")?;
-                PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
-                    .await
-                    .context("PeerActor::spawn()")?;
+                PeerActor::spawn_and_handshake(
+                    clock.clone(),
+                    actor_system.clone(),
+                    stream,
+                    None,
+                    self.clone(),
+                )
+                .await
+                .context("PeerActor::spawn()")?;
                 anyhow::Ok(())
             }
             .await;
@@ -635,7 +645,7 @@ impl NetworkState {
                 &clock,
                 RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
             );
-            actix::spawn(async move {
+            self.spawn(async move {
                 let hash = msg.hash();
                 this.receive_routed_message(
                     &clock,

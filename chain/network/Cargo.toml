@@ -42,6 +42,7 @@ strum.workspace = true
 stun.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 time.workspace = true
 
