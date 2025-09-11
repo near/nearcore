@@ -1306,7 +1306,7 @@ impl ClientActorInner {
     }
 
     fn handle_on_post_state_ready(&mut self, msg: PostStateReadyMessage) {
-        tracing::warn!(target: "client", "Received PostStateReadyMessage: {:?}", msg);
+        tracing::debug!(target: "client", "Received {:?}", msg);
 
         // todo - check if is chunk producer for next height
         let cpk = ChunkProductionKey {
@@ -1317,6 +1317,7 @@ impl ClientActorInner {
         if let Ok(v) = self.client.epoch_manager.get_chunk_producer_info(&cpk) {
             if let Some(val) = self.client.validator_signer.get() {
                 if v.account_id() == val.validator_id() {
+                    tracing::warn!(target: "client", "start_prepare_transactions_job {:?}", msg);
                     self.client.chunk_producer.start_prepare_transactions_job(
                         msg.key,
                         msg.shard_id,
