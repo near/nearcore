@@ -39,8 +39,7 @@ use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_access_key,
-    set_account,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_account,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -711,9 +710,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 break;
             }
 
-            let mut signer = None;
-            let mut access_key = None;
-            let first_tx_peek = transaction_group_iter.peek_next().cloned();
+            let mut signer_access_key = None;
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
@@ -751,11 +748,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                // TODO: make this a debug assert
-                assert_eq!(validated_tx.signer_id(), first_tx_peek.as_ref().unwrap().signer_id());
-                assert_eq!(validated_tx.public_key(), first_tx_peek.as_ref().unwrap().public_key());
-
-                let (signer, access_key) = if signer.is_none() {
+                let (signer, access_key) = if let Some((id, signer, key)) = &mut signer_access_key {
+                    // TODO: make this a debug assert
+                    assert_eq!(validated_tx.signer_id(), id);
+                    (signer, key)
+                } else {
                     let (signer_result, access_key_result) = rayon::join(
                         || {
                             get_account(&state_update, validated_tx.signer_id())
@@ -774,9 +771,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                             .ok_or(Error::InvalidTransactions)
                         },
                     );
-                    (signer.insert(signer_result?), access_key.insert(access_key_result?))
-                } else {
-                    (signer.as_mut().unwrap(), access_key.as_mut().unwrap())
+                    let inserted = signer_access_key.insert((
+                        validated_tx.signer_id().clone(),
+                        signer_result?,
+                        access_key_result?,
+                    ));
+                    (&mut inserted.1, &mut inserted.2)
                 };
 
                 let verify_result = tx_cost(
@@ -813,19 +813,13 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            match (signer, access_key, first_tx_peek) {
-                (Some(account), Some(access_key), Some(tx)) => {
-                    set_account(&mut state_update, tx.signer_id().clone(), &account);
-                    set_access_key(
-                        &mut state_update,
-                        tx.signer_id().clone(),
-                        tx.public_key().clone(),
-                        &access_key,
-                    );
-                    state_update.commit(StateChangeCause::NotWritableToDisk);
-                }
-                (None, None, _) => {}
-                _ => panic!("should have read both account and access key"),
+            if let Some((signer_id, account, _)) = signer_access_key {
+                // NOTE: we don't need to remember the access key between groups, but only because
+                // pool guarantees that iteration is grouped by account_id and its public keys. It
+                // does however also mean that we must remember the account state as it might
+                // operate over multiple access keys.
+                set_account(&mut state_update, signer_id, &account);
+                state_update.commit(StateChangeCause::NotWritableToDisk);
             }
         }
         debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
