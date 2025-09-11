@@ -18,7 +18,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
-use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
+use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -39,7 +39,8 @@ use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_access_key,
+    set_account,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -48,8 +49,7 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    get_signer_and_access_key, set_tx_state_changes, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -577,8 +577,28 @@ impl RuntimeAdapter for NightshadeRuntime {
             tx_cost(runtime_config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
-        let state_update = self.tries.new_trie_update(shard_uid, state_root);
-        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)?;
+        let state_update = self.tries.get_trie_for_shard(shard_uid, state_root);
+        // FIXME: maybe rayonize these two storage accesses?
+        let signer_id = validated_tx.signer_id();
+        let mut signer = match get_account(&state_update, signer_id)? {
+            Some(signer) => signer,
+            None => {
+                return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
+            }
+        };
+        let public_key = validated_tx.public_key();
+        let mut access_key = match get_access_key(&state_update, signer_id, public_key)? {
+            Some(access_key) => access_key,
+            None => {
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::AccessKeyNotFound {
+                        account_id: signer_id.clone(),
+                        public_key: public_key.clone().into(),
+                    },
+                )
+                .into());
+            }
+        };
         verify_and_charge_tx_ephemeral(
             runtime_config,
             &mut signer,
@@ -648,7 +668,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let proof_size_limit =
             runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
         trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
-
         let mut state_update = TrieUpdate::new(trie);
 
         // Total amount of gas burnt for converting transactions towards receipts.
@@ -692,6 +711,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 break;
             }
 
+            let mut signer = None;
+            let mut access_key = None;
+            let first_tx_peek = transaction_group_iter.peek_next().cloned();
+
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
@@ -728,9 +751,34 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let (mut signer, mut access_key) =
-                    get_signer_and_access_key(&state_update, &validated_tx)
-                        .map_err(|_| Error::InvalidTransactions)?;
+                // TODO: make this a debug assert
+                assert_eq!(validated_tx.signer_id(), first_tx_peek.as_ref().unwrap().signer_id());
+                assert_eq!(validated_tx.public_key(), first_tx_peek.as_ref().unwrap().public_key());
+
+                let (signer, access_key) = if signer.is_none() {
+                    let (signer_result, access_key_result) = rayon::join(
+                        || {
+                            get_account(&state_update, validated_tx.signer_id())
+                                .transpose()
+                                .and_then(|v| v.ok())
+                                .ok_or(Error::InvalidTransactions)
+                        },
+                        || {
+                            get_access_key(
+                                &state_update,
+                                validated_tx.signer_id(),
+                                validated_tx.public_key(),
+                            )
+                            .transpose()
+                            .and_then(|v| v.ok())
+                            .ok_or(Error::InvalidTransactions)
+                        },
+                    );
+                    (signer.insert(signer_result?), access_key.insert(access_key_result?))
+                } else {
+                    (signer.as_mut().unwrap(), access_key.as_mut().unwrap())
+                };
+
                 let verify_result = tx_cost(
                     runtime_config,
                     &validated_tx.to_tx(),
@@ -741,22 +789,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                 .and_then(|cost| {
                     verify_and_charge_tx_ephemeral(
                         runtime_config,
-                        &mut signer,
-                        &mut access_key,
+                        signer,
+                        access_key,
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
                     )
-                })
-                .and_then(|verification_res| {
-                    set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
-                    Ok(verification_res)
                 });
 
                 match verify_result {
                     Ok(cost) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
-                        state_update.commit(StateChangeCause::NotWritableToDisk);
                         total_gas_burnt = total_gas_burnt.checked_add(cost.gas_burnt).unwrap();
                         total_size += validated_tx.get_size();
                         result.transactions.push(validated_tx);
@@ -766,9 +809,23 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Err(err) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
-                        state_update.rollback();
                     }
                 }
+            }
+
+            match (signer, access_key, first_tx_peek) {
+                (Some(account), Some(access_key), Some(tx)) => {
+                    set_account(&mut state_update, tx.signer_id().clone(), &account);
+                    set_access_key(
+                        &mut state_update,
+                        tx.signer_id().clone(),
+                        tx.public_key().clone(),
+                        &access_key,
+                    );
+                    state_update.commit(StateChangeCause::NotWritableToDisk);
+                }
+                (None, None, _) => {}
+                _ => panic!("should have read both account and access key"),
             }
         }
         debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
