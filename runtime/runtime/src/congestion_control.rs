@@ -16,7 +16,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
-use near_store::state_update::StateUpdateOperation;
+use near_store::state_update::{StateUpdate, StateUpdateOperation};
 use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
@@ -84,7 +84,7 @@ enum ReceiptForwarding {
 
 impl ReceiptSink {
     pub(crate) fn new(
-        trie: &dyn TrieAccess,
+        trie: &mut StateUpdateOperation,
         apply_state: &ApplyState,
         prev_own_congestion_info: CongestionInfo,
         bandwidth_scheduler_output: BandwidthSchedulerOutput,
@@ -145,7 +145,7 @@ impl ReceiptSink {
     /// much as the gas limits allow.
     pub(crate) fn forward_from_buffer(
         &mut self,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
         apply_state: &ApplyState,
     ) -> Result<(), RuntimeError> {
         match self {
@@ -203,14 +203,14 @@ impl ReceiptSink {
     /// Generate bandwidth requests based on the receipts stored in the outgoing buffers.
     pub(crate) fn generate_bandwidth_requests(
         &self,
-        trie: &dyn TrieAccess,
+        state_update: &StateUpdate,
         shard_layout: &ShardLayout,
         side_effects: bool,
         stats: &mut ChunkApplyStatsV0,
     ) -> Result<BandwidthRequests, StorageError> {
         match self {
             ReceiptSink::V2(sink_with_info) => sink_with_info.sink.generate_bandwidth_requests(
-                trie,
+                state_update,
                 shard_layout,
                 side_effects,
                 stats,
@@ -235,7 +235,7 @@ impl ReceiptSinkV2WithInfo {
     /// much as the gas limits allow.
     pub(crate) fn forward_from_buffer(
         &mut self,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
         apply_state: &ApplyState,
     ) -> Result<(), RuntimeError> {
         tracing::debug!(target: "runtime", "forwarding receipts from outgoing buffers");
@@ -293,7 +293,7 @@ impl ReceiptSinkV2WithInfo {
         &mut self,
         receipt: Receipt,
         apply_state: &ApplyState,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
     ) -> Result<(), RuntimeError> {
         let shard = receipt.receiver_shard_id(&self.info.shard_layout)?;
         let size = compute_receipt_size(&receipt)?;
@@ -338,14 +338,18 @@ impl ReceiptSinkV2 {
     fn forward_from_buffer_to_shard(
         &mut self,
         buffer_shard_id: ShardId,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
         apply_state: &ApplyState,
         shard_layout: &ShardLayout,
     ) -> Result<(), RuntimeError> {
         let mut num_forwarded = 0;
         let mut outgoing_metadatas_updates: Vec<(ByteSize, Gas)> = Vec::new();
         for receipt_result in
-            self.outgoing_buffers.to_shard(buffer_shard_id).iter(&state_update.trie, true)
+            // FIXME(state_update): original code was iterating over the underlying trie. Why?
+            self
+                .outgoing_buffers
+                .to_shard(buffer_shard_id)
+                .iter(state_update.state_update().start_update(), true)
         {
             let receipt = receipt_result?;
             let gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
@@ -461,7 +465,7 @@ impl ReceiptSinkV2 {
         receipt: Receipt,
         size: u64,
         gas: Gas,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
         shard: ShardId,
         use_state_stored_receipt: bool,
     ) -> Result<(), RuntimeError> {
@@ -488,14 +492,14 @@ impl ReceiptSinkV2 {
             )?;
         }
 
-        self.outgoing_buffers.to_shard(shard).push_back(state_update, &receipt)?;
+        self.outgoing_buffers.to_shard(shard).push_back(state_update, receipt)?;
         self.stats.buffered_receipts.entry(shard).or_default().add_receipt(size, gas);
         Ok(())
     }
 
     fn generate_bandwidth_requests(
         &self,
-        trie: &dyn TrieAccess,
+        trie: &StateUpdate,
         shard_layout: &ShardLayout,
         side_effects: bool,
         stats: &mut ChunkApplyStatsV0,
@@ -519,14 +523,18 @@ impl ReceiptSinkV2 {
     fn generate_bandwidth_request(
         &self,
         to_shard: ShardId,
-        trie: &dyn TrieAccess,
+        state_update: &StateUpdate,
         shard_layout: &ShardLayout,
         side_effects: bool,
         params: &BandwidthSchedulerParams,
     ) -> Result<Option<BandwidthRequest>, StorageError> {
         // Get (group) sizes of receipts stored in outgoing buffer to the shard.
-        let mut receipt_sizes_iter =
-            self.get_receipt_group_sizes_for_buffer_to_shard(to_shard, trie, side_effects, params);
+        let mut receipt_sizes_iter = self.get_receipt_group_sizes_for_buffer_to_shard(
+            to_shard,
+            state_update.start_update(),
+            side_effects,
+            params,
+        );
 
         // When making a bandwidth request to a child shard which has been split from a parent
         // shard, we have to include the receipts stored in the outgoing buffer to the parent shard
@@ -538,7 +546,7 @@ impl ReceiptSinkV2 {
         if let Ok(parent_shard_id) = shard_layout.get_parent_shard_id(to_shard) {
             let parent_receipt_sizes_iter = self.get_receipt_group_sizes_for_buffer_to_shard(
                 parent_shard_id,
-                trie,
+                state_update.start_update(),
                 side_effects,
                 params,
             );
@@ -564,7 +572,7 @@ impl ReceiptSinkV2 {
     fn get_receipt_group_sizes_for_buffer_to_shard<'a>(
         &'a self,
         to_shard: ShardId,
-        trie: &'a dyn TrieAccess,
+        update_op: StateUpdateOperation<'a>,
         side_effects: bool,
         params: &BandwidthSchedulerParams,
     ) -> Box<dyn Iterator<Item = Result<u64, StorageError>> + 'a> {
@@ -590,7 +598,7 @@ impl ReceiptSinkV2 {
         match self.outgoing_metadatas.get_metadata_for_shard(&to_shard) {
             Some(metadata) if metadata.total_receipts_num() == outgoing_receipts_buffer_len => {
                 // Metadata fully initialized, use it to read receipt group sizes.
-                Box::new(metadata.iter_receipt_group_sizes(trie, side_effects))
+                Box::new(metadata.iter_receipt_group_sizes(update_op, side_effects))
             }
             _ => {
                 // Metadata not initialized. Make a basic request which requests only `max_receipt_size`.
@@ -725,7 +733,7 @@ pub(crate) fn compute_receipt_congestion_gas(
 /// `CongestionInfo`. In normal operation, this information is kept up
 /// to date and passed from chunk to chunk through chunk header fields.
 pub fn bootstrap_congestion_info(
-    trie: &dyn near_store::TrieAccess,
+    trie: &mut StateUpdateOperation,
     config: &RuntimeConfig,
     shard_id: ShardId,
 ) -> Result<CongestionInfo, StorageError> {
@@ -734,7 +742,7 @@ pub fn bootstrap_congestion_info(
     let mut buffered_receipts_gas: u128 = 0;
 
     let delayed_receipt_queue = &DelayedReceiptQueue::load(trie)?;
-    for receipt_result in delayed_receipt_queue.iter(trie, true) {
+    for receipt_result in delayed_receipt_queue.iter(trie.state_update().start_update(), true) {
         let receipt = receipt_result?;
         let gas =
             receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?.as_gas();
@@ -747,7 +755,9 @@ pub fn bootstrap_congestion_info(
 
     let mut outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
     for shard in outgoing_buffers.shards() {
-        for receipt_result in outgoing_buffers.to_shard(shard).iter(trie, true) {
+        for receipt_result in
+            outgoing_buffers.to_shard(shard).iter(trie.state_update().start_update(), true)
+        {
             let receipt = receipt_result?;
             let gas = receipt_congestion_gas(&receipt, config)
                 .map_err(int_overflow_to_storage_err)?
@@ -836,16 +846,16 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
+                let receipt = StateStoredReceipt::new_owned(receipt.clone(), metadata);
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
             }
-            false => ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt)),
+            false => ReceiptOrStateStoredReceipt::Receipt(Cow::Owned(receipt.clone())),
         };
 
         self.new_delayed_gas = self.new_delayed_gas.checked_add(gas).ok_or(IntegerOverflowError)?;
         self.new_delayed_bytes =
             self.new_delayed_bytes.checked_add(size).ok_or(IntegerOverflowError)?;
-        self.queue.push_back(update_op, &receipt)?;
+        self.queue.push_back(update_op, receipt)?;
         Ok(())
     }
 
@@ -863,17 +873,17 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
 
     pub(crate) fn pop(
         &mut self,
-        trie_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
         config: &RuntimeConfig,
     ) -> Result<Option<ReceiptOrStateStoredReceipt>, RuntimeError> {
         // While processing receipts, we need to keep track of the gas and bytes
         // even for receipts that may be filtered out due to a resharding event
         loop {
             // Check proof size limit before each receipt is popped.
-            if trie_update.trie.check_proof_size_limit_exceed() {
+            if state_update.trie().check_proof_size_limit_exceed() {
                 break;
             }
-            let Some(receipt) = self.queue.pop_front(trie_update)? else {
+            let Some(receipt) = self.queue.pop_front(state_update)? else {
                 break;
             };
             let delayed_gas = receipt_congestion_gas(&receipt, &config)?;
@@ -895,10 +905,10 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
 
     pub(crate) fn peek_iter(
         &'a self,
-        trie_update: &'a TrieUpdate,
+        state_update: StateUpdateOperation<'a>,
     ) -> impl Iterator<Item = ReceiptOrStateStoredReceipt<'static>> + 'a {
         self.queue
-            .iter(trie_update, false)
+            .iter(state_update, false)
             .map_while(Result::ok)
             .filter(|receipt| self.receipt_filter_fn(receipt))
     }

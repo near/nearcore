@@ -2182,7 +2182,7 @@ impl Runtime {
         );
 
         let bandwidth_requests = receipt_sink.generate_bandwidth_requests(
-            &state_update,
+            processing_state.state_update.state_update(),
             &shard_layout,
             true,
             &mut stats,

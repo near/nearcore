@@ -368,7 +368,7 @@ impl<'a, 'su> External for RuntimeExt<'a, 'su> {
         // If the yielded promise was created by a previous transaction, we'll find it in the trie
         let receiver_id = self.account_id.clone();
         let key = TrieKey::PromiseYieldReceipt { receiver_id, data_id };
-        if self.update_op.contains_key(&key)? {
+        if self.update_op.contains_key(&key).map_err(wrap_storage_error)? {
             self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
             return Ok(true);
         }

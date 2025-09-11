@@ -1,21 +1,21 @@
 use crate::state_update::StateUpdateOperation;
-use crate::{TrieAccess, TrieUpdate, get, get_pure, set};
+use crate::state_update::state_value::StateValue;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
 use near_primitives::receipt::{
-    BufferedReceiptIndices, ReceiptOrStateStoredReceipt, TrieQueueIndices,
+    BufferedReceiptIndices, DelayedReceiptIndices, ReceiptOrStateStoredReceipt, TrieQueueIndices,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
 
 /// Read-only iterator over items stored in a TrieQueue.
-struct TrieQueueIterator<'a, Queue>
+struct TrieQueueIterator<'a, 'su, Queue>
 where
     Queue: TrieQueue,
 {
     indices: std::ops::Range<u64>,
     trie_queue: &'a Queue,
-    trie: &'a dyn TrieAccess,
+    trie: StateUpdateOperation<'su>,
     side_effects: bool,
 }
 
@@ -63,7 +63,7 @@ pub struct OutgoingReceiptBuffer<'parent> {
 /// implementation is provided as trait default implementation.
 pub trait TrieQueue {
     // TODO - remove the lifetime once we get rid of Cow in StateStoredReceipt.
-    type Item<'a>: BorshDeserialize + BorshSerialize;
+    type Item: BorshDeserialize + BorshSerialize + StateValue + Clone;
 
     /// Read queue indices of the queue from the trie, depending on impl.
     fn load_indices(
@@ -87,7 +87,7 @@ pub trait TrieQueue {
     fn push_back(
         &mut self,
         state_update: &mut StateUpdateOperation,
-        item: Self::Item<'_>,
+        item: Self::Item,
     ) -> Result<(), IntegerOverflowError> {
         self.debug_check_unchanged(state_update);
 
@@ -104,7 +104,7 @@ pub trait TrieQueue {
     fn pop_front(
         &mut self,
         state_update: &mut StateUpdateOperation,
-    ) -> Result<Option<Self::Item<'static>>, StorageError> {
+    ) -> Result<Option<Self::Item>, StorageError> {
         self.debug_check_unchanged(state_update);
 
         let indices = self.indices();
@@ -112,13 +112,12 @@ pub trait TrieQueue {
             return Ok(None);
         }
         let key = self.trie_key(indices.first_index);
-        let item: Self::Item<'static> = get(state_update, &key)?.ok_or_else(|| {
+        let item: Self::Item = state_update.take(key)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "TrieQueue::Item #{} should be in the state",
                 indices.first_index
             ))
         })?;
-        state_update.remove(key);
         // Math checked above, first_index < next_available_index
         self.indices_mut().first_index += 1;
         self.write_indices(state_update);
@@ -128,7 +127,7 @@ pub trait TrieQueue {
     fn pop_back(
         &mut self,
         state_update: &mut StateUpdateOperation,
-    ) -> Result<Option<Self::Item<'static>>, StorageError> {
+    ) -> Result<Option<Self::Item>, StorageError> {
         self.debug_check_unchanged(state_update);
 
         let indices = self.indices();
@@ -138,13 +137,12 @@ pub trait TrieQueue {
         // Math checked above: first_index < next_available_index => next_available_index > 0
         let last_item_index = indices.next_available_index - 1;
         let key = self.trie_key(last_item_index);
-        let item: Self::Item<'static> = get(state_update, &key)?.ok_or_else(|| {
+        let item: Self::Item = state_update.take(key)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "TrieQueue::Item #{} should be in the state",
                 last_item_index
             ))
         })?;
-        state_update.remove(key);
         self.indices_mut().next_available_index = last_item_index;
         self.write_indices(state_update);
         Ok(Some(item))
@@ -157,17 +155,17 @@ pub trait TrieQueue {
     /// Panics if the queue is empty.
     /// TODO(bandwidth_scheduler) - consider adding a push_front method.
     /// Indices could be converted to i64, serialization is the same as u64 for non-negative values.
-    fn modify_first<'a>(
+    fn modify_first(
         &mut self,
         state_update: &mut StateUpdateOperation,
-        modify_fn: impl Fn(Self::Item<'a>) -> Option<Self::Item<'a>>,
+        modify_fn: impl Fn(Self::Item) -> Option<Self::Item>,
     ) -> Result<(), StorageError> {
         let indices = self.indices();
         if indices.first_index >= indices.next_available_index {
             panic!("TrieQueue::modify_first called on an empty queue! indices: {:?}", indices);
         }
         let key = self.trie_key(indices.first_index);
-        let first_item: &Self::Item<'_> = state_update.get(key)?.ok_or_else(|| {
+        let first_item: Self::Item = state_update.take(key.clone())?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "TrieQueue::Item #{} should be in the state",
                 indices.first_index
@@ -226,14 +224,14 @@ pub trait TrieQueue {
 
     fn iter<'a>(
         &'a self,
-        trie: &'a mut StateUpdateOperation,
+        mut trie: StateUpdateOperation<'a>,
         side_effects: bool,
-    ) -> impl DoubleEndedIterator<Item = Result<Self::Item<'static>, StorageError>> + 'a
+    ) -> impl DoubleEndedIterator<Item = Result<Self::Item, StorageError>> + 'a
     where
         Self: Sized,
     {
         if side_effects {
-            self.debug_check_unchanged(trie);
+            self.debug_check_unchanged(&mut trie);
         }
         TrieQueueIterator {
             indices: self.indices().first_index..self.indices().next_available_index,
@@ -250,6 +248,8 @@ pub trait TrieQueue {
     /// production.
     #[cfg(debug_assertions)]
     fn debug_check_unchanged(&self, trie: &mut StateUpdateOperation) {
+        // FIXME: this should only use pure operations, otherwise using debug vs non-debug can
+        // affect the state witness
         debug_assert_eq!(self.indices(), self.load_indices(trie).unwrap());
     }
 
@@ -260,17 +260,25 @@ pub trait TrieQueue {
 }
 
 impl DelayedReceiptQueue {
-    pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
-        let indices = crate::get_delayed_receipt_indices(trie)?;
+    pub fn load(trie: &mut StateUpdateOperation) -> Result<Self, StorageError> {
+        let indices: TrieQueueIndices =
+            trie.get(TrieKey::DelayedReceiptIndices)?.cloned().unwrap_or_default();
         Ok(Self { indices: indices.into() })
     }
 }
 
 impl TrieQueue for DelayedReceiptQueue {
-    type Item<'a> = ReceiptOrStateStoredReceipt<'a>;
+    type Item = ReceiptOrStateStoredReceipt<'static>;
 
-    fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
-        crate::get_delayed_receipt_indices(trie).map(TrieQueueIndices::from)
+    fn load_indices(
+        &self,
+        trie: &mut StateUpdateOperation,
+    ) -> Result<TrieQueueIndices, StorageError> {
+        Ok(TrieQueueIndices::from(
+            trie.get::<DelayedReceiptIndices>(TrieKey::DelayedReceiptIndices)?
+                .cloned()
+                .unwrap_or_default(),
+        ))
     }
 
     fn indices(&self) -> TrieQueueIndices {
@@ -291,8 +299,9 @@ impl TrieQueue for DelayedReceiptQueue {
 }
 
 impl ShardsOutgoingReceiptBuffer {
-    pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
-        let shards_indices = crate::get_buffered_receipt_indices(trie)?;
+    pub fn load(trie: &mut StateUpdateOperation) -> Result<Self, StorageError> {
+        let shards_indices =
+            trie.get(TrieKey::BufferedReceiptIndices)?.cloned().unwrap_or_default();
         Ok(Self { shards_indices })
     }
 
@@ -310,19 +319,19 @@ impl ShardsOutgoingReceiptBuffer {
     }
 
     fn write_indices(&self, state_update: &mut StateUpdateOperation) {
-        state_update.set(TrieKey::BufferedReceiptIndices, self.shards_indices);
+        state_update.set(TrieKey::BufferedReceiptIndices, self.shards_indices.clone());
     }
 }
 
 impl TrieQueue for OutgoingReceiptBuffer<'_> {
-    type Item<'a> = ReceiptOrStateStoredReceipt<'a>;
+    type Item = ReceiptOrStateStoredReceipt<'static>;
 
     fn load_indices(
         &self,
         update_op: &mut StateUpdateOperation,
     ) -> Result<TrieQueueIndices, StorageError> {
-        let all_indices: &BufferedReceiptIndices =
-            update_op.get(TrieKey::BufferedReceiptIndices)?.unwrap_or_default();
+        let all_indices: BufferedReceiptIndices =
+            update_op.get(TrieKey::BufferedReceiptIndices)?.cloned().unwrap_or_default();
         let indices = all_indices.shard_buffers.get(&self.shard_id).cloned().unwrap_or_default();
         Ok(indices)
     }
@@ -344,17 +353,16 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
     }
 }
 
-impl<Q> Iterator for TrieQueueIterator<'_, Q>
+impl<'a, 'su, Q> Iterator for TrieQueueIterator<'a, 'su, Q>
 where
     Q: TrieQueue,
 {
-    type Item = Result<Q::Item<'static>, StorageError>;
+    type Item = Result<Q::Item, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
         let key = self.trie_queue.trie_key(index);
-        let value =
-            if self.side_effects { get(self.trie, &key) } else { get_pure(self.trie, &key) };
+        let value = if self.side_effects { self.trie.get(key) } else { self.trie.pure_get(key) };
         let result = match value {
             Err(e) => Err(e),
             Ok(None) => Err(StorageError::StorageInconsistentState(
@@ -362,19 +370,18 @@ where
             )),
             Ok(Some(item)) => Ok(item),
         };
-        Some(result)
+        Some(result.cloned())
     }
 }
 
-impl<Q> DoubleEndedIterator for TrieQueueIterator<'_, Q>
+impl<'a, 'su, Q> DoubleEndedIterator for TrieQueueIterator<'a, 'su, Q>
 where
     Q: TrieQueue,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         let index = self.indices.next_back()?;
         let key = self.trie_queue.trie_key(index);
-        let value =
-            if self.side_effects { get(self.trie, &key) } else { get_pure(self.trie, &key) };
+        let value = if self.side_effects { self.trie.get(key) } else { self.trie.pure_get(key) };
         let result = match value {
             Err(e) => Err(e),
             Ok(None) => Err(StorageError::StorageInconsistentState(
@@ -382,7 +389,7 @@ where
             )),
             Ok(Some(item)) => Ok(item),
         };
-        Some(result)
+        Some(result.cloned())
     }
 }
 
@@ -418,18 +425,21 @@ mod tests {
     /// receipts.
     #[track_caller]
     fn check_delayed_receipt_queue(input_receipts: &[Receipt]) {
-        let mut trie = init_state();
+        let state_update = init_state();
+        let mut update_op = state_update.start_update();
 
         // load a queue to fill it with receipts
         {
-            let mut queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
-            check_push_to_receipt_queue(input_receipts, &mut trie, &mut queue);
+            let mut queue =
+                DelayedReceiptQueue::load(&mut update_op).expect("creating queue must not fail");
+            check_push_to_receipt_queue(input_receipts, &mut update_op, &mut queue);
         }
 
         // drop queue and load another one to see if values are persisted
         {
-            let mut queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
-            check_receipt_queue_contains_receipts(input_receipts, &mut trie, &mut queue);
+            let mut queue =
+                DelayedReceiptQueue::load(&mut update_op).expect("creating queue must not fail");
+            check_receipt_queue_contains_receipts(input_receipts, &mut update_op, &mut queue);
         }
     }
 
@@ -449,22 +459,23 @@ mod tests {
     /// works, loading one buffer at the time.
     #[track_caller]
     fn check_outgoing_receipt_buffer_separately(input_receipts: &[Receipt]) {
-        let mut trie = init_state();
+        let state_update = init_state();
+        let mut update_op = state_update.start_update();
         for id in 0..2u32 {
             // load a buffer to fill it with receipts
             {
-                let mut buffers = ShardsOutgoingReceiptBuffer::load(&trie)
+                let mut buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
                     .expect("creating buffers must not fail");
                 let mut buffer = buffers.to_shard(ShardId::from(id));
-                check_push_to_receipt_queue(input_receipts, &mut trie, &mut buffer);
+                check_push_to_receipt_queue(input_receipts, &mut update_op, &mut buffer);
             }
 
             // drop queue and load another one to see if values are persisted
             {
-                let mut buffers = ShardsOutgoingReceiptBuffer::load(&trie)
+                let mut buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
                     .expect("creating buffers must not fail");
                 let mut buffer = buffers.to_shard(ShardId::from(id));
-                check_receipt_queue_contains_receipts(input_receipts, &mut trie, &mut buffer);
+                check_receipt_queue_contains_receipts(input_receipts, &mut update_op, &mut buffer);
             }
         }
     }
@@ -485,21 +496,22 @@ mod tests {
 
     #[track_caller]
     fn check_outgoing_receipt_buffer_combined(input_receipts: &[Receipt]) {
-        let mut trie = init_state();
+        let state_update = init_state();
+        let mut update_op = state_update.start_update();
         // load shard_buffers once and hold on to it for the entire duration
-        let mut shard_buffers =
-            ShardsOutgoingReceiptBuffer::load(&trie).expect("creating buffers must not fail");
+        let mut shard_buffers = ShardsOutgoingReceiptBuffer::load(&mut update_op)
+            .expect("creating buffers must not fail");
         for id in 0..2u32 {
             // load a buffer to fill it with receipts
             {
                 let mut buffer = shard_buffers.to_shard(ShardId::from(id));
-                check_push_to_receipt_queue(input_receipts, &mut trie, &mut buffer);
+                check_push_to_receipt_queue(input_receipts, &mut update_op, &mut buffer);
             }
 
             // drop queue and load another one to see if values are persisted
             {
                 let mut buffer = shard_buffers.to_shard(ShardId::from(id));
-                check_receipt_queue_contains_receipts(input_receipts, &mut trie, &mut buffer);
+                check_receipt_queue_contains_receipts(input_receipts, &mut update_op, &mut buffer);
             }
         }
     }

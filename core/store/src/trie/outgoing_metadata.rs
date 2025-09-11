@@ -1,18 +1,13 @@
-use std::collections::BTreeMap;
-
+use super::receipts_column_helper::TrieQueue;
+use crate::state_update::StateUpdateOperation;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_primitives::errors::StorageError;
 use near_primitives::receipt::TrieQueueIndices;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{Gas, ShardId};
-
 use near_schema_checker_lib::ProtocolSchema;
-
-use crate::{TrieUpdate, get, set};
-
-use super::TrieAccess;
-use super::receipts_column_helper::TrieQueue;
+use std::collections::BTreeMap;
 
 /// Keeps metadata about receipts stored in the outgoing buffers.
 #[derive(Debug)]
@@ -34,7 +29,7 @@ impl OutgoingMetadatas {
     /// Make sure to pass shard ids for every shard that has receipts in the outgoing buffer,
     /// otherwise the metadata for it will be overwritten with empty metadata.
     pub fn load(
-        trie: &dyn TrieAccess,
+        trie: &mut StateUpdateOperation,
         shard_ids: impl IntoIterator<Item = ShardId>,
         groups_config: ReceiptGroupsConfig,
     ) -> Result<Self, StorageError> {
@@ -55,7 +50,7 @@ impl OutgoingMetadatas {
         shard_id: ShardId,
         receipt_size: ByteSize,
         receipt_gas: Gas,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
     ) -> Result<(), StorageError> {
         let metadata =
             self.metadatas.entry(shard_id).or_insert_with(|| ReceiptGroupsQueue::new(shard_id));
@@ -74,7 +69,7 @@ impl OutgoingMetadatas {
         shard_id: ShardId,
         receipt_size: ByteSize,
         receipt_gas: Gas,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
     ) -> Result<(), StorageError> {
         let metadata = self
             .metadatas
@@ -90,14 +85,14 @@ impl OutgoingMetadatas {
 }
 
 /// Information about a group of consecutive receipts stored in the outgoing buffer.
-#[derive(Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema, Clone)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum ReceiptGroup {
     V0(ReceiptGroupV0) = 0,
 }
 
-#[derive(Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema, Clone)]
 pub struct ReceiptGroupV0 {
     /// Total size of receipts in this group.
     /// Should be no larger than `max_receipt_size`, otherwise the bandwidth
@@ -245,34 +240,31 @@ impl ReceiptGroupsQueue {
     /// Load a queue from the trie.
     /// Returns None if the queue doesn't exist.
     pub fn load(
-        trie: &dyn TrieAccess,
+        trie: &mut StateUpdateOperation,
         receiver_shard: ShardId,
     ) -> Result<Option<Self>, StorageError> {
-        let data_opt = Self::load_data(trie, receiver_shard)?;
+        let data_opt = Self::load_data(trie, receiver_shard)?.cloned();
         let receipt_groups_queue_opt = data_opt.map(|data| Self { receiver_shard, data });
         Ok(receipt_groups_queue_opt)
     }
 
-    fn load_data(
-        trie: &dyn TrieAccess,
+    fn load_data<'a>(
+        trie: &'a mut StateUpdateOperation,
         receiver_shard: ShardId,
-    ) -> Result<Option<ReceiptGroupsQueueDataV0>, StorageError> {
-        let data_opt: Option<ReceiptGroupsQueueData> = get(
-            trie,
-            &TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: receiver_shard },
-        )?;
+    ) -> Result<Option<&'a ReceiptGroupsQueueDataV0>, StorageError> {
+        let data_opt: Option<&ReceiptGroupsQueueData> =
+            trie.get(TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: receiver_shard })?;
         let data_v0_opt = data_opt.map(|data_enum| match data_enum {
             ReceiptGroupsQueueData::V0(data_v0) => data_v0,
         });
         Ok(data_v0_opt)
     }
 
-    fn save_data(&self, state_update: &mut TrieUpdate) {
+    fn save_data(&self, state_update: &mut StateUpdateOperation) {
         let data_enum = ReceiptGroupsQueueData::V0(self.data.clone());
-        set(
-            state_update,
+        state_update.set(
             TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: self.receiver_shard },
-            &data_enum,
+            data_enum,
         );
     }
 
@@ -280,7 +272,7 @@ impl ReceiptGroupsQueue {
         &mut self,
         receipt_size: ByteSize,
         receipt_gas: Gas,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
         groups_config: &ReceiptGroupsConfig,
     ) -> Result<(), StorageError> {
         add_size_checked(&mut self.data.total_size, receipt_size);
@@ -297,19 +289,19 @@ impl ReceiptGroupsQueue {
                 if groups_config.should_start_new_group(&last_group, receipt_size, receipt_gas) {
                     // Adding the new receipt to the last group would make the group too large.
                     // Start a new group for the receipt.
-                    self.push_back(state_update, &last_group).expect("Integer overflow on push");
-                    self.push_back(state_update, &ReceiptGroup::new(receipt_size, receipt_gas))
+                    self.push_back(state_update, last_group).expect("Integer overflow on push");
+                    self.push_back(state_update, ReceiptGroup::new(receipt_size, receipt_gas))
                         .expect("Integer overflow on push");
                 } else {
                     // It's okay to add the new receipt to the last group, do it.
                     add_size_checked(last_group.size_mut(), receipt_size);
                     add_gas_checked(last_group.gas_mut(), receipt_gas);
-                    self.push_back(state_update, &last_group).expect("Integer overflow on push");
+                    self.push_back(state_update, last_group).expect("Integer overflow on push");
                 }
             }
             None => {
                 // No groups in the queue, start a new group which contains the new receipt.
-                self.push_back(state_update, &ReceiptGroup::new(receipt_size, receipt_gas))
+                self.push_back(state_update, ReceiptGroup::new(receipt_size, receipt_gas))
                     .expect("Integer overflow on push");
             }
         }
@@ -321,7 +313,7 @@ impl ReceiptGroupsQueue {
         &mut self,
         receipt_size: ByteSize,
         receipt_gas: Gas,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdateOperation,
     ) -> Result<(), StorageError> {
         subtract_size_checked(&mut self.data.total_size, receipt_size);
         subtract_gas_checked(&mut self.data.total_gas, receipt_gas);
@@ -350,10 +342,10 @@ impl ReceiptGroupsQueue {
     /// Iterate over the sizes of receipt groups stored in the queue.
     pub fn iter_receipt_group_sizes<'a>(
         &'a self,
-        trie: &'a dyn TrieAccess,
+        update_op: StateUpdateOperation<'a>,
         side_effects: bool,
     ) -> impl Iterator<Item = Result<u64, StorageError>> + 'a {
-        self.iter(trie, side_effects).map(|group_res| group_res.map(|group| group.size()))
+        self.iter(update_op, side_effects).map(|group_res| group_res.map(|group| group.size()))
     }
 
     /// Total size of all receipts in the queue.
@@ -373,10 +365,15 @@ impl ReceiptGroupsQueue {
 }
 
 impl TrieQueue for ReceiptGroupsQueue {
-    type Item<'a> = ReceiptGroup;
+    type Item = ReceiptGroup;
 
-    fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
-        Ok(Self::load_data(trie, self.receiver_shard)?.unwrap_or_default().indices)
+    fn load_indices(
+        &self,
+        trie: &mut StateUpdateOperation,
+    ) -> Result<TrieQueueIndices, StorageError> {
+        Ok(Self::load_data(trie, self.receiver_shard)?
+            .map(|i| i.indices.clone())
+            .unwrap_or_default())
     }
 
     fn indices(&self) -> TrieQueueIndices {
@@ -387,7 +384,7 @@ impl TrieQueue for ReceiptGroupsQueue {
         &mut self.data.indices
     }
 
-    fn write_indices(&self, state_update: &mut TrieUpdate) {
+    fn write_indices(&self, state_update: &mut StateUpdateOperation) {
         self.save_data(state_update);
     }
 

@@ -219,25 +219,6 @@ pub fn has_promise_yield_receipt(
     )
 }
 
-pub fn get_buffered_receipt_indices(
-    trie: &dyn TrieAccess,
-) -> Result<BufferedReceiptIndices, StorageError> {
-    Ok(get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default())
-}
-
-pub fn get_bandwidth_scheduler_state(
-    trie: &dyn TrieAccess,
-) -> Result<Option<BandwidthSchedulerState>, StorageError> {
-    get(trie, &TrieKey::BandwidthSchedulerState)
-}
-
-pub fn set_bandwidth_scheduler_state(
-    state_update: &mut TrieUpdate,
-    scheduler_state: &BandwidthSchedulerState,
-) {
-    set(state_update, TrieKey::BandwidthSchedulerState, scheduler_state);
-}
-
 pub fn set_access_key(
     state_update: &mut TrieUpdate,
     account_id: AccountId,

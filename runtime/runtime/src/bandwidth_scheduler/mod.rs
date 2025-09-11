@@ -8,9 +8,9 @@ use near_primitives::chunk_apply_stats::BandwidthSchedulerStats;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex, StateChangeCause};
 use near_store::state_update::{StateUpdate, StateUpdateOperation};
-use near_store::{TrieUpdate, get_bandwidth_scheduler_state, set_bandwidth_scheduler_state};
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
 use crate::ApplyState;
@@ -59,8 +59,10 @@ pub fn run_bandwidth_scheduler(
     .entered();
 
     // Read the current scheduler state from the Trie
-    let mut scheduler_state = match get_bandwidth_scheduler_state(state_update)? {
-        Some(prev_state) => prev_state,
+    let scheduler_state =
+        state_update.get::<BandwidthSchedulerState>(TrieKey::BandwidthSchedulerState)?;
+    let mut scheduler_state = match scheduler_state {
+        Some(prev_state) => prev_state.clone(),
         None => {
             tracing::debug!(target: "runtime", "Bandwidth scheduler state not found - initializing");
             BandwidthSchedulerState::V1(BandwidthSchedulerStateV1 {
@@ -134,10 +136,11 @@ pub fn run_bandwidth_scheduler(
     };
 
     // Save the updated scheduler state to the trie.
-    set_bandwidth_scheduler_state(state_update, &scheduler_state);
-    state_update.commit(StateChangeCause::BandwidthSchedulerStateUpdate);
-
+    // FIXME: this serializes the entire thing into memory before hashing it up. Serializer could
+    // feed into the hasher directly.
     let scheduler_state_hash: CryptoHash = hash(&borsh::to_vec(&scheduler_state).unwrap());
+    state_update.set(TrieKey::BandwidthSchedulerState, scheduler_state);
+    state_update.commit(/*StateChangeCause::BandwidthSchedulerStateUpdate*/);
 
     stats.time_to_run_ms = start_time.elapsed().as_millis();
     Ok(BandwidthSchedulerOutput { granted_bandwidth, params, scheduler_state_hash })

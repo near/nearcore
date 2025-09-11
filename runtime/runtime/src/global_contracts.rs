@@ -12,7 +12,7 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
-use near_store::state_update::StateUpdateOperation;
+use near_store::state_update::{StateUpdate, StateUpdateOperation};
 use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, StorageError, TrieAccess as _, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
@@ -120,7 +120,11 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     let ReceiptEnum::GlobalContractDistribution(global_contract_data) = receipt.receipt() else {
         unreachable!("given receipt should be an global contract distribution receipt")
     };
-    apply_distribution_current_shard(receipt, global_contract_data, apply_state, state_update);
+    apply_distribution_current_shard(
+        global_contract_data,
+        apply_state,
+        state_update,
+    );
     forward_distribution_next_shard(
         receipt,
         global_contract_data,
@@ -163,10 +167,9 @@ fn initiate_distribution(
 }
 
 fn apply_distribution_current_shard(
-    receipt: &Receipt,
     global_contract_data: &GlobalContractDistributionReceipt,
     apply_state: &ApplyState,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdateOperation,
 ) {
     let config = apply_state.config.wasm_config.clone();
     let trie_key = TrieKey::GlobalContractCode {
@@ -180,7 +183,6 @@ fn apply_distribution_current_shard(
         },
     };
     state_update.set(trie_key, global_contract_data.code().to_vec());
-    state_update.commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
     let code_hash = match global_contract_data.id() {
         GlobalContractIdentifier::CodeHash(hash) => Some(*hash),
         GlobalContractIdentifier::AccountId(_) => None,

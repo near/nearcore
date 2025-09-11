@@ -1,3 +1,4 @@
+#![allow(unused)]
 //! Next generation replacement for [`TrieUpdate`](crate::trie::update::TrieUpdate).
 use crate::Trie;
 use crate::trie::OptimizedValueRef;
@@ -63,17 +64,28 @@ struct CommittedValue {
     operations: u8,
 }
 
-/// An "atomic" unit of state updates with an ability to roll-back partial changes.
+/// An "atomic" unit of finalized state updates to be written to the backing [`Trie`].
+///
+/// This type can be filled with changes by creating a [`StateOperations`] and committing it.
+/// Multiple [`StateOperations`] can be constructed and operated on at once. At the commit time
+/// this type will ensure that these [`StateOperations`] were accessing disjoint state, thus
+/// ensuring absence of data races.
 pub struct StateUpdate {
     trie: crate::Trie,
     state: Arc<Mutex<StateUpdateState>>,
 }
 
-/// A collection of changes pending a commit to the [`Transaction`].
-pub struct StateUpdateOperation<'su> {
-    /// What version [`Transaction`] was at when this update was created?
+/// A collection of state operations pending an inclusion into a [`StateUpdate`].
+///
+/// The changes include writes but also operations such as reads or key existence checks.
+///
+/// These changes can be rolled back, or discarded, via [`StateOperations::discard`]. This can be
+/// useful in order to avoid side effects (though care must be taken,) or to roll-back changes in
+/// a case of an error.
+pub struct StateOperations<'su> {
+    /// What version [`StateUpdate`] was at when [`StateOperations`] was created?
     ///
-    /// See [`TransactionState::max_clock`]. In particular this state update will fail to commit if
+    /// See [`StateUpdateState::max_clock`]. In particular this state update will fail to commit if
     /// it reads or writes any KV which (at the time of commit) has clock greater than
     /// `clock_created`.
     clock_created: Clock,
@@ -81,7 +93,8 @@ pub struct StateUpdateOperation<'su> {
     state_update: &'su StateUpdate,
     /// All the operations made against the backing transaction or storage data.
     ///
-    /// Can be both reads and writes.
+    /// Can be reads, writes as well as other operations, which will affect how this value would
+    /// get handled when committed or finalized.
     operations: BTreeMap<TrieKey, OperationValue>,
 }
 
@@ -107,9 +120,9 @@ impl StateUpdate {
         }
     }
 
-    pub fn start_update(&self) -> StateUpdateOperation {
+    pub fn start_update(&self) -> StateOperations {
         let state_guard = self.state.lock();
-        StateUpdateOperation {
+        StateOperations {
             clock_created: state_guard.max_clock,
             state_update: self,
             operations: Default::default(),
@@ -121,7 +134,7 @@ impl StateUpdate {
     }
 }
 
-impl<'su> StateUpdateOperation<'su> {
+impl<'su> StateOperations<'su> {
     /// Checks the key for presence.
     ///
     /// Does not read out the value or cache it. Unlike `get` this is also more relaxed with
@@ -449,8 +462,8 @@ impl<'su> StateUpdateOperation<'su> {
     }
 
     /// Start another, parallel update operation.
-    pub fn start_update(&self) -> Self {
-        self.state_update.start_update()
+    pub fn state_update(&self) -> &'su StateUpdate {
+        self.state_update
     }
 
     pub fn trie(&self) -> &crate::Trie {
@@ -459,7 +472,7 @@ impl<'su> StateUpdateOperation<'su> {
 }
 
 // FIXME: these all need some other solution
-impl<'su> StateUpdateOperation<'su> {
+impl<'su> StateOperations<'su> {
     pub fn record_contract_call(
         &mut self,
         _: AccountId,
@@ -477,7 +490,7 @@ impl<'su> StateUpdateOperation<'su> {
 }
 
 #[cfg(debug_assertions)]
-impl<'su> Drop for StateUpdateOperation<'su> {
+impl<'su> Drop for StateOperations<'su> {
     fn drop(&mut self) {
         if !self.operations.is_empty() {
             panic!("StateUpdateOperation is dropped without commiting or discarding contents");
@@ -491,13 +504,15 @@ pub enum TrieKeyPrefix {
     ContractData { account_id: AccountId } = CONTRACT_DATA,
 }
 
-mod state_value {
+pub mod state_value {
     use std::any::Any;
     use std::sync::Arc;
 
     use crate::trie::OptimizedValueRef;
 
     /// A value that can be eventually written out to the database.
+    ///
+    // FIXME: seal this so that implementing this is only possible in this module.
     pub trait StateValue: Any + Send + Sync {
         fn arc(&self) -> Arc<dyn StateValue>;
     }
@@ -538,15 +553,20 @@ mod state_value {
 
 mod state_value_impls {
     use super::StateValue;
+    use crate::trie::outgoing_metadata::{
+        ReceiptGroup, ReceiptGroupsQueueData, ReceiptGroupsQueueDataV0,
+    };
     use near_primitives::account::{AccessKey, Account};
+    use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{
-        PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceivedData,
+        BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
+        Receipt, ReceiptOrStateStoredReceipt, ReceivedData, TrieQueueIndices,
     };
     use std::sync::Arc;
 
     macro_rules! borsh_state_value {
-        ($ty: ident) => {
+        ($ty: ty) => {
             impl StateValue for $ty {
                 fn arc(&self) -> Arc<dyn StateValue> {
                     Arc::new(self.clone())
@@ -556,13 +576,21 @@ mod state_value_impls {
     }
 
     borsh_state_value!(Account);
+    borsh_state_value!(BufferedReceiptIndices);
+    borsh_state_value!(ReceiptGroupsQueueDataV0);
+    borsh_state_value!(ReceiptGroupsQueueData);
+    borsh_state_value!(TrieQueueIndices);
+    borsh_state_value!(DelayedReceiptIndices);
     borsh_state_value!(AccessKey);
     borsh_state_value!(PromiseYieldIndices);
     borsh_state_value!(PromiseYieldTimeout);
     borsh_state_value!(ReceivedData);
     borsh_state_value!(Receipt);
+    borsh_state_value!(ReceiptGroup);
     borsh_state_value!(u32);
     borsh_state_value!(CryptoHash);
+    borsh_state_value!(ReceiptOrStateStoredReceipt<'static>);
+    borsh_state_value!(BandwidthSchedulerState);
 
     impl StateValue for Vec<u8> {
         fn arc(&self) -> Arc<dyn StateValue> {
