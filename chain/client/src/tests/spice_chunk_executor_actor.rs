@@ -44,7 +44,7 @@ use crate::chunk_executor_actor::ExecutorApplyChunksDone;
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::chunk_executor_actor::ProcessedBlock;
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
-use crate::spice_data_distributor_actor::SpiceDistributorOutogingReceipts;
+use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
@@ -85,7 +85,7 @@ where
 #[allow(clippy::large_enum_variant)]
 enum OutgoingMessage {
     NetworkRequests(NetworkRequests),
-    SpiceDistributorOutogingReceipts(SpiceDistributorOutogingReceipts),
+    SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts),
     SpiceDistributorStateWitness(SpiceDistributorStateWitness),
 }
 
@@ -141,11 +141,11 @@ impl TestActor {
             }),
         };
         let data_distributor_adapter = SpiceDataDistributorAdapter {
-            receips: Sender::from_fn({
+            receipts: Sender::from_fn({
                 let outgoing_sc = outgoing_sc.clone();
                 move |message| {
                     outgoing_sc
-                        .unbounded_send(OutgoingMessage::SpiceDistributorOutogingReceipts(message))
+                        .unbounded_send(OutgoingMessage::SpiceDistributorOutgoingReceipts(message))
                         .unwrap();
                 }
             }),
@@ -270,13 +270,13 @@ fn setup_with_non_validator(outgoing_sc: UnboundedSender<OutgoingMessage>) -> [T
     ]
 }
 
-fn simulate_single_ougoing_message(actors: &mut [TestActor], message: &OutgoingMessage) {
+fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &OutgoingMessage) {
     match message {
         OutgoingMessage::NetworkRequests(requests) => match requests {
             NetworkRequests::ChunkEndorsement(..) => {}
             request => unreachable!("{request:?}"),
         },
-        OutgoingMessage::SpiceDistributorOutogingReceipts(SpiceDistributorOutogingReceipts {
+        OutgoingMessage::SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts {
             block_hash,
             receipt_proofs,
         }) => {
@@ -295,10 +295,10 @@ fn simulate_single_ougoing_message(actors: &mut [TestActor], message: &OutgoingM
 
 fn simulate_outgoing_messages(
     actors: &mut [TestActor],
-    outoging_rc: &mut UnboundedReceiver<OutgoingMessage>,
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
 ) {
-    while let Ok(Some(message)) = outoging_rc.try_next() {
-        simulate_single_ougoing_message(actors, &message);
+    while let Ok(Some(message)) = outgoing_rc.try_next() {
+        simulate_single_outgoing_message(actors, &message);
     }
 }
 
@@ -411,7 +411,7 @@ fn record_endorsements(actors: &mut [TestActor], block: &Block) {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_executing_blocks() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(3, outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 5);
     for (i, block) in blocks.iter().enumerate() {
@@ -421,7 +421,7 @@ fn test_executing_blocks() {
                 .handle_with_internal_events(ProcessedBlock { block_hash: *block.header().hash() });
             assert!(block_executed(&actor, &block), "failed to execute block #{}", i + 1);
         }
-        simulate_outgoing_messages(&mut actors, &mut outoging_rc);
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
         record_endorsements(&mut actors, &block);
     }
 }
@@ -429,7 +429,7 @@ fn test_executing_blocks() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_scheduling_same_block_twice() {
-    let (outgoing_sc, _outoging_rc) = unbounded();
+    let (outgoing_sc, _outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 3);
 
@@ -449,7 +449,7 @@ fn test_scheduling_same_block_twice() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_executing_same_block_twice() {
-    let (outgoing_sc, _outoging_rc) = unbounded();
+    let (outgoing_sc, _outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 3);
 
@@ -464,7 +464,7 @@ fn test_executing_same_block_twice() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_execution_result_endorsement_trigger_next_blocks_execution() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 3);
     let fork_block = produce_block(&mut actors, &blocks[0]);
@@ -474,7 +474,7 @@ fn test_execution_result_endorsement_trigger_next_blocks_execution() {
         assert!(block_executed(&actor, &blocks[0]));
     }
 
-    simulate_outgoing_messages(&mut actors, &mut outoging_rc);
+    simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
     record_endorsements(&mut actors, &blocks[0]);
 
     assert!(!block_executed(&actors[0], &blocks[1]));
@@ -489,7 +489,7 @@ fn test_execution_result_endorsement_trigger_next_blocks_execution() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_new_receipts_trigger_next_blocks_execution() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 3);
     let fork_block = produce_block(&mut actors, &blocks[0]);
@@ -503,7 +503,7 @@ fn test_new_receipts_trigger_next_blocks_execution() {
 
     assert!(!block_executed(&actors[0], &blocks[1]));
     assert!(!block_executed(&actors[0], &fork_block));
-    simulate_outgoing_messages(&mut actors, &mut outoging_rc);
+    simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
 
     assert!(block_executed(&actors[0], &blocks[1]));
     assert!(block_executed(&actors[0], &fork_block));
@@ -512,7 +512,7 @@ fn test_new_receipts_trigger_next_blocks_execution() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_executing_without_execution_result() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 3);
 
@@ -520,7 +520,7 @@ fn test_not_executing_without_execution_result() {
         actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
         assert!(block_executed(&actor, &blocks[0]));
     }
-    simulate_outgoing_messages(&mut actors, &mut outoging_rc);
+    simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
 
     actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
     assert!(!block_executed(&actors[0], &blocks[1]));
@@ -529,7 +529,7 @@ fn test_not_executing_without_execution_result() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_executing_without_receipts() {
-    let (outgoing_sc, _outoging_rc) = unbounded();
+    let (outgoing_sc, _outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 3);
 
@@ -546,7 +546,7 @@ fn test_not_executing_without_receipts() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_executing_forks() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 3);
 
@@ -555,7 +555,7 @@ fn test_executing_forks() {
         assert!(block_executed(&actor, &blocks[0]));
     }
 
-    simulate_outgoing_messages(&mut actors, &mut outoging_rc);
+    simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
     record_endorsements(&mut actors, &blocks[0]);
 
     let fork_block = produce_block(&mut actors, &blocks[0]);
@@ -573,7 +573,7 @@ fn test_executing_forks() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_executing_with_bad_receipts() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 3);
 
@@ -583,13 +583,13 @@ fn test_not_executing_with_bad_receipts() {
     }
 
     record_endorsements(&mut actors, &blocks[0]);
-    while let Ok(Some(mut message)) = outoging_rc.try_next() {
-        let OutgoingMessage::SpiceDistributorOutogingReceipts(SpiceDistributorOutogingReceipts {
+    while let Ok(Some(mut message)) = outgoing_rc.try_next() {
+        let OutgoingMessage::SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts {
             receipt_proofs,
             ..
         }) = &mut message
         else {
-            simulate_single_ougoing_message(&mut actors, &message);
+            simulate_single_outgoing_message(&mut actors, &message);
             continue;
         };
         receipt_proofs[0].0.push(Receipt::new_balance_refund(
@@ -597,7 +597,7 @@ fn test_not_executing_with_bad_receipts() {
             ONE_NEAR,
             ReceiptPriority::NoPriority,
         ));
-        simulate_single_ougoing_message(&mut actors, &message);
+        simulate_single_outgoing_message(&mut actors, &message);
     }
 
     actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
@@ -607,7 +607,7 @@ fn test_not_executing_with_bad_receipts() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let genesis = actors[0].chain.genesis_block();
     let first_block = produce_block(&mut actors, &genesis);
@@ -617,13 +617,13 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
         assert!(block_executed(&actor, &first_block));
     }
 
-    while let Ok(Some(mut message)) = outoging_rc.try_next() {
-        let OutgoingMessage::SpiceDistributorOutogingReceipts(SpiceDistributorOutogingReceipts {
+    while let Ok(Some(mut message)) = outgoing_rc.try_next() {
+        let OutgoingMessage::SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts {
             receipt_proofs,
             ..
         }) = &mut message
         else {
-            simulate_single_ougoing_message(&mut actors, &message);
+            simulate_single_outgoing_message(&mut actors, &message);
             continue;
         };
         let mut extra_proof = receipt_proofs[0].clone();
@@ -633,7 +633,7 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
             ReceiptPriority::NoPriority,
         ));
         receipt_proofs.push(extra_proof);
-        simulate_single_ougoing_message(&mut actors, &message);
+        simulate_single_outgoing_message(&mut actors, &message);
     }
     record_endorsements(&mut actors, &first_block);
 
@@ -645,7 +645,7 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_tracking_several_shards() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_non_validator(outgoing_sc);
 
     let blocks = produce_n_blocks(&mut actors, 3);
@@ -663,7 +663,7 @@ fn test_tracking_several_shards() {
                 block.hash(),
             );
         }
-        simulate_outgoing_messages(&mut actors, &mut outoging_rc);
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
         record_endorsements(&mut actors, &block);
     }
 }
@@ -671,7 +671,7 @@ fn test_tracking_several_shards() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_sending_witness_when_not_validator() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_non_validator(outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 3);
     let actor = &mut actors[1];
@@ -680,7 +680,7 @@ fn test_not_sending_witness_when_not_validator() {
     assert!(block_executed(&actor, &blocks[0]));
 
     let mut witnesses = Vec::new();
-    while let Ok(Some(event)) = outoging_rc.try_next() {
+    while let Ok(Some(event)) = outgoing_rc.try_next() {
         let OutgoingMessage::SpiceDistributorStateWitness(SpiceDistributorStateWitness {
             state_witness,
         }) = event
@@ -695,14 +695,14 @@ fn test_not_sending_witness_when_not_validator() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_executing_chain_of_ready_blocks() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_non_validator(outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 5);
 
     for block in &blocks {
         actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
         assert!(block_executed(&actors[0], block));
-        simulate_outgoing_messages(&mut actors, &mut outoging_rc);
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
         record_endorsements(&mut actors, &block);
     }
 
@@ -718,14 +718,14 @@ fn test_executing_chain_of_ready_blocks() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_executing_out_of_order() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_non_validator(outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 5);
 
     for block in &blocks {
         actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
         assert!(block_executed(&actors[0], block));
-        simulate_outgoing_messages(&mut actors, &mut outoging_rc);
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
         record_endorsements(&mut actors, &block);
     }
 
@@ -741,7 +741,7 @@ fn test_not_executing_out_of_order() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_witness_is_valid() {
-    let (outgoing_sc, mut outoging_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_non_validator(outgoing_sc);
 
     let prev_block = actors[0].chain.genesis_block();
@@ -752,7 +752,7 @@ fn test_witness_is_valid() {
     assert!(block_executed(&actor, &block));
 
     let mut count_witnesses = 0;
-    while let Ok(Some(event)) = outoging_rc.try_next() {
+    while let Ok(Some(event)) = outgoing_rc.try_next() {
         let OutgoingMessage::SpiceDistributorStateWitness(SpiceDistributorStateWitness {
             state_witness,
         }) = event

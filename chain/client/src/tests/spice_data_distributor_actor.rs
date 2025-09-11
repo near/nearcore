@@ -51,7 +51,7 @@ use crate::chunk_executor_actor::{
     ExecutorIncomingUnverifiedReceipts, ProcessedBlock, save_receipt_proof,
 };
 use crate::spice_data_distributor_actor::{
-    Error, SpiceDataDistributorActor, SpiceDistributorOutogingReceipts,
+    Error, SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts,
     SpiceDistributorStateWitness,
 };
 
@@ -308,7 +308,7 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
 
     // Separate chain makes sure that receiver doesn't share storage with producers.
     let receiver_chain = new_chain(&chain, &genesis);
-    let mut reciever = new_actor(receiver_messages_sc, &receiver_chain, validator);
+    let mut receiver = new_actor(receiver_messages_sc, &receiver_chain, validator);
     while let Ok(message) = producers_messages_rc.try_recv() {
         let OutgoingMessage::NetworkRequests {
             request: NetworkRequests::SpicePartialData { partial_data, recipients },
@@ -318,7 +318,7 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
             panic!()
         };
         assert!(recipients.contains(validator));
-        reciever.handle(SpiceIncomingPartialData {
+        receiver.handle(SpiceIncomingPartialData {
             data: partial_data.clone(),
             sender: sender.clone(),
         });
@@ -434,18 +434,18 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
         .map(|producer| new_actor(producers_messages_sc.clone(), &chain, producer))
         .collect_vec();
     for producer in &mut producers {
-        producer.handle(SpiceDistributorOutogingReceipts {
+        producer.handle(SpiceDistributorOutgoingReceipts {
             block_hash: *block.hash(),
             receipt_proofs: vec![receipt_proof.clone()],
         })
     }
 
     let (receiver_messages_sc, mut receiver_messages_rc) = unbounded_channel();
-    let reciever_account = &recipient_accounts[0];
+    let receiver_account = &recipient_accounts[0];
 
     // Separate chain makes sure that receiver doesn't share storage with producers.
     let receiver_chain = new_chain(&chain, &genesis);
-    let mut reciever = new_actor(receiver_messages_sc, &receiver_chain, reciever_account);
+    let mut receiver = new_actor(receiver_messages_sc, &receiver_chain, receiver_account);
     while let Ok(message) = producers_messages_rc.try_recv() {
         let OutgoingMessage::NetworkRequests {
             request: NetworkRequests::SpicePartialData { partial_data, recipients },
@@ -454,8 +454,8 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
         else {
             panic!()
         };
-        assert!(recipients.contains(reciever_account));
-        reciever.handle(SpiceIncomingPartialData {
+        assert!(recipients.contains(receiver_account));
+        receiver.handle(SpiceIncomingPartialData {
             data: partial_data.clone(),
             sender: sender.clone(),
         });
@@ -488,7 +488,7 @@ fn test_receipts_are_distributed_to_all_validators_impl(num_chunk_producers: usi
         .map(|producer| new_actor(producers_messages_sc.clone(), &chain, producer))
         .collect_vec();
     for producer in &mut producers {
-        producer.handle(SpiceDistributorOutogingReceipts {
+        producer.handle(SpiceDistributorOutgoingReceipts {
             block_hash: *block.hash(),
             receipt_proofs: vec![receipt_proof.clone()],
         })
@@ -575,7 +575,7 @@ fn receipt_proof_incoming_data(
     let (data, recipient) = get_incoming_data(
         &producer,
         chain,
-        SpiceDistributorOutogingReceipts {
+        SpiceDistributorOutgoingReceipts {
             block_hash: *block.hash(),
             receipt_proofs: vec![receipt_proof],
         },
@@ -791,7 +791,7 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
         let (different_incoming_data, _recipient) = get_incoming_data(
             &producer,
             &chain,
-            SpiceDistributorOutogingReceipts {
+            SpiceDistributorOutgoingReceipts {
                 block_hash: *block.hash(),
                 receipt_proofs: vec![receipt_proof],
             },
@@ -823,7 +823,7 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_to_shard_id() {
         let (different_incoming_data, _recipient) = get_incoming_data(
             &producer,
             &chain,
-            SpiceDistributorOutogingReceipts {
+            SpiceDistributorOutgoingReceipts {
                 block_hash: *block.hash(),
                 receipt_proofs: vec![receipt_proof],
             },

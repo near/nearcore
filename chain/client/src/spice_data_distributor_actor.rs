@@ -116,7 +116,7 @@ impl near_async::messaging::Actor for SpiceDataDistributorActor {}
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct SpiceDataDistributorAdapter {
-    pub receips: Sender<SpiceDistributorOutogingReceipts>,
+    pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub witness: Sender<SpiceDistributorStateWitness>,
 }
 
@@ -137,7 +137,7 @@ impl ReedSolomonEncoderDeserialize for SpiceData {}
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub struct SpiceDistributorOutogingReceipts {
+pub struct SpiceDistributorOutgoingReceipts {
     pub block_hash: CryptoHash,
     pub receipt_proofs: Vec<ReceiptProof>,
 }
@@ -148,13 +148,13 @@ pub struct SpiceDistributorStateWitness {
     pub state_witness: ChunkStateWitness,
 }
 
-impl Handler<SpiceDistributorOutogingReceipts> for SpiceDataDistributorActor {
+impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
     fn handle(
         &mut self,
-        SpiceDistributorOutogingReceipts {
+        SpiceDistributorOutgoingReceipts {
             block_hash,
             receipt_proofs,
-        }: SpiceDistributorOutogingReceipts,
+        }: SpiceDistributorOutgoingReceipts,
     ) {
         for proof in receipt_proofs {
             let data_id = SpiceDataIdentifier::ReceiptProof {
@@ -194,7 +194,7 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
         let data_id = data.id.clone();
         let commitment = data.commitment.clone();
         if let Err(err) = self.receive_data(data, sender) {
-            // TODO(spice): Implement banning or deprioritization of nodes from which we receive
+            // TODO(spice): Implement banning or de-prioritization of nodes from which we receive
             // invalid data.
             tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "failed to handle receiving partial data");
         }

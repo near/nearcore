@@ -61,7 +61,7 @@ use tracing::instrument;
 
 use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
-use crate::spice_data_distributor_actor::SpiceDistributorOutogingReceipts;
+use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
@@ -449,7 +449,7 @@ impl ChunkExecutorActor {
         let block_hash = *block.hash();
         tracing::debug!(target: "chunk_executor", %block_hash, ?receipt_proofs, "sending outgoing receipts");
         self.data_distributor_adapter
-            .send(SpiceDistributorOutogingReceipts { block_hash, receipt_proofs });
+            .send(SpiceDistributorOutgoingReceipts { block_hash, receipt_proofs });
     }
 
     fn process_apply_chunk_results(
@@ -786,7 +786,7 @@ impl ChunkExecutorActor {
                 receipts.verify(&execution_results)?
             }
             ReceiptVerificationContext::NotReady => {
-                tracing::debug!(target: "chunk_executor", %block_hash, "not yet ready for verificaiton of receipts");
+                tracing::debug!(target: "chunk_executor", %block_hash, "not yet ready for verification of receipts");
                 self.pending_unverified_receipts.entry(block_hash).or_default().push(receipts);
                 return Ok(());
             }

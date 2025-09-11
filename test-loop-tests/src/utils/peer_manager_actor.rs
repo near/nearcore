@@ -12,7 +12,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::BlockHeader;
-use near_client::spice_data_distributor_actor::SpiceDistributorOutogingReceipts;
+use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
@@ -67,7 +67,7 @@ pub struct ViewClientSenderForTestLoopNetwork {
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct SpiceDataDistributorSenderForTestLoopNetwork {
-    pub receips: Sender<SpiceDistributorOutogingReceipts>,
+    pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub incoming_data: Sender<SpiceIncomingPartialData>,
 }
 
