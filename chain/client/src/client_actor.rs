@@ -236,6 +236,8 @@ pub fn start_client(
         noop().into_sender(),
         // TODO(spice): Pass in spice_chunk_validator_sender.
         noop().into_sender(),
+        // TODO(spice): Pass in spice_data_distributor_sender.
+        noop().into_sender(),
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
@@ -312,6 +314,11 @@ pub struct ClientActorInner {
     /// needs to be aware of new blocks.
     /// Without spice should be a noop sender.
     spice_chunk_validator_sender: Sender<ProcessedBlock>,
+
+    /// With spice spice data distributor receives spice data; for that it requires block
+    /// information. Since data may arrive before blocks it needs to be aware of new blocks.
+    /// Without spice should be a noop sender.
+    spice_data_distributor_sender: Sender<ProcessedBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -387,6 +394,7 @@ impl ClientActorInner {
         sync_jobs_sender: SyncJobsSenderForClient,
         chunk_executor_sender: Sender<ProcessedBlock>,
         spice_chunk_validator_sender: Sender<ProcessedBlock>,
+        spice_data_distributor_sender: Sender<ProcessedBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -427,6 +435,7 @@ impl ClientActorInner {
             sync_jobs_sender,
             chunk_executor_sender,
             spice_chunk_validator_sender,
+            spice_data_distributor_sender,
         })
     }
 }
@@ -1502,6 +1511,7 @@ impl ClientActorInner {
             self.check_send_announce_account(*block.header().last_final_block());
             self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
+            self.spice_data_distributor_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.client.chain.spice_core_processor.send_execution_result_endorsements(&block);
         }
     }
