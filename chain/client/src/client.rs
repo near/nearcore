@@ -963,10 +963,10 @@ impl Client {
         skip_all,
         fields(
             me = ?self.validator_signer.get().as_ref().map(|vs| vs.validator_id()),
-            prev_hash = ?block.header().prev_hash(),
-            hash = ?block.hash(),
+            prev_hash = %block.header().prev_hash(),
+            hash = %block.hash(),
             height = block.header().height(),
-            ?peer_id,
+            %peer_id,
             was_requested
         )
     )]
@@ -1011,7 +1011,7 @@ impl Client {
         level = "debug",
         target = "client",
         skip_all,
-        fields(was_requested, ?peer_id)
+        fields(was_requested, %peer_id)
     )]
     pub fn receive_block_impl(
         &mut self,
@@ -1485,7 +1485,7 @@ impl Client {
         target = "client",
         skip_all,
         fields(
-            ?block_hash,
+            %block_hash,
             ?status,
             ?provenance,
             skip_produce_chunk,
@@ -1695,7 +1695,7 @@ impl Client {
     // Produce new chunks
     #[instrument(target = "client", level = "debug", skip_all, fields(
         height = block.header().height() + 1, // next_height, the height of produced chunk
-        prev_block_hash = ?block.hash(),
+        prev_block_hash = %block.hash(),
         tag_block_production = true,
         validator_id = ?signer.validator_id(),
         tag_block_production = true,
@@ -1768,7 +1768,7 @@ impl Client {
     }
 
     #[instrument(target = "client", level = "debug", skip_all, fields(
-        height = %chunk.to_shard_chunk().height_created(),
+        height = chunk.to_shard_chunk().height_created(),
         shard_id = %chunk.to_shard_chunk().shard_id(),
         chunk_hash = ?chunk.to_shard_chunk().chunk_hash(),
         tag_block_production = true,
@@ -2192,7 +2192,7 @@ impl Client {
         level = "debug",
         target = "client",
         skip_all,
-        fields(?hash, ?peer_id)
+        fields(%hash, %peer_id)
     )]
     pub fn request_block(&self, hash: CryptoHash, peer_id: PeerId) {
         match self.chain.block_exists(&hash) {
