@@ -753,24 +753,18 @@ impl RuntimeAdapter for NightshadeRuntime {
                     assert_eq!(validated_tx.signer_id(), id);
                     (signer, key)
                 } else {
-                    let (signer_result, access_key_result) = rayon::join(
-                        || {
-                            get_account(&state_update, validated_tx.signer_id())
-                                .transpose()
-                                .and_then(|v| v.ok())
-                                .ok_or(Error::InvalidTransactions)
-                        },
-                        || {
-                            get_access_key(
-                                &state_update,
-                                validated_tx.signer_id(),
-                                validated_tx.public_key(),
-                            )
-                            .transpose()
-                            .and_then(|v| v.ok())
-                            .ok_or(Error::InvalidTransactions)
-                        },
-                    );
+                    let signer_result = get_account(&state_update, validated_tx.signer_id())
+                        .transpose()
+                        .and_then(|v| v.ok())
+                        .ok_or(Error::InvalidTransactions);
+                    let access_key_result = get_access_key(
+                        &state_update,
+                        validated_tx.signer_id(),
+                        validated_tx.public_key(),
+                    )
+                    .transpose()
+                    .and_then(|v| v.ok())
+                    .ok_or(Error::InvalidTransactions);
                     let inserted = signer_access_key.insert((
                         validated_tx.signer_id().clone(),
                         signer_result?,
