@@ -260,16 +260,20 @@ async fn apply_state_part(
     epoch_id: EpochId,
     protocol_version: ProtocolVersion,
 ) -> anyhow::Result<(), near_chain::Error> {
+    let key = StatePartKey(sync_hash, shard_id, part_id);
+    let key_bytes = borsh::to_vec(&key).unwrap();
+    let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes)?;
+    if already_applied {
+        tracing::debug!(target: "sync", ?key, "State part already applied, skipping");
+        return Ok(());
+    }
     return_if_cancelled!(cancel);
     let handle =
         computation_task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
     return_if_cancelled!(cancel);
     handle.set_status("Loading part data from store");
     let bytes = store
-        .get(
-            DBCol::StateParts,
-            &borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap(),
-        )?
+        .get(DBCol::StateParts, &key_bytes)?
         .ok_or_else(|| {
             near_chain::Error::DBNotFoundErr(format!(
                 "No state part {} for shard {}",
@@ -286,5 +290,11 @@ async fn apply_state_part(
         &state_part,
         &epoch_id,
     )?;
+
+    // Mark part as applied.
+    let mut store_update = store.store_update();
+    store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true)?;
+    store_update.commit()?;
+
     Ok(())
 }

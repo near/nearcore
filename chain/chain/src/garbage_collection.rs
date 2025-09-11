@@ -1108,7 +1108,7 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ChunkHashesByHeight => {
                 store_update.delete(col, key);
             }
-            DBCol::StateParts => {
+            DBCol::StateParts | DBCol::StatePartsApplied => {
                 store_update.delete(col, key);
             }
             DBCol::State => {
