@@ -296,16 +296,24 @@ impl ChunkProducer {
             };
             let prev_chunk_shard_update_key: CachedShardUpdateKey =
                 Chain::get_cached_shard_update_key(&prev_block_context, &chunks, shard_id).unwrap();
+
             match self.prepare_txs_jobs.get(&prev_chunk_shard_update_key) {
                 Some(job) => match &*job.get_results() {
                     Ok(txs) => {
+                        let is_resharding = self
+                            .epoch_manager
+                            .is_resharding_boundary(prev_block.header().hash())?;
+
                         tracing::warn!(
                             target: "client",
                             %next_height,
                             %shard_id,
+                            ?prev_chunk_shard_update_key,
+                            %is_resharding,
+                            num_txs = txs.transactions.len(),
                             "Using cached prepared transactions",
                         );
-                        Some(txs.clone())
+                        if is_resharding { None } else { Some(txs.clone()) }
                     }
                     Err(err) => {
                         tracing::error!("Error preparing txs! {:?}", err);
@@ -344,6 +352,14 @@ impl ChunkProducer {
                 )?,
             }
         };
+
+        tracing::warn!(
+            target: "client",
+            %next_height,
+            %shard_id,
+            num_txs = prepared_transactions.transactions.len(),
+            "Prepared transactions",
+        );
 
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
