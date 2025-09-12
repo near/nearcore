@@ -220,12 +220,14 @@ impl ForkNetworkCommand {
         let mut near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {e:#}"));
 
-        let sys = actix::System::new();
-        sys.block_on(async move {
+        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        tokio_runtime.block_on(async move {
             self.run_impl(&mut near_config, verbose_target, o11y_opts, home_dir).await.unwrap();
             near_async::shutdown_all_actors();
         });
-        sys.run().unwrap();
         tracing::info!("Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
         tracing::info!("exit");

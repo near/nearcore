@@ -54,9 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{
-    CloudStorageConfig, STATE_SNAPSHOT_DIR, SplitStorageConfig, StateSnapshotType,
-};
+use near_store::config::{CloudStorageConfig, SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -785,9 +783,7 @@ impl NightshadeRuntime {
         let state_snapshot_config =
             match config.config.store.state_snapshot_config.state_snapshot_type {
                 StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
-                    home_dir,
-                    config.config.store.path.as_ref().unwrap_or(&"data".into()),
-                    STATE_SNAPSHOT_DIR,
+                    home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into())),
                 ),
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };

@@ -147,7 +147,7 @@ static ACTOR_SYSTEMS: Mutex<Vec<ActorSystem>> = Mutex::new(Vec::new());
 /// and only up to one ActorSystem.
 /// TODO(#14005): Ideally, shutting down actors should not be done by calling a global function.
 pub fn shutdown_all_actors() {
-    ::actix::System::current().stop();
+    ::actix::System::try_current().map(|system| system.stop());
     {
         let systems = ACTOR_SYSTEMS.lock();
         if systems.len() > 1 {

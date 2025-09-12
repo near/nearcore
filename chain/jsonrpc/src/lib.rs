@@ -8,20 +8,29 @@ use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use axum::http::{Method, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
-use near_async::actix::ActixResult;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
     AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
 };
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
-    DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig, GetExecutionOutcome,
-    GetGasPrice, GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig,
-    GetReceipt, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-    ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, Status, TxStatus,
+    DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetClientConfig,
+    GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice, GetMaintenanceWindows,
+    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
+    ProcessTxResponse, Query as ClientQuery, QueryError, Status, StatusResponse, TxStatus,
+    TxStatusError,
 };
-use near_client_primitives::debug::{DebugBlockStatusQuery, DebugBlocksStartingMode};
-use near_client_primitives::types::GetSplitStorageInfo;
+use near_client_primitives::debug::{
+    DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
+};
+use near_client_primitives::types::{
+    GetBlockError, GetBlockProofError, GetChunkError, GetClientConfigError,
+    GetExecutionOutcomeError, GetGasPriceError, GetMaintenanceWindowsError,
+    GetNextLightClientBlockError, GetProtocolConfigError, GetReceiptError, GetSplitStorageInfo,
+    GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError, NetworkInfoResponse,
+    StatusError,
+};
 pub use near_jsonrpc_client_internal as client;
 pub use near_jsonrpc_primitives as primitives;
 use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
@@ -43,7 +52,12 @@ use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference};
-use near_primitives::views::{QueryRequest, TxExecutionStatus};
+use near_primitives::views::validator_stake_view::ValidatorStakeView;
+use near_primitives::views::{
+    BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
+};
 use serde_json::{Value, json};
 use std::future::Future;
 use std::net::SocketAddr;
@@ -234,61 +248,56 @@ fn process_query_response(
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ProcessTxSenderForRpc(
-    AsyncSender<ProcessTxRequest, ActixResult<ProcessTxRequest>>,
+    AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     Sender<ProcessTxRequest>,
 );
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ClientSenderForRpc(
-    AsyncSender<DebugStatus, ActixResult<DebugStatus>>,
-    AsyncSender<SpanWrapped<GetClientConfig>, ActixResult<GetClientConfig>>,
-    AsyncSender<SpanWrapped<GetNetworkInfo>, ActixResult<GetNetworkInfo>>,
-    AsyncSender<SpanWrapped<Status>, ActixResult<Status>>,
+    AsyncSender<DebugStatus, Result<DebugStatusResponse, StatusError>>,
+    AsyncSender<SpanWrapped<GetClientConfig>, Result<ClientConfig, GetClientConfigError>>,
+    AsyncSender<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>,
+    AsyncSender<SpanWrapped<Status>, Result<StatusResponse, StatusError>>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
     #[cfg(feature = "test_features")]
-    AsyncSender<
-        near_client::NetworkAdversarialMessage,
-        ActixResult<near_client::NetworkAdversarialMessage>,
-    >,
+    AsyncSender<near_client::NetworkAdversarialMessage, Option<u64>>,
     #[cfg(feature = "sandbox")]
     AsyncSender<
         near_client_primitives::types::SandboxMessage,
-        ActixResult<near_client_primitives::types::SandboxMessage>,
+        near_client_primitives::types::SandboxResponse,
     >,
 );
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ViewClientSenderForRpc(
-    AsyncSender<GetBlock, ActixResult<GetBlock>>,
-    AsyncSender<GetBlockProof, ActixResult<GetBlockProof>>,
-    AsyncSender<GetChunk, ActixResult<GetChunk>>,
-    AsyncSender<GetExecutionOutcome, ActixResult<GetExecutionOutcome>>,
-    AsyncSender<GetGasPrice, ActixResult<GetGasPrice>>,
-    AsyncSender<GetMaintenanceWindows, ActixResult<GetMaintenanceWindows>>,
-    AsyncSender<GetNextLightClientBlock, ActixResult<GetNextLightClientBlock>>,
-    AsyncSender<GetProtocolConfig, ActixResult<GetProtocolConfig>>,
-    AsyncSender<GetReceipt, ActixResult<GetReceipt>>,
-    AsyncSender<GetSplitStorageInfo, ActixResult<GetSplitStorageInfo>>,
-    AsyncSender<GetStateChanges, ActixResult<GetStateChanges>>,
-    AsyncSender<GetStateChangesInBlock, ActixResult<GetStateChangesInBlock>>,
-    AsyncSender<GetValidatorInfo, ActixResult<GetValidatorInfo>>,
-    AsyncSender<GetValidatorOrdered, ActixResult<GetValidatorOrdered>>,
-    AsyncSender<ClientQuery, ActixResult<ClientQuery>>,
-    AsyncSender<TxStatus, ActixResult<TxStatus>>,
+    AsyncSender<GetBlock, Result<BlockView, GetBlockError>>,
+    AsyncSender<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>>,
+    AsyncSender<GetChunk, Result<ChunkView, GetChunkError>>,
+    AsyncSender<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>,
+    AsyncSender<GetGasPrice, Result<GasPriceView, GetGasPriceError>>,
+    AsyncSender<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanceWindowsError>>,
+    AsyncSender<
+        GetNextLightClientBlock,
+        Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>,
+    >,
+    AsyncSender<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>,
+    AsyncSender<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>>,
+    AsyncSender<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>,
+    AsyncSender<GetStateChanges, Result<StateChangesView, GetStateChangesError>>,
+    AsyncSender<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChangesError>>,
+    AsyncSender<GetValidatorInfo, Result<EpochValidatorInfo, GetValidatorInfoError>>,
+    AsyncSender<GetValidatorOrdered, Result<Vec<ValidatorStakeView>, GetValidatorInfoError>>,
+    AsyncSender<ClientQuery, Result<QueryResponse, QueryError>>,
+    AsyncSender<TxStatus, Result<TxStatusView, TxStatusError>>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
 );
 
 #[cfg(feature = "test_features")]
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
-pub struct GCSenderForRpc(
-    AsyncSender<
-        near_client::gc_actor::NetworkAdversarialMessage,
-        ActixResult<near_client::gc_actor::NetworkAdversarialMessage>,
-    >,
-);
+pub struct GCSenderForRpc(AsyncSender<near_client::gc_actor::NetworkAdversarialMessage, ()>);
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
-pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, ActixResult<GetDebugStatus>>);
+pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, near_network::debug::DebugStatus>);
 
 struct JsonRpcHandler {
     client_sender: ClientSenderForRpc,

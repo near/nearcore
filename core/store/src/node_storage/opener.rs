@@ -1,9 +1,11 @@
 use crate::archive::cloud_storage::CloudStorageOpener;
-use crate::config::{CloudStorageConfig, STATE_SNAPSHOT_DIR, StateSnapshotType};
+use crate::config::{CloudStorageConfig, StateSnapshotType};
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
-use crate::{DBCol, DBTransaction, Mode, NodeStorage, Store, StoreConfig, Temperature};
+use crate::{
+    DBCol, DBTransaction, Mode, NodeStorage, StateSnapshotConfig, Store, StoreConfig, Temperature,
+};
 use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
@@ -274,7 +276,11 @@ impl<'a> StoreOpener<'a> {
         }
 
         let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
-            StateSnapshotType::Enabled => self.hot.path.join(STATE_SNAPSHOT_DIR),
+            StateSnapshotType::Enabled => {
+                // At this point, the self.hot.path was built from home_dir and store_config.path.
+                let config = StateSnapshotConfig::enabled(&self.hot.path);
+                config.state_snapshots_dir().unwrap().to_path_buf()
+            }
             StateSnapshotType::Disabled => {
                 tracing::debug!(target: "db_opener", "State snapshots are disabled, skipping state snapshots migration");
                 return Ok(());
@@ -290,6 +296,7 @@ impl<'a> StoreOpener<'a> {
             return Ok(());
         }
 
+        let config = StoreConfig::state_snapshot_store_config();
         for entry in std::fs::read_dir(state_snapshots_dir)? {
             let entry = entry?;
             let snapshot_path = entry.path();
@@ -302,7 +309,7 @@ impl<'a> StoreOpener<'a> {
                 continue;
             }
 
-            let opener = NodeStorage::opener(&snapshot_path, &self.hot.config, None, None)
+            let opener = NodeStorage::opener(&snapshot_path, &config, None, None)
                 .with_migrator(self.migrator.unwrap());
             let _ = opener.open_in_mode(Mode::ReadWrite)?;
         }
@@ -675,8 +682,8 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
         .map_err(StoreOpenerError::CheckpointError)?;
 
     // As only path from config is used in StoreOpener, default config with custom path will do.
-    let mut config = StoreConfig::default();
-    config.path = Some(checkpoint_path);
+    let config =
+        StoreConfig { path: Some(checkpoint_path), ..StoreConfig::state_snapshot_store_config() };
     let opener = NodeStorage::opener(checkpoint_base_path, &config, None, None);
     // This will create all the column families that were dropped by create_checkpoint(),
     // but all the data and associated files that were in them previously should be gone.

@@ -6,7 +6,6 @@ use near_chain_configs::{
 };
 use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
-use near_store::config::STATE_SNAPSHOT_DIR;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 
@@ -31,7 +30,7 @@ impl NightshadeRuntime {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig::enabled(home_dir, "data", STATE_SNAPSHOT_DIR),
+            StateSnapshotConfig::enabled(home_dir.join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
         )
     }
@@ -56,7 +55,7 @@ impl NightshadeRuntime {
             runtime_config_store,
             gc_num_epochs_to_keep,
             trie_config,
-            StateSnapshotConfig::enabled(home_dir, "data", STATE_SNAPSHOT_DIR),
+            StateSnapshotConfig::enabled(home_dir.join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
         )
     }

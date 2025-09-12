@@ -417,7 +417,9 @@ async fn account_balance(
 
     let account_id = account_identifier.address.clone().into();
     let (block_hash, block_height, account_info) =
-        match crate::utils::query_account(block_id, account_id, &state.view_client_addr).await {
+        match crate::utils::query_account(block_id, account_id, state.view_client_addr.clone())
+            .await
+        {
             Ok(account_info_response) => account_info_response,
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,

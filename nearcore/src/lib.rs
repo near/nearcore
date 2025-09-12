@@ -5,9 +5,7 @@ use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
 
 use crate::state_sync::StateSyncDumper;
-use actix_rt::ArbiterHandle;
 use anyhow::Context;
-use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -60,6 +58,7 @@ mod metrics;
 pub mod migrations;
 pub mod state_sync;
 use near_async::ActorSystem;
+use near_async::futures::FutureSpawner;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::ClientActorInner;
@@ -224,7 +223,6 @@ pub struct NearNode {
     pub rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: TokioRuntimeHandle<GeneratorActorImpl>,
-    pub arbiters: Vec<ArbiterHandle>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
@@ -233,8 +231,6 @@ pub struct NearNode {
     // A handle that allows the main process to interrupt resharding if needed.
     // This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
-    // The threads that state sync runs in.
-    pub state_sync_runtime: Arc<tokio::runtime::Runtime>,
     /// Shard tracker, allows querying of which shards are tracked by this node.
     pub shard_tracker: ShardTracker,
 }
@@ -257,26 +253,16 @@ pub fn start_with_config_and_synchronization(
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &mut config)?;
-    let db_metrics_arbiter = if config.client_config.enable_statistics_export {
+    if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
-        let db_metrics_arbiter_handle = spawn_db_metrics_loop(&storage, period)?;
-        Some(db_metrics_arbiter_handle)
-    } else {
-        None
-    };
+        spawn_db_metrics_loop(actor_system.clone(), &storage, period);
+    }
 
     let epoch_manager = EpochManager::new_arc_handle(
         storage.get_hot_store(),
         &config.genesis.config,
         Some(home_dir),
     );
-
-    let trie_metrics_arbiter = spawn_trie_metrics_loop(
-        config.clone(),
-        storage.get_hot_store(),
-        config.client_config.log_summary_period,
-        epoch_manager.clone(),
-    )?;
 
     let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
@@ -287,6 +273,15 @@ pub fn start_with_config_and_synchronization(
         &config.genesis,
         &genesis_epoch_config,
         Some(home_dir),
+    );
+
+    // Spawn this after initializing genesis, or else the metrics may fail to be exported.
+    spawn_trie_metrics_loop(
+        actor_system.clone(),
+        config.clone(),
+        storage.get_hot_store(),
+        config.client_config.log_summary_period,
+        epoch_manager.clone(),
     );
 
     let shard_tracker = ShardTracker::new(
@@ -445,10 +440,8 @@ pub fn start_with_config_and_synchronization(
         resharding_handle.clone(),
         config.client_config.resharding_config.clone(),
     ));
-    let state_sync_runtime =
-        Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
-    let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone()));
+    let state_sync_spawner: Arc<dyn FutureSpawner> = actor_system.new_future_spawner().into();
     let StartClientResult {
         client_actor,
         tx_pool,
@@ -582,11 +575,6 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let mut arbiters = vec![trie_metrics_arbiter];
-    if let Some(db_metrics_arbiter) = db_metrics_arbiter {
-        arbiters.push(db_metrics_arbiter);
-    }
-
     #[cfg(feature = "tx_generator")]
     let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
         actor_system.clone(),
@@ -605,11 +593,9 @@ pub fn start_with_config_and_synchronization(
         rpc_handler,
         #[cfg(feature = "tx_generator")]
         tx_generator,
-        arbiters,
         cold_store_loop_handle,
         state_sync_dumper,
         resharding_handle,
-        state_sync_runtime,
         shard_tracker,
     })
 }
