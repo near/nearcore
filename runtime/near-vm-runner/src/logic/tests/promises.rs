@@ -82,7 +82,7 @@ fn test_promise_batch_action_function_call() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -139,7 +139,7 @@ fn test_promise_batch_action_function_call() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -200,7 +200,7 @@ fn test_promise_batch_action_create_account() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -269,7 +269,7 @@ fn test_promise_batch_action_deploy_contract() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -346,7 +346,7 @@ fn test_promise_batch_action_deploy_global_contract() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -432,7 +432,7 @@ fn test_promise_batch_action_use_global_contract() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -506,7 +506,7 @@ fn test_promise_batch_action_transfer() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -581,7 +581,7 @@ fn test_promise_batch_action_stake() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -679,7 +679,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }
@@ -766,7 +766,7 @@ fn test_promise_batch_then() {
                 103,
                 115
               ],
-              "attached_deposit": 0,
+              "attached_deposit": "0",
               "prepaid_gas": 0,
               "gas_weight": 0
             }

@@ -3736,7 +3736,11 @@ impl std::fmt::Debug for VMOutcome {
         write!(
             f,
             "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
-            self.balance.as_yoctonear(), self.storage_usage, return_data_str, self.burnt_gas.as_gas(), self.used_gas.as_gas()
+            self.balance.as_yoctonear(),
+            self.storage_usage,
+            return_data_str,
+            self.burnt_gas.as_gas(),
+            self.used_gas.as_gas()
         )?;
         if let Some(err) = &self.aborted {
             write!(f, " failed with {err}")?;

@@ -718,7 +718,7 @@ fn test_create_account_with_transfer_and_full_key() {
      actions,
      a0, Action::CreateAccount(CreateAccountAction{}), {},
      a1, Action::Transfer(TransferAction{deposit}), {
-         assert_eq!(*deposit, Balance::from_millinear(10));
+         assert_eq!(*deposit, Balance::from_near(10));
      },
      a2, Action::AddKey(add_key_action), {
          assert_eq!(add_key_action.public_key, signer_new_account.public_key());
@@ -752,13 +752,13 @@ fn test_account_factory() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": (TESTING_INIT_BALANCE.checked_div(2).unwrap()).to_string(),
+            "amount": serde_json::to_string(&TESTING_INIT_BALANCE.checked_div(2).unwrap()).unwrap(),
         }, "id": 0 },
         {"action_add_key_with_function_call": {
             "promise_index": 0,
             "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
             "nonce": 0,
-            "allowance": (TESTING_INIT_BALANCE.checked_div(2).unwrap()).to_string(),
+            "allowance": serde_json::to_string(&TESTING_INIT_BALANCE.checked_div(2).unwrap()).unwrap(),
             "receiver_id": "near_1",
             "method_names": "call_promise,hello"
         }, "id": 0 },
@@ -925,7 +925,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": (TESTING_INIT_BALANCE.checked_div(2).unwrap()).to_string(),
+            "amount": serde_json::to_string(&TESTING_INIT_BALANCE.checked_div(2).unwrap()).unwrap(),
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
@@ -1075,7 +1075,7 @@ fn test_transfer_64len_hex() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": (TESTING_INIT_BALANCE.checked_div(2).unwrap()).to_string(),
+            "amount": serde_json::to_string(&TESTING_INIT_BALANCE.checked_div(2).unwrap()).unwrap(),
         }, "id": 0 },
     ]);
 
@@ -1153,7 +1153,7 @@ fn test_create_transfer_64len_hex_fail() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": (TESTING_INIT_BALANCE.checked_div(2).unwrap()).to_string(),
+            "amount": serde_json::to_string(&TESTING_INIT_BALANCE.checked_div(2).unwrap()).unwrap(),
         }, "id": 0 },
     ]);
 
