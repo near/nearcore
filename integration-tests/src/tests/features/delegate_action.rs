@@ -800,7 +800,7 @@ fn assert_ft_balance(
         .view_call(ft_contract, "ft_balance_of", format!(r#"{{"account_id":"{user}"}}"#).as_bytes())
         .expect("view call failed");
     let balance = std::str::from_utf8(&response.result).expect("invalid UTF8");
-    assert_eq!(format!("\"{expected_balance}\""), balance);
+    assert_eq!(format!("\"{}\"", expected_balance), balance);
 }
 
 /// Create a test setup where a receiver has the general test contract
