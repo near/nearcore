@@ -16,7 +16,7 @@ use node_runtime::SignedValidPeriodTransactions;
 
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct NewChunkResult {
     pub shard_uid: ShardUId,
     pub gas_limit: Gas,
@@ -25,7 +25,7 @@ pub struct NewChunkResult {
 
 /// Result of updating a shard for some block when it doesn't have a new chunk
 /// for this shard, so previous chunk header is copied.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct OldChunkResult {
     pub shard_uid: ShardUId,
     /// Note that despite the naming, no transactions are applied in this case.
@@ -34,7 +34,7 @@ pub struct OldChunkResult {
 }
 
 /// Result for a shard update for a single block.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ShardUpdateResult {
     NewChunk(NewChunkResult),
     OldChunk(OldChunkResult),
