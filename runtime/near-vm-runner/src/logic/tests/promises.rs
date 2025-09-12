@@ -514,7 +514,7 @@ fn test_promise_batch_action_transfer() {
           {
             "Transfer": {
               "receipt_index": 0,
-              "deposit": 110
+              "deposit": "110"
             }
           }
         ]"#]]
@@ -589,7 +589,7 @@ fn test_promise_batch_action_stake() {
           {
             "Stake": {
               "receipt_index": 0,
-              "stake": 110,
+              "stake": "110",
               "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
             }
           }
@@ -689,7 +689,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
               "receipt_index": 0,
               "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf",
               "nonce": 1,
-              "allowance": 999,
+              "allowance": "999",
               "receiver_id": "sam",
               "method_names": [
                 [

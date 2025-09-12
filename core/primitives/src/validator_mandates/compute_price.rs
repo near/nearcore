@@ -254,8 +254,8 @@ mod tests {
     fn count_whole_mandates(stakes: &[Balance], mandate_price: Balance) -> usize {
         stakes
             .iter()
-            .fold(Balance::ZERO, |_sum, item| {
-                item.checked_div(mandate_price.as_yoctonear()).unwrap()
+            .fold(Balance::ZERO, |sum, item| {
+                sum.checked_add(item.checked_div(mandate_price.as_yoctonear()).unwrap()).unwrap()
             })
             .as_yoctonear() as usize
     }
