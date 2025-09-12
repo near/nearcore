@@ -333,7 +333,7 @@ pub struct Config {
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
-    /// Configuration for cloud-based archival node.
+    /// Configuration for a cloud-based archival node.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloud_archival: Option<CloudArchivalConfig>,
     /// Options for epoch sync

@@ -234,20 +234,20 @@ impl<'a> ConfigValidator<'a> {
         }
         if cloud_archival.is_archival_reader && self.config.cold_store.is_none() {
             let error_message =
-                "`cloud_archival` is configured in the reader node but `cold_store` is missing."
+                "`cloud_archival` is configured in reader mode, but `cold_store` is missing."
                     .to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
         if !cloud_archival.is_archival_reader && self.config.rpc.is_some() {
             let error_message =
-                "`cloud_archival` isn't configured in the reader node but `rpc` is enabled."
+                "`cloud_archival` is not configured in reader mode, yet `rpc` is enabled."
                     .to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
         let tracked_shards = self.config.tracked_shards_config();
         if cloud_archival.is_archival_reader && !tracked_shards.tracks_all_shards() {
             let error_message =
-                "`cloud_archival` is configured in the reader node but it does not track all shards".to_string();
+                "`cloud_archival` is configured in reader mode, but it does not track all shards.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
@@ -259,7 +259,7 @@ impl<'a> ConfigValidator<'a> {
             && !archival_writer.archive_block_data
         {
             let error_message =
-                "`cloud_archival` must track a shard unless it's meant to `archive_block_data` only".to_string();
+                "`cloud_archival` must track at least one shard unless it is configured to `archive_block_data` only.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
     }
