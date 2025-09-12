@@ -1,51 +1,45 @@
+use near_async::messaging;
 use near_network::types::{
     PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo, StateSyncEvent,
     Tier3Request,
 };
 
 pub struct PeerManagerMock {
-    handle: Box<
-        dyn FnMut(
-            PeerManagerMessageRequest,
-            &mut actix::Context<Self>,
-        ) -> PeerManagerMessageResponse,
-    >,
+    handle: Box<dyn FnMut(PeerManagerMessageRequest) -> PeerManagerMessageResponse + Send>,
 }
 
 impl PeerManagerMock {
     pub(crate) fn new(
-        f: impl 'static
-        + FnMut(
-            PeerManagerMessageRequest,
-            &mut actix::Context<Self>,
-        ) -> PeerManagerMessageResponse,
+        f: impl 'static + FnMut(PeerManagerMessageRequest) -> PeerManagerMessageResponse + Send,
     ) -> Self {
         Self { handle: Box::new(f) }
     }
 }
 
-impl actix::Actor for PeerManagerMock {
-    type Context = actix::Context<Self>;
-}
+impl messaging::Actor for PeerManagerMock {}
 
-impl actix::Handler<PeerManagerMessageRequest> for PeerManagerMock {
-    type Result = PeerManagerMessageResponse;
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
-        (self.handle)(msg, ctx)
+impl messaging::Handler<PeerManagerMessageRequest> for PeerManagerMock {
+    fn handle(&mut self, msg: PeerManagerMessageRequest) {
+        messaging::Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(
+            self, msg,
+        );
     }
 }
 
-impl actix::Handler<SetChainInfo> for PeerManagerMock {
-    type Result = ();
-    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
+impl messaging::Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for PeerManagerMock {
+    fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
+        (self.handle)(msg)
+    }
 }
 
-impl actix::Handler<StateSyncEvent> for PeerManagerMock {
-    type Result = ();
-    fn handle(&mut self, _msg: StateSyncEvent, _ctx: &mut Self::Context) {}
+impl messaging::Handler<SetChainInfo> for PeerManagerMock {
+    fn handle(&mut self, _msg: SetChainInfo) {}
 }
 
-impl actix::Handler<Tier3Request> for PeerManagerMock {
-    type Result = ();
-    fn handle(&mut self, _msg: Tier3Request, _ctx: &mut Self::Context) {}
+impl messaging::Handler<StateSyncEvent> for PeerManagerMock {
+    fn handle(&mut self, _msg: StateSyncEvent) {}
+}
+
+impl messaging::Handler<Tier3Request> for PeerManagerMock {
+    fn handle(&mut self, _msg: Tier3Request) {}
 }

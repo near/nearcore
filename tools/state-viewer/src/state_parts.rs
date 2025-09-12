@@ -129,8 +129,11 @@ impl StatePartsSubCommand {
         )
         .unwrap();
         let chain_id = &near_config.genesis.config.chain_id;
-        let sys = actix::System::new();
-        sys.block_on(async move {
+        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        tokio_runtime.block_on(async move {
             match self {
                 StatePartsSubCommand::Load {
                     action,
@@ -198,7 +201,6 @@ impl StatePartsSubCommand {
             }
             near_async::shutdown_all_actors();
         });
-        sys.run().unwrap();
     }
 }
 

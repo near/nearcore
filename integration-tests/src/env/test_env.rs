@@ -52,6 +52,7 @@ use near_client::ChunkValidationActorInner;
 
 use super::setup::{TEST_SEED, setup_client_with_runtime};
 use super::test_env_builder::TestEnvBuilder;
+use near_async::ActorSystem;
 
 /// Timeout used in tests that wait for a specific chunk endorsement to appear
 const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::seconds(10);
@@ -60,6 +61,7 @@ const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::seconds(10);
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
     pub clock: Clock,
+    pub actor_system: ActorSystem,
     pub chain_genesis: ChainGenesis,
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
@@ -678,6 +680,7 @@ impl TestEnv {
         let num_validator_seats = self.validators.len() as NumSeats;
         let (client, chunk_validation_inner) = setup_client_with_runtime(
             self.clock.clone(),
+            self.actor_system.clone(),
             num_validator_seats,
             false,
             self.network_adapters[idx].clone().as_multi_sender(),

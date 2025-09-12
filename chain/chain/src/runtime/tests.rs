@@ -140,7 +140,7 @@ impl TestEnv {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig::enabled(dir.path(), "data", "state_snapshot"),
+            StateSnapshotConfig::enabled(dir.path().join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();

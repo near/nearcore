@@ -33,9 +33,9 @@ async fn convert_genesis_records_to_transaction(
     // operations to be created in deterministic order (so that their indexes
     // stay the same).
     let genesis_accounts: std::collections::BTreeMap<_, _> = crate::utils::query_accounts(
-        &near_primitives::types::BlockId::Hash(block.header.hash).into(),
-        genesis_account_ids.iter(),
-        view_client_addr,
+        near_primitives::types::BlockId::Hash(block.header.hash).into(),
+        genesis_account_ids.iter().cloned(),
+        view_client_addr.clone(),
     )
     .await?;
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
@@ -145,9 +145,12 @@ pub(crate) async fn convert_block_to_transactions(
     let prev_block_id = near_primitives::types::BlockReference::from(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
     );
-    let accounts_previous_state =
-        crate::utils::query_accounts(&prev_block_id, touched_account_ids.iter(), view_client_addr)
-            .await?;
+    let accounts_previous_state = crate::utils::query_accounts(
+        prev_block_id,
+        touched_account_ids.iter().cloned(),
+        view_client_addr.clone(),
+    )
+    .await?;
 
     let accounts_changes = view_client_addr
         .send_async(near_client::GetStateChanges {

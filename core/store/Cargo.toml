@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-rt.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
@@ -44,6 +43,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-chain-primitives.workspace = true
 near-crypto.workspace = true

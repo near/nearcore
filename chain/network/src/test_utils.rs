@@ -5,7 +5,7 @@ use crate::types::{
     SetChainInfo, StateSyncEvent, Tier3Request,
 };
 use actix::{Actor, ActorContext, Context, Handler};
-use futures::{Future, FutureExt, future};
+use futures::{Future, FutureExt};
 use near_async::messaging::{CanSend, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
@@ -33,16 +33,6 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, std::net::SocketAddr)>) -> Vec<
         result.push(PeerInfo::new(id, addr));
     }
     result
-}
-
-/// Timeouts by stopping system without any condition and raises panic.
-/// Useful in tests to prevent them from running forever.
-#[allow(unreachable_code)]
-pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(tokio::time::sleep(tokio::time::Duration::from_millis(max_wait_ms)).then(|_| {
-        panic!("Timeout exceeded.");
-        future::ready(())
-    }));
 }
 
 /// Waits until condition or timeouts with panic.

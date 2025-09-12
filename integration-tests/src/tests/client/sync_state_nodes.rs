@@ -63,15 +63,12 @@ fn slow_test_sync_state_nodes() {
                     .expect("start_with_config");
 
             let view_client2_holder = Arc::new(RwLock::new(None));
-            let arbiters_holder = Arc::new(RwLock::new(vec![]));
-            let arbiters_holder2 = arbiters_holder;
             let actor_system = actor_system.clone();
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     if view_client2_holder.read().is_none() {
                         let view_client2_holder2 = view_client2_holder.clone();
-                        let arbiters_holder2 = arbiters_holder2.clone();
                         let genesis2 = genesis.clone();
                         let dir2 = dir2.clone();
                         let actor_system = actor_system.clone();
@@ -81,7 +78,6 @@ fn slow_test_sync_state_nodes() {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
                                     let mut view_client2_holder2 = view_client2_holder2.write();
-                                    let mut arbiters_holder2 = arbiters_holder2.write();
 
                                     if view_client2_holder2.is_none() {
                                         let mut near2 =
@@ -92,9 +88,7 @@ fn slow_test_sync_state_nodes() {
                                             convert_boot_nodes(vec![("test1", *port1)]);
 
                                         let nearcore::NearNode {
-                                            view_client: view_client2,
-                                            arbiters,
-                                            ..
+                                            view_client: view_client2, ..
                                         } = start_with_config(
                                             dir2.path(),
                                             near2,
@@ -102,7 +96,6 @@ fn slow_test_sync_state_nodes() {
                                         )
                                         .expect("start_with_config");
                                         *view_client2_holder2 = Some(view_client2);
-                                        *arbiters_holder2 = arbiters;
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height < 101 => {
@@ -214,15 +207,12 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
             start_with_config(dir4.path(), near4, actor_system.clone()).expect("start_with_config");
 
             let view_client2_holder = Arc::new(RwLock::new(None));
-            let arbiter_holder = Arc::new(RwLock::new(vec![]));
-            let arbiter_holder2 = arbiter_holder;
             let actor_system = actor_system.clone();
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     if view_client2_holder.read().is_none() {
                         let view_client2_holder2 = view_client2_holder.clone();
-                        let arbiter_holder2 = arbiter_holder2.clone();
                         let genesis2 = genesis.clone();
                         let dir2 = dir2.clone();
 
@@ -232,7 +222,6 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
                                     let mut view_client2_holder2 = view_client2_holder2.write();
-                                    let mut arbiter_holder2 = arbiter_holder2.write();
 
                                     if view_client2_holder2.is_none() {
                                         let mut near2 = load_test_config("test2", port2, genesis2);
@@ -250,9 +239,7 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                                             ]);
 
                                         let nearcore::NearNode {
-                                            view_client: view_client2,
-                                            arbiters,
-                                            ..
+                                            view_client: view_client2, ..
                                         } = start_with_config(
                                             dir2.path(),
                                             near2,
@@ -260,7 +247,6 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                                         )
                                         .expect("start_with_config");
                                         *view_client2_holder2 = Some(view_client2);
-                                        *arbiter_holder2 = arbiters;
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height < 101 => {
@@ -373,21 +359,17 @@ fn ultra_slow_test_sync_state_dump() {
                 .expect("start_with_config");
 
             let view_client2_holder = Arc::new(RwLock::new(None));
-            let arbiters_holder = Arc::new(RwLock::new(vec![]));
-            let arbiters_holder2 = arbiters_holder;
             let actor_system = actor_system.clone();
 
             wait_or_timeout(1000, 120000, || async {
                 if view_client2_holder.read().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
-                    let arbiters_holder2 = arbiters_holder2.clone();
                     let genesis2 = genesis.clone();
 
                     match view_client1.send_async(GetBlock::latest()).await {
                         // FIXME: this is not the right check after the sync hash was moved to sync the current epoch's state
                         Ok(Ok(b)) if b.header.height >= genesis.config.epoch_length + 2 => {
                             let mut view_client2_holder2 = view_client2_holder2.write();
-                            let mut arbiters_holder2 = arbiters_holder2.write();
 
                             if view_client2_holder2.is_none() {
                                 let mut near2 = load_test_config("test2", port2, genesis2);
@@ -417,12 +399,10 @@ fn ultra_slow_test_sync_state_dump() {
                                         external_storage_fallback_threshold: 0,
                                     });
 
-                                let nearcore::NearNode {
-                                    view_client: view_client2, arbiters, ..
-                                } = start_with_config(dir2.path(), near2, actor_system.clone())
-                                    .expect("start_with_config");
+                                let nearcore::NearNode { view_client: view_client2, .. } =
+                                    start_with_config(dir2.path(), near2, actor_system.clone())
+                                        .expect("start_with_config");
                                 *view_client2_holder2 = Some(view_client2);
-                                *arbiters_holder2 = arbiters;
                             }
                         }
                         Ok(Ok(b)) if b.header.height <= state_sync_horizon => {

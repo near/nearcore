@@ -1,4 +1,3 @@
-use actix_rt::ArbiterHandle;
 use futures::future;
 use near_actix_test_utils::{run_actix, spawn_interruptible};
 use near_chain_configs::{Genesis, TrackedShardsConfig};
@@ -27,11 +26,7 @@ fn start_nodes(
 ) -> (
     Genesis,
     Vec<String>,
-    Vec<(
-        TokioRuntimeHandle<ClientActorInner>,
-        MultithreadRuntimeHandle<ViewClientActorInner>,
-        Vec<ArbiterHandle>,
-    )>,
+    Vec<(TokioRuntimeHandle<ClientActorInner>, MultithreadRuntimeHandle<ViewClientActorInner>)>,
 ) {
     init_integration_logger();
 
@@ -74,9 +69,9 @@ fn start_nodes(
     for (i, near_config) in near_configs.into_iter().enumerate() {
         let dir = temp_dir.join(format!("node{i}"));
         std::fs::create_dir(&dir).unwrap();
-        let nearcore::NearNode { client, view_client, arbiters, .. } =
+        let nearcore::NearNode { client, view_client, .. } =
             start_with_config(&dir, near_config, actor_system.clone()).expect("start_with_config");
-        res.push((client, view_client, arbiters))
+        res.push((client, view_client))
     }
     (genesis, rpc_addrs, res)
 }
@@ -137,7 +132,6 @@ impl NodeCluster {
             Vec<(
                 TokioRuntimeHandle<ClientActorInner>,
                 MultithreadRuntimeHandle<ViewClientActorInner>,
-                Vec<actix_rt::ArbiterHandle>,
             )>,
         ) -> R,
     {

@@ -126,7 +126,7 @@ pub struct StartClientResult {
     pub chunk_validation_actor: MultithreadRuntimeHandle<ChunkValidationActorInner>,
 }
 
-/// Starts client in a separate Arbiter (thread).
+/// Starts client in a separate tokio runtime (thread).
 pub fn start_client(
     clock: Clock,
     actor_system: ActorSystem,
