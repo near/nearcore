@@ -258,7 +258,7 @@ fn fmt_outcome_without_abort(
     write!(
         out,
         "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
-        outcome.balance,
+        outcome.balance.as_yoctonear(),
         outcome.storage_usage,
         return_data_str,
         outcome.burnt_gas.as_gas(),
