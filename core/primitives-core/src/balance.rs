@@ -89,7 +89,7 @@ impl Balance {
         self.0.as_yoctonear()
     }
 
-    /// `is_zero` is a boolian function that checks `NearToken`
+    /// `is_zero` is a boolean function that checks `NearToken`
     /// if a `NearToken` inner is zero, returns true.
     /// # Examples
     /// ```
