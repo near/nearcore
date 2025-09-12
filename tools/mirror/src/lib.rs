@@ -844,7 +844,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     target_home,
                     &target_config.config.store,
                     target_config.config.cold_store.as_ref(),
-                    target_config.config.cloud_storage.as_ref(),
+                    target_config.config.cloud_storage_config(),
                 )
                 .path()
                 .join("mirror");

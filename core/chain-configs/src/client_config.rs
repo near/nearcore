@@ -77,6 +77,14 @@ impl TrackedShardsConfig {
         matches!(self, TrackedShardsConfig::AllShards)
     }
 
+    pub fn tracks_non_empty_subset_of_shards(&self) -> bool {
+        match self {
+            TrackedShardsConfig::AllShards => true,
+            TrackedShardsConfig::Shards(shards) => !shards.is_empty(),
+            _ => false,
+        }
+    }
+
     pub fn tracks_any_account(&self) -> bool {
         if let TrackedShardsConfig::Accounts(accounts) = &self {
             return !accounts.is_empty();
@@ -214,6 +222,49 @@ pub enum ExternalStorageLocation {
 
 fn default_state_parts_compression_level() -> i32 {
     DEFAULT_STATE_PARTS_COMPRESSION_LEVEL
+}
+
+/// Configures the external storage used by the archival node.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudStorageConfig {
+    /// The storage to persist the archival data.
+    pub storage: ExternalStorageLocation,
+    /// Location of a json file with credentials allowing write access to the bucket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials_file: Option<PathBuf>,
+}
+
+/// Configures cloud-based archival node.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudArchivalConfig {
+    /// Configures the external storage used by the archival node.
+    pub cloud_storage: CloudStorageConfig,
+    /// Indicates whether the node acts as a cloud archival data reader.
+    pub is_archival_reader: bool,
+    /// Indicates whether the node is expected to write data to the cloud archival storage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archival_writer: Option<CloudArchivalWriterConfig>,
+}
+
+fn default_archival_writer_pooling_interval() -> Duration {
+    Duration::seconds(1)
+}
+
+/// Configuration for a cloud-based archival writer.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudArchivalWriterConfig {
+    /// Determines whether block-related data should be written to cloud storage.
+    #[serde(default)]
+    pub archive_block_data: bool,
+
+    /// Interval at which the system checks for new blocks or chunks to archive.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
+    #[serde(default = "default_archival_writer_pooling_interval")]
+    pub pooling_interval: Duration,
 }
 
 /// Configures how to dump state to external storage.
@@ -760,6 +811,8 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
+    /// Configuration for a cloud-based archival node.
+    pub cloud_archival: Option<CloudArchivalConfig>,
     /// Options for epoch sync.
     pub epoch_sync: EpochSyncConfig,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
@@ -880,6 +933,7 @@ impl ClientConfig {
             client_background_migration_threads: 1,
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
+            cloud_archival: None,
             epoch_sync: EpochSyncConfig::default(),
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,

@@ -3067,6 +3067,87 @@
         ],
         "type": "object"
       },
+      "CloudArchivalConfig": {
+        "description": "Configures cloud-based archival node.",
+        "properties": {
+          "archival_writer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloudArchivalWriterConfig"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Indicates whether the node is expected to write data to the cloud archival storage."
+          },
+          "cloud_storage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CloudStorageConfig"
+              }
+            ],
+            "description": "Configures the external storage used by the archival node."
+          },
+          "is_archival_reader": {
+            "description": "Indicates whether the node acts as a cloud archival data reader.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cloud_storage",
+          "is_archival_reader"
+        ],
+        "type": "object"
+      },
+      "CloudArchivalWriterConfig": {
+        "description": "Configuration for a cloud-based archival writer.",
+        "properties": {
+          "archive_block_data": {
+            "default": false,
+            "description": "Determines whether block-related data should be written to cloud storage.",
+            "type": "boolean"
+          },
+          "pooling_interval": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
+              }
+            ],
+            "default": {
+              "nanos": 0,
+              "secs": 1
+            },
+            "description": "Interval at which the system checks for new blocks or chunks to archive."
+          }
+        },
+        "type": "object"
+      },
+      "CloudStorageConfig": {
+        "description": "Configures the external storage used by the archival node.",
+        "properties": {
+          "credentials_file": {
+            "description": "Location of a json file with credentials allowing write access to the bucket.",
+            "nullable": true,
+            "type": "string"
+          },
+          "storage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ExternalStorageLocation"
+              }
+            ],
+            "description": "The storage to persist the archival data."
+          }
+        },
+        "required": [
+          "storage"
+        ],
+        "type": "object"
+      },
       "CompilationError": {
         "oneOf": [
           {
@@ -9635,6 +9716,20 @@
             "format": "uint",
             "minimum": 0,
             "type": "integer"
+          },
+          "cloud_archival": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloudArchivalConfig"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Configuration for a cloud-based archival node."
           },
           "doomslug_step_period": {
             "description": "Time between running doomslug timer.",

@@ -153,7 +153,7 @@ impl StateViewerSubCommand {
             home_dir,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage.as_ref(),
+            near_config.config.cloud_storage_config(),
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();

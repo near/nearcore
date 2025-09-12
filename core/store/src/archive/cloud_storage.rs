@@ -2,10 +2,10 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use near_chain_configs::CloudStorageConfig;
 use near_primitives::types::BlockHeight;
 
 use crate::Store;
-use crate::config::CloudStorageConfig;
 
 /// Represents the external storage for archival data.
 pub struct CloudStorage;
