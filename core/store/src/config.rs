@@ -10,8 +10,6 @@ use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION}
 use near_time::Duration;
 use std::{collections::HashMap, str::FromStr};
 
-pub const STATE_SNAPSHOT_DIR: &str = "state_snapshot";
-
 // known cache access patterns per prominent contract account
 // used to derive config `per_account_max_bytes`
 const PER_ACCOUNT_CACHE_SIZE: &[(&'static str, bytesize::ByteSize)] = &[
@@ -122,6 +120,11 @@ pub struct StoreConfig {
 }
 
 impl StoreConfig {
+    /// StoreConfig used for state snapshot database.
+    pub fn state_snapshot_store_config() -> Self {
+        Self::default()
+    }
+
     pub fn enable_state_snapshot(&mut self) {
         self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Enabled;
     }

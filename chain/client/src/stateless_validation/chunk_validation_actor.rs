@@ -161,7 +161,7 @@ impl ChunkValidationActorInner {
         }
     }
 
-    /// Spawns multiple chunk validation actors using SyncArbiter.
+    /// Spawns multiple chunk validation actors using a multithreaded actor.
     pub fn spawn_multithread_actor(
         actor_system: ActorSystem,
         chain_store: ChainStore,

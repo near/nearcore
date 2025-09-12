@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-rt.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -69,7 +68,6 @@ bencher.workspace = true
 primitive-types.workspace = true
 wiremock.workspace = true
 
-near-actix-test-utils.workspace = true
 near-jsonrpc-primitives.workspace = true
 testlib.workspace = true
 
@@ -102,7 +100,6 @@ protocol_feature_spice = [
 ]
 
 nightly = [
-    "near-actix-test-utils/nightly",
     "near-async/nightly",
     "near-chain-configs/nightly",
     "near-chain/nightly",

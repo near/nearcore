@@ -1,6 +1,6 @@
 use crate::config::{Mode, RocksDbCfConfig, RocksDbConfig};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
-use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_COUNT, ROCKS_ITERATOR_LIVE_TIME};
+use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_TIME_HISTOGRAM};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
@@ -276,7 +276,6 @@ struct RocksDBIterator<'a> {
 impl<'a> RocksDBIterator<'a> {
     fn new(iter: rocksdb::DBIteratorWithThreadMode<'a, DB>) -> Self {
         ROCKS_CURRENT_ITERATORS.inc();
-        ROCKS_ITERATOR_COUNT.inc();
         Self { creation_time: Instant::now(), iter }
     }
 }
@@ -292,7 +291,7 @@ impl<'a> Drop for RocksDBIterator<'a> {
                 "rocksdb iterator held open for a long time (may cause excessive disk usage)"
             );
         }
-        ROCKS_ITERATOR_LIVE_TIME.inc_by(elapsed);
+        ROCKS_ITERATOR_TIME_HISTOGRAM.observe(elapsed);
         ROCKS_CURRENT_ITERATORS.dec();
     }
 }
