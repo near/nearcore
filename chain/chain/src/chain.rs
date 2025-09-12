@@ -25,7 +25,10 @@ use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
-use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
+use crate::store::utils::{
+    early_prepare_txs_check_validity_period, get_chunk_clone_from_header,
+    get_incoming_receipts_for_shard,
+};
 use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
@@ -2640,6 +2643,25 @@ impl Chain {
             self.chain_store()
                 .check_transaction_validity_period(&prev_block_header, tx.transaction.block_hash())
                 .is_ok()
+        }
+    }
+
+    pub fn early_prepare_transaction_validity_check(
+        &self,
+        prev_block_height: BlockHeight,
+        prev_prev_block_header: BlockHeader,
+    ) -> impl Fn(&SignedTransaction) -> bool + Send + 'static {
+        let chain_store = self.chain_store.clone();
+        let validity_period = self.transaction_validity_period();
+        move |tx: &SignedTransaction| -> bool {
+            early_prepare_txs_check_validity_period(
+                &chain_store,
+                prev_block_height,
+                &prev_prev_block_header,
+                tx.transaction.block_hash(),
+                validity_period,
+            )
+            .is_ok()
         }
     }
 
